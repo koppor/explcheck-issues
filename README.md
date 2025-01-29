@@ -4,8 +4,8 @@ Initial implementation for https://github.com/Witiko/expltools/issues/32.
 
 ## Roadmap
 
-- [ ] Analyze whole TeXLive distribution
-- [ ] Offer detailed file view
+- [ ] Analyze whole TeXLive distribution (https://github.com/koppor/errorformat-to-html/issues/3)
+- [ ] Offer detailed file view (https://github.com/koppor/errorformat-to-html/issues/2)
 
 ## Development
 
