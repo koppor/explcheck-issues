@@ -1,5 +1,12 @@
 # Error Format as HTML
 
+Initial implementation for https://github.com/Witiko/expltools/issues/32.
+
+## Roadmap
+
+- [ ] Analyze whole TeXLive distribution
+- [ ] Offer detailed file view
+
 ## Development
 
 ```bash
