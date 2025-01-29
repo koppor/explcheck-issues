@@ -1,0 +1,50 @@
+name: Generate GitHub page
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+jobs:
+  check-and-publish:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: explcheck
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck expltools/explcheck/testfiles/e102.tex --porcelain >> errors.txt || true
+      - run: cat errors.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
+      - run: |
+          errorformat -w jsonl "%f:%l:%c: %m" < errors.txt > errors.list
+      - run: cat errors.list
+      - run: jq -s . < errors.list > errors.json
+      - run: cat errors.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Prepare "publish"
+        run: |
+          mkdir publish
+          mv errors.* publish/
+          mv index.html publish/
+          mkdir publish/node_modules
+          # inspired by https://stackoverflow.com/a/52408677/873282
+          rsync -avh --include='*/' --include='*min*' --exclude='*' node_modules/ publish/node_modules/
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./publish
+          force_orphan: true
