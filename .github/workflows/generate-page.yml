@@ -35,8 +35,41 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
               pages/main/package-lock.json
+
       - run: npm ci
         working-directory: pages/main
+
+      - run: npm ci
+        working-directory: pages/file
+      - name: Create directories and copy files
+        run: |
+          jq -r '.[].filename' < errors.json | sort -u | while read -r filepath; do
+            # Remove leading slash to prevent absolute paths
+            dir_path="${filepath#/}"
+
+            # Extract directory (removing filename from path)
+            # dir_path="$(dirname "$dir_path")"
+
+            # Create directory structure
+            mkdir -p "publish/$dir_path"
+
+            # Copy index.html to the new directory (rename it to match filename if needed)
+            cp pages/file/index.html "$dir_path/index.html"
+
+            dir_levels=$(awk -F'/' '{print NF-1}' <<< "$normalized_path")
+            repeat_up=""
+            for ((i=0; i<dir_levels; i++)); do
+              repeat_up+="../"
+            done
+            sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$dir_path/index.html"
+
+            sed -i "s/e102.lua/$(basename $dir_path)/" "publish/$dir_path/index.html"
+
+            if [[ "$dir_path" == *tex ]]; then
+              sed -i "s/'lua'/'latex'/" "publish/$dir_path/index.html"
+            fi
+          done
+
       - name: Prepare "publish"
         run: |
           mkdir publish
@@ -44,7 +77,7 @@ jobs:
           mv pages/main/index.html publish/
           mkdir publish/node_modules
           # inspired by https://stackoverflow.com/a/52408677/873282
-          rsync -avh --include='*/' --include='*min*' --exclude='*' node_modules/ publish/node_modules/
+          rsync -avh --include='*/' --include='*min*' --exclude='*' pages/ publish/node_modules/
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:

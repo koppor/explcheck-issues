@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    h2 {}
+
+    #editor-wrapper {
+      flex-grow: 1;
+      width: 100%;
+    }
+
+    #editor {
+      height: 100%;
+    }
+
+    .errorHighlight {
+      background-color: yellow;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Errors in File</h2>
+  <div id="editor-wrapper">
+    <div id="editor"></div>
+  </div>
+
+  <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script>
+    filename = 'e102.lua';
+    language = 'lua';
+
+    require.config({ paths: { vs: '../node_modules/monaco-editor/min/vs' } });
+
+    require(['vs/editor/editor.main'], function () {
+      fetch('./latex.json')
+        .then(response => response.json())
+        .then(latexDefinition => {
+
+          latexDefinition.id = "latex";
+          monaco.languages.register(latexDefinition);
+          monaco.languages.setMonarchTokensProvider("latex", latexDefinition);
+
+          fetch(filename)
+            .then(response => response.text())
+            .then(content => {
+              editor = monaco.editor.create(document.getElementById('editor'), {
+                language: language,
+                theme: 'vs-dark',
+                value: content,
+              });
+              fetch('errors.json')
+                .then(response => response.json())
+                .then(errors => {
+                  decorations = generateDecorations(errors);
+                  console.log(decorations)
+                  const decorationsCollection = editor.createDecorationsCollection(decorations);
+
+                  const hoverProvider = monaco.languages.registerHoverProvider('lua', {
+                    provideHover: (model, position) => {
+                      const matchingErrors = errors.filter(err =>
+                        err.lnum <= position.lineNumber &&
+                        err.end_lnum >= position.lineNumber &&
+                        err.col <= position.column &&
+                        err.end_col >= position.column
+                      );
+
+                      if (matchingErrors.length === 0) {
+                        return null;
+                      }
+
+                      const hoverContents = matchingErrors.map(err =>
+                        `<b>Error:</b> ${err.text}`
+                      ).join('<br>');
+
+                      const firstError = matchingErrors[0];
+
+                      return {
+                        range: new monaco.Range(
+                          firstError.lnum,
+                          firstError.col,
+                          firstError.end_lnum,
+                          firstError.end_col + 2
+                        ),
+                        contents: [
+                          { supportHtml: true, value: hoverContents }
+                        ]
+                      };
+                    }
+                  });
+
+                });
+            });
+        })
+        .catch(err => console.error('Error loading LaTeX definition:', err));
+    });
+
+
+    function generateDecorations(errors) {
+      return errors.map(error => ({
+        range: new monaco.Range(error.lnum, error.col, error.end_lnum, error.end_col + 1),
+        options: {
+          isWholeLine: false,
+          inlineClassName: 'errorHighlight'
+        }
+      }));
+    }
+
+    <!-- solution from https://stackoverflow.com/a/70120566/873282 -->
+    const parent = document.getElementById('editor-wrapper')
+    window.addEventListener('resize', () => {
+      editor.layout({ width: 0, height: 0 })
+      window.requestAnimationFrame(() => {
+        const rect = parent.getBoundingClientRect()
+        editor.layout({ width: rect.width, height: rect.height })
+      })
+    })
+
+  </script>
+</body>
+
+</html>
