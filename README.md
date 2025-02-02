@@ -13,7 +13,7 @@ Initial implementation for https://github.com/Witiko/expltools/issues/32.
 npx http-server
 ```
 
-Install errorformat:
+Install `errorformat`:
 
 ```bash
 go install github.com/reviewdog/errorformat/cmd/errorformat@latest
@@ -22,8 +22,14 @@ go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 Local run:
 
 ```bash
-docker run ghcr.io/witiko/expltools/explcheck -v "...":/workdir /workdir/expltools/explcheck/testfiles/e102.tex > errors.txt
-errorformat -w jsonl "%f:%l:%c: %m" < errors.txt | jq -s > errors.json
+docker run ghcr.io/witiko/expltools/explcheck -v "...":/workdir --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' /workdir/expltools/explcheck/testfiles/e102.tex > errors.txt
+errorformat -w jsonl "%f:%l:%c:%e:%k: %t%n %m" < errors.txt | jq -s > errors.json
+```
+
+On Windows cmd, one needs to enquote the `--error-format` with double quotes.
+
+```cmd
+docker run --rm -v "c:\\git-repositories\\koppor\\errorformat-to-html:/workspace" ghcr.io/witiko/expltools/explcheck --porcelain --error-format="%f:%l:%c:%e:%k: %t%n %m" "/workspace/expltools/explcheck/testfiles/e102.lua"
 ```
 
 ## Acknowledgements
