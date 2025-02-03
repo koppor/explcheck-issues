@@ -7,12 +7,21 @@ generate_index() {
   # Create breadcrumb navigation
   local breadcrumb=""
   IFS='/' read -ra PARTS <<< "$rel_path"
-  local path_prefix=""
-  
-  for part in "${PARTS[@]}"; do
+  local depth=${#PARTS[@]}
+
+  for (( i=0; i<${#PARTS[@]}; i++ )); do
+    part="${PARTS[$i]}"
     if [ -n "$part" ]; then
-      path_prefix="../$path_prefix"
-      breadcrumb+="<li class=\"breadcrumb-item\"><a href=\"$path_prefix\">$part</a></li>\n"
+      local remaining_depth=$((depth - i - 1))
+      if [ $remaining_depth -eq 0 ]; then
+        breadcrumb+="<li class=\"breadcrumb-item\"><a href=\"#\">$part</a></li>\n"
+      else
+        local path_prefix=""
+        for (( j=0; j<$remaining_depth; j++ )); do
+          path_prefix+="../"
+        done
+        breadcrumb+="<li class=\"breadcrumb-item\"><a href=\"$path_prefix\">$part</a></li>\n"
+      fi
     fi
   done
   
@@ -53,4 +62,4 @@ export -f generate_index
 # Main execution starting from $dir
 dir=${1:-.} # Default to current directory if not specified
 
-find "$dir" -type d -exec bash -c 'generate_index "$0" "${0#'"$dir"'/}"' {} \;
+find "$dir" -type d -exec bash -c 'generate_index "$0" "${0#"'$dir'/"}"' {} \;
