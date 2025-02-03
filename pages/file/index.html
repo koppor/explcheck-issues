@@ -78,12 +78,33 @@
 
                   const hoverProvider = monaco.languages.registerHoverProvider('lua', {
                     provideHover: (model, position) => {
-                      const matchingErrors = errors.filter(err =>
-                        err.lnum <= position.lineNumber &&
-                        err.end_lnum >= position.lineNumber &&
-                        err.col <= position.column &&
-                        err.end_col >= position.column
-                      );
+                      const matchingErrors = errors.filter(err => {
+                        // Check if the current line matches the error line range
+                        const isLineInRange = err.lnum <= position.lineNumber && position.lineNumber <= err.end_lnum;
+
+                        // If it's a single-line error, check the column range
+                        if (err.lnum === err.end_lnum) {
+                          return isLineInRange &&
+                            err.col <= position.column &&
+                            position.column <= err.end_col;
+                        }
+
+                        // For multi-line errors:
+                        if (isLineInRange) {
+                          if (position.lineNumber === err.lnum) {
+                            // First line: column should be after or at the start column
+                            return position.column >= err.col;
+                          } else if (position.lineNumber === err.end_lnum) {
+                            // Last line: column should be before or at the end column
+                            return position.column <= err.end_col;
+                          } else {
+                            // For lines between start and end lines, any column is valid
+                            return true;
+                          }
+                        }
+
+                        return false;
+                      });
 
                       if (matchingErrors.length === 0) {
                         return null;
