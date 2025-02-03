@@ -41,7 +41,7 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
   depth=${#path_parts[@]}
 
   # Add Home link pointing to the root
-  breadcrumb_html+="<li class=\"breadcrumb-item\"><a href=\"$(printf '../%.0s' $(seq 2 $depth))\">Home</a></li>\n"
+  breadcrumb_html+="<li class=\"breadcrumb-item\"><a href=\"$(printf '../%.0s' $(seq 1 $depth))\">Home</a></li>\n"
 
   # Build breadcrumbs for each part
   for ((i=0; i<depth; i++)); do
