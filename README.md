@@ -46,6 +46,14 @@ On Windows cmd, one needs to enquote the `--error-format` with double quotes.
 docker run --rm -v "c:\\git-repositories\\koppor\\errorformat-to-html:/workspace" ghcr.io/witiko/expltools/explcheck --porcelain --error-format="%f:%l:%c:%e:%k: %t%n %m" "/workspace/expltools/explcheck/testfiles/e102.lua"
 ```
 
+### Scripts
+
+#### `create-dirs-for-files.sh`
+
+- Execute in root of repository.
+- Ensure that `errors.json` exists here. Use `pages/main/errors.json`.
+- Ensure that `errors.txt` exists here. Use any (e.g., <https://koppor.github.io/errorformat-to-html/expltools/explcheck/testfiles/e102-01.tex/errors.txt>)
+
 ## Acknowledgements
 
 This project makes use of [errorformat](https://github.com/reviewdog/errorformat) and [jq](https://jqlang.github.io/jq/).
