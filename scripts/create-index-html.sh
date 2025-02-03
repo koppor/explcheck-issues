@@ -21,6 +21,13 @@ generate_index() {
   done
   css_path+="node_modules/bootstrap/dist/css/bootstrap.min.css"
 
+  # Add Home link
+  local home_path=""
+  for (( i=0; i<=$depth; i++ )); do
+    home_path+="../"
+  done
+  breadcrumb+=$'<li class="breadcrumb-item"><a href="'$home_path'">Home</a></li>\n'
+
   for (( i=0; i<${#PARTS[@]}; i++ )); do
     part="${PARTS[$i]}"
     if [ -n "$part" ]; then
