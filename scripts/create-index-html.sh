@@ -49,7 +49,7 @@ generate_index() {
 <body>
   <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
-$(echo "$breadcrumb")
+$(echo -e "$breadcrumb")
     </ol>
   </nav>
     <h1>Index of $rel_path</h1>
