@@ -9,18 +9,25 @@ generate_index() {
   IFS='/' read -ra PARTS <<< "$rel_path"
   local depth=${#PARTS[@]}
 
+  # Create relative path for node_modules
+  local css_path=""
+  for (( i=0; i<$depth; i++ )); do
+    css_path+="../"
+  done
+  css_path+="node_modules/bootstrap/dist/css/bootstrap.min.css"
+
   for (( i=0; i<${#PARTS[@]}; i++ )); do
     part="${PARTS[$i]}"
     if [ -n "$part" ]; then
       local remaining_depth=$((depth - i - 1))
       if [ $remaining_depth -eq 0 ]; then
-        breadcrumb+="<li class=\"breadcrumb-item\"><a href=\"#\">$part</a></li>\n"
+        breadcrumb+=$'<li class="breadcrumb-item"><a href="#">'$part'</a></li>\n'
       else
         local path_prefix=""
         for (( j=0; j<$remaining_depth; j++ )); do
           path_prefix+="../"
         done
-        breadcrumb+="<li class=\"breadcrumb-item\"><a href=\"$path_prefix\">$part</a></li>\n"
+        breadcrumb+=$'<li class="breadcrumb-item"><a href="'$path_prefix'">'$part'</a></li>\n'
       fi
     fi
   done
@@ -32,11 +39,14 @@ generate_index() {
 <head>
     <meta charset="UTF-8">
     <title>Index of $rel_path</title>
+    <link rel="stylesheet" href="$css_path">
 </head>
 <body>
-    <ul class="breadcrumb">
-        $breadcrumb
-    </ul>
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+$breadcrumb
+    </ol>
+  </nav>
     <h1>Index of $rel_path</h1>
     <ul>
 EOF
