@@ -4,6 +4,11 @@ generate_index() {
   local dir="$1"
   local rel_path="$2"
   
+  # Skip if index.html already exists
+  if [ -f "$dir/index.html" ]; then
+    return
+  fi
+
   # Create breadcrumb navigation
   local breadcrumb=""
   IFS='/' read -ra PARTS <<< "$rel_path"
