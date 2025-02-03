@@ -7,22 +7,31 @@ Initial implementation for https://github.com/Witiko/expltools/issues/32.
 - [ ] Analyze whole TeXLive distribution (https://github.com/koppor/errorformat-to-html/issues/3)
 - [ ] Offer detailed file view (https://github.com/koppor/errorformat-to-html/issues/2)
 
-## Required Development Setup on Windows
+## Development
+
+- Served files: <https://github.com/koppor/errorformat-to-html/tree/gh-pages>
+- Rendered output: <https://koppor.github.io/errorformat-to-html>
+
+### Required Development Setup on Windows
 
 - Enable symlinks with git (<https://stackoverflow.com/a/59761201/873282>):
   Press <kbd>Win</kbd> + <kbd>R</kbd>, type `gpedit.msc`, hit OK. Then navigate to Local Comp Policy > Computer Configuration > Windows Settings > Security Settings > Local Policies > User Rights Assignment > Create symbolic links
-
-## Development
-
-```bash
-npx http-server
-```
 
 Install `errorformat`:
 
 ```bash
 go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 ```
+
+### Auto refresh of HTML
+
+Start `vite` always reloading:
+
+```bash
+npx http-server
+```
+
+### Get errors.txt and errors.json
 
 Local run:
 
