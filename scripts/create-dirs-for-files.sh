@@ -31,7 +31,7 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
   sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$dir_path/index.html"
   sed -i "s#./latex.json#../${repeat_up}latex.json#" "publish/$dir_path/index.html"
 
-  sed -i "s/e102.lua/$(basename $dir_path)/" "publish/$dir_path/index.html"
+  sed -i "s/e102.tex/$(basename $dir_path)/" "publish/$dir_path/index.html"
 
   # Split path into an array using '/' as a delimiter
   IFS='/' read -r -a path_parts <<< "$dir_path"
@@ -62,7 +62,7 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
   # Replace NAV placeholder in the target HTML file
   sed -i "s!NAV!${breadcrumb_html}!" "publish/$dir_path/index.html"
       
-  if [[ "$dir_path" == *tex ]]; then
-    sed -i "s/'lua'/'latex'/" "publish/$dir_path/index.html"
+  if [[ "$dir_path" == *lua ]]; then
+    sed -i "s/'latex'/'lua'/" "publish/$dir_path/index.html"
   fi
 done
