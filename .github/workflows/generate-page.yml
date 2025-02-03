@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - main
-      - dev
   pull_request:
   workflow_dispatch:
 jobs:
@@ -18,14 +17,14 @@ jobs:
           submodules: true
       - name: explcheck
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck expltools/explcheck/testfiles/* --porcelain >> errors.txt || true
+          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' expltools/explcheck/testfiles/* >> errors.txt || true
       - run: cat errors.txt
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
       - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
       - run: |
-          errorformat -w jsonl "%f:%l:%c: %m" < errors.txt > errors.list
+          errorformat -w jsonl '%f:%l:%c:%e:%k: %t%n %m' < errors.txt > errors.list
       - run: cat errors.list
       - run: jq -s . < errors.list > errors.json
       - run: cat errors.json
@@ -33,15 +32,80 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: |
+              pages/main/package-lock.json
+
       - run: npm ci
+        working-directory: pages/main
+
+      - run: npm ci
+        working-directory: pages/file
+      - name: Create directories and copy files
+        run: |
+          set -e
+
+          jq -r '.[].filename' < errors.json | sort -u | while read -r filepath; do
+            filtered_errors=$(jq --arg filename "$filepath" '[.[] | select(.filename == $filename)]' < errors.json)
+
+            # Remove leading slash to prevent absolute paths
+            dir_path="${filepath#/}"
+
+            # Extract directory (removing filename from path)
+            # dir_path="$(dirname "$dir_path")"
+
+            # Create directory structure
+            mkdir -p "publish/$dir_path"
+
+            echo $filtered_errors > "publish/$dir_path/errors.json"
+            cp $dir_path "publish/$dir_path/"
+            grep $filepath errors.txt | sort > "publish/$dir_path/errors.txt"
+
+
+            # Copy index.html to the new directory (rename it to match filename if needed)
+            cp pages/file/index.html "publish/$dir_path/index.html"
+
+            dir_levels=$(awk -F'/' '{print NF-1}' <<< "$dir_path")
+            repeat_up=""
+            for ((i=0; i<dir_levels; i++)); do
+              repeat_up+="../"
+            done
+            sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$dir_path/index.html"
+            sed -i "s#./latex.json#../${repeat_up}latex.json#" "publish/$dir_path/index.html"
+            sed -i "s#HOME#../${repeat_up}#" "publish/$dir_path/index.html"
+
+            sed -i "s/e102.lua/$(basename $dir_path)/" "publish/$dir_path/index.html"
+
+            # Split path into an array using '/' as a delimiter
+            IFS='/' read -r -a path_parts <<< "$dir_path"
+            breadcrumb_html=""
+            link_prefix="../"
+            for ((i=0; i<${#path_parts[@]}; i++)); do
+              part="${path_parts[$i]}"
+
+              # Adjust link based on depth using ../ concatenation
+              link=$(printf "%0.s../" $(seq 1 $i))
+              
+              # Build HTML for the breadcrumb item
+              breadcrumb_html+="<li class=\"breadcrumb-item\"><a href=\"$link\">$part</a></li>\n"
+            done
+
+            sed -i "s#NAV#$breadcrumb_html#" "publish/$dir_path/index.html"
+                
+            if [[ "$dir_path" == *tex ]]; then
+              sed -i "s/'lua'/'latex'/" "publish/$dir_path/index.html"
+            fi
+          done
+
       - name: Prepare "publish"
         run: |
-          mkdir publish
           mv errors.* publish/
-          mv index.html publish/
+          mv pages/main/index.html publish/
+          cp 3rd-party/madoko/styles/lang/latex.json publish/
+
           mkdir publish/node_modules
           # inspired by https://stackoverflow.com/a/52408677/873282
-          rsync -avh --include='*/' --include='*min*' --exclude='*' node_modules/ publish/node_modules/
+          rsync -ah --include='*/' --include='*min*' --exclude='*' pages/main/node_modules/ publish/node_modules/
+          rsync -ah --include='*/' --include='*min*' --include='*/min/***' --exclude='*' pages/file/node_modules/ publish/node_modules/
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
