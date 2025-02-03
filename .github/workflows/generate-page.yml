@@ -42,13 +42,26 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' expltools/explcheck/testfiles/*.tex >> errors.txt || true
 
+      - name: Get Docker Image Digest
+        id: image_digest
+        run: |
+          DIGEST=$(docker pull registry.gitlab.com/islandoftex/images/texlive:latest | grep 'Digest:' | awk '{print $2}')
+          echo "digest=$DIGEST" >> $GITHUB_ENV
+      - name: Cache TeX Files
+        id: cache-tex
+        uses: actions/cache@v3
+        with:
+          path: /tmp/texlive
+          key: texlive-${{ env.digest }}
+
       - name: Extract TeX files from TeX Live
+        if: steps.cache-tex.outputs.cache-hit != 'true'
         run: |
           # Create and start the container
           CONTAINER_ID=$(docker create registry.gitlab.com/islandoftex/images/texlive:latest)
 
           # Find all .tex files
-          FILES=$(docker run --rm registry.gitlab.com/islandoftex/images/texlive:latest find / -type f \( -name "*.tex" -o -name "*.sty" -o -name "*.cls" -o -name "*.opt" \))
+          FILES=$(docker run --rm registry.gitlab.com/islandoftex/images/texlive:latest find /usr/local/texlive -type f \( -name "*.tex" -o -name "*.sty" -o -name "*.cls" -o -name "*.opt" \))
 
           # Copy each file while preserving structure
           for FILE in $FILES; do
@@ -60,17 +73,24 @@ jobs:
           # Clean up
           docker rm -f $CONTAINER_ID
 
-      - name: explcheck (TeX Live)
+      - name: explcheck (TeX Live) | fresh
+        if: steps.cache-tex.outputs.cache-hit != 'true'
         run: |
+          set -e
+
           find /tmp/texlive -type f -exec \
             docker run --rm -v "/tmp/texlive:/tmp/texlive" ghcr.io/witiko/expltools/explcheck \
-              --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' {} \; >> errors.txt || true
+              --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' {} \; | tee -a errors.txt || true
 
-      - run: |
           errorformat -w jsonl '%f:%l:%c:%e:%k: %t%n %m' < errors.txt > errors.list
-      - run: cat errors.list
-      - run: jq -s . < errors.list > errors.json
-      - run: cat errors.json
+
+          jq -s . < errors.list > errors.json
+
+          cp errors.* /tmp/texlive
+
+      - name: explcheck (TeX Live) | cache
+        if: steps.cache-tex.outputs.cache-hit == 'true'
+        run: cp /tmp/errors.* .
 
       - name: Create directories and copy files
         run: scripts/create-dirs-for-files.sh
