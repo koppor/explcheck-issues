@@ -19,22 +19,13 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
 
   echo $filtered_errors > "publish/$target_path/errors.json"
   cp $filepath "publish/$target_path/"
+
+  sed -i "s/e102.tex/$(basename $target_path)/" "publish/$target_path/index.html"
+
   grep $filepath errors.txt | sort -V > "publish/$target_path/errors.txt"
 
   # Copy index.html to the new directory (rename it to match filename if needed)
   cp pages/file/index.html "publish/$target_path/index.html"
-
-  # TODO: This can be replaced by the "Split path" logic below
-  dir_levels=$(awk -F'/' '{print NF-1}' <<< "$target_path")
-  repeat_up=""
-  for ((i=0; i<dir_levels; i++)); do
-    repeat_up+="../"
-  done
-
-  sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$target_path/index.html"
-  sed -i "s#./latex.json#../${repeat_up}latex.json#" "publish/$target_path/index.html"
-
-  sed -i "s/e102.tex/$(basename $target_path)/" "publish/$target_path/index.html"
 
   # Split path into an array using '/' as a delimiter
   IFS='/' read -r -a path_parts <<< "$target_path"
@@ -42,6 +33,10 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
 
   # Determine how many levels deep we are to set the base link correctly
   depth=${#path_parts[@]}
+
+  repeat_up=$(printf '../%.0s' $(seq 1 $depth))
+  sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$target_path/index.html"
+  sed -i "s#./latex.json#../${repeat_up}latex.json#" "publish/$target_path/index.html"
 
   # Add Home link pointing to the root
   breadcrumb_html+="<li class=\"breadcrumb-item\"><a href=\"$(printf '../%.0s' $(seq 1 $depth))\">Home</a></li>\n"
