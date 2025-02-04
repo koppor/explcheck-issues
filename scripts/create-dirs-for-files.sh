@@ -7,9 +7,6 @@ set -e
 jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r filepath; do
   filtered_errors=$(jq --arg filename "$filepath" '[.[] | select(.filename == $filename)]' < errors.json)
 
-  # Remove leading slash to prevent absolute paths
-  dir_path="${filepath#/}"
-
   # Extract directory (removing filename from path)
   # dir_path="$(dirname "$dir_path")"
 
