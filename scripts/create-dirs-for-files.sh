@@ -4,6 +4,9 @@
 
 set -e
 
+counter=0
+total=$(jq length errors.json)
+
 jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r filepath; do
   filtered_errors=$(jq --arg filename "$filepath" '[.[] | select(.filename == $filename)]' < errors.json)
 
@@ -64,5 +67,12 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
       
   if [[ "$target_path" == *lua ]]; then
     sed -i "s/'latex'/'lua'/" "publish/$target_path/index.html"
+  fi
+
+  counter=$((counter + 1))
+  if (( counter % 100 == 0 )); then
+      percent=$(( counter / total ))
+      echo "Processed $counter files ($percent%)"
+      echo "Processing file #$counter: $filepath"
   fi
 done
