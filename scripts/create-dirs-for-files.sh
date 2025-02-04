@@ -67,7 +67,7 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
   counter=$((counter + 1))
   if (( counter % 100 == 0 )); then
       percent=$(( counter / total ))
-      echo "Processed $counter files ($percent%)"
+      echo "Processed $counter of $total files ($percent%)"
       echo "Processing file #$counter: $filepath"
   fi
 done
