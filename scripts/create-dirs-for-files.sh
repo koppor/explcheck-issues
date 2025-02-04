@@ -7,8 +7,9 @@ set -e
 jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r filepath; do
   filtered_errors=$(jq --arg filename "$filepath" '[.[] | select(.filename == $filename)]' < errors.json)
 
-  # Extract directory (removing filename from path)
-  # dir_path="$(dirname "$dir_path")"
+  # We use the filename of the errored file as directory name
+  # In that directory, more files (errors.json, ...) will be placed
+  dir_path = $file_path
 
   # Create directory structure
   mkdir -p "publish/$dir_path"
