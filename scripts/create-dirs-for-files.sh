@@ -20,12 +20,12 @@ jq -r '.[].filename' < errors.json | sed 's/\r$//' | sort -u | while read -r fil
   echo $filtered_errors > "publish/$target_path/errors.json"
   cp $filepath "publish/$target_path/"
 
-  sed -i "s/e102.tex/$(basename $target_path)/" "publish/$target_path/index.html"
-
   grep $filepath errors.txt | sort -V > "publish/$target_path/errors.txt"
 
   # Copy index.html to the new directory (rename it to match filename if needed)
   cp pages/file/index.html "publish/$target_path/index.html"
+
+  sed -i "s/e102.tex/$(basename $target_path)/" "publish/$target_path/index.html"
 
   # Split path into an array using '/' as a delimiter
   IFS='/' read -r -a path_parts <<< "$target_path"
