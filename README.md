@@ -25,10 +25,16 @@ go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 
 ### Auto refresh of HTML
 
-Start `vite` always reloading:
+Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 
 ```bash
 npx http-server
+```
+
+Start `vite` always reloading (works in `pages/file` only):
+
+```bash
+npm run dev
 ```
 
 ### Get errors.txt and errors.json
