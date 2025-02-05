@@ -19,7 +19,7 @@
     h2 {}
 
     #editor-wrapper {
-      flex-grow: 1;
+      flex-grow: .8;
       width: 100%;
     }
 
@@ -30,13 +30,26 @@
     .errorHighlight {
       background-color: yellow;
     }
+
+    .error-hovered {
+      background-color: rgba(255, 166, 0, 0.596);
+    }
+
+    #error-wrapper {
+      overflow: auto;
+      flex-grow: .2;
+    }
+
+    #code {
+      font-family: monospace;
+      white-space: pre;
+    }
   </style>
 </head>
 
 <body>
   <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="HOME">Home</a></li>
       NAV
     </ol>
   </nav>
@@ -45,14 +58,14 @@
   <div id="editor-wrapper">
     <div id="editor"></div>
   </div>
-  <div>
-    <pre><code id="code"></code></pre>
+  <div id="error-wrapper">
+    <div id="code"></div>
   </div>
-
+  
   <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
   <script>
-    filename = 'e102.lua';
-    language = 'lua';
+    filename = 'e102.tex';
+    language = 'latex';
 
     require.config({ paths: { vs: '../node_modules/monaco-editor/min/vs' } });
 
@@ -73,16 +86,19 @@
                 theme: 'vs-dark',
                 value: content,
               });
-              fetch('errors.txt')
-                .then(response => response.text())
-                .then(errorsText => {
-                  document.getElementById('code').innerHTML = errorsText;
-                  doResize();
-                });
-
               fetch('errors.json')
                 .then(response => response.json())
                 .then(errors => {
+                  // Sort errors by lnum, col, end_lnum, end_col
+                  errors.sort((a, b) => {
+                    if (a.lnum !== b.lnum) return a.lnum - b.lnum;
+                    if (a.col !== b.col) return a.col - b.col;
+                    if (a.end_lnum !== b.end_lnum) return a.end_lnum - b.end_lnum;
+                    return a.end_col - b.end_col;
+                  });
+
+                  addErrorsAndHovers(errors)
+
                   decorations = generateDecorations(errors);
                   const decorationsCollection = editor.createDecorationsCollection(decorations);
 
@@ -146,6 +162,39 @@
         .catch(err => console.error('Error loading LaTeX definition:', err));
     });
 
+    function addErrorsAndHovers(errors) {
+
+      const content = errors.map((error, index) => {
+        return `<span class="error-line" 
+                   data-lnum="${error.lnum}" 
+                   data-col="${error.col}" 
+                   data-end-lnum="${error.end_lnum}" 
+                   data-end-col="${error.end_col}"
+                   id="error-${index}">${error.lines[0]}</span>`;
+      }).join('\n');
+
+      // Display the content in the #code element
+      document.getElementById('code').innerHTML = content;
+
+      // Add event listeners for hover effect
+      document.querySelectorAll('.error-line').forEach(item => {
+        item.addEventListener('mouseover', (e) => {
+          const lnum = parseInt(e.target.dataset.lnum, 10);
+          const col = parseInt(e.target.dataset.col, 10);
+          const endLnum = parseInt(e.target.dataset.endLnum, 10);
+          const endCol = parseInt(e.target.dataset.endCol, 10);
+
+          highlightInEditor(lnum, col, endLnum, endCol);
+        });
+
+        item.addEventListener('mouseout', () => {
+          clearEditorHighlight();
+        });
+      });
+
+
+      doResize();
+    }
 
     function generateDecorations(errors) {
       return errors.map(error => ({
@@ -170,6 +219,30 @@
     window.addEventListener('resize', () => {
       doResize();
     })
+
+    // Highlight function for Monaco editor
+    function highlightInEditor(lnum, col, endLnum, endCol) {
+      const decoration = {
+        range: new monaco.Range(lnum, col, endLnum, endCol),
+        options: {
+          isWholeLine: true,
+          inlineClassName: 'error-hovered'
+        }
+      };
+
+      // Apply the decoration in the Monaco editor
+      window.errorDecorations = editor.deltaDecorations(window.errorDecorations || [], [decoration]);
+
+      editor.revealLineInCenter(lnum);
+    }
+
+    // Clear the highlight in Monaco editor
+    function clearEditorHighlight() {
+      if (window.errorDecorations) {
+        editor.deltaDecorations(window.errorDecorations, []);
+        window.errorDecorations = [];
+      }
+    }
 
   </script>
 </body>

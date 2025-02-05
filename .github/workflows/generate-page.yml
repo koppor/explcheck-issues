@@ -5,6 +5,11 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}"
+  cancel-in-progress: true
+
 jobs:
   check-and-publish:
     permissions:
@@ -15,96 +20,136 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-      - name: explcheck
-        run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' expltools/explcheck/testfiles/* >> errors.txt || true
-      - run: cat errors.txt
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-      - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
-      - run: |
-          errorformat -w jsonl '%f:%l:%c:%e:%k: %t%n %m' < errors.txt > errors.list
-      - run: cat errors.list
-      - run: jq -s . < errors.list > errors.json
-      - run: cat errors.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
           cache-dependency-path: |
               pages/main/package-lock.json
-
+              pages/file/package-lock.json
       - run: npm ci
         working-directory: pages/main
-
       - run: npm ci
         working-directory: pages/file
-      - name: Create directories and copy files
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
+
+      - name: explcheck (testfiles)
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/witiko/expltools/explcheck --porcelain --error-format='%f:%l:%c:%e:%k: %t%n %m' expltools/explcheck/testfiles/*.tex >> errors.txt || true
+
+      - name: Get Docker Image Digest
+        id: image_digest
+        run: |
+          DIGEST=$(docker manifest inspect registry.gitlab.com/islandoftex/images/texlive:latest | grep -m1 'digest' | awk -F '"' '{print $4}')
+          echo "digest=$DIGEST" >> $GITHUB_ENV
+
+      - name: Cache TeX Files
+        id: cache-tex
+        uses: actions/cache@v4
+        with:
+          path: /tmp/texlive
+          key: texlive-${{ env.digest }}
+
+      - name: Extract TeX files from TeX Live
+        if: steps.cache-tex.outputs.cache-hit != 'true'
+        run: |
+          # Create and start the container
+          CONTAINER_ID=$(docker create registry.gitlab.com/islandoftex/images/texlive:latest)
+
+          # Find all .tex files
+          FILES=$(docker run --rm registry.gitlab.com/islandoftex/images/texlive:latest find /usr/local/texlive -type f \( -name "*.tex" -o -name "*.sty" -o -name "*.cls" -o -name "*.opt" \))
+
+          # Copy each file while preserving structure
+          for FILE in $FILES; do
+            TARGET_PATH="/tmp/texlive${FILE%/*}"  # Extract directory structure
+            mkdir -p "$TARGET_PATH"        # Ensure the target directory exists
+            docker cp "$CONTAINER_ID:$FILE" "$TARGET_PATH/"
+          done
+
+          # Clean up
+          docker rm -f $CONTAINER_ID
+
+      - name: Cache Errors
+        id: cache-errors
+        uses: actions/cache@v4
+        with:
+          path: /tmp/errors
+          key: errors-${{ env.digest }}
+
+      - name: explcheck (TeX Live) | fresh
+        if: steps.cache-errors.outputs.cache-hit != 'true'
         run: |
           set -e
 
-          jq -r '.[].filename' < errors.json | sort -u | while read -r filepath; do
-            filtered_errors=$(jq --arg filename "$filepath" '[.[] | select(.filename == $filename)]' < errors.json)
+          # Ignore errors
+          #  - line too long (s103)
+          #  - white space (s204)
 
-            # Remove leading slash to prevent absolute paths
-            dir_path="${filepath#/}"
+          timeout 50m bash -c '
+            find /tmp/texlive -type f -exec \
+              docker run --rm -v "/tmp/texlive:/tmp/texlive" ghcr.io/witiko/expltools/explcheck \
+                --porcelain \
+                --ignored-issues=w100,s103,s204,s206 \
+                --error-format="%f:%l:%c:%e:%k: %t%n %m" \
+                {} + | tee -a errors.txt
+          ' || echo "Process terminated after 50 minutes."
 
-            # Extract directory (removing filename from path)
-            # dir_path="$(dirname "$dir_path")"
+          errorformat -w jsonl '%f:%l:%c:%e:%k: %t%n %m' < errors.txt > errors.list
 
-            # Create directory structure
-            mkdir -p "publish/$dir_path"
+          jq -s . < errors.list > errors.json
 
-            echo $filtered_errors > "publish/$dir_path/errors.json"
-            cp $dir_path "publish/$dir_path/"
-            grep $filepath errors.txt | sort -V > "publish/$dir_path/errors.txt"
+          mkdir /tmp/errors
+          cp errors.* /tmp/errors/
 
-            # Copy index.html to the new directory (rename it to match filename if needed)
-            cp pages/file/index.html "publish/$dir_path/index.html"
+      - name: explcheck (TeX Live) | cache
+        if: steps.cache-errors.outputs.cache-hit == 'true'
+        run: cp /tmp/errors/errors.* .
 
-            dir_levels=$(awk -F'/' '{print NF-1}' <<< "$dir_path")
-            repeat_up=""
-            for ((i=0; i<dir_levels; i++)); do
-              repeat_up+="../"
-            done
-            sed -i "s#../node_modules#../${repeat_up}node_modules#" "publish/$dir_path/index.html"
-            sed -i "s#./latex.json#../${repeat_up}latex.json#" "publish/$dir_path/index.html"
-            sed -i "s#HOME#../${repeat_up}#" "publish/$dir_path/index.html"
-
-            sed -i "s/e102.lua/$(basename $dir_path)/" "publish/$dir_path/index.html"
-
-            # Split path into an array using '/' as a delimiter
-            IFS='/' read -r -a path_parts <<< "$dir_path"
-            breadcrumb_html=""
-            link_prefix="../"
-            for ((i=0; i<${#path_parts[@]}; i++)); do
-              part="${path_parts[$i]}"
-
-              # Adjust link based on depth using ../ concatenation
-              link=$(printf "%0.s../" $(seq 1 $i))
-              
-              # Build HTML for the breadcrumb item
-              breadcrumb_html+="<li class=\"breadcrumb-item\"><a href=\"$link\">$part</a></li>\n"
-            done
-
-            sed -i "s#NAV#$breadcrumb_html#" "publish/$dir_path/index.html"
-                
-            if [[ "$dir_path" == *tex ]]; then
-              sed -i "s/'lua'/'latex'/" "publish/$dir_path/index.html"
-            fi
-          done
-
-      - name: Prepare "publish"
+      - name: debug
         run: |
-          mv errors.* publish/
-          mv pages/main/index.html publish/
-          cp 3rd-party/madoko/styles/lang/latex.json publish/
+          head errors.*
+          tail errors.*
 
-          mkdir publish/node_modules
+      - name: Create index.html for all error files
+        run: scripts/create-dirs-for-files.py
+        
+      - name: Fill node_modules
+        run: |
+          mkdir -p publish/node_modules
           # inspired by https://stackoverflow.com/a/52408677/873282
           rsync -ah --include='*/' --include='*min*' --exclude='*' pages/main/node_modules/ publish/node_modules/
           rsync -ah --include='*/' --include='*min*' --include='*/min/***' --exclude='*' pages/file/node_modules/ publish/node_modules/
+
+      - name: Make latex.json available
+        run: cp 3rd-party/madoko/styles/lang/latex.json publish/
+      
+      - name: Create index.html files for each folder
+        run: |
+          mv pages/main/index.html publish/
+          cd publish
+          ../scripts/create-index-html.sh
+
+      - name: Create errors-summarized.json
+        run: |
+          # create errors-summarized.json
+          mv errors.json publish/
+          cd publish
+          ../scripts/create-errors-summarized.py
+          rm errors.json
+
+      - name: debug
+        run: |
+          head -n 20 publish/errors-summarized.json
+
+          echo "..."
+
+          tail -n 20 publish/errors-summarized.json
+
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
