@@ -68,8 +68,8 @@ for filepath in error_filenames:
     depth = len(path_parts)
     repeat_up = '../' * depth
     
-    html_content = html_content.replace('../node_modules', f'../{repeat_up}node_modules')
-    html_content = html_content.replace('./latex.json', f'../{repeat_up}latex.json')
+    html_content = html_content.replace('../node_modules', f'{repeat_up}node_modules')
+    html_content = html_content.replace('./latex.json', f'{repeat_up}latex.json')
 
     breadcrumb_html = '<li class="breadcrumb-item"><a href="{}">Home</a></li>\n'.format(repeat_up)
     for i, part in enumerate(path_parts):
