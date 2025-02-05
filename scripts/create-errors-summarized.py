@@ -9,7 +9,7 @@ with open('errors.json', 'r') as file:
     data = json.load(file)
 
 # Define the regex pattern
-pattern = r"/tmp/texlive/usr/local/texlive/\\d{4}/"
+pattern = r"/tmp/texlive/usr/local/texlive/\d{4}/"
 
 # Update the filenames
 for entry in data:
