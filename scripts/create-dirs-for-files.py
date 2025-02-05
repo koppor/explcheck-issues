@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# Creates index.html, errors.json, ... for each errored file
+
 import os
 import json
 import shutil
