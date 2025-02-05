@@ -18,10 +18,17 @@ for entry in data:
 # Dictionary to store combined results
 summarized_data = defaultdict(lambda: {'lines': [], 'types': defaultdict(int)})
 
+# Type mapping
+type_mapping = {
+    '101': 'error',
+    '119': 'style'
+}
+
 for entry in data:
     filename = entry['filename']
     summarized_data[filename]['lines'].extend(entry['lines'])
-    summarized_data[filename]['types'][str(entry['type'])] += 1
+    type_key = type_mapping.get(str(entry['type']), str(entry['type']))
+    summarized_data[filename]['types'][type_key] += 1
 
 # Convert defaultdict to regular dict for JSON serialization
 output_data = []
