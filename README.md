@@ -23,7 +23,7 @@ Install `errorformat`:
 go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 ```
 
-### Auto refresh of HTML
+### Serve HTML
 
 Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 
@@ -31,13 +31,11 @@ Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 npx http-server
 ```
 
-Start `vite` always reloading (works in `pages/file` only):
+This also works inside `pages/file`.
 
-```bash
-npm run dev
-```
+In case you don't see updates, enable "Disable Cache" in the tab "Network" in Firefox DevTools.
 
-### Get errors.txt and errors.json
+### Create `errors.txt` and `errors.json`
 
 Local run:
 
