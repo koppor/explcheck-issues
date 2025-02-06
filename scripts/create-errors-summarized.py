@@ -21,7 +21,7 @@ summarized_data = defaultdict(lambda: {'lines': [], 'types': defaultdict(int)})
 # Type mapping
 type_mapping = {
     '101': 'errors',
-    '115': 'style',
+    '115': 'warnings',
     '119': 'warnings'
 }
 
