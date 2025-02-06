@@ -2,14 +2,9 @@
 
 Initial implementation for https://github.com/Witiko/expltools/issues/32.
 
-## Roadmap
+## Development Hints
 
-- [ ] Analyze whole TeXLive distribution (https://github.com/koppor/errorformat-to-html/issues/3)
-- [ ] Offer detailed file view (https://github.com/koppor/errorformat-to-html/issues/2)
-
-## Development
-
-- Served files: <https://github.com/koppor/errorformat-to-html/tree/gh-pages>
+- Served files: <https://github.com/koppor/errorformat-to-html/tree/gh-pages> - one commit - overwritten with latest state
 - Rendered output: <https://koppor.github.io/errorformat-to-html>
 
 ### Required Development Setup on Windows
