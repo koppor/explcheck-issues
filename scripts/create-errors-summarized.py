@@ -25,11 +25,20 @@ type_mapping = {
     '119': 'warnings'
 }
 
+# Extract unique error messages (only the message part)
+error_messages = set()
+
 for entry in data:
     filename = entry['filename']
     summarized_data[filename]['lines'].extend(entry['lines'])
     type_key = type_mapping.get(str(entry['type']), str(entry['type']))
     summarized_data[filename]['types'][type_key] += 1
+
+    # Extract text after the last colon
+    for line in entry['lines']:
+        parts = line.split(':')
+        if len(parts) > 1:
+            error_messages.add(parts[-1].strip())  # Take only the actual message part
 
 # Convert defaultdict to regular dict for JSON serialization
 output_data = []
@@ -40,9 +49,13 @@ for filename, details in summarized_data.items():
         **details['types']  # Unpack type counts
     })
 
-# Save the summarized JSON
+# Save summarized JSON
 with open('errors-summarized.json', 'w') as file:
-    json.dump(output_data, file, indent=2)  
+    json.dump(output_data, file, indent=2)
 
-# Print the result for verification
-print(json.dumps(output_data, indent=2))
+# Convert set to sorted list
+error_messages_sorted = sorted(error_messages)
+
+# Save extracted error messages
+with open('errors-list.json', 'w') as file:
+    json.dump(error_messages_sorted, file, indent=2)
