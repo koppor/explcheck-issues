@@ -4,6 +4,8 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    - cron: '0 5 * * *' 
   workflow_dispatch:
 
 concurrency:
@@ -74,12 +76,15 @@ jobs:
           # Clean up
           docker rm -f $CONTAINER_ID
 
+      - name: Get expltools submodule commit SHA
+        run: echo "EXPLTOOLS_SHA=$(git rev-parse HEAD:expltools)" >> $GITHUB_ENV
+
       - name: Cache Errors
         id: cache-errors
         uses: actions/cache@v4
         with:
           path: /tmp/errors
-          key: errors-${{ env.digest }}
+          key: errors-${{ env.digest }}-${{ env.EXPLTOOLS_SHA }}
 
       - name: explcheck (TeX Live) | fresh
         if: steps.cache-errors.outputs.cache-hit != 'truex'
@@ -96,8 +101,8 @@ jobs:
                 --porcelain \
                 --ignored-issues=w100,s103,s204,s206 \
                 --error-format="%f:%l:%c:%e:%k: %t%n %m" \
-                {} + | tee -a errors.txt
-          ' || echo "Process terminated after 50 minutes."
+                {} + | sponge -a errors.txt'
+          || echo "Process terminated after 50 minutes."
 
           errorformat -w jsonl '%f:%l:%c:%e:%k: %t%n %m' < errors.txt > errors.list
 
