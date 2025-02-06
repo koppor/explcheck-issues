@@ -14,6 +14,8 @@ with open('errors.json', 'r') as f:
     total_errors = json.load(f)
 
 error_filenames = sorted(set(error['filename'].strip() for error in total_errors))
+print("error_filenames:", error_filenames)
+
 total = len(error_filenames)
 
 # Read the entire errors.txt once and map errors to their files
@@ -35,6 +37,10 @@ for filename in errors_map:
 counter = 0
 
 for filepath in error_filenames:
+    if not filepath:
+      print("Skipping empty filepath!")
+      continue
+
     # Filter errors for the current file
     filtered_errors = [error for error in total_errors if error['filename'] == filepath]
 
