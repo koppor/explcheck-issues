@@ -23,7 +23,7 @@ Install `errorformat`:
 go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 ```
 
-### Server HTML
+### Serve HTML
 
 Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 
@@ -32,6 +32,8 @@ npx http-server
 ```
 
 This also works inside `pages/file`.
+
+In case you don't see updates, enable "Disable Cache" in the tab "Network" in Firefox DevTools.
 
 ### Create `errors.txt` and `errors.json`
 
