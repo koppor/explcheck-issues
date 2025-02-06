@@ -23,7 +23,7 @@ Install `errorformat`:
 go install github.com/reviewdog/errorformat/cmd/errorformat@latest
 ```
 
-### Auto refresh of HTML
+### Server HTML
 
 Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 
@@ -31,11 +31,7 @@ Run simple HTTP server (useful when running a checkout of `gh-pages` branch):
 npx http-server
 ```
 
-Start `vite` always reloading (works in `pages/file` only):
-
-```bash
-npm run dev
-```
+This also works inside `pages/file`.
 
 ### Get errors.txt and errors.json
 
