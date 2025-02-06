@@ -33,7 +33,7 @@ npx http-server
 
 This also works inside `pages/file`.
 
-### Get errors.txt and errors.json
+### Create `errors.txt` and `errors.json`
 
 Local run:
 
