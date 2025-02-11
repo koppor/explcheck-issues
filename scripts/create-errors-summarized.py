@@ -11,10 +11,6 @@ with open('errors.json', 'r') as file:
 # Define the regex pattern
 pattern = r"/tmp/texlive/usr/local/texlive/\d{4}/"
 
-# Update the filenames
-for entry in data:
-    entry['filename'] = re.sub(pattern, '', entry['filename'])
-
 # Dictionary to store combined results
 summarized_data = defaultdict(lambda: {'lines': [], 'types': defaultdict(int)})
 
@@ -29,13 +25,20 @@ type_mapping = {
 error_messages = set()
 
 for entry in data:
-    filename = entry['filename']
-    summarized_data[filename]['lines'].extend(entry['lines'])
+    # Remove pattern from filename
+    filename = re.sub(pattern, '', entry['filename'])
+    if not filename:
+      continue  # Skip entries with an empty filename
+
+    # Remove pattern from lines
+    cleaned_lines = [re.sub(pattern, '', line) for line in entry['lines']]
+
+    summarized_data[filename]['lines'].extend(cleaned_lines)
     type_key = type_mapping.get(str(entry['type']), str(entry['type']))
     summarized_data[filename]['types'][type_key] += 1
 
-    # Extract text after the last colon
-    for line in entry['lines']:
+    # Extract text after the last colon for unique error messages
+    for line in cleaned_lines:
         parts = line.split(':')
         if len(parts) > 1:
             error_messages.add(parts[-1].strip())  # Take only the actual message part
