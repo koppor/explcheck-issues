@@ -27,6 +27,8 @@ error_messages = set()
 for entry in data:
     # Remove pattern from filename
     filename = re.sub(pattern, '', entry['filename'])
+    if not filename:
+      continue  # Skip entries with an empty filename
 
     # Remove pattern from lines
     cleaned_lines = [re.sub(pattern, '', line) for line in entry['lines']]
