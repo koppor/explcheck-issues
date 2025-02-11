@@ -59,13 +59,13 @@ for filepath in error_filenames:
     with open(publish_path / 'errors.json', 'w') as f:
         json.dump(filtered_errors, f, indent=2)
 
-    # Copy original file
-    shutil.copy(filepath, publish_path)
-
     # Write errors.txt from the precomputed map
     relevant_errors = errors_map.get(filepath, [])
     with open(publish_path / 'errors.txt', 'w') as f:
         f.writelines(relevant_errors)
+
+    # Copy original file
+    shutil.copy(filepath, publish_path)
 
     # Copy and modify index.html
     index_html_path = publish_path / 'index.html'
