@@ -29,6 +29,10 @@ for filepath in error_filenames:
     # Filter errors for the current file
     filtered_errors = [error for error in total_errors if error['filename'] == filepath]
 
+    # Remove prefix from "lines" entries
+    for error in filtered_errors:
+        error['lines'] = [re.sub(pattern, '', line) for line in error.get('lines', [])]
+
     # Extract error lines
     error_lines = [line for error in filtered_errors for line in error.get('lines', [])]
     
@@ -43,7 +47,7 @@ for filepath in error_filenames:
 
     # Write errors.txt based on the "lines" array
     with open(publish_path / 'errors.txt', 'w') as f:
-        cleaned_errors = [re.sub(pattern, '', line) + '\n' for line in error_lines]
+        cleaned_errors = [line + '\n' for line in error_lines]
         f.writelines(cleaned_errors)
 
     # Copy original file
