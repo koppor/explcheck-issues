@@ -34,6 +34,12 @@ for line in all_errors_txt:
 for filename in errors_map:
     errors_map[filename].sort(key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', x)])
 
+# Modify errors_map to strip the specified path prefix
+for filename in list(errors_map.keys()):
+    stripped_filename = re.sub(r'^/tmp/texlive/usr/local/texlive/\d{4}/', '', filename)
+    if stripped_filename != filename:
+        errors_map[stripped_filename] = errors_map.pop(filename)
+
 counter = 0
 
 for filepath in error_filenames:
