@@ -34,13 +34,9 @@ for line in all_errors_txt:
 for filename in errors_map:
     errors_map[filename].sort(key=lambda x: [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', x)])
 
-# Modify errors_map to strip the specified path prefix
-for filename in list(errors_map.keys()):
-    stripped_filename = re.sub(r'^/tmp/texlive/usr/local/texlive/\d{4}/', '', filename)
-    if stripped_filename != filename:
-        errors_map[stripped_filename] = errors_map.pop(filename)
-
 counter = 0
+
+pattern = r"/tmp/texlive/usr/local/texlive/\d{4}/"
 
 for filepath in error_filenames:
     if not filepath:
@@ -50,8 +46,9 @@ for filepath in error_filenames:
     # Filter errors for the current file
     filtered_errors = [error for error in total_errors if error['filename'] == filepath]
 
+
     # Create target path
-    target_path = re.sub(r'^/tmp/texlive/usr/local/texlive/\d{4}/', '', filepath)
+    target_path = re.sub(pattern, '', filepath)
     publish_path = Path(f'publish/{target_path}')
     publish_path.mkdir(parents=True, exist_ok=True)
 
@@ -62,7 +59,8 @@ for filepath in error_filenames:
     # Write errors.txt from the precomputed map
     relevant_errors = errors_map.get(filepath, [])
     with open(publish_path / 'errors.txt', 'w') as f:
-        f.writelines(relevant_errors)
+        cleaned_errors = [re.sub(pattern, '', line) for line in relevant_errors]
+        f.writelines(cleaned_errors)
 
     # Copy original file
     shutil.copy(filepath, publish_path)
