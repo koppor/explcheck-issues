@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
   schedule:
-    - cron: '0 5 * * *' 
+    - cron: '12 2-23/3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -35,34 +35,43 @@ jobs:
       - run: npm ci
         working-directory: pages/file
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-      - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
-
-      - name: Get TeXLive Docker Image Digest
-        id: image_digest
+      - name: Get latest TeX Live revision
+        id: mirrors
         run: |
-          DIGEST=$(docker manifest inspect registry.gitlab.com/islandoftex/images/texlive:latest | grep -m1 'digest' | awk -F '"' '{print $4}')
-          echo "digest=$DIGEST" >> $GITHUB_ENV
+          wget https://zauguin.github.io/texlive-mirrors/mirrors.json
+          REVISION=$(jq '.. | .revision? // empty' mirrors.json | sort -nr | head -n1)
+          echo "revision=$REVISION" >> $GITHUB_ENV
 
       - name: Cache TeX Files
         id: cache-tex
         uses: actions/cache@v4
         with:
           path: /tmp/texlive
-          key: texlive-${{ env.digest }}
+          key: texlive-${{ env.revision }}
 
       - name: Extract TeX files from TeX Live
         if: steps.cache-tex.outputs.cache-hit != 'true'
         run: |
           # Create and start the container
-          CONTAINER_ID=$(docker create registry.gitlab.com/islandoftex/images/texlive:latest)
+          echo "docker run..."
+          CONTAINER_ID=$(docker run -d registry.gitlab.com/islandoftex/images/texlive:latest sleep infinity)
 
-          # Find all .tex files
-          FILES=$(docker run --rm registry.gitlab.com/islandoftex/images/texlive:latest find /usr/local/texlive -type f \( -name "*.tex" -o -name "*.sty" -o -name "*.cls" -o -name "*.opt" \))
+          # Select mirror with latest updates
+          echo "docker exec..."
+          MIRROR=$(wget -qO- https://zauguin.github.io/texlive-mirrors/us | head -n1)
+          docker exec "$CONTAINER_ID" tlmgr option repository "$MIRROR"
+
+          # Update TeX Live
+          echo "tlmgr update..."
+          docker exec "$CONTAINER_ID" tlmgr update --self
+          docker exec "$CONTAINER_ID" tlmgr update --all
+
+          # Find all .tex, .sty, .cls, and .opt files
+          echo "find..."
+          FILES=$(docker exec "$CONTAINER_ID" find /usr/local/texlive -type f \( -name "*.tex" -o -name "*.sty" -o -name "*.cls" -o -name "*.opt" \))
 
           # Copy each file while preserving structure
+          echo "docker cp..."
           for FILE in $FILES; do
             TARGET_PATH="/tmp/texlive${FILE%/*}"  # Extract directory structure
             mkdir -p "$TARGET_PATH"        # Ensure the target directory exists
@@ -70,6 +79,7 @@ jobs:
           done
 
           # Clean up
+          echo "docker rm..."
           docker rm -f $CONTAINER_ID
 
       - name: Get expltools Docker Image Digest
@@ -77,6 +87,7 @@ jobs:
         run: |
           DIGEST=$(docker manifest inspect ghcr.io/witiko/expltools/explcheck | grep -m1 'digest' | awk -F '"' '{print $4}')
           echo "EXPLTOOLS_SHA==$DIGEST" >> $GITHUB_ENV
+
       - name: Get workflow file commit SHA
         run: echo "WORKFLOW_SHA=$(git rev-parse HEAD:.github/workflows/generate-page.yml)" >> $GITHUB_ENV
 
@@ -86,12 +97,20 @@ jobs:
         with:
           path: /tmp/errors
           # We retrigger at a change of the workflow as this is an indication that the parameters for expltools chanbged
-          key: errors-${{ env.digest }}-${{ env.EXPLTOOLS_SHA }}-${{ env.WORKFLOW_SHA }}
+          key: errors-${{ env.revision }}-${{ env.EXPLTOOLS_SHA }}-${{ env.WORKFLOW_SHA }}
 
       - uses: awalsh128/cache-apt-pkgs-action@latest
+        if: steps.cache-errors.outputs.cache-hit != 'true'
         with:
           packages: moreutils
           version: 1.0
+
+      - uses: actions/setup-go@v5
+        if: steps.cache-errors.outputs.cache-hit != 'true'
+        with:
+          go-version: 'stable'
+      - run: go install github.com/reviewdog/errorformat/cmd/errorformat@latest
+        if: steps.cache-errors.outputs.cache-hit != 'true'
 
       - name: explcheck (TeX Live) | fresh
         if: steps.cache-errors.outputs.cache-hit != 'true'
@@ -119,11 +138,11 @@ jobs:
 
       - name: debug
         run: |
-          head errors.*
+          head -c 1024 errors.*
 
           echo "---"
 
-          tail errors.*
+          tail -c 1024 errors.*
 
       - name: Create index.html for all error files
         run: scripts/create-dirs-for-files.py
@@ -163,11 +182,11 @@ jobs:
 
       - name: debug
         run: |
-          head -n 20 publish/errors-summarized.json
+          head -c 1024 publish/errors-summarized.json
 
           echo "..."
 
-          tail -n 20 publish/errors-summarized.json
+          tail -c 1024 publish/errors-summarized.json
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
