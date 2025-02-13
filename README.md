@@ -1,7 +1,15 @@
 # Error Format as HTML
 
-Initial implementation for https://github.com/Witiko/expltools/issues/32.
+This tool renders errors in an `errors.txt` file following the [errorformat](https://vimdoc.sourceforge.net/htmldoc/quickfix.html#errorformat) as HTML.
+It currently sticks to `%f:%l:%c:%e:%k: %t%n %m` as concrete format.
 
+Example input:
+
+    texmf-dist/tex/fontinst/base/fontinst.sty:1324:40:1324:40: e209 invalid characters
+
+It is bound to the output of [`explcheck`](https://github.com/Witiko/expltools/), which performs static analysis on expl3 programs.
+In a GitHub action, `explcheck` is called and the result rendered as HTML page.
+    
 ## Development Hints
 
 - Served files: <https://github.com/koppor/errorformat-to-html/tree/gh-pages> - one commit - overwritten with latest state
