@@ -12,12 +12,13 @@ with open('errors.json', 'r') as file:
 pattern = r"/tmp/texlive/usr/local/texlive/\d{4}/"
 
 # Dictionary to store combined results
-summarized_data = defaultdict(lambda: {'lines': [], 'types': defaultdict(int)})
+summarized_data = defaultdict(lambda: {'lines': [], 'identifiers': set(), 'types': defaultdict(int)})
 
 # Type mapping
 type_mapping = {
     '101': 'errors',
     '115': 'warnings',
+    '115': 'errors',
     '119': 'warnings'
 }
 
@@ -34,6 +35,7 @@ for entry in data:
     cleaned_lines = [re.sub(pattern, '', line) for line in entry['lines']]
 
     summarized_data[filename]['lines'].extend(cleaned_lines)
+    summarized_data[filename]['identifiers'].add(f"{chr(entry['type'])}{entry['nr']}")
     type_key = type_mapping.get(str(entry['type']), str(entry['type']))
     summarized_data[filename]['types'][type_key] += 1
 
@@ -49,6 +51,7 @@ for filename, details in summarized_data.items():
     output_data.append({
         'filename': filename,
         'lines': details['lines'],
+        'identifiers': sorted(details['identifiers']),
         **details['types']  # Unpack type counts
     })
 
