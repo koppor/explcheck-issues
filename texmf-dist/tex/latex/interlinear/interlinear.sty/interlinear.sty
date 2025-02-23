@@ -1,0 +1,1176 @@
+% ^package_name="lingwrit-interlinear"_version="1.0"_container="lingwrit"
+% ^markup-language="WRIML"
+% ^purpose
+%  This package processes interlinear gloss text, providing tools for handling and formatting glosses in linguistic documents.
+%  It is based on the cgloss4e.sty package, but with significant modifications to avoid conflicts with other packages and to extend functionality.
+%  As part of the lingwrit package, lingwrit-interlinear should not be loaded alongside it.
+% _purpose 
+% ^base-program cgloss4e.sty _base-program
+
+% ^rem General Information 
+% ^- lingwrit-interlinear is a modified version of cgloss4e.sty _-
+% ^- It primarily renames commands according to a customized syntax to prevent conflicts with other similar packages. _-
+% ^- Additional modifications include new commands and a new interlinear environment. _-
+% ^- Code added to the original has been marked with % ^added and % _added _-
+% _rem
+
+% ^module_name="interlinear"_container="lingwrit"
+% ^desc
+%  This module is a modified version of the cgloss4e.sty.
+%
+%  Modifications include:
+%  - Command renaming: Commands have been renamed to avoid potential conflicts with other packages using similar names.
+%  - Commands for processing four-lines interlinearization
+%  - interlinear environment with its options
+%  - markup commands and other functionalities
+%
+%  Below is the list of new command names and their counterparts in cgloss:
+
+% ^list
+% ^cat Functions _cat 
+
+% \more ^_becomes \lw_iln_process:words_queue
+% \lastword ^_becomes \lw_iln_fun_get:last_word 
+% \testdone ^_becomes \lw_iln_check:queue_emptyness
+% \getwords ^_becomes \lw_iln_fun_get:line_words
+% \donewords ^_becomes \lw_iln_fun_exit:word_extraction
+% \twosent ^_becomes \lw_iln_fun_align:two_lines_words
+% \threesent ^_becomes \lw_iln_fun_align:three_lines_words
+% \glossglue ^_becomes \lw_iln_glue:inter_word_space
+% \gll ^_becomes \lw_iln_fun_enter:two_lines_interlinearization
+% \glll ^_becomes \lw_iln_fun_enter:three_lines_interlinearization
+% \glt ^_becomes \lw_iln_fun_insert:free_translation
+% \glend ^_becomes \lw_iln_fun_exit:interlinearization 
+% \gl@stop ^_becomes \lw_iln_fun_exit:words_alignment
+
+% ^cat Boxes variables _cat 
+
+% \lineone  ^_becomes  \lw_iln_var_box:line_one
+% \linetwo  ^_becomes  \lw_iln_var_box:line_two
+% \linethree ^_becomes \lw_iln_var_box:line_three
+% \linefour ^_becomes  \lw_iln_var_box:line_four
+% \wordone  ^_becomes  \lw_iln_var_box:word_one
+% \wordtwo ^_becomes   \lw_iln_var_box:word_two
+% \wordthree ^_becomes \lw_iln_var_box:word_three
+% \wordfour ^_becomes  \lw_iln_var_box:word_four
+% \gline    ^_becomes  \lw_iln_var_box:iln_text_lines
+
+% ^cat Setting Appearence _cat 
+
+% \eachwordone ^_becomes   \lw_iln_fun_set:line_one_words_format
+% \eachwordtwo  ^_becomes  \lw_iln_fun_set:line_two_words_format
+% \eachwordthree ^_becomes \lw_iln_fun_set:line_three_words_format
+% \eachwordfour ^_becomes  \lw_iln_fun_set:line_four_words_format
+% _list 
+
+% The naming of the commands follows the following schema: 
+
+% \<container>_<package>_<type>_<subtype>:<name/description>
+
+% <container> code is: lw (for lingwrit)
+% <package> code is: iln (for interlinear)
+% <type> code includes: "var" (for variables) and "fun" (for functions)
+
+% Variable Subtypes 
+% box: for boxes
+
+% Function Subtypes
+% enter: initialize a process
+% exit:  terminates a process
+% get:   extract information
+% check: test if some condition is met
+% insert: inserts some stuff (i.e. the translation)
+% process: process given elements
+% calc: calculates the value of some variable 
+% set: sets (manually) the values of some variable
+% _desc 
+
+% ^code 
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{lingwrit-interlinear}[2024/08/22 v1.0 (Linguistic Writing) Interlinear gloss text processing]
+
+% todo Required Packages
+\RequirePackage{marginnote} % ^rem for marginnotes _rem 
+\RequirePackage{xifthen}
+\RequirePackage{xkeyval} % ^rem For key=val options
+\RequirePackage{xparse,etoolbox,enumitem}
+
+% todo 0. Utilities
+
+% todo    a. LW Syntax Related Commands
+% Shortcut for some conditional statements
+\DeclareDocumentCommand{\IfValueArgTF}{mmmm}{\ifthenelse{\equal{#1}{#2}}{#3}{#4}}
+% Enabling the package syntax
+\providecommand{\switchlwsyntaxon}{\makeatletter\catcode `:=11 \catcode `_=11}
+\providecommand{\switchlwsyntaxoff}{\makeatother \catcode `:=12 \catcode  `_=8} 
+% if you want to modify some internal commands, check if your code is
+% surrounded by \switchlwsyntaxon and \switchlwsyntaxoff (LW Syntax enables "@", ":" and "_" to be used in csnames. So you need not using \makeatletter and \makeatother when you are using lwsyntax))
+
+
+% ^action_name="Enabling LingWrit Syntax" 
+\switchlwsyntaxon
+% _action 
+
+% todo    b. Renaming of some TeX primitives
+\let\enter:group\bgroup\relax 
+\let\exit:group\egroup\relax 
+
+% todo    c. Defining some helpers
+\def\lw_fun_helper:store#1{\expandafter\let\csname call:stored_#1\endcsname\expandafter\csname #1\endcsname}
+\def\lw_fun_helper:call#1{#1}
+\def\lw_fun_helper:clear#1{\RenewDocumentCommand{#1}{}{\relax}}%
+
+% todo    d. Usefull Commands That are not used
+% The following commands are not used actually but may be usefull in some contexts
+% Fixing bugs with setspace package
+% If you encounter an error message using \singlespacing, \onehalfspacing or \doublespacing, use either of the following commands, according to your needs.
+
+\def\usedoublespacing{\lw_fun_helper:store{doublespacing}
+	\renewcommand\doublespacing{%
+		\call:stored_doublespacing%
+		\def\baselinestretch{1.69}}%
+}
+%
+\def\useonehalfspacing{%
+	\lw_fun_helper:store{onehalfspacing}
+	\renewcommand\onehalfspacing{%
+		\call:stored_onehalfspacing%
+		\def\baselinestretch{1.24}}%
+	}
+\def\usesinglespacing{%
+	\lw_fun_helper:store{singlespacing}
+	\renewcommand\singlespacing{%
+		\call:stored_singlespacing%
+		\def\baselinestretch{1}}%
+	}
+
+% Line Stretch Size Calculator
+
+% Enable LW Syntax
+%\switchlwsyntaxon
+%\newcounter{currentsize}
+%\setcounter{currentsize}{10}
+%\addtocounter{currentsize}{\@ptsize}
+%\newlength{\lw_iln_length:line_stretch_size}
+%\setlength{\lw_iln_length:line_stretch_size}{\dimexpr\baselinestretch pt * \thecurrentsize}
+%Current size: \thecurrentsize
+%Current interline size: 
+%\the\lw_iln_length:line_stretch_size
+% Disable LW Syntax
+% \switchlwsyntaxoff
+
+% todo enter:cgloss4e modifications *
+
+% todo 1. Borrowings from covington
+
+% Forcing and disabling single spacing
+\let\@gsingle=1
+\def\lw_iln_fun_enable:force_single_spacing{\let\@gsingle=1}
+\def\lw_iln_fun_disable:force_single_spacing{\let\@gsingle=0}
+\@ifundefined{new@fontshape}%
+{\def\@selfnt{\ifx\@currsize\normalsize\@normalsize\else\@currsize\fi}}
+{\def\@selfnt{\selectfont}}
+
+% todo    a. 2-lines global interlinearization processing commands
+% ^modif_action="\begin{flushleft} removed" 
+% ^rem inspired by Alexis Dimitriadis cgloss.sty _rem 
+
+\def\lw_iln_fun_enter:two_lines_interlinearization%                 % Introduces 2-line text-and-gloss.
+{%\begin{flushleft}
+		\ifx\@gsingle1%           conditionally force single spacing (hpk/MC)
+		\vskip\baselineskip\def\baselinestretch{1}%
+		\@selfnt\vskip-\baselineskip\fi%
+		\enter:group%
+		\lw_iln_fun_align:two_lines_words%
+	}
+% _modif 
+
+% todo    b. 3-lines global interlinearization processing commands
+% ^modif_action="\begin{flushleft} removed" 
+% ^rem inspired by Alexis Dimitriadis cgloss.sty _rem  	
+	\def\lw_iln_fun_enter:three_lines_interlinearization%                 % Introduces 3-line text-and-gloss.
+	{%\begin{flushleft}
+			\ifx\@gsingle1%        conditionally force single spacing (hpk/MC)
+			\vskip\baselineskip\def\baselinestretch{1}%
+			\@selfnt\vskip-\baselineskip\fi%
+			\enter:group
+			\lw_iln_fun_align:three_lines_words
+		}
+% _modif 
+
+% todo    c. 4-lines global interlinearization processing commands
+% ^added_action="\lw_iln_fun_enter:four_lines_interlinearization defined for initiating 4-lines interlinearization" 
+	% ^rem inspired by Alexis Dimitriadis cgloss.sty _rem  	
+	\def\lw_iln_fun_enter:four_lines_interlinearization%                 % Introduces 3-line text-and-gloss.
+	{%\begin{flushleft}
+		\ifx\@gsingle1%        conditionally force single spacing (hpk/MC)
+		\vskip\baselineskip\def\baselinestretch{1}%
+		\@selfnt\vskip-\baselineskip\fi%
+		\enter:group
+		\lw_iln_fun_align:four_lines_words
+	}
+	% _modif 
+	
+% todo    d. Translation and interlinear end	
+% ^modif_action="Is now obsolete"	
+%		\def\lw_iln_fun_insert:free_translation{} ^rem obsolete _rem 
+% _modif 
+% ^modif_action="Definition modified"
+		% Introduces a translation
+		\let\trans\relax% ^rem obsolete _rem 
+% _modif 
+
+		\def\lw_iln_fun_exit:interlinearization{%
+			\lw_iln_fun_insert:interlinear_bottom_skip%
+		}
+		% Ends the gloss environment.
+% _modif 
+
+% todo 2. Adaptation of gloss.tex
+ 
+		% The following TeX code is adapted, with permission, from:
+		% gloss.tex: Macros for vertically aligning words in consecutive sentences.
+		% Version: 1.0  release: 26 November 1990
+		% Copyright (c) 1991 Marcel R. van der Goot (marcel@cs.caltech.edu).
+		% Original Midnight/gloss.tex and Midnight/gloss.doc are available from
+		% csvax.cs.caltech.edu [131.215.131.131] in pub/tex
+		% and many other anonymous ftp archives.
+		
+% todo    a. Box Variables Declaration
+		\newbox\lw_iln_var_box:line_one% boxes with words from first line
+		\newbox\lw_iln_var_box:line_two%
+		\newbox\lw_iln_var_box:line_three%
+		\newbox\lw_iln_var_box:line_four% ^rem ADDED _rem 
+		\newbox\lw_iln_var_box:word_one% a word from the first line (hbox)
+		\newbox\lw_iln_var_box:word_two%
+		\newbox\lw_iln_var_box:word_three%
+		\newbox\lw_iln_var_box:word_four% ^rem ADDED _rem  
+		\newbox\lw_iln_var_box:iln_text_lines% the constructed double line (hbox)
+
+% todo    b. Skip Variable Declaration and setting
+		\newskip\lw_iln_glue:inter_word_space% extra glue between glossed pairs or triples
+		\lw_iln_glue:inter_word_space = 0pt plus 2pt minus 1pt % allow stretch/shrink between words
+		%\lw_iln_glue:inter_word_space = 5pt plus 2pt minus 1pt % allow stretch/shrink between words
+		\newlength{\lw_iln_length:base_line_stretch}
+		\setlength{\lw_iln_length:base_line_stretch}{.61ex}
+		
+		\AtBeginDocument{%
+			\def\lw_iln_fun_calc:line_stretch_factor{%
+				\ifdim\baselinestretch\p@=1\p@%
+				\def\lw_iln_multiplier:line_stretch_factor{.5}
+				\else%
+				\ifdim\baselinestretch\p@<1.26\p@%
+				\def\lw_iln_multiplier:line_stretch_factor{.5}
+				\else%
+				\ifdim\baselinestretch\p@<1.6\p@
+				\def\lw_iln_multiplier:line_stretch_factor{1.6}
+				\else%
+				\ifdim\baselinestretch\p@>1.6\p@
+				\def\lw_iln_multiplier:line_stretch_factor{2.23}
+				\else%
+				\ifdim\baselinestretch\p@=1.6\p@
+				\def\lw_iln_multiplier:line_stretch_factor{2.23}
+				\else%
+				\fi%
+				\fi%
+				\fi%
+				\fi%
+				\fi%
+			}
+			\lw_iln_fun_calc:line_stretch_factor%
+			%
+			\newlength{\lw_iln_length:line_spread}
+			\setlength{\lw_iln_length:line_spread}{0ex}
+			\addtolength{\lw_iln_length:line_spread}{\lw_iln_multiplier:line_stretch_factor\lw_iln_length:base_line_stretch}
+			\addtolength{\lw_iln_length:line_spread}{.16\lw_iln_length:base_line_stretch}
+		}
+		%\addtolength{\lw_iln_length:line_spread}{\lw_iln_multiplier:line_stretch_factor\lw_iln_length:base_line_stretch}
+		
+		
+% todo    c. Boolean Declaration 
+		\newif\ifnotdone	
+		
+% todo    d. \rmfamily font declaraton (for backward compatibility)
+		% For any REALLY old distributions without \rmfamily
+		\@ifundefined{rmfamily}{\let\rmfamily=\rm}
+
+% todo    e. Définition functions controlling the appearance of words in each line of the interlinearized text		
+% ^modified_action="Adding low level commands to format different aspects of the appearence of words"
+\@ifundefined{lw_iln_fun_set:line_one_words_format}%
+	{\newcommand\lw_iln_fun_set:line_one_words_format{%
+		\lw_iln_fun_set:line_one_words_font_size%
+		\lw_iln_fun_set:line_one_words_font_series%
+		\lw_iln_fun_set:line_one_words_font_shape%
+		\lw_iln_fun_set:line_one_words_font_color%	
+		}
+	}{\relax}
+	% ^added 
+	\let\lw_iln_fun_set:line_one_words_font_size=\normalsize
+	\let\lw_iln_fun_set:line_one_words_font_series=\mdseries%
+	\let\lw_iln_fun_set:line_one_words_font_shape=\upshape%
+	\let\lw_iln_fun_set:line_one_words_font_color=\normalcolor%
+	% _added
+	%
+\@ifundefined{lw_iln_fun_set:line_two_words_format}%
+	{\newcommand\lw_iln_fun_set:line_two_words_format{%
+		\lw_iln_fun_set:line_two_words_font_size%
+		\lw_iln_fun_set:line_two_words_font_series%
+		\lw_iln_fun_set:line_two_words_font_shape%
+		\lw_iln_fun_set:line_two_words_font_color}
+	}%
+	{\relax}
+% 
+	% ^added 
+	\let\lw_iln_fun_set:line_two_words_font_size=\normalsize
+	\let\lw_iln_fun_set:line_two_words_font_series=\mdseries%
+	\let\lw_iln_fun_set:line_two_words_font_shape=\upshape%
+	\let\lw_iln_fun_set:line_two_words_font_color=\normalcolor%
+	% _added
+	%
+\@ifundefined{lw_iln_fun_set:line_three_words_format}{%
+	\newcommand\lw_iln_fun_set:line_three_words_format{%
+		\lw_iln_fun_set:line_three_words_font_size%
+		\lw_iln_fun_set:line_three_words_font_series%
+		\lw_iln_fun_set:line_three_words_font_shape%
+		\lw_iln_fun_set:line_three_words_font_color}
+	}{\relax}
+	% ^added 
+	\let\lw_iln_fun_set:line_three_words_font_size=\normalsize
+	\let\lw_iln_fun_set:line_three_words_font_series=\mdseries%
+	\let\lw_iln_fun_set:line_three_words_font_shape=\upshape%
+	\let\lw_iln_fun_set:line_three_words_font_color=\normalcolor%
+	% _added
+	%
+%
+\@ifundefined{lw_iln_fun_set:line_four_words_format}{%
+	\newcommand\lw_iln_fun_set:line_four_words_format{%
+		\lw_iln_fun_set:line_four_words_font_size%
+		\lw_iln_fun_set:line_four_words_font_series%
+		\lw_iln_fun_set:line_four_words_font_shape%
+		\lw_iln_fun_set:line_four_words_font_color}
+	}{\relax}% ^rem ADDED _rem 
+	% ^added 
+	\let\lw_iln_fun_set:line_four_words_font_size=\normalsize
+	\let\lw_iln_fun_set:line_four_words_font_series=\mdseries%
+	\let\lw_iln_fun_set:line_four_words_font_shape=\upshape%
+	\let\lw_iln_fun_set:line_four_words_font_color=\normalcolor%
+	% _added
+	%
+% _modified
+% todo    f. General Interlinearization Functions Definition		
+		\def\lw_iln_fun_get:last_word#1#2#3% #1 = \each, #2 = line box, #3 = word box
+		{\setbox#2=\vbox{\unvbox#2%
+				\global\setbox#3=\lastbox%
+			}%
+			\ifvoid#3\global\setbox#3=\hbox{#1\strut{} }\fi
+			% extra space following \strut in case #1 needs a space
+		}
+		
+		\def\lw_iln_check:words_queue_emptyness
+		{\ifdim\ht\lw_iln_var_box:line_one=0pt
+			\ifdim\ht\lw_iln_var_box:line_two=0pt \notdonefalse % tricky space after pt
+			\else\notdonetrue
+			\fi
+			\else\notdonetrue
+			\fi
+		}
+		
+		\gdef\lw_iln_fun_get:line_words(#1,#2)#3 #4\\% #1=linebox, #2=\each, #3=1st word, #4=remainder
+		{\setbox#1=\vbox{\hbox{#2{\strut#3} }% adds space
+				\unvbox#1%
+			}%
+			\def\lw_iln_process:words_queue{#4}%
+			\ifx\lw_iln_process:words_queue\empty\let\lw_iln_process:words_queue=\lw_iln_fun_exit:word_extraction
+			\else\let\lw_iln_process:words_queue=\lw_iln_fun_get:line_words
+			\fi
+			\lw_iln_process:words_queue(#1,#2)#4\\%
+		}
+		
+		\gdef\lw_iln_fun_exit:word_extraction(#1,#2)\\{}%
+
+% todo    g. Processing of 2-lines interlinear texts
+% 		^modif_action"Rename \twosent into original twosent" 
+		\gdef\lw_iln_fun_align:two_lines_words#1\\ #2\\{% #1 = first line, #2 = second line
+			\lw_iln_fun_get:line_words(\lw_iln_var_box:line_one,\lw_iln_fun_set:line_one_words_format)#1 \\%
+			\lw_iln_fun_get:line_words(\lw_iln_var_box:line_two,\lw_iln_fun_set:line_two_words_format)#2 \\%
+			\loop\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_one_words_format}{\lw_iln_var_box:line_one}{\lw_iln_var_box:word_one}%
+			\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_two_words_format}{\lw_iln_var_box:line_two}{\lw_iln_var_box:word_two}%
+			\global\setbox\lw_iln_var_box:iln_text_lines=\hbox{\unhbox\lw_iln_var_box:iln_text_lines
+				\hskip\lw_iln_glue:inter_word_space
+				\vtop{\box\lw_iln_var_box:word_one   % vtop was vbox
+					\nointerlineskip
+					\box\lw_iln_var_box:word_two
+				}%
+			}%
+			\lw_iln_check:words_queue_emptyness
+			\ifnotdone
+			\repeat
+			\exit:group % matches \enter:group in \gloss
+			\lw_iln_fun_exit:words_alignment}
+%  _modif 
+
+
+% todo    h. Processing of 3-lines interlinear texts	
+		\gdef\lw_iln_fun_align:three_lines_words#1\\ #2\\ #3\\{% #1 = first line, #2 = second line, #3 = third
+			\lw_iln_fun_get:line_words(\lw_iln_var_box:line_one,\lw_iln_fun_set:line_one_words_format)#1 \\%
+			\lw_iln_fun_get:line_words(\lw_iln_var_box:line_two,\lw_iln_fun_set:line_two_words_format)#2 \\%
+			\lw_iln_fun_get:line_words(\lw_iln_var_box:line_three,\lw_iln_fun_set:line_three_words_format)#3 \\%
+			\loop\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_one_words_format}{\lw_iln_var_box:line_one}{\lw_iln_var_box:word_one}%
+			\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_two_words_format}{\lw_iln_var_box:line_two}{\lw_iln_var_box:word_two}%
+			\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_three_words_format}{\lw_iln_var_box:line_three}{\lw_iln_var_box:word_three}%
+			\global\setbox\lw_iln_var_box:iln_text_lines=\hbox{\unhbox\lw_iln_var_box:iln_text_lines
+				\hskip\lw_iln_glue:inter_word_space
+				\vtop{\box\lw_iln_var_box:word_one   % vtop was vbox
+					\nointerlineskip
+					\box\lw_iln_var_box:word_two
+					\nointerlineskip
+					\box\lw_iln_var_box:word_three
+				}%
+			}%
+			\lw_iln_check:words_queue_emptyness
+			\ifnotdone
+			\repeat
+			\exit:group % matches \enter:group in \gloss
+			\lw_iln_fun_exit:words_alignment}
+
+
+% todo    i. Processing of 4-lines interlinear texts
+% 		^added_action"Four lines interlinear processor, equivalent to an hypothetic \foursent for gloss.tex based interlinearization packages" 
+\gdef\lw_iln_fun_align:four_lines_words#1\\ #2\\ #3\\ #4\\{% #1 = first line, #2 = second line, #3 = third
+	\lw_iln_fun_get:line_words(\lw_iln_var_box:line_one,\lw_iln_fun_set:line_one_words_format)#1 \\%
+	\lw_iln_fun_get:line_words(\lw_iln_var_box:line_two,\lw_iln_fun_set:line_two_words_format)#2 \\%
+	\lw_iln_fun_get:line_words(\lw_iln_var_box:line_three,\lw_iln_fun_set:line_three_words_format)#3 \\%
+	\lw_iln_fun_get:line_words(\lw_iln_var_box:line_four,\lw_iln_fun_set:line_four_words_format)#4 \\%
+	\loop\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_one_words_format}{\lw_iln_var_box:line_one}{\lw_iln_var_box:word_one}%
+	\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_two_words_format}{\lw_iln_var_box:line_two}{\lw_iln_var_box:word_two}%
+	\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_three_words_format}{\lw_iln_var_box:line_three}{\lw_iln_var_box:word_three}%
+	\lw_iln_fun_get:last_word{\lw_iln_fun_set:line_four_words_format}{\lw_iln_var_box:line_four}{\lw_iln_var_box:word_four}%
+	\global\setbox\lw_iln_var_box:iln_text_lines=\hbox{\unhbox\lw_iln_var_box:iln_text_lines
+		\hskip\lw_iln_glue:inter_word_space
+		\vtop{\box\lw_iln_var_box:word_one   % vtop was vbox
+			\nointerlineskip
+			\box\lw_iln_var_box:word_two
+			\nointerlineskip
+			\box\lw_iln_var_box:word_three
+			\nointerlineskip
+			\box\lw_iln_var_box:word_four
+		}%
+	}%
+	\lw_iln_check:words_queue_emptyness
+	\ifnotdone
+	\repeat
+	\exit:group % matches \enter:group in \gloss
+	\lw_iln_fun_exit:words_alignment}
+
+%  _added 
+
+
+% todo    j. Ending interlinearization  
+% ^modif_action="\end{flushleft} removed" 
+% ^rem inspired by Alexis Dimitriadis cgloss.sty _rem  
+		\def\lw_iln_fun_exit:words_alignment{{\hskip -\lw_iln_glue:inter_word_space}\unhbox\lw_iln_var_box:iln_text_lines}
+% _modif 	
+% todo * exit:cgloss4e modifications 
+
+% todo 1. Other added features
+% todo    a. Managing line spacing after interlinearization
+\def\baselinestretch{1}
+\def\lw_iln_fun_insert:interlinear_bottom_skip{\vskip \lw_iln_length:line_spread}%
+
+% todo    b. Configuring ex-parts boxes
+
+% ^rem Examples will now be placed within boxes, alongside glosses lines (old genericx.tex's \mb and \gl lines), and hanging bracketed language informations (like LangSci jamboxes) _rem 
+% todo       i. Setting Lengths
+% ===============
+% Setting Lengths
+% ===============
+%
+
+\newlength{\lw_iln_var_dim:ex_box_width}
+\newlength{\lw_iln_var_dim:ex_box_right_margin}
+%\newlength{\lw_iln_var_dim:ex_box_bottom_sep}
+%\newlength{\lw_iln_var_dim:ex_box_top_sep}
+\newlength{\lw_iln_var_dim:iln_box_width}
+\newlength{\lw_iln_var_dim:iln_box_right_margin}
+%\newlength{\lw_iln_var_dim:iln_box_bottom_sep}
+%\newlength{\lw_iln_var_dim:iln_box_top_sep}
+\newlength{\lw_iln_var_dim:trans_box_width}
+\newlength{\lw_iln_var_dim:trans_box_right_margin}
+\newlength{\lw_iln_var_dim:gramjudg_len}
+\newlength{\lw_iln_var_dim:gramjudg_reserved_space}
+\newlength{\lw_iln_var_dim:langinfo_box_width}
+\newlength{\lw_iln_var_dim:langinfo_box_left_sep}
+\newlength{\lw_iln_var_dim:langinfo_box_right_sep}
+\newlength{\lw_iln_var_dim:langinfo_reserved_space}
+%\newlength{\lw_iln_var_dim:langinfo_left_margin}
+\newlength{\lw_iln_var_dim:extranote_box_width}
+\newlength{\lw_iln_var_dim:extranote_box_left_sep}
+\newlength{\lw_iln_var_dim:extranote_box_right_sep}
+\newlength{\lw_iln_var_dim:extranote_reserved_space}
+%\newlength{\lw_iln_var_dim:extranote_left_margin}
+
+% Initializing lengths
+\setlength{\lw_iln_var_dim:ex_box_width}{\linewidth}
+\setlength{\lw_iln_var_dim:ex_box_right_margin}{0ex}
+\setlength{\lw_iln_var_dim:iln_box_width}{\linewidth}
+\setlength{\lw_iln_var_dim:iln_box_right_margin}{0ex}
+\setlength{\lw_iln_var_dim:trans_box_width}{\linewidth}
+\setlength{\lw_iln_var_dim:trans_box_right_margin}{0ex}
+\addtolength{\lw_iln_var_dim:trans_box_width}{-\lw_iln_var_dim:trans_box_right_margin}
+\setlength{\lw_iln_var_dim:gramjudg_len}{0ex}% ^rem default value _rem 
+\setlength{\lw_iln_var_dim:langinfo_box_width}{0ex}% ^rem default value _rem 
+\setlength{\lw_iln_var_dim:langinfo_reserved_space}{0ex}
+\setlength{\lw_iln_var_dim:langinfo_box_left_sep}{3.4ex}
+\setlength{\lw_iln_var_dim:langinfo_box_right_sep}{3.4ex}
+\setlength{\lw_iln_var_dim:extranote_box_width}{0ex}% ^rem default value _rem 
+\setlength{\lw_iln_var_dim:extranote_reserved_space}{0ex}
+\setlength{\lw_iln_var_dim:extranote_box_left_sep}{0pt}
+\setlength{\lw_iln_var_dim:extranote_box_right_sep}{0pt}
+
+% ===========================
+% Defining Booleans for Boxes
+% Opennings
+% ===========================
+\newif\ifnoglosslines%
+\noglosslinestrue
+% todo       ii. Defining Opening CS for Boxes
+% =============================
+% Defining Opening CS for Boxes
+% =============================
+\NewDocumentCommand{\lw_iln_fun_open:ex_box}{}{%
+	% ^rem example box opening code _rem 
+	% ^rem \lw_iln_fun_open:ex_box should be called after \label{key} to avoid linebreak _rem 
+	% ^rem no_op command _rem 
+	}
+\NewDocumentCommand{\lw_iln_fun_open:iln_box}{}{%
+	% ^rem interlinear text box opening code _rem 
+	\addtolength{\lw_iln_var_dim:iln_box_width}{-1.15\lw_iln_var_dim:langinfo_reserved_space}%
+	\begin{itemize}[%
+		align=left,%
+		labelwidth=\lw_iln_var_dim:gramjudg_len,%
+		leftmargin=\lw_iln_var_dim:gramjudg_reserved_space]%
+		\item[\lw_iln_fun_print:gramjudg]%
+		\begin{minipage}[t]{\lw_iln_var_dim:iln_box_width}%
+}
+\NewDocumentCommand{\lw_iln_fun_open:langinfo_box}{}{%
+	% ^rem language info box opening code _rem 
+	\begin{minipage}[t]{\lw_iln_var_dim:langinfo_box_width}
+}
+\NewDocumentCommand{\lw_iln_fun_open:trans_box}{}{%
+	\setlength{\lw_iln_var_dim:trans_box_width}{\linewidth}
+	\addtolength{\lw_iln_var_dim:trans_box_width}{-1.069\lw_iln_var_dim:extranote_reserved_space}%	
+	\trans \begin{minipage}[b]{\lw_iln_var_dim:trans_box_width}
+}
+\NewDocumentCommand{\lw_iln_fun_open:extra_note_box}{}{%
+	\begin{minipage}[t]{\lw_iln_var_dim:extranote_box_width}%
+		\raggedright%
+	}	
+
+% todo       iii. Defining Closing CS for Boxes	
+% =============================
+% Defining Closing CS for Boxes
+% =============================
+\def\lw_iln_fun_format:ex_text{\normalfont}%
+\NewDocumentCommand{\lw_iln_fun_close:ex_box}{}{%
+	% ^rem example box closing code _rem 
+	\setlength{\lw_iln_var_dim:trans_box_width}{\linewidth}
+	\addtolength{\lw_iln_var_dim:trans_box_width}{-\lw_iln_var_dim:gramjudg_reserved_space}
+	\addtolength{\lw_iln_var_dim:trans_box_width}{-1.0618\lw_iln_var_dim:extranote_reserved_space}%
+	\IfValueArgTF{\lw_iln_var_stored:gramjudg_text}{}{\relax}%
+	{\begin{minipage}[t]{\lw_iln_var_dim:gramjudg_len}
+			\lw_iln_fun_print:gramjudg%
+	\end{minipage}}
+	\begin{minipage}[t]{\lw_iln_var_dim:trans_box_width}	
+		\lw_iln_fun_format:ex_text%
+		\lw_iln_var_stored:free_trans_text\space%
+		\normalfont%
+		\IfValueArgTF{\lw_iln_var_stored:reference_text}{}{\relax}{\lw_iln_fun_print:reference}%
+	\end{minipage}
+	\IfValueArgTF{\lw_iln_var_stored:extranote_text}{}{\relax}%
+	{\vskip -2.6ex
+		\hfill%
+		\begin{minipage}[t]{\lw_iln_var_dim:extranote_box_width}
+			(\lw_iln_var_stored:extranote_text)%
+		\end{minipage}}%
+}
+\NewDocumentCommand{\lw_iln_fun_close:iln_box}{}{%
+	% ^rem interlinear text box closing code _rem 
+	\lw_iln_fun_exit:interlinearization
+	\end{minipage}\lw_iln_fun_print:langinfo%
+	\end{itemize}
+}
+\NewDocumentCommand{\lw_iln_fun_close:langinfo_box}{}{%
+	% ^rem language info box closing code _rem 
+	\end{minipage}%
+}
+\NewDocumentCommand{\lw_iln_fun_close:extranote_box}{}{%
+	\end{minipage}%
+}
+\NewDocumentCommand{\lw_iln_fun_close:trans_box}{}{%
+	\end{minipage}\hfill%
+}
+
+% todo       iv. Defining CS for setting or inserting example parts or metadata
+\def\lw_iln_var_stored:langinfo_text{}
+% the * and : versions print the language name as a title.
+% If \lw_iln_fun_set:langinfo if followed by an ex_box, use the * version
+% If there is some text -- e.g. specifying the context for the data -- before the ex_box, use the : version
+% To print the language information as a margin note, use the "bear" version
+\NewDocumentCommand{\langinfo}{s t/ m }{%
+	\IfBooleanTF{#1}%
+	{{\normalfont #3}}%
+	{%
+		\IfBooleanTF{#2}%
+		{{\normalfont #3}\\}%
+		{\def\lw_iln_var_stored:langinfo_text{#3}
+			\settowidth{\lw_iln_var_dim:langinfo_box_width}{#3}
+			\setlength{\lw_iln_var_dim:langinfo_reserved_space}{\lw_iln_var_dim:langinfo_box_width}
+			\addtolength{\lw_iln_var_dim:langinfo_reserved_space}{\lw_iln_var_dim:langinfo_box_left_sep}
+			\addtolength{\lw_iln_var_dim:langinfo_reserved_space}{\lw_iln_var_dim:langinfo_box_right_sep}
+		}%
+	}%	
+}%
+
+\NewDocumentCommand{\lw_iln_fun_set:langinfo}{m}{\langinfo{#1}}
+\NewDocumentCommand{\lw_iln_fun_make:langinfo_box}{}{%
+	\ifthenelse{\equal{\lw_iln_var_stored:langinfo_text}{}}{}{%
+		\marginnote{\hskip -\lw_iln_var_dim:langinfo_reserved_space\lw_iln_fun_open:langinfo_box%
+			{\normalfont(\lw_iln_var_stored:langinfo_text)}%
+			\lw_iln_fun_close:langinfo_box}[0cm]%
+	}%
+}
+\NewCommandCopy{\lw_iln_fun_print:langinfo}{\lw_iln_fun_make:langinfo_box}
+
+\def\lw_iln_var_stored:gramjudg_text{}
+\NewDocumentCommand{\lw_iln_fun_set:gramjudg}{m}{%
+	\def\lw_iln_var_stored:gramjudg_text{#1}%
+	\settowidth{\lw_iln_var_dim:gramjudg_len}{#1}%
+	\setlength{\lw_iln_var_dim:gramjudg_reserved_space}{\lw_iln_var_dim:gramjudg_len}%
+	\addtolength{\lw_iln_var_dim:gramjudg_reserved_space}{1ex}%
+}
+\NewDocumentCommand{\lw_iln_fun_print:gramjudg}{}{%
+	\ifthenelse{\equal{\lw_iln_var_stored:gramjudg_text}{}}{}{%
+		{\normalfont\lw_iln_var_stored:gramjudg_text}%
+	}%
+}
+\def\lw_iln_var_stored:extranote_text{}
+\def\lw_iln_var_token:extranote_left_punct{{(}}%
+\def\lw_iln_fun_format:extranote{\normalfont}
+\def\lw_iln_var_token:extranote_right_punct{{)}}%
+\NewDocumentCommand{\lw_iln_fun_add:extranote}{m}{%
+	\def\lw_iln_var_stored:extranote_text{#1}%
+	\settowidth{\lw_iln_var_dim:extranote_box_width}{#1}
+	\ifdimgreater{\lw_iln_var_dim:extranote_box_width}{113.2pt}%
+	{\setlength{\lw_iln_var_dim:extranote_box_width}{113.2pt}}%
+	{\settowidth{\lw_iln_var_dim:extranote_box_width}{#1}}%
+	\setlength{\lw_iln_var_dim:extranote_reserved_space}{\lw_iln_var_dim:extranote_box_width}%
+	\addtolength{\lw_iln_var_dim:extranote_reserved_space}{\lw_iln_var_dim:extranote_box_left_sep}
+	\addtolength{\lw_iln_var_dim:extranote_reserved_space}{\lw_iln_var_dim:extranote_box_right_sep}%
+}
+\NewDocumentCommand{\lw_iln_fun_make:extranote_box}{}{%
+	\IfValueArgTF{\lw_iln_var_stored:extranote_text}{}%
+		{}%
+		{\lw_iln_fun_open:extra_note_box%
+			\lw_iln_var_token:extranote_left_punct%
+			\lw_iln_fun_format:extranote%
+			\lw_iln_var_stored:extranote_text%
+			\normalfont%
+			\lw_iln_var_token:extranote_right_punct%
+			\lw_iln_fun_close:extranote_box}
+}
+
+\def\lw_iln_var_stored:free_trans_text{}
+\NewDocumentCommand{\lw_iln_fun_set:free_translation}{m}{%
+	\def\lw_iln_var_stored:free_trans_text{#1}
+}
+\def\lw_iln_var_stored:literal_trans_text{}
+\NewDocumentCommand{\lw_iln_fun_set:literal_trans_text}{m}{%
+	\def\lw_iln_var_stored:literal_trans_text{#1}
+}
+\def\lw_iln_var_stored:reference_text{}
+\NewDocumentCommand{\lw_iln_fun_set:reference}{m}{%
+	\def\lw_iln_var_stored:reference_text{#1}
+}
+\NewDocumentCommand{\lw_iln_fun_print:free_trans}{}{%
+	\IfValueArgTF{\lw_iln_var_stored:free_trans_text}{}{}%
+	{`\lw_iln_var_stored:free_trans_text'}}
+\NewDocumentCommand{\lw_iln_fun_print:literal_trans}{}{%
+	\IfValueArgTF{\lw_iln_var_stored:literal_trans_text}{}{}%
+		{(Lit.: `\lw_iln_var_stored:literal_trans_text')}}
+\NewDocumentCommand{\lw_iln_fun_print:reference}{}{%
+	\IfValueArgTF{\lw_iln_var_stored:reference_text}{}{}%
+	{{[}\lw_iln_var_stored:reference_text{]}}}
+%
+\NewDocumentCommand{\lw_iln_fun_make:trans_box}{}{%
+	\IfValueArgTF{\lw_iln_var_stored:extranote_text}{}%
+		{\lw_iln_fun_open:trans_box%
+			\lw_iln_fun_print:free_trans\space %
+			\lw_iln_fun_print:literal_trans\space %
+			\lw_iln_fun_print:reference\space %
+		\lw_iln_fun_close:trans_box}%
+		{\lw_iln_fun_open:trans_box%
+			\raggedright
+			\lw_iln_fun_print:free_trans\space %
+			\lw_iln_fun_print:literal_trans\space %
+			\lw_iln_fun_print:reference\space %
+		\lw_iln_fun_close:trans_box}
+}
+
+\def\lw_iln_fun_format:context_label{\normalfont}
+\def\lw_iln_var_name:context{Context:}
+\def\lw_iln_fun_insert:context#1{%
+	\IfValueArgTF{#1}{}{}%
+		{\lw_iln_fun_format:context_label\lw_iln_var_name:context\normalfont~#1\\[-1.3\baselineskip]}
+}
+
+\def\lw_iln_fun_reinitialize:markers_value{%
+	\def\lw_iln_var_stored:extranote_text{}
+	\def\lw_iln_var_stored:free_trans_text{}
+	\def\lw_iln_var_stored:gramjudg_text{}
+	\def\lw_iln_var_stored:langinfo_text{}
+	\def\lw_iln_var_stored:literal_trans_text{}
+	\def\lw_iln_var_stored:reference_text{}
+}
+
+% todo       v. Defining long (internal commands)
+\def\lw_iln_var_num:interlinear_lines{2}
+
+\def\lw_iln_tag:line_one_marker{% LEV version
+	\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{2}%
+		{\lw_iln_fun_open:iln_box
+		 \lw_iln_fun_enter:two_lines_interlinearization}{}%
+	\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{3}%
+		{\lw_iln_fun_open:iln_box
+		 \lw_iln_fun_enter:three_lines_interlinearization}{}%
+	\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{4}%
+		{\lw_iln_fun_open:iln_box
+		 \lw_iln_fun_enter:four_lines_interlinearization}{}%
+}%
+
+\let\lw_iln_tag:Text_marker\lw_iln_tag:line_one_marker%  ^rem is typeset in italics by default. The starred version introduces a two-line interlinear gloss text. ^caution Do not use it together with \lw_iln_MorphBreak_marker : they mean the same thing. So you will get error messages. _caution _rem
+%
+\def\lw_iln_tag:Morpheme_Break_marker% ^rem typeset in roman -- by default -- (intended to host API translations). Introduces a 2-line interlinear gloss text. _rem 
+{\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{2}%
+	{\lw_iln_tag:line_one_marker}%
+	{\relax}%
+}%
+
+\def\lw_iln_tag:Gloss_marker% ^rem \ge is already defined in LaTeX. \lw_iln_tag:Gloss_marker introduces a two-line interlinear gloss text. _rem 
+{\relax}%
+%
+\def\lw_iln_tag:Part_of_speech_marker{\relax}
+
+% LEV Syntax sensitive CS
+\def\lw_iln_tag:Free_translation_marker#1\\%
+	{\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{0}
+		{\lw_iln_fun_set:free_translation{#1}}
+		{\lw_iln_fun_close:iln_box%
+		 \lw_iln_fun_set:free_translation{#1}}}% ^rem CAUTION: The Free Translation marker should be present even if there is actually no free translation provided. _rem 
+%
+\def\lw_iln_tag:Literal_translation_marker#1\\%
+{\lw_iln_fun_set:literal_trans_text{#1}}
+\def\lw_iln_tag:Reference_marker#1\\%
+{\lw_iln_fun_set:reference{#1}}
+\def\lw_iln_tag:Language_information_marker#1\\%
+{\lw_iln_fun_set:langinfo{#1}}
+\def\lw_iln_tag:Grammaticality_Judgment_marker#1\\%
+{\lw_iln_fun_set:gramjudg{#1}}
+\newlength{\lw_iln_var_dim:context_voffset}
+\setlength{\lw_iln_var_dim:context_voffset}{-1em}
+\def\lw_iln_tag:Context_marker#1\\%
+{\lw_iln_fun_insert:context{#1}\\[\lw_iln_var_dim:context_voffset]}
+\def\lw_iln_tag:Extra_note_marker#1\\%
+	{\lw_iln_fun_add:extranote{#1}}
+
+
+%   _cs-definitions 
+
+% todo       vi. Low-level commands
+
+%  ^section_title="User Commands and Envs to Typeset Interlinear Gloss Texts" 
+% DEFINE: interlinear environment
+% DEFINE: Text tagging cs
+% The cs are named after the standard tags used in Linguist's Field's Toolbox by SIL (see Interlinear macro in ToolboxInterlinearMacroText.docm)
+% ^important Please use the short versions (in brackets). The long versions are internal commands to be use for later eventual modifications _important 
+% \lw_iln_tag:Text_marker (\tx) ^rem is typeset in italic either in tri-gloss or in di-gloss envs. In di-gloss env, \tx and \mb mean the same thing. _rem 
+%\lw_iln_tag:MorphBreak_marker (\mb) ^rem typeset in roman -- by default -- (intended to host API translations) _rem 
+%\lw_iln_tag:Gloss_marker (\gl) % \ge is already defined in LaTeX
+%\lw_iln_tag:FreeTranslation_marker (\ft)
+% \lw_iln_tag:Reference_marker (\rf) ^rem \ref is a primitive _rem 
+% --------------------------------
+% Markers not present in Toolbox defaults
+% --------------------------------
+% \lw_iln_tag:Language_information_marker (\li)
+% \lw_iln_tag:Grammaticality_Judgment_marker (\gj)
+% \lw_iln_tag:Context_marker (\ct)
+%
+% \lw_iln_tag:Literal_translation_marker (\lt)
+% \lw_iln_tag:Extra_note_marker (\nt)
+%
+% ^cs-definitions 
+%\let\tx\lw_iln_tag:Text_marker%  ^rem is typeset in italic either in tri-gloss or in di-gloss envs. In di-gloss env, \tx and \mb mean the same thing. _rem 
+\let\mb\lw_iln_tag:Morpheme_Break_marker% ^rem typeset in roman -- by default -- (intended to host API translations) _rem 
+\let\gl\lw_iln_tag:Gloss_marker% ^rem \ge is already defined in LaTeX _rem 
+%\let\ft\lw_iln_tag:Free_translation_marker%
+\let\ps\lw_iln_tag:Part_of_speech_marker
+%
+\NewCommandCopy{\li}%
+{\lw_iln_tag:Language_information_marker}%
+\NewCommandCopy{\rf}%
+{\lw_iln_tag:Reference_marker}%
+\NewCommandCopy{\gj}%
+{\lw_iln_tag:Grammaticality_Judgment_marker}
+\NewCommandCopy{\ct}%
+{\lw_iln_tag:Context_marker}
+\NewCommandCopy{\lt}%
+{\lw_iln_tag:Literal_translation_marker}%
+\NewCommandCopy{\nt}%
+	{\lw_iln_tag:Extra_note_marker}
+
+% todo    c. Defining Interlinear Env. Options
+% ----------------------
+% | Describing options |
+% ----------------------
+
+% # Options: 
+
+%   - argendchar: (not available for the moment) return, par, lineend
+%     return    : takes the current line as argument, do not put anything else (e.g. {}, or \\)
+%     lineend   : idem
+%     par       : argument is ended by "\\" like e.g. in cgloss4e
+%     (NOTE: this option scopes over all the markers, not only interlinear text markers \tx, \mb, \gl, \ps)
+
+%   - linesnumber: full, 2, 3
+%        full	: 4-lines (By default it is disabled in the main text)
+%        2		: Only one gloss line is printed (\gl); \mb and \tx are then treated are incompatible to each other so 
+%                 that only of them should be used. If this option is used, you should specifiy the first-line of the 
+%                 interlinear text via first-line option
+%        3 	    : only \ps is not printedand all the other lines \tx, \mb and \gl should be non-empty
+
+%   * Setting markers * 
+
+%   Sets the marker used for the different parts. Actually tells lingwrit-interlinear to define the corresponding command so as to fit the definition of the 
+%   default marker (e.g. text_marker=\ot tells lingwrit-interlinear to add the following: \let\ot\tx)
+%   - textmarker=
+%   - morphbreakmarker=
+%   - glossmarker= 	(You shouldn't set it to \ge. But if this happens, note that lingwrit-interlinear will redefine \ge to equal to \gl, define a new 
+%                       command \gteq to replace \ge and issue a warning message)
+%   - partofspeechmarker=
+%   - freetranslationmarker=
+%   - literaltranslationmarker=
+%   - grammaticalityjudgmentmarker=
+%   - contextmarker=
+%   - extranotemarker=
+%   - languageinfomarker=
+% 	- referencemarker=
+
+%   * Format specifications *
+
+%   (May include font size, shape, series and color. If color command is used (e.g. \color{blue}), then make sure to have xcolor loaded)
+%	- lineoneformat={}
+%   - linetwoformat={}
+%   - linethreeformat={}
+%   - linefourformat={}
+%	- extranoteformat={}
+% 	- contextnameformat={}
+
+% * Other specifications *
+
+% 	- contextname={} ^rem The displayed label for context. default value is "Context:" _rem 
+% 	- extranoteleftpunct= ^rem the punctuation preceding the extra note. Default value: ( _rem 
+% 	- extranoterightpunct= ^rem the punctuation following the extra note. Default value: ) _rem 
+
+% todo       i. Declaring Options
+\NewCommandCopy{\lw_iln_var_opt:textmarker}{\lw_iln_tag:Text_marker}
+\NewCommandCopy{\lw_iln_var_opt:morphbreakmarker}{\lw_iln_tag:Morpheme_Break_marker}
+\NewCommandCopy{\lw_iln_var_opt:glossmarker}{\lw_iln_tag:Gloss_marker}
+\NewCommandCopy{\lw_iln_var_opt:partofspeechmarker}{\lw_iln_tag:Part_of_speech_marker}
+\NewCommandCopy{\lw_iln_var_opt:freetranslationmarker}{\lw_iln_tag:Free_translation_marker}
+\NewCommandCopy{\lw_iln_var_opt:literaltranslationmarker}{\lw_iln_tag:Literal_translation_marker}
+\NewCommandCopy{\lw_iln_var_opt:extranotemarker}{\lw_iln_tag:Extra_note_marker}
+\NewCommandCopy{\lw_iln_var_opt:languageinfomarker}{\lw_iln_tag:Language_information_marker}
+\NewCommandCopy{\lw_iln_var_opt:gramjudgmarker}{\lw_iln_tag:Grammaticality_Judgment_marker}
+\NewCommandCopy{\lw_iln_var_opt:referencemarker}{\lw_iln_tag:Reference_marker}
+\NewCommandCopy{\lw_iln_var_opt:contextmarker}{\lw_iln_tag:Context_marker}
+
+\NewDocumentCommand{\lw_iln_var_opt:languageinfopos}{m}{%
+	\IfValueArgTF{#1}{head}{\RenewDocumentCommand{\lw_iln_fun_set:langinfo}{m}{\langinfo/{##1}}}{}
+	\IfValueArgTF{#1}{margin}{\RenewDocumentCommand{\lw_iln_fun_set:langinfo}{m}{\langinfo{##1}}}{}
+}
+
+\NewDocumentCommand{\lw_iln_var_opt:nointerlinear}{m}{%
+	\IfValueArgTF{#1}{true}%
+		{\def\lw_iln_var_num:interlinear_lines{0}}%
+		{\IfValueArgTF{#1}{false}%
+			{\relax}%
+			{\PackageWarning{interlinear}{nointerlinear option possible values: true, false}}%
+		}
+}
+\NewDocumentCommand{\lw_iln_var_opt:contextvoffset}{m}{\setlength{\lw_iln_var_dim:context_voffset}{#1}}
+
+% todo       ii. Defining Default values
+
+%\def\lw_iln_var_opt:endchar{par}% possible values: par, lineend, return
+\def\lw_iln_var_opt:linesnumber{2}% possible values: 2, 3, full
+\def\lw_iln_var_num:interlinear_lines{\lw_iln_var_opt:linesnumber}
+% Setting markers
+\let\li\lw_iln_var_opt:languageinfomarker
+\let\rf\lw_iln_var_opt:referencemarker
+\let\gj\lw_iln_var_opt:gramjudgmarker
+\let\tx\lw_iln_var_opt:textmarker
+\let\mb\lw_iln_var_opt:morphbreakmarker
+\let\gl\lw_iln_var_opt:glossmarker
+\let\ps\lw_iln_var_opt:partofspeechmarker
+\let\ft\lw_iln_var_opt:freetranslationmarker
+\let\lt\lw_iln_var_opt:literaltranslationmarker
+\let\nt\lw_iln_var_opt:extranotemarker
+\def\lw_iln_var_opt:extranoteleftpunct#1{\def\lw_iln_var_token:extranote_left_punct{#1}}
+\def\lw_iln_var_opt:extranoterightpunct#1{\def\lw_iln_var_token:extranote_right_punct{#1}}
+
+% Setting formats (only available for interlinear/gloss lines, context name and extra notes)
+\def\lw_iln_var_opt:lineoneformat#1{\renewcommand{\lw_iln_fun_set:line_one_words_format}{#1}}
+\def\lw_iln_var_opt:linetwoformat#1{\renewcommand{\lw_iln_fun_set:line_two_words_format}{#1}}
+\def\lw_iln_var_opt:linethreeformat#1{\renewcommand{\lw_iln_fun_set:line_three_words_format}{#1}}
+\def\lw_iln_var_opt:linefourformat#1{\renewcommand{\lw_iln_fun_set:line_four_words_format}{#1}}
+\def\lw_iln_var_opt:exformat#1{\renewcommand{\lw_iln_fun_format:ex_text}{#1}}
+\def\lw_iln_var_opt:extranoteformat#1{\def\lw_iln_fun_format:extranote{#1}}
+\def\lw_iln_var_opt:contextnameformat#1{\def\lw_iln_fun_format:context_label{#1}}
+% Context label/name
+\def\lw_iln_var_opt:contextname#1{\def\lw_iln_var_name:context{#1}}
+
+% Defining CS for resetting default options (to be called at the begining of interlinear env)% ^rem the \setinterlinearstyle is meant to set globally the options for interlinear env. So don't use optional argument of interlinear env anymore since it will overwrite the values set up with this commands and the new values be considered the default ones. _rem 
+\def\lw_iln_fun_reinitialize:interlinear_options{%
+	%\def\lw_iln_var_opt:endchar{par}% possible values: par, lineend, return
+	\def\lw_iln_var_opt:linesnumber{2}% possible values: 2, 3, full
+	% Setting markers
+	\let\li\lw_iln_var_opt:languageinfomarker%
+	\let\rf\lw_iln_var_opt:referencemarker%
+	\let\gj\lw_iln_var_opt:gramjudgmarker%
+	\let\tx\lw_iln_var_opt:textmarker
+	\let\mb\lw_iln_var_opt:morphbreakmarker%
+	\let\gl\lw_iln_var_opt:glossmarker%
+	\let\ps\lw_iln_var_opt:partofspeechmarker%
+	\let\ft\lw_iln_var_opt:freetranslationmarker%
+	\let\lt\lw_iln_var_opt:literaltranslationmarker%
+	\let\nt\lw_iln_var_opt:extranotemarker%
+	% Setting formats (only available for interlinear/gloss lines, context name and extra notes)
+	\lw_iln_var_opt:lineoneformat{\normalfont}%
+	\lw_iln_var_opt:linetwoformat{\normalfont}%
+	\lw_iln_var_opt:linethreeformat{\normalfont}%
+	\lw_iln_var_opt:linefourformat{\normalfont}%
+	\lw_iln_var_opt:exformat{\normalfont}
+	\lw_iln_var_opt:extranoteformat{\normalfont}%
+	\lw_iln_var_opt:contextnameformat{\normalfont}%
+	% Context label/name
+	\lw_iln_var_opt:contextname{Context:}%
+	\lw_iln_var_opt:extranoteleftpunct{{(}}%
+	\lw_iln_var_opt:extranoterightpunct{{)}}%
+	\lw_iln_var_opt:languageinfopos{margin}%
+	\lw_iln_var_opt:nointerlinear{false}%
+	\lw_iln_var_opt:contextvoffset{-1em}
+}
+
+% todo       iii. Setting Options
+
+% Setting Ending Character for arguments (not yet available)
+%\define@key{interlinear}{endchar}{%
+	% ^action_name="Setting the value"
+%	\def\lw_iln_var_opt:endchar{#1}
+	% _action 
+	% ^action_name="Processing the option"
+	%
+	% _action 
+%}
+
+% Setting the numbers of interlinear/gloss lines
+\define@key{interlinear}{linesnumber}{%
+	% ^action_name="Setting the value"
+	\def\lw_iln_var_opt:linesnumber{#1}
+	% _action 
+}
+\define@key{interlinear}{nointerlinear}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:nointerlinear{#1}
+	% _action 
+}
+
+% Setting the markers
+\define@key{interlinear}{textmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:textmarker}}
+\define@key{interlinear}{morphbreakmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:morphbreakmarker}}
+\define@key{interlinear}{glossmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:glossmarker}} 
+
+\define@key{interlinear}{partofspeechmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:partofspeechmarker}} 
+
+\define@key{interlinear}{freetranslationmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:freetranslationmarker}} 
+
+\define@key{interlinear}{literaltranslationmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:literaltranslationmarker}} 
+
+\define@key{interlinear}{extranotemarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:extranotemarker}} 
+
+\define@key{interlinear}{languageinfomarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:languageinfomarker}} 
+
+\define@key{interlinear}{gramjudgmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:gramjudgmarker}} 
+
+\define@key{interlinear}{referencemarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:referencemarker}} 
+
+\define@key{interlinear}{contextmarker}{%
+	\NewCommandCopy{#1}{\lw_iln_var_opt:contextmarker}} 
+
+
+% Setting formats
+\define@key{interlinear}{lineoneformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:lineoneformat{#1}
+	% _action 
+}
+\define@key{interlinear}{linetwoformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:linetwoformat{#1}
+	% _action 
+}
+\define@key{interlinear}{linethreeformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:linethreeformat{#1}
+	% _action 
+}
+\define@key{interlinear}{linefourformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:linefourformat{#1}
+	% _action 
+}
+\define@key{interlinear}{exformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:exformat{#1}
+	% _action 
+}
+\define@key{interlinear}{extranoteformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:extranoteformat{#1}
+	% _action 
+}
+\define@key{interlinear}{contextnameformat}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:contextnameformat{#1}
+	% _action 
+}
+
+% Other specifications
+\define@key{interlinear}{contextname}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:contextname{#1}
+	% _action  
+}
+\define@key{interlinear}{contextvoffset}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:contextvoffset{#1}
+	% _action  
+}
+\define@key{interlinear}{extranoteleftpunct}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:extranoteleftpunct{#1}
+	% _action  
+}
+\define@key{interlinear}{extranoterightpunct}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:extranoterightpunct{#1}
+	% _action  
+}
+\define@key{interlinear}{languageinfopos}{%
+	% ^action_name="Setting the value"
+	\lw_iln_var_opt:languageinfopos{#1}
+	% _action 
+}
+
+\newcommand{\interlinearstyle}[1]{%
+	\setkeys{interlinear}{#1}%
+	\lw_fun_helper:clear{\lw_iln_fun_reinitialize:interlinear_options}
+}
+\def\DeclareInterlinearStyle#1#2{%
+	\expandafter\def\csname lw_iln_var_sty:#1\endcsname{\interlinearstyle{#2}}}
+\def\UseInterlinearStyle#1{%
+	\expandafter\csname lw_iln_var_sty:#1\endcsname}
+\DeclareInterlinearStyle{default}{%
+	linesnumber=2,%
+	lineoneformat=\upshape,%
+	linetwoformat=\normalfont,%
+	linethreeformat=\normalfont,%
+	linefourformat=\normalfont,%
+	contextnameformat=\normalfont,%
+	extranoteformat=\normalfont,%
+	contextname={Context:},%
+	extranoteleftpunct={(},%
+	extranoterightpunct={)}%
+}
+\DeclareInterlinearStyle{nointerlinear}{%
+	nointerlinear=true,%
+	languageinfopos=head,%
+	freetranslationmarker=\ot,%
+	contextvoffset=.5em%
+}
+\DeclareInterlinearStyle{gsr}{%
+	linesnumber=2,%
+	lineoneformat=\itshape,%
+	linetwoformat=\normalfont,%
+	linethreeformat=\normalfont%
+}
+\DeclareInterlinearStyle{gsrnointerlinear}{%
+	nointerlinear=true,%
+	exformat=\itshape,%
+	languageinfopos=head,%
+	freetranslationmarker=\ot,%
+	contextvoffset=.5em%
+}
+
+\UseInterlinearStyle{gsr}% ^rem setting the default style to fit the GSR _rem 
+
+\define@key{interlinear}{style}{%
+	% ^action_name="Setting the value"
+	\UseInterlinearStyle{#1}
+	% _action 
+}
+
+
+% todo    d. Defining Interlinear Env.
+\NewDocumentCommand{\lw_iln_fun_enter:interlinear}{}{\relax}% ^rem no_op command _rem  
+\NewDocumentCommand{\lw_iln_fun_exit:interlinear}{}{%
+	\IfValueArgTF{\lw_iln_var_num:interlinear_lines}{0}%
+		{\lw_iln_fun_close:ex_box}%
+		{\lw_iln_fun_make:trans_box%
+		 \lw_iln_fun_make:extranote_box%
+		 \lw_iln_fun_reinitialize:markers_value}%
+	}
+
+\NewDocumentEnvironment{interlinear}{O{}}%
+	{% ^rem Beginning of the internlinear env _rem 
+	 	\lw_iln_fun_enter:interlinear%
+	 	\lw_iln_fun_reinitialize:interlinear_options%
+	 	\setkeys{interlinear}{#1}
+	}%
+	{% ^rem End of the interlinear env _rem 
+		\lw_iln_fun_exit:interlinear%
+	}
+
+\makeatother%
+
+% ^action_name="Disabling LingWrit Syntax" 
+\switchlwsyntaxoff
+% _action 
+% ^action_name="Ending the code" 
+\endinput%
+% _action 
+
+% _code 
+
+% ^_* 
+
+% _package

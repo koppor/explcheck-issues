@@ -1,0 +1,160 @@
+%%%==============================================================================
+%% Copyright 2023-present by Alceu Frigeri
+%%
+%% This work may be distributed and/or modified under the conditions of
+%%
+%% * The [LaTeX Project Public License](http://www.latex-project.org/lppl.txt),
+%%   version 1.3c (or later), and/or
+%% * The [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.html),
+%%   version 3 (or later)
+%%
+%% This work has the LPPL maintenance status *maintained*.
+%%
+%% The Current Maintainer of this work is Alceu Frigeri
+%%
+%% This is version {1.2} {2024/01/11}
+%%
+%% The list of files that compose this work can be found in the README.md file at
+%% https://ctan.org/pkg/pgfkeysearch
+%%
+%%%==============================================================================
+\NeedsTeXFormat{LaTeX2e}[2022/06/01]
+
+
+\ProvidesExplPackage
+    {pgfkeysearch}
+    {2024/01/11}
+    {1.2}
+    {pgfkeys Search Extension}
+
+\ExplSyntaxOn
+%%%%%%%
+%%%
+%%% Just an attempt of having my packages info in a regular way
+%%% Idea being: { <pck-name> / pkg info } for each and all.
+%%%
+%%%%%%%
+\keys_define:nn { pgfkeysearch / pkg info}
+  {
+     name        .code:n = {pgfkeysearch} ,
+     prefix      .code:n = {pgfkeysearch} ,
+     date        .code:n = {2024/01/11},
+     version     .code:n = {1.2} ,
+     description .code:n = {pgfkeys~ search~ extension}
+  }
+\cs_if_exist:NF \PkgInfo 
+  {
+    \NewDocumentCommand \PkgInfo {mm} { \keys_set:nn {#1 / pkg info}{#2} } 
+    \NewDocumentCommand \PkgDescription {m} 
+      { \noindent Package~ \textbf{\PkgInfo{#1}{name}}~Version:~\PkgInfo{#1}{version}~ -~ \PkgInfo{#1}{date}\par \emph{\PkgInfo{#1}{description}}~\par } 
+  }  
+%%%%%%%
+%%% End of cut-n-paste
+%%%%%%%
+
+%%%%%%%%%%%%%%%
+%%%
+%%% _keysearch allows to find a key, 
+%%% if it's defined from 'anywhere' in the tree. I mean, upwards until, likely, /tikz/<key>
+%%% if it isn't defined, returns nothing (no error triggered)
+%%%
+%%%%%%%%%%%%%%%
+\seq_new:N \l__pgfkeysearch_pathterms_seq
+\seq_new:N \l__pgfkeysearch_pathtree_seq
+\tl_new:N \l__pgfkeysearch_path_tl
+\bool_new:N \l__pgfkeysearch_keyfound_bool
+\bool_new:N \l__pgfkeysearch_multipath_keyfound_bool 
+
+\cs_generate_variant:Nn \tl_set:Nn {Ne}
+
+%%%%%%%%%%%%%%%
+%%%
+%%% Given a single path /A/B/C/D it will look after
+%%%  /A/B/C/D/<key> 
+%%%  /A/B/C/<key>
+%%%  /A/B/<key>
+%%%  /A/<key>
+%%%    stoping at the first hit
+%%%
+%%%%%%%%%%%%%%%
+\prg_new_protected_conditional:Npnn \pgfkeysearch_keysearch:nnn #1#2#3 {TF,T,F}
+  {
+    \seq_set_split:Nne \l__pgfkeysearch_pathterms_seq {/} {#1}
+    \seq_remove_all:Nn \l__pgfkeysearch_pathterms_seq {}
+    \tl_clear:N \l__pgfkeysearch_path_tl
+    \seq_clear:N \l__pgfkeysearch_pathtree_seq
+    \seq_map_inline:Nn \l__pgfkeysearch_pathterms_seq
+      {
+        \tl_put_right:Ne \l__pgfkeysearch_path_tl {/##1}
+        \seq_put_right:Ne \l__pgfkeysearch_pathtree_seq {\l__pgfkeysearch_path_tl}
+      }
+    \seq_reverse:N \l__pgfkeysearch_pathtree_seq
+    \bool_set_false:N \l__pgfkeysearch_keyfound_bool
+    \seq_map_inline:Nn \l__pgfkeysearch_pathtree_seq
+      {
+        \cs_if_exist:cT {pgfk@##1/#2}
+          {
+            \tl_set:Ne #3 {\exp_not:N \use:c{pgfk@##1/#2}}
+            \bool_set_true:N \l__pgfkeysearch_keyfound_bool
+            \seq_map_break:
+          }
+      }
+    \bool_if:nTF {\l__pgfkeysearch_keyfound_bool}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+%%%%%%%%%%%%%%%
+%%%
+%%% #1 shall be a comma separated list of paths (can be a single one)
+%%% it searchs for key in every path, stoping at the first hit.
+%%%
+%%%%%%%%%%%%%%%
+\prg_new_protected_conditional:Npnn \pgfkeysearch_multipath_keysearch:nnn #1#2#3 {T,F,TF}
+  {
+    \bool_set_false:N \l__pgfkeysearch_multipath_keyfound_bool
+    \clist_map_inline:nn {#1}
+      {
+        \pgfkeysearch_keysearch:nnnT {##1}{#2}{#3}
+          { 
+            \bool_set_true:N \l__pgfkeysearch_multipath_keyfound_bool
+            \clist_map_break: 
+          }
+      }
+    \bool_if:nTF {\l__pgfkeysearch_multipath_keyfound_bool}
+      { \prg_return_true: }
+      { \prg_return_false: }      
+  }
+
+
+
+%%%%%%%%%%%%%%%
+%%%
+%%% The caveats: this ins't expandable.
+%%%
+%%%%%%%%%%%%%%%
+%%%
+%%% This is the more generic one. 
+%%% #1 is the path (or list of paths)
+%%% #2 is the <key>
+%%% #3 is the macro that will receive the key value (if any)
+%%%
+%%%%%%%%%%%%%%%
+
+\NewDocumentCommand{\pgfkeysearchvalueof}{mmm}
+  {
+    \pgfkeysearch_multipath_keysearch:nnnF {#1}{#2}{#3}
+      { \tl_set:Nn #3 {} }
+  }
+\let\pgfkeysearch\pgfkeysearchvalueof
+
+\NewDocumentCommand{\pgfkeysearchvalueofTF}{mmmmm}
+  {
+    \pgfkeysearch_multipath_keysearch:nnnTF {#1}{#2}{#3}
+      { #4 }
+      { 
+        \tl_set:Nn #3 {} 
+        #5
+      }
+  }
+\let\pgfkeysearchTF\pgfkeysearchvalueofTF
