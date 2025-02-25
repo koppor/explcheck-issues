@@ -14,8 +14,8 @@ In a GitHub action `explcheck` is called and the result rendered as HTML page.
 
 ## Development Hints
 
-- Served files: <https://github.com/koppor/errorformat-to-html/tree/gh-pages> - one commit - overwritten with latest state
-- Rendered output: <https://koppor.github.io/errorformat-to-html>
+- Served files: <https://github.com/koppor/explcheck-issues/tree/gh-pages> - one commit - overwritten with latest state
+- Rendered output: <https://koppor.github.io/explcheck-issues>
 
 ### Required Development Setup on Windows
 
@@ -52,7 +52,7 @@ errorformat -w jsonl "%f:%l:%c:%e:%k: %t%n %m" < errors.txt | jq -s > errors.jso
 On Windows cmd, one needs to enquote the `--error-format` with double quotes.
 
 ```cmd
-docker run --rm -v "c:\\git-repositories\\koppor\\errorformat-to-html:/workspace" ghcr.io/witiko/expltools/explcheck --porcelain --error-format="%f:%l:%c:%e:%k: %t%n %m" "/workspace/expltools/explcheck/testfiles/e102.lua"
+docker run --rm -v "c:\\git-repositories\\koppor\\explcheck-issues:/workspace" ghcr.io/witiko/expltools/explcheck --porcelain --error-format="%f:%l:%c:%e:%k: %t%n %m" "/workspace/expltools/explcheck/testfiles/e102.lua"
 ```
 
 ### Scripts
@@ -61,7 +61,7 @@ docker run --rm -v "c:\\git-repositories\\koppor\\errorformat-to-html:/workspace
 
 - Execute in root of repository.
 - Ensure that `errors.json` exists here. Use `pages/main/errors.json`.
-- Ensure that `errors.txt` exists here. Use any (e.g., <https://koppor.github.io/errorformat-to-html/expltools/explcheck/testfiles/e102-01.tex/errors.txt>)
+- Ensure that `errors.txt` exists here. Use any (e.g., <https://koppor.github.io/explcheck-issues/expltools/explcheck/testfiles/e102-01.tex/errors.txt>)
 
 ## Acknowledgements
 
