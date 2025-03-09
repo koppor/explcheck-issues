@@ -1,0 +1,895 @@
+%% The LaTeX package incgraph - version 1.3.0 (2024/03/14)
+%% incgraph.sty: Graphics inclusion page
+%%
+%% -------------------------------------------------------------------------------------------
+%% Copyright (c) 2012-2024 by Prof. Dr. Dr. Thomas F. Sturm <thomas dot sturm at unibw dot de>
+%% -------------------------------------------------------------------------------------------
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3 or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%%
+%% This work has the LPPL maintenance status `author-maintained'.
+%%
+%% This work consists of all files listed in README
+%%
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage{incgraph}{2024/03/14}{1.3.0}
+  {LaTeX special graphics inclusion}
+
+\bool_new:N \l__incgra_package_pgf_bool
+\bool_new:N \l__incgra_package_graphicx_bool
+\bool_new:N \l__incgra_package_bookmark_bool
+
+\DeclareKeys[incgra]
+  {
+    pgf        .bool_set:N         = \l__incgra_package_pgf_bool,
+    nopgf      .bool_set_inverse:N = \l__incgra_package_pgf_bool,
+    graphicx   .bool_set:N         = \l__incgra_package_graphicx_bool,
+    nographicx .bool_set_inverse:N = \l__incgra_package_graphicx_bool,
+    bookmark   .bool_set: N        = \l__incgra_package_bookmark_bool,
+    nobookmark .bool_set_inverse:N = \l__incgra_package_bookmark_bool,
+  }
+
+\SetKeys[incgra]{ pgf, graphicx, bookmark }
+
+\ProcessKeyOptions[incgra]
+
+\bool_if:NT \l__incgra_package_pgf_bool
+  {
+    \RequirePackage{pgf}
+    \RequirePackage{pgffor}
+  }
+\bool_if:NT \l__incgra_package_graphicx_bool
+  { \RequirePackage{graphicx} }
+\bool_if:NT \l__incgra_package_bookmark_bool
+  { \RequirePackage{bookmark} }
+
+\pgfkeys{/igr/.is~family}
+\cs_set_nopar:Npn \igrset { \pgfqkeys{/igr} }
+
+\sys_if_engine_pdftex:TF
+  {
+    \NewDocumentCommand \igrGetPageSize {}
+      {
+        \cs_gset_nopar:Npx \igrPageWidth  { \the\pdfpagewidth  }
+        \cs_gset_nopar:Npx \igrPageHeight { \the\pdfpageheight }
+      }
+    \NewDocumentCommand \igrSetPageSize { m m }
+      {
+        \pdfpagewidth  #1
+        \pdfpageheight #2
+      }
+    \NewDocumentCommand \igrGetLastPage { m }
+      {
+        \pdfximage{#1}
+        \cs_gset_nopar:Npx \igrLastPage { \the\pdflastximagepages }
+      }
+  }
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \NewDocumentCommand \igrGetPageSize {}
+          {
+            \cs_gset_nopar:Npx \igrPageWidth  { \the\pagewidth  }
+            \cs_gset_nopar:Npx \igrPageHeight { \the\pageheight }
+          }
+        \NewDocumentCommand \igrSetPageSize { m m }
+          {
+            \pagewidth  #1
+            \pageheight #2
+          }
+        \NewDocumentCommand \igrGetLastPage { m }
+          {
+            \saveimageresource{#1}
+            \cs_gset_nopar:Npx \igrLastPage { \the\lastsavedimageresourcepages }
+          }
+      }
+      {
+        \cs_if_exist:NTF \pdfpagewidth
+          {
+            \NewDocumentCommand \igrGetPageSize {}
+              {
+                \cs_gset_nopar:Npx \igrPageWidth  { \the\pdfpagewidth  }
+                \cs_gset_nopar:Npx \igrPageHeight { \the\pdfpageheight }
+              }
+            \NewDocumentCommand \igrSetPageSize { m m }
+              {
+                \pdfpagewidth  #1
+                \pdfpageheight #2
+              }
+          }
+          {
+            \NewDocumentCommand \igrGetPageSize {}
+              {
+                \cs_gset_nopar:Npx \igrPageWidth  { \the\paperwidth  }
+                \cs_gset_nopar:Npx \igrPageHeight { \the\paperheight }
+              }
+            \NewDocumentCommand \igrSetPageSize { m m }
+              {
+              }
+          }
+        \NewDocumentCommand \igrGetLastPage { m }
+          {
+            \cs_gset_nopar:Npx \igrLastPage { 1 }
+          }
+      }
+  }
+
+\box_new:N \igrbox
+\newcounter{igrtarget}
+
+\bool_new:N \g__incgra_first_include_bool
+\bool_new:N \g__incgra_multi_include_bool
+\bool_new:N \l__incgra_apply_scaling_bool
+\bool_new:N \l__incgra_autosize_bool
+\bool_new:N \l__incgra_change_page_size_bool
+\bool_new:N \l__incgra_file_exist_bool
+\bool_new:N \l__incgra_overlay_bool
+\bool_new:N \l__incgra_set_hypertarget_bool
+\bool_new:N \l__incgra_turn_bool
+
+\clist_new:N \l__incgra_extensions_clist
+\dim_new:N \l__incgra_offx_left_dim
+
+\fp_new:N \l__incgra_autosize_max_scale_fp
+\fp_new:N \l__incgra_autosize_min_scale_fp
+\fp_new:N \l__incgra_scale_fp
+
+\tl_new:N \l__incgra_autosize_height_gap_tl
+\tl_new:N \l__incgra_autosize_width_gap_tl
+\tl_new:N \l__incgra_bookmark_heading_options_tl
+\tl_new:N \l__incgra_bookmark_heading_text_tl
+\tl_new:N \l__incgra_bookmark_options_tl
+\tl_new:N \l__incgra_bookmark_text_tl
+\tl_new:N \l__incgra_bottom_border_tl
+\tl_new:N \l__incgra_label_text_tl
+\tl_new:N \l__incgra_left_border_tl
+\tl_new:N \l__incgra_options_tl
+\tl_new:N \l__incgra_overlay_code_tl
+\tl_new:N \l__incgra_overlay_pagenumber_options_tl
+\tl_new:N \l__incgra_right_border_tl
+\tl_new:N \l__incgra_target_heigth_tl
+\tl_new:N \l__incgra_target_width_tl
+\tl_new:N \l__incgra_top_border_tl
+
+\NewHook { incgra/usertarget }
+
+
+\AddToHook{begindocument}
+  {
+    \igrGetPageSize
+    \let\igrOrginalPageWidth\igrPageWidth
+    \let\igrOrginalPageHeight\igrPageHeight
+  }
+
+
+\cs_new_protected:Npn \__incgra_set_next_target:
+  {
+    \refstepcounter{igrtarget}
+    \cs_gset_nopar:Npe \igrAutoTarget { igr-\theigrtarget }
+    \UseHook{ incgra/usertarget }
+  }
+
+
+\NewDocumentCommand \igrtargetset { m }
+  {
+    \AddToHookNext{ incgra/usertarget }
+      { \cs_gset_nopar:Npe \igrAutoTarget { #1 } }
+  }
+
+
+\cs_new_protected:Npn \__incgra_apply_borders:
+  {
+    \bool_lazy_all:nF
+      {
+        { \dim_compare_p:nNn \l__incgra_top_border_tl = \c_zero_dim }
+        { \dim_compare_p:nNn \l__incgra_bottom_border_tl = \c_zero_dim }
+        { \dim_compare_p:nNn \l__incgra_left_border_tl = \c_zero_dim }
+        { \dim_compare_p:nNn \l__incgra_right_border_tl = \c_zero_dim }
+      }
+      {
+        \box_set_trim:Nnnnn \igrbox
+          { -\l__incgra_left_border_tl }
+          { -\l__incgra_bottom_border_tl }
+          { -\l__incgra_right_border_tl }
+          { -\l__incgra_top_border_tl }
+        \__incgra_get_box_dimensions:
+      }
+  }
+
+
+\cs_new_protected:Npn \__incgra_get_box_dimensions:
+  {
+    \cs_set_nopar:Npe \igrBoxWidth  { \dim_eval:n { \box_wd:N \igrbox } }
+    \cs_set_nopar:Npe \igrBoxht     { \dim_eval:n { \box_ht:N \igrbox } }
+    \cs_set_nopar:Npe \igrBoxdp     { \dim_eval:n { \box_dp:N \igrbox } }
+    \cs_set_nopar:Npe \igrBoxHeight { \dim_eval:n { \box_ht_plus_dp:N \igrbox } }
+  }
+
+
+\cs_new_protected:Npn \__incgra_box_set:n #1
+  {
+    \__incgra_set_next_target:
+    \hbox_set:Nn \igrbox { #1 }
+    \__incgra_get_box_dimensions:
+  }
+\cs_set_eq:NN \igrboxset \__incgra_box_set:n
+
+
+% clone of \__kernel_kern:n
+\cs_new_protected:Npn \___incgra_kern:n #1
+  { \kern \dimexpr #1 \scan_stop: }
+
+
+\cs_new_protected:Npn \__incgra_box_use_center:
+  {
+    \igrGetPageSize
+    \thispagestyle{\igrpagestyle}
+
+    \legacy_if:nTF { @twoside }
+      {
+        \int_if_odd:nTF \c@page
+          {
+            \dim_set:Nn \l__incgra_offx_left_dim { - 1in - \hoffset - \oddsidemargin}
+          }
+          {
+            \dim_set:Nn \l__incgra_offx_left_dim { - 1in - \hoffset - \evensidemargin}
+          }
+      }
+      {
+        \dim_set:Nn \l__incgra_offx_left_dim { - 1in - \hoffset - \oddsidemargin}
+      }
+
+    \vbox_to_ht:nn { \vsize }
+      {
+        \___incgra_kern:n { - 1in - \voffset - \topmargin - \headheight - \headsep }
+        \hbox:n
+          {
+            \___incgra_kern:n { \l__incgra_offx_left_dim }
+            \bool_if:NT \l__incgra_set_hypertarget_bool
+              {
+                \hypertarget { \igrAutoTarget }{}
+              }
+            \hss
+          }
+        \nointerlineskip
+        \___incgra_kern:n { ( \igrPageHeight - \igrBoxHeight ) / 2 }
+        \hbox_to_wd:nn { \hsize }
+          {
+            \___incgra_kern:n { \l__incgra_offx_left_dim + ( \igrPageWidth - \igrBoxWidth ) / 2  }
+            \box_use_drop:N \igrbox
+            \hss
+          }
+        \vss
+      }
+    \break
+  }
+
+\NewDocumentCommand \igrboxcenter { }{ \__incgra_box_use_center: }
+
+
+\NewDocumentCommand \igrboxtikz { }
+  {
+    \path[use~as~bounding~box] (0,0) rectangle (\igrBoxWidth,\igrBoxHeight);
+    \node[line~width=0mm, inner~sep=0, rectangle, above~right] (box) at (0,0)
+      { \box_use_drop:N \igrbox };
+    \node[minimum~width=\igrBoxWidth, minimum~height=\igrBoxHeight, line~width=0mm, inner~sep=0mm, above~right] (page) at (0,0) {};
+  }
+
+\NewCommandCopy \igrboxtikzpage \igrboxtikz
+
+\NewDocumentCommand \igrboxtikzcenter { }
+  {
+    \igrGetPageSize
+    \path[use~as~bounding~box] (0,0) rectangle (\igrPageWidth,\igrPageHeight);
+    \node[line~width=0mm, inner~sep=0, rectangle, above~right] (box) at ({(\igrPageWidth-\igrBoxWidth)/2},{(\igrPageHeight-\igrBoxHeight)/2})
+      { \box_use_drop:N \igrbox };
+    \cs_set_eq:NN \igrBoxWidth \igrPageWidth
+    \cs_set_eq:NN \igrBoxHeight \igrPageHeight
+    \node[minimum~width=\igrBoxWidth, minimum~height=\igrBoxHeight, line~width=0mm, inner~sep=0mm, above~right] (page) at (0,0) {};
+  }
+
+
+\cs_new_protected:Npn \__incgra_ship_box:nn #1#2
+  {
+    \bool_if:NT \l__incgra_apply_scaling_bool
+      {
+        \bool_if:NT \l__incgra_autosize_bool
+          {
+            \fp_set:Nn \l__incgra_scale_fp
+              {
+                max
+                  (
+                    \l__incgra_autosize_min_scale_fp,
+                    min
+                      (
+                        \l__incgra_autosize_max_scale_fp,
+                        (#1 - \l__incgra_autosize_width_gap_tl) / \igrBoxWidth,
+                        (#2 - \l__incgra_autosize_height_gap_tl) / \igrBoxHeight
+                      )
+                  )
+              }
+            \box_scale:Nnn \igrbox { \l__incgra_scale_fp }{ \l__incgra_scale_fp }
+            \__incgra_get_box_dimensions:
+          }
+        \__incgra_apply_borders:
+      }
+    \bool_if:NTF \l__incgra_change_page_size_bool
+      {
+        \igrGetPageSize
+        \cs_set_eq:NN \igrCurrentPageWidth \igrPageWidth
+        \cs_set_eq:NN \igrCurrentPageHeight \igrPageHeight
+        \eject
+        \igrSetPageSize { #1 }{ #2 }
+      }
+      {
+        \eject
+      }
+    \bool_if:NT \l__incgra_overlay_bool
+      {
+        \hbox_set:Nn \igrbox
+          {
+            \begin{tikzpicture}
+              \igrboxtikzcenter
+              \l__incgra_overlay_code_tl
+            \end{tikzpicture}
+          }
+        \__incgra_get_box_dimensions:
+      }
+    \cs_gset_nopar:Npx \theigrpage { \thepage }
+    \__incgra_box_use_center:
+    \bool_if:NT \l__incgra_change_page_size_bool
+      {
+        \igrSetPageSize { \igrCurrentPageWidth }{ \igrCurrentPageHeight }
+      }
+  }
+\cs_generate_variant:Nn \__incgra_ship_box:nn { oo }
+
+
+\cs_new_protected:Npn \__incgra_output_page:
+  {
+    \__incgra_apply_borders:
+    \bool_set_false:N \l__incgra_apply_scaling_bool
+    \bool_set_true:N  \l__incgra_change_page_size_bool
+    \__incgra_ship_box:oo { \igrBoxWidth }{ \igrBoxHeight }
+  }
+
+
+\cs_new_protected:Npn \__incgra_output_fit:
+  {
+    \bool_set_true:N \l__incgra_apply_scaling_bool
+    \bool_set_true:N \l__incgra_change_page_size_bool
+    \bool_if:NTF \l__incgra_turn_bool
+      {
+        \__incgra_ship_box:oo { \l__incgra_target_heigth_tl }{ \l__incgra_target_width_tl }
+      }
+      {
+        \__incgra_ship_box:oo { \l__incgra_target_width_tl } {\l__incgra_target_heigth_tl }
+      }
+  }
+
+
+\cs_new_protected:Npn \__incgra_output_center:
+  {
+    \bool_set_true:N \l__incgra_apply_scaling_bool
+    \bool_if:NTF \l__incgra_turn_bool
+      {
+        \bool_set_true:N \l__incgra_change_page_size_bool
+        \__incgra_ship_box:oo { \igrPageHeight }{ \igrPageWidth }
+      }
+      {
+        \bool_set_false:N \l__incgra_change_page_size_bool
+        \__incgra_ship_box:oo { \igrPageWidth }{ \igrPageHeight }
+      }
+  }
+
+
+\NewDocumentCommand \igrcenterfit { m m +m }
+  {
+    \group_begin:
+    \tl_set:Ne \l__incgra_target_width_tl { #1 }
+    \tl_set:Ne \l__incgra_target_heigth_tl { #2 }
+    \__incgra_box_set:n { #3 }
+    \__incgra_output_fit:
+    \group_end:
+  }
+
+
+\NewDocumentCommand \igrpage { +m }
+  {
+    \group_begin:
+    \__incgra_box_set:n { #1 }
+    \__incgra_output_page:
+    \group_end:
+  }
+
+
+\NewDocumentCommand \igrcenter { +m }
+  {
+    \group_begin:
+    \__incgra_box_set:n { #1 }
+    \__incgra_output_center:
+    \group_end:
+  }
+
+
+\cs_new_protected_nopar:Npn \__incgra_if_file_exist_extensions:nTF #1
+  {
+    \bool_set_false:N \l__incgra_file_exist_bool
+    \clist_map_inline:Nn \l__incgra_extensions_clist
+      {
+        \file_if_exist:nTF { #1 ##1 }
+          {
+            \tl_put_right:Nn \nt {##1}
+            \bool_set_true:N \l__incgra_file_exist_bool
+            \clist_map_break:
+          }
+      }
+    \bool_if:NTF \l__incgra_file_exist_bool
+  }
+
+
+\cs_new_protected_nopar:Npn \__incgra_if_file_exist_extensions_star:nTF #1#2#3
+  {
+    \file_if_exist:nTF { #1 }
+      {
+        #2
+      }
+      {
+        \__incgra_if_file_exist_extensions:nTF {#1}{#2}{#3}
+      }
+  }
+
+
+
+\cs_new_protected_nopar:Npn \__incgra_includegraphics:nn #1#2
+  {
+    \__incgra_match_hook:
+    \bool_if:NTF \g__incgra_multi_include_bool
+      {
+        \bool_if:NTF \g__incgra_first_include_bool
+          {
+            \__incgra_box_set:n
+              {
+                \exp_args:No \__incgra_include_graphics_base:nn { \l__incgra_options_tl, #1 }{ #2 }
+                \tl_if_empty:NF \l__incgra_label_text_tl { \label { \l__incgra_label_text_tl } }
+              }
+            \__incgra_outout:
+            \tl_if_empty:NF \l__incgra_bookmark_heading_text_tl
+              {
+                \exp_args:No \__incgra_bookmark_base:nn
+                  { \l__incgra_bookmark_heading_options_tl, dest=\igrAutoTarget }
+                  { \l__incgra_bookmark_heading_text_tl }
+              }
+            \bool_gset_false:N \g__incgra_first_include_bool
+          }
+          {
+            \__incgra_box_set:n
+              {
+                \exp_args:No \__incgra_include_graphics_base:nn { \l__incgra_options_tl, #1 }{ #2 }
+              }
+            \__incgra_outout:
+          }
+      }
+      {
+        \__incgra_box_set:n
+        {
+          \exp_args:No \__incgra_include_graphics_base:nn { \l__incgra_options_tl, #1 }{ #2 }
+          \tl_if_empty:NF \l__incgra_label_text_tl { \label { \l__incgra_label_text_tl } }
+        }
+        \__incgra_outout:
+      }
+    \tl_if_empty:NF \l__incgra_bookmark_text_tl
+      {
+        \exp_args:No \__incgra_bookmark_base:nn
+          { \l__incgra_bookmark_options_tl, dest=\igrAutoTarget }
+          { \l__incgra_bookmark_text_tl }
+      }
+  }
+
+\cs_generate_variant:Nn \__incgra_includegraphics:nn { nV }
+
+
+\cs_new_protected_nopar:Npn \__incgra_include_graphics_base:nn #1
+  {
+    \__incgra_include_graphics_base:w [ #1 ]
+  }
+
+\cs_new_protected_nopar:Npn \__incgra_bookmark_base:nn #1
+  {
+    \bookmark [ #1 ]
+  }
+
+
+\NewDocumentCommand \incgraph { +O{} O{} m }
+  {
+    \group_begin:
+    \igrset{#1}
+    \bool_gset_false:N \g__incgra_multi_include_bool
+    \tl_clear_new:N \nt
+    \tl_set:Nn \nt {#3}
+    \__incgra_if_file_exist:nTF{#3}
+      {
+        \__incgra_includegraphics:nV {#2} \nt
+      }
+      {}
+    \group_end:
+  }
+
+
+\NewDocumentCommand \incmultigraph { +O{} O{} m m }
+  {
+    \group_begin:
+    \igrset{#1}
+    \bool_gset_true:N \g__incgra_multi_include_bool
+    \bool_gset_true:N \g__incgra_first_include_bool
+    \tl_clear_new:N \nt
+    \tl_clear_new:N \nn
+    \foreach \n [count=\ni] in {#4}
+      {
+        \tl_set:Nn \nt {#3}
+        \tl_set:Ne \nn { \__incgra_zerofill:n { \n } }
+        \__incgra_if_file_exist:nTF{#3}
+          {
+            \__incgra_includegraphics:nV {#2} \nt
+          }
+          {}
+      }
+    \group_end:
+  }
+
+
+\NewDocumentEnvironment{inctext}{ +O{} }
+  {
+    \igrset{#1}
+    \__incgra_match_hook:
+    \__incgra_set_next_target:
+    \clearpage
+    \begin{lrbox}{\igrbox}
+  }
+  {
+    \unskip
+    \tl_if_empty:NF \l__incgra_label_text_tl
+      {
+        \label{\l__incgra_label_text_tl}
+      }
+    \end{lrbox}
+    \__incgra_get_box_dimensions:
+    \__incgra_outout:
+    \tl_if_empty:NF \l__incgra_bookmark_text_tl
+      {
+        \exp_args:No \__incgra_bookmark_base:nn
+          { \l__incgra_bookmark_options_tl, dest=\igrAutoTarget }
+          { \l__incgra_bookmark_text_tl }
+      }
+  }
+
+
+\igrset
+  {
+    include~command/.code =
+      {
+        \cs_set_eq:NN \__incgra_include_graphics_base:w #1
+      },
+    include~command/.default = \includegraphics,
+    extensions/.code =
+      {
+        \clist_set:Nn \l__incgra_extensions_clist {#1}
+      },
+    extensions~add/.code =
+      {
+        \clist_put_right:Nn \l__incgra_extensions_clist {#1}
+      },
+    extensions~from~graphics/.code=
+      {
+        \cs_if_exist:NT \Gin@extensions
+          {
+            \clist_set:NV \l__incgra_extensions_clist \Gin@extensions
+          }
+      },
+    existence~check/.code =
+      {
+        \cs_set_eq:NN \__incgra_if_file_exist:nTF #1
+      },
+    ignore~on~not~found/.style =
+      {
+        existence~check = \file_if_exist:nTF
+      },
+    ignore~on~not~found~with~extensions/.code =
+      {
+        \cs_set_eq:NN \__incgra_if_file_exist:nTF \__incgra_if_file_exist_extensions:nTF
+        \quark_if_nil:NF { #1 }
+          {
+            \clist_set:Nn \l__incgra_extensions_clist {#1}
+          }
+      },
+    ignore~on~not~found~with~extensions/.default = \q_nil,
+    ignore~on~not~found~with~extensions*/.code =
+      {
+        \cs_set_eq:NN \__incgra_if_file_exist:nTF \__incgra_if_file_exist_extensions_star:nTF
+        \quark_if_nil:NF { #1 }
+          {
+            \clist_set:Nn \l__incgra_extensions_clist {#1}
+          }
+      },
+    ignore~on~not~found~with~extensions*/.default = \q_nil,
+    no~existence~check/.style =
+      {
+        existence~check = \use_ii:nnn
+      },
+    fail~on~not~found/.style = no~existence~check,
+    options/.store~in = \l__incgra_options_tl,
+    options~add/.code =
+      {
+        \tl_if_empty:NTF \l__incgra_options_tl
+          {
+            \tl_set:Nn \l__incgra_options_tl { #1 }
+          }
+          {
+            \tl_put_right:Nn \l__incgra_options_tl { ,#1 }
+          }
+      },
+    bookmark/.store~in                 = \l__incgra_bookmark_text_tl,
+    bookmark~options/.store~in         = \l__incgra_bookmark_options_tl,
+    bookmark~heading/.store~in         = \l__incgra_bookmark_heading_text_tl,
+    bookmark~heading~options/.store~in = \l__incgra_bookmark_heading_options_tl,
+    label/.store~in                    = \l__incgra_label_text_tl,
+    overlay~page~number~options/.store~in = \l__incgra_overlay_pagenumber_options_tl,
+    overlay~page~number~options~app/.code =
+      {
+        \tl_if_empty:NTF \l__incgra_overlay_pagenumber_options_tl
+          {
+            \tl_set:Nn \l__incgra_overlay_pagenumber_options_tl { #1 }
+          }
+          {
+            \tl_put_right:Nn \l__incgra_overlay_pagenumber_options_tl { ,#1 }
+          }
+      },
+    overlay~page~number~at/.style =
+      {
+        overlay =
+          {
+            \exp_last_unbraced:NNV \node[\l__incgra_overlay_pagenumber_options_tl]~at~(#1)~{\thepage};
+          }
+      },
+  }
+
+
+\cs_new_protected:Npn \__incgra_make_zerofill:nnnnnnnnn #1#2#3#4#5#6#7#8#9
+  {
+    \cs_gset_nopar:Npn \__incgra_zerofill_construct:n ##1
+      {
+        \if_int_compare:w ##1 < 10 \exp_stop_f: #1
+        \else: \if_int_compare:w ##1 < 100 \exp_stop_f: #2
+        \else: \if_int_compare:w ##1 < 1000 \exp_stop_f: #3
+        \else: \if_int_compare:w ##1 < 10000 \exp_stop_f: #4
+        \else: \if_int_compare:w ##1 < 100000 \exp_stop_f: #5
+        \else: \if_int_compare:w ##1 < 1000000 \exp_stop_f: #6
+        \else: \if_int_compare:w ##1 < 10000000 \exp_stop_f: #7
+        \else: \if_int_compare:w ##1 < 100000000 \exp_stop_f: #8
+        \else: \if_int_compare:w ##1 < 1000000000 \exp_stop_f: #9
+        \fi:\fi:\fi:\fi:\fi:\fi:\fi:\fi:\fi:
+        ##1
+      }
+  }
+
+\NewDocumentCommand \igrmakezerofill { m m }
+  {
+    \cs_gset_nopar:Npn \__incgra_zerofill_construct:n ##1 { ##1 }
+    \if_case:w #2 \exp_stop_f:
+    \or:\or: \__incgra_make_zerofill:nnnnnnnnn{0}{}{}{}{}{}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{00}{0}{}{}{}{}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{000}{00}{0}{}{}{}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{0000}{000}{00}{0}{}{}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{00000}{0000}{000}{00}{0}{}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{000000}{00000}{0000}{000}{00}{0}{}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{0000000}{000000}{00000}{0000}{000}{00}{0}{}{}
+    \or: \__incgra_make_zerofill:nnnnnnnnn{00000000}{0000000}{000000}{00000}{0000}{000}{00}{0}{}
+    \else: \__incgra_make_zerofill:nnnnnnnnn{000000000}{00000000}{0000000}{000000}{00000}{0000}{000}{00}{0}
+    \fi:
+    \cs_set_eq:NN #1 \__incgra_zerofill_construct:n
+  }
+
+
+\NewDocumentCommand \igrsetmatchvalue { m m }
+  {
+    \pgfkeyssetvalue { /igrmatch/#1 }{ #2 }
+  }
+
+\NewExpandableDocumentCommand \igrifmatch { m m m }
+  {
+    \pgfkeysifdefined{ /igrmatch/#1 }
+      {
+        \pgfkeysgetvalue { /igrmatch/#1 }{ \igrmatchvalue }
+        #2
+      }
+      { #3 }
+  }
+
+
+\pgfkeys
+  {
+    /igrsetmatch/.unknown/.code=
+      {
+        \cs_set_eq:NN \igrmatchkey \pgfkeyscurrentname
+        \igrsetmatchvalue { \igrmatchkey }{ #1 }
+      }
+  }
+
+\NewDocumentCommand \igrsetmatches { m }
+  {
+    \pgfkeys{ /igrsetmatch/.cd, #1 }
+  }
+
+
+\cs_new_protected:Npn \__incgra_define_paper_size:n #1
+  {
+    \__incgra_define_paper_size:w #1 \q_stop
+  }
+
+
+\use:x
+  {
+    \cs_new_protected:Npn \exp_not:N\__incgra_define_paper_size:w ##1 \c_colon_str ##2 \exp_not:N \q_stop
+  }
+  {
+    \__incgra_define_paper_size:nn { #1 }{ #2 }
+  }
+
+
+\cs_new_protected:Npn \__incgra_define_paper_size:nn #1#2
+  {
+    \tl_set:Ne \l__incgra_target_width_tl { #1 }
+    \tl_set:Ne \l__incgra_target_heigth_tl { #2 }
+    \cs_set_eq:NN \__incgra_outout: \__incgra_output_fit:
+  }
+
+\igrset
+  {
+    zerofill /    .code = \igrmakezerofill { \__incgra_zerofill:n }{ #1 },
+    set~matches / .code = \igrsetmatches { #1 },
+    hyper / .code  = \bool_set_true:N \l__incgra_set_hypertarget_bool,
+    no~hyper/.code = \bool_set_false:N \l__incgra_set_hypertarget_bool,
+    if~match~code / .code~args = {#1#2#3}
+      {
+        \cs_set_nopar:Npn \__incgra_match_hook: { \igrifmatch{#1}{#2}{#3} }
+      },
+    if~match~set/  .style~args = {#1#2#3}{if~match~code={#1}{\igrset{#2}}{\igrset{#3}}},
+    if~match~set~bookmark / .style~args = {#1#2#3}{if~match~code={#1}{\igrset{bookmark={#2}}}{\igrset{bookmark={#3}}}},
+    disable~match / .code =
+      {
+        \cs_set_nopar:Npn \__incgra_match_hook: { }
+      },
+    pagestyle / .store~in = \igrpagestyle,
+    target / .code = { \igrtargetset{#1} },
+    __overlay_code / .code = \tl_set:Nn \l__incgra_overlay_code_tl { #1 },
+    overlay / .code =
+      {
+        \bool_set_true:N \l__incgra_overlay_bool
+        \igrset { __overlay_code={#1} }
+      },
+    overlay~page~number~at~top / .style = {overlay~page~number~at={\igrBoxWidth/2,\igrBoxHeight-#1}},
+    overlay~page~number~at~top / .default = 1.5cm,
+    overlay~page~number~at~bottom / .style = {overlay~page~number~at={\igrBoxWidth/2,#1}},
+    overlay~page~number~at~bottom / .default = 1.5cm,
+    no~overlay / .code = \bool_set_false:N \l__incgra_overlay_bool,
+    portrait /   .code = \bool_set_false:N \l__incgra_turn_bool,
+    landscape /  .code = \bool_set_true:N \l__incgra_turn_bool,
+    paper~size / .code = \__incgra_define_paper_size:n{#1},
+    a0paper /    .code = \__incgra_define_paper_size:nn{841mm}{1189mm},
+    a1paper /    .code = \__incgra_define_paper_size:nn{594mm}{841mm},
+    a2paper /    .code = \__incgra_define_paper_size:nn{420mm}{594mm},
+    a3paper /    .code = \__incgra_define_paper_size:nn{297mm}{420mm},
+    a4paper /    .code = \__incgra_define_paper_size:nn{210mm}{297mm},
+    a5paper /    .code = \__incgra_define_paper_size:nn{148mm}{210mm},
+    a6paper /    .code = \__incgra_define_paper_size:nn{105mm}{148mm},
+    a7paper /    .code = \__incgra_define_paper_size:nn{74mm}{105mm},
+    a8paper /    .code = \__incgra_define_paper_size:nn{52mm}{74mm},
+    a9paper /    .code = \__incgra_define_paper_size:nn{37mm}{52mm},
+    a10paper /   .code = \__incgra_define_paper_size:nn{26mm}{37mm},
+    b0paper /    .code = \__incgra_define_paper_size:nn{1000mm}{1414mm},
+    b1paper /    .code = \__incgra_define_paper_size:nn{707mm}{1000mm},
+    b2paper /    .code = \__incgra_define_paper_size:nn{500mm}{707mm},
+    b3paper /    .code = \__incgra_define_paper_size:nn{353mm}{500mm},
+    b4paper /    .code = \__incgra_define_paper_size:nn{250mm}{353mm},
+    b5paper /    .code = \__incgra_define_paper_size:nn{176mm}{250mm},
+    b6paper /    .code = \__incgra_define_paper_size:nn{125mm}{176mm},
+    b7paper /    .code = \__incgra_define_paper_size:nn{88mm}{125mm},
+    b8paper /    .code = \__incgra_define_paper_size:nn{62mm}{88mm},
+    b9paper /    .code = \__incgra_define_paper_size:nn{44mm}{62mm},
+    b10paper /   .code = \__incgra_define_paper_size:nn{31mm}{44mm},
+    c0paper /    .code = \__incgra_define_paper_size:nn{917mm}{1297mm},
+    c1paper /    .code = \__incgra_define_paper_size:nn{648mm}{917mm},
+    c2paper /    .code = \__incgra_define_paper_size:nn{648mm}{917mm},
+    c3paper /    .code = \__incgra_define_paper_size:nn{324mm}{458mm},
+    c4paper /    .code = \__incgra_define_paper_size:nn{229mm}{324mm},
+    c5paper /    .code = \__incgra_define_paper_size:nn{162mm}{229mm},
+    c6paper /    .code = \__incgra_define_paper_size:nn{114mm}{162mm},
+    c7paper /    .code = \__incgra_define_paper_size:nn{81mm}{114mm},
+    c8paper /    .code = \__incgra_define_paper_size:nn{57mm}{81mm},
+    c9paper /    .code = \__incgra_define_paper_size:nn{40mm}{57mm},
+    c10paper /   .code = \__incgra_define_paper_size:nn{28mm}{40mm},
+    d0paper /    .code = \__incgra_define_paper_size:nn{771mm}{1091mm},
+    d1paper /    .code = \__incgra_define_paper_size:nn{545mm}{771mm},
+    d2paper /    .code = \__incgra_define_paper_size:nn{385mm}{545mm},
+    d3paper /    .code = \__incgra_define_paper_size:nn{272mm}{385mm},
+    d4paper /    .code = \__incgra_define_paper_size:nn{192mm}{272mm},
+    d5paper /    .code = \__incgra_define_paper_size:nn{136mm}{192mm},
+    d6paper /    .code = \__incgra_define_paper_size:nn{96mm}{136mm},
+    d7paper /    .code = \__incgra_define_paper_size:nn{68mm}{96mm},
+    executivepaper / .code = \__incgra_define_paper_size:nn{7.25in}{10.5in},
+    letterpaper / .code = \__incgra_define_paper_size:nn{8.5in}{11in},
+    legalpaper /  .code = \__incgra_define_paper_size:nn{8.5in}{14in},
+    ledgerpaper / .code = \__incgra_define_paper_size:nn{17in}{11in},
+    documentpaper / .style = \__incgra_define_paper_size:nn{\igrOrginalPageWidth}{\igrOrginalPageHeight},
+    currentpaper /  .code = { \cs_set_eq:NN \__incgra_outout: \__incgra_output_center: },
+    graphicspaper / .code = { \cs_set_eq:NN \__incgra_outout: \__incgra_output_page: },
+    paper /  .style = { #1paper },
+    center / .style = currentpaper,
+    page /   .style = graphicspaper,
+    left~border /   .code = \tl_set:Ne \l__incgra_left_border_tl   { \dim_eval:n { #1 } },
+    bottom~border / .code = \tl_set:Ne \l__incgra_bottom_border_tl { \dim_eval:n { #1 } },
+    right~border /  .code = \tl_set:Ne \l__incgra_right_border_tl  { \dim_eval:n { #1 } },
+    top~border /    .code = \tl_set:Ne \l__incgra_top_border_tl    { \dim_eval:n { #1 } },
+    horizontal~border / .style = { left~border={#1}, right~border={#1} },
+    vertical~border   / .style = { bottom~border={#1}, top~border={#1} },
+    border            / .style = { left~border={#1}, bottom~border={#1}, right~border={#1}, top~border={#1} },
+    xshift / .code =
+      {
+        \tl_set:Ne \l__incgra_left_border_tl  { \dim_eval:n { \l__incgra_left_border_tl + #1 } }
+        \tl_set:Ne \l__incgra_right_border_tl { \dim_eval:n { \l__incgra_right_border_tl - #1 } }
+      },
+    yshift / .code =
+      {
+        \tl_set:Ne \l__incgra_bottom_border_tl { \dim_eval:n { \l__incgra_bottom_border_tl + #1 } }
+        \tl_set:Ne \l__incgra_top_border_tl    { \dim_eval:n { \l__incgra_top_border_tl - #1 } }
+      },
+    autosize / .is~choice,
+    autosize / true / .code = \bool_set_true:N \l__incgra_autosize_bool,
+    autosize / false / .code = \bool_set_false:N \l__incgra_autosize_bool,
+    autosize/.default = true,
+    autosize~width~gap  /.code = \tl_set:Ne \l__incgra_autosize_width_gap_tl  { \dim_eval:n { #1 } },
+    autosize~height~gap /.code = \tl_set:Ne \l__incgra_autosize_height_gap_tl  { \dim_eval:n { #1 } },
+    autosize~gap /.style = {autosize~width~gap={#1}, autosize~height~gap={#1} },
+    autosize~min~scale  /.code = \fp_set:Nn \l__incgra_autosize_min_scale_fp { #1 },
+    autosize~max~scale  /.code = \fp_set:Nn \l__incgra_autosize_max_scale_fp { #1 },
+  }
+
+
+\igrset
+  {
+    graphicspaper,
+    options = ,
+    bookmark = ,
+    bookmark~options = ,
+    bookmark~heading = ,
+    bookmark~heading~options = ,
+    label = ,
+    zerofill = 0,
+    hyper,
+    disable~match,
+    include~command,
+    ignore~on~not~found,
+    extensions = { .jpg, .png },
+    pagestyle = empty,
+    __overlay_code = ,
+    no~overlay,
+    portrait,
+    border = 0pt,
+    overlay~page~number~options =
+      {
+        fill~opacity=0.35, draw~opacity=0.5, text~opacity=1,
+        inner~xsep=1em, rounded~corners, fill=white, draw=black
+      },
+    autosize = false,
+    autosize~width~gap = 0pt,
+    autosize~height~gap = 0pt,
+    autosize~min~scale = 0.001,
+    autosize~max~scale = 1000,
+  }
+

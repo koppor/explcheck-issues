@@ -1,0 +1,610 @@
+%% code part of frkim
+%% v1.1   (\AddRule extended, \RenewVowels added)
+%% v1.0.2 (\frkhangulfont, \bf)
+%% v1.0.1 (\AddRule)
+%% v1.1   (\jamoul)
+%% 
+\char_set_catcode_other:N \@
+
+\clist_const:Nn \c_hgvow_clist { a, e, o, u, y, i, @, * }
+\tl_set:Nn \zero_const { x }
+
+\tl_new:N \g_cho_tl
+\tl_new:N \g_jun_tl
+\tl_new:N \g_jon_tl
+
+\tl_new:N  \l_currtk_tl
+\int_new:N \l_cflag_int
+
+%\bool_new:N \opt_zeroisx_bool
+
+\NewDocumentCommand \zeroisx {}
+{
+	\bool_set_true:N \opt_zeroisx_bool
+}
+
+\NewDocumentCommand \zeroisrq {}
+{
+	\bool_set_false:N \opt_zeroisx_bool
+}
+
+\cs_if_exist:NT \rq {
+	\let\originalrq\rq
+	\cs_undefine:N \rq 
+}
+
+\NewDocumentCommand \rq {}
+{
+	\symbol{"0027}
+}
+
+%%% jamoul cmd
+\tl_new:N \l_frkjamoulcmd_tl
+
+\tl_set:Nn \frk_space_here { \exp_args:No \use:c { \l_frkjamoulcmd_tl } { \c_space_token } }
+\tl_set:Nn \l_frkjamoulcmd_tl {}
+
+\NewDocumentCommand \jamoul { m m }
+{
+  \group_begin:
+	\bool_if:NTF \opt_luatexko_loaded
+	{
+		\use:c { #1 } { \hg { #2 } }
+	}
+	{
+		\tl_set:Nn \l_frkjamoulcmd_tl { #1 }
+		\hg { #2 }
+	}
+  \group_end:
+}
+
+\DeclareDocumentCommand \setpmhangulfont { o m o }
+{
+	\IfValueTF { #1 }
+	{
+		\tl_set:Nn \frkhangulfontfeature { #1 }
+		\IfValueT { #3 }
+		{
+			\tl_put_right:Nn \frkhangulfontfeature {  , #3 }
+		}
+	}
+	{
+		\IfValueT { #3 }
+		{
+			\tl_set:Nn \frkhangulfontfeature { #3 }
+		}
+	}
+	
+	\tl_set:Nn \frkhangulfont { #2 }
+}
+
+\NewDocumentCommand \hg { m }
+{	
+	\regex_split:nnN { \s } { #1 } \l_tmpa_seq
+	
+	\seq_map_indexed_inline:Nn \l_tmpa_seq
+	{
+		\_process_word:n { ##2 }
+		
+		\int_compare:nT { ##1 < \seq_count:N \l_tmpa_seq }
+		{ \frk_space_here } 
+	}
+
+}
+
+\cs_new:Npn \_process_word:n #1
+{
+	\tl_set:Nn \l_aword_tl { #1 }
+	\bool_if:NT \opt_zeroisx_bool 
+	{
+		\regex_replace_all:nnN { ' } { \c{rq} } \l_aword_tl
+	}
+	\clear_all_var:
+	\tl_map_function:NN \l_aword_tl \_main_fn:n
+	%%% 마지막에 끝난 조건에 따라
+	\int_case:nn { \l_cflag_int }
+	{
+		{ 1 } 	{%% 모음으로 끝남
+					\tl_gput_right:NV \g_jun_tl \l_currtk_tl
+					\build_syl:
+				}
+		{ 3 }	{%% 자음으로 끝남
+					\tl_gput_right:NV \g_jon_tl \l_currtk_tl
+					\build_syl:
+				}
+	}
+}
+
+\cs_new:Nn \clear_all_var:
+{
+	\tl_gclear:N \g_cho_tl
+	\tl_gclear:N \g_jun_tl
+	\tl_gclear:N \g_jon_tl
+	
+	\tl_clear:N \l_currtk_tl
+	
+	\int_zero:N \l_cflag_int
+}
+
+\tl_new:N \l_delayedtoken_tl
+
+\cs_new:Npn \_main_fn:n #1
+{
+	\regex_match:nnTF { ['@a-zA-Z\*] } { #1 }
+	{
+    	\clist_if_in:NnTF \c_hgvow_clist { #1 }
+    	{
+    		\_proc_vowel:n { #1 }
+    	}
+    	{
+    		\_proc_const:n { #1 }
+    	}
+	}
+	{
+		\str_if_eq:nnTF { #1 } { - }
+		{
+			\_proc_dash:
+		}
+		{
+    		\int_compare:nTF { \l_cflag_int == 0 } 
+    		{
+    			#1
+    		}
+    		{
+    			\tl_put_right:Nn \l_delayedtoken_tl { #1 }
+    		}
+		}
+	}
+}
+
+\cs_new:Npn \_proc_dash:
+{
+	\int_case:nn { \l_cflag_int }
+	{
+		{ 0 } { }
+		{ 1 } { \tl_gput_right:NV \g_jun_tl \l_currtk_tl \build_syl: }
+		{ 3 } { \tl_gput_right:NV \g_jon_tl \l_currtk_tl \build_syl: }
+	}
+	
+	\int_zero:N \l_cflag_int
+	\tl_clear:N \l_currtk_tl
+}
+
+\cs_new:Npn \_proc_vowel:n #1
+{
+	\int_case:nn { \l_cflag_int }
+	{
+		{ 0 }	{%%% 직전이 0이면 초성 확정
+					\tl_if_empty:NT \l_currtk_tl  %%% 어두에 모음 => 초성을 'ㅇ'으로
+					{
+						\tl_set:No \l_currtk_tl { \zero_const }
+					}
+					
+					\tl_gset:NV \g_cho_tl \l_currtk_tl
+					\tl_set:Nn \l_currtk_tl { #1 }
+					
+					\int_set:Nn \l_cflag_int { 1 }
+				}
+		{ 1 }	{%%% 직전이 모음이면 모음 모음
+					\tl_gput_right:NV \g_jun_tl \l_currtk_tl
+					\tl_set:Nn \l_currtk_tl { #1 }
+					\int_set:Nn \l_cflag_int { 1 }
+				}
+		{ 3 }	{%%% 직전이 자음이면 직전 토큰은 다음 음절의 초성임
+				 %%% 이전 문자를 출력
+					\build_syl:
+				 %%% 초성 확정
+					\tl_gset:NV \g_cho_tl \l_currtk_tl
+					\tl_set:Nn \l_currtk_tl { #1 }
+					\int_set:Nn \l_cflag_int { 1 }
+				}
+	}
+}
+
+\cs_new:Npn \_proc_const:n #1
+{
+	\int_case:nn { \l_cflag_int }
+	{
+		{ 0 }	{%%% 어절의 시작. 초성 생략 규칙이 없으므로 무조건 초성임.
+				 %%% 어절의 시작이 아니면?
+					\tl_put_right:Nn \l_currtk_tl { #1 }
+					\int_set:Nn \l_cflag_int { 0 }
+				}
+		{ 1 }	{%%% 직전이 모음이면 중성 확정
+					\tl_gput_right:NV \g_jun_tl \l_currtk_tl
+					\tl_set:Nn \l_currtk_tl { #1 }
+					\int_set:Nn \l_cflag_int { 3 }
+				}
+		{ 3 }	{%%% 직전이 자음이면 종성 모음
+					\tl_gput_right:NV \g_jon_tl \l_currtk_tl
+					\tl_set:Nn \l_currtk_tl { #1 }
+					\int_set:Nn \l_cflag_int { 3 }
+				}
+	}
+}
+
+%%% 
+%%%%%%%%% DICTIONARIES
+\prop_const_from_keyval:Nn \c_frkcho_prop
+{
+	g 	= \char"1100,
+	G 	= \char"1101,
+	n	= \char"1102,
+	d	= \char"1103,
+	D	= \char"1104,
+	r	= \char"1105,
+	m	= \char"1106,
+	b	= \char"1107,
+	B	= \char"1108,
+	s	= \char"1109,
+	S	= \char"110A,
+	x	= \char"110B,
+	q	= \char"110B,
+	j	= \char"110C,
+	J	= \char"110D,
+	c	= \char"110E,
+	k	= \char"110F,
+	t	= \char"1110,
+	p	= \char"1111,
+	h	= \char"1112,
+	Q	= \char"114C,
+	z	= \char"1140,
+	X	= \char"1159,
+	v	= \char"112B,
+%%%%
+	bs	= \char"1121,
+	bd	= \char"1120,
+	bs	= \char"1121,
+	bsg	= \char"1122,
+	bsd	= \char"1123,
+	bsj	= \char"1126,
+	sg	= \char"112D,
+	sd	= \char"112F,
+	sr	= \char"1130,
+	sb	= \char"1132,
+	sj	= \char"1136,
+	sc	= \char"1137,
+	sk	= \char"1138,
+	st	= \char"1139,
+	sp	= \char"113A,
+%%% fillet
+	w 	= \char"115F,
+}
+
+\prop_const_from_keyval:Nn \c_frkjung_prop
+{
+	a	= \char"1161,
+	ai	= \char"1162,
+	ia	= \char"1163,
+	iai	= \char"1164,
+	e	= \char"1165,
+	ei	= \char"1166,
+	ie	= \char"1167,
+	iei	= \char"1168,
+	o	= \char"1169,
+	oa	= \char"116A,
+	oai	= \char"116B,
+	oi	= \char"116C,
+	io	= \char"116D,
+	u	= \char"116E,
+	ue	= \char"116F,
+	uei	= \char"1170,
+	ui	= \char"1171,
+	iu	= \char"1172,
+	y	= \char"1173,
+	yi	= \char"1174,
+	i	= \char"1175,
+	@	= \char"119E,
+	@i	= \char"11A1,
+	@@	= \char"11A2,
+%%% fillet
+	*	= \char"1160,
+}
+
+\prop_const_from_keyval:Nn \c_frkjong_prop
+{
+	g	= \char"11A8,
+	G	= \char"11A9,
+	gs	= \char"11AA,
+	n	= \char"11AB,
+	nj	= \char"11AC,
+	nh	= \char"11AD,
+	d	= \char"11AE,
+	r	= \char"11AF,
+	rg	= \char"11B0,
+	rm	= \char"11B1,
+	rb	= \char"11B2,
+	rs	= \char"11B3,
+	rt	= \char"11B4,
+	rp	= \char"11B5,
+	rh	= \char"11B6,
+	m	= \char"11B7,
+	b	= \char"11B8,
+	bs	= \char"11B9,
+	s	= \char"11BA,
+	S	= \char"11BB,
+	q	= \char"11BC,
+	Q	= \char"11F0,
+	j	= \char"11BD,
+	c	= \char"11BE,
+	k	= \char"11BF,
+	t	= \char"11C0,
+	p	= \char"11C1,
+	h	= \char"11C2,
+	v	= \char"11E6,
+%%%%%
+	rX	= \char"11D9,
+	X  	= \char"11F9,
+	mg	= \char"11DA,
+	sg	= \char"11E7,
+	sd	= \char"11E8,
+	sr	= \char"11E9,
+	sb	= \char"11EA,
+}
+
+\prop_new:N \l_usercho_prop
+\prop_new:N \l_userjung_prop
+\prop_new:N \l_userjong_prop
+
+\NewDocumentCommand \AddRule { m m }
+{
+	\clist_set:Nn \l_tmpa_clist { #2 }
+	\clist_map_inline:Nn \l_tmpa_clist
+	{
+		\_split_userrule_keyval:w ##1 \q_stop
+		\prop_put:cVx { l_user #1 _prop } \l_tmpkey_tl {\exp_not:N \char"\l_tmpval_tl}
+	}
+}
+
+\cs_new:Npn \_split_userrule_keyval:w #1 = #2 \q_stop
+{
+	\tl_set:Nn \l_tmpkey_tl { #1 }
+	\tl_set:Nn \l_tmpval_tl { #2 }
+}
+
+\cs_new:Nn \build_syl:
+{
+  \group_begin:
+    \cs_if_exist:NTF \hangulfontspec
+  	{
+  		\exp_last_unbraced:NNf \hangulfontspec [ \frkhangulfontfeature ] { \frkhangulfont }
+  	}
+  	{
+  		\exp_last_unbraced:NNf \fontspec [ \frkhangulfontfeature ] { \frkhangulfont }
+  	}
+
+  	\tl_if_empty:NTF \l_frkjamoulcmd_tl
+  	{
+  		\build_syl_main:
+  	}
+  	{
+  	  \sys_if_engine_xetex:T { \allowbreak }
+  	  \exp_args:No \use:c { \l_frkjamoulcmd_tl } {
+  	  	\build_syl_main:
+  	  }
+  	}
+	\group_end:
+
+	\tl_clear:N \l_delayedtoken_tl
+}
+
+\cs_new:Nn \build_syl_main:
+{
+	\bool_if:NF \opt_zeroisx_bool
+	{
+		\exp_args:Nno
+		\regex_replace_all:nnN { ' } { \zero_const } \g_cho_tl
+	}
+	\tl_if_empty:NF \g_cho_tl
+	{
+		\prop_get:NVNTF \l_usercho_prop \g_cho_tl \l_tmpone_tl 
+			{ \tl_use:N \l_tmpone_tl }
+			{
+				\prop_get:NVNT \c_frkcho_prop \g_cho_tl \l_tmpone_tl
+				{ \tl_use:N \l_tmpone_tl }
+			}
+	}
+	\tl_if_empty:NF \g_jun_tl
+	{
+		\prop_get:NVNTF \l_userjung_prop \g_jun_tl \l_tmptwo_tl 
+			{ \tl_use:N \l_tmptwo_tl }
+			{
+				\prop_get:NVNT \c_frkjung_prop \g_jun_tl \l_tmptwo_tl
+				{ \tl_use:N \l_tmptwo_tl }
+			}
+	}
+	\tl_if_empty:NF \g_jon_tl 
+	{
+		\prop_get:NVNTF \l_userjong_prop \g_jon_tl \l_tmpthr_tl 
+			{ \tl_use:N \l_tmpthr_tl }
+			{
+				\prop_get:NVNT \c_frkjong_prop \g_jon_tl \l_tmpthr_tl
+				{ \tl_use:N \l_tmpthr_tl }
+			}
+	}
+
+	\tl_gclear:N \g_jun_tl
+	\tl_gclear:N \g_jon_tl
+
+	\tl_if_empty:NF \l_delayedtoken_tl
+	{
+		\l_delayedtoken_tl
+	}
+}
+
+%%%% \frdash
+\NewDocumentCommand \frdash { }
+{
+	\symbol{"002D}
+}
+
+\NewDocumentCommand \frendash {}
+{
+	--
+}
+
+\NewDocumentCommand \fremdash {}
+{
+	---
+}
+
+\prop_const_from_keyval:Nn \my_compjamo_prop
+{
+	!g	= \char"3131,
+	!G	= \char"3132,
+	!gs	= \char"3133,
+	!n	= \char"3134,
+	!nj	= \char"3135,
+	!nh	= \char"3136,
+	!d	= \char"3137,
+	!dd	= \char"3138,
+	!r	= \char"3139,
+	!rg	= \char"313A,
+	!rm	= \char"313B,
+	!rb	= \char"313C,
+	!rs	= \char"313D,
+	!rt	= \char"313E,
+	!rp	= \char"313F,
+	!rh	= \char"3140,
+	!m	= \char"3141,
+	!b	= \char"3142,
+	!B	= \char"3143,
+	!bs	= \char"3144,
+	!s	= \char"3145,
+	!S	= \char"3146,
+	!q	= \char"3147,
+	!j	= \char"3148,
+	!J	= \char"3149,
+	!c	= \char"314A,
+	!k	= \char"314B,
+	!t	= \char"314C,
+	!p	= \char"314D,
+	!h	= \char"314E,
+	!a	= \char"314F,
+	!ai	= \char"3150,
+	!ia	= \char"3151,
+	!iai	= \char"3152,
+	!e	= \char"3153,
+	!ei	= \char"3154,
+	!ie	= \char"3155,
+	!iei	= \char"3156,
+	!o	= \char"3157,
+	!oa	= \char"3158,
+	!oai	= \char"3159,
+	!oi	= \char"315A,
+	!io	= \char"315B,
+	!u	= \char"315C,
+	!ue	= \char"315E,
+	!eui	= \char"315E,
+	!ui	= \char"315F,
+	!yi	= \char"315F,
+	!iu	= \char"3160,
+	!y	= \char"3161,
+	!yi	= \char"3162,
+	!i	= \char"3163,
+	!rX	= \char"316D,
+	!bg	= \char"3172,
+	!bsg	= \char"3174,
+	!bsd	= \char"3175,
+	!v	= \char"3178,
+	!sg	= \char"317A,
+	!sd	= \char"317C,
+	!sb	= \char"317D,
+	!sj	= \char"317E,
+	!z	= \char"317F,
+	!Q	= \char"3181,
+	!hh	= \char"3185,
+	!X	= \char"3186,
+	!@ 	= \char"318D,
+	!@i	= \char"318E,
+}
+
+\NewDocumentCommand \frcc { m }
+{
+	\space\unskip
+	\prop_get:NnNT \my_compjamo_prop {!#1} \l_tmpa_tl
+			{ \tl_use:N \l_tmpa_tl }
+}
+
+\NewDocumentCommand \activatefrcccmds { }
+{
+    \clist_set:Nn \l_tmpa_clist { g, G, n, d, D, r, m, b, B, s, S, q, Q, j, J, c, k, t, p, h, z, X, v, a, ai, ia, iai, e, ei, ie, iei, o, oi, io, oa, oai, u, ui, iu, ue, uei, i, y, yi, @}
+    \clist_map_inline:Nn \l_tmpa_clist
+    {
+    	\cs_set:cn { frcc ##1: } { \frcc{##1} }
+		\cs_set_eq:cc { frcc ##1 } { frcc ##1: }
+    }
+}
+
+%%% hangul
+\cs_set_eq:NN \endhangul \scan_stop:
+\cs_new:Npn \hangul_start:w #1 \endhangul
+{ \seq_set_split:Nnn \l_tmpa_seq { \par } { #1 }
+  \seq_map_inline:Nn \l_tmpa_seq { \hg{##1} \par } }
+\NewDocumentCommand \hangul {}
+{ \hangul_start:w }
+
+%%% activatefrcccmds
+\bool_if:NT \opt_frcccmds_bool 
+{
+	\AtBeginDocument { \activatefrcccmds }
+}
+
+%%% compatibility 
+\cs_set_eq:NN \jamoword \hg
+
+\seq_new:N \l_inputword_seq
+\seq_new:N \l_inputpar_seq
+
+\NewDocumentEnvironment { jamotext } { +b }
+{
+	\seq_set_split:Nnn \l_inputpar_seq { \par } { #1 }
+	\seq_map_indexed_function:NN \l_inputpar_seq \jamo_word:nn
+}{}
+
+\cs_new:Npn \jamo_word:nn #1 #2
+{
+%	\jamoword { #2 }
+	\seq_set_split:Nnn \l_inparpar_seq { ~ } { #2 }
+	
+	\seq_map_indexed_inline:Nn \l_inparpar_seq
+	{
+		\regex_match:nnTF { ^\!\{ } { ##2 }
+		{
+			\tl_set:Nn \l_tmpa_tl { ##2 }
+			\regex_match:nnTF { ^\!\{(.+?)\}$ } { ##2 }
+			{
+				\regex_replace_once:nnN { ^\!\{(.+?)\}$ } { \1 } \l_tmpa_tl
+				\l_tmpa_tl 
+			}
+			{
+				\tl_set_eq:NN \l_tmpb_tl \l_tmpa_tl
+				\regex_replace_once:nnN { ^\!\{(.+?)\}(.*)$ } { \1 } \l_tmpa_tl
+				\l_tmpa_tl 
+				\regex_replace_once:nnN { ^\!\{(.+?)\}(.*)$ } { \2 } \l_tmpb_tl
+				\exp_args:No \jamoword { \l_tmpb_tl }
+			}	
+		}
+		{
+			\jamoword{ ##2 }
+		}
+		
+		\int_compare:nT { ##1 < \seq_count:N \l_inparpar_seq }
+		{ \frk_space_here }
+	}
+
+	\int_compare:nT { #1 < \seq_count:N \l_inputpar_seq }
+	{ \par }
+}
+
+\NewDocumentCommand \RenewVowels { m }
+{
+	\clist_set:Nn \c_hgvow_clist { @, *, #1 }
+}
+
+\NewDocumentCommand \RenewLeadingZero { m }
+{
+	\tl_set:Nn \zero_const { #1 }
+}
+
+\endinput
