@@ -1,0 +1,262 @@
+%%% Package   : scaletextbullet -- Resize the \textbullet without changing its
+%%% vertical center
+%%% Copyright : 2024-2025 (c) Oliver Beery <beeryoliver@gmail.com>
+%%% CTAN      : https://ctan.org/pkg/scaletextbullet
+%%% Repository: https://github.com/beeryoliver/scaletextbullet
+%%% License   : The LaTeX Project Public License 1.3c
+
+%%> \section{Loading the package}
+
+% LaTeX2e version 2023-11-01 added \IfExplAtLeastTF.
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage
+  {scaletextbullet}
+  {2025-02-11}
+  {2.0.0}
+  {Resize the \noexpand\textbullet without changing its vertical center.}
+
+% l3kernel version 2023-10-10 added many 'e'-variants.
+\IfExplAtLeastTF { 2023-10-10 } { }
+  {
+    \msg_new:nnn { scaletextbullet } { l3kernel-out-of-date }
+      {
+        The~ scaletextbullet~ package~ could~ not~ load. \\
+        This~ package~ requires~
+        L3~ programming~ layer~ version~ 2023-10-10~ or~ later.
+      }
+    \msg_critical:nn { scaletextbullet } { l3kernel-out-of-date }
+  }
+
+%%> \section{Messages}
+
+% \textbullet is invalid in math mode.
+\msg_new:nnn { scaletextbullet } { math-mode-error }
+  { '#1'~ cannot~ be~ used~ in~ math~ mode~ \msg_line_context:. }
+\msg_new:nnn { scaletextbullet } { factor-out-of-bounds }
+  { Invalid~ \iow_char:N \\textbullet~ factor~ '#1'~ \msg_line_context:. }
+\msg_new:nnn { scaletextbullet } { scale-out-of-bounds }
+  { Invalid~ scale~ factor~ '#1'~ \msg_line_context:. }
+\msg_new:nnn { scaletextbullet } { count-out-of-bounds }
+  { Invalid~ number~ of~ \iow_char:N \\textbullet~ '#1'~ \msg_line_context:. }
+
+%%> \section{Some variables}
+
+% The \textbullet factor
+\fp_new:N \l__scaletextbullet_factor_fp
+\fp_set:Nn \l__scaletextbullet_factor_fp { 0.4 }
+
+% Used only to speed up floating point calculations.
+\fp_const:Nn \c__scaletextbullet_one_half_fp { 0.5 }
+\fp_const:Nn \c__scaletextbullet_scaletextbullets_two_fp   { 2 ^ -0.5 }
+\fp_const:Nn \c__scaletextbullet_scaletextbullets_three_fp { 3 ^ -0.5 }
+
+% Scratch variables
+\int_new:N \l__scaletextbullet_tmp_int
+\fp_new:N  \l__scaletextbullet_tmp_fp
+\box_new:N \l__scaletextbullet_tmp_box
+
+%%> \section{Auxiliary function}
+
+% Lowers the \textbullet to the baseline, scales it by a factor of #2, and
+% then raises it back to the vertical center.
+% I have referenced code by the great egreg:
+% https://tex.stackexchange.com/questions/620507/how-to-resize-textbullet-without-the-bullet-moving-down
+\dim_new:N \l__scaletextbullet_bottom_dim % bottom of \textbullet
+\dim_new:N \l__scaletextbullet_center_dim % center of \textbullet
+\cs_new_protected:Npn \__scaletextbullet_box_scale:Nn #1#2
+  {
+    \hbox_set:Nn #1 { \textbullet }
+    \dim_set:Nn \l__scaletextbullet_bottom_dim
+      {
+        \box_ht:N #1 -
+        \fp_to_dim:n
+          { \l__scaletextbullet_factor_fp * \dim_to_fp:n { \box_wd:N #1 } }
+      }
+    \dim_set:Nn \l__scaletextbullet_center_dim
+      {
+        \fp_to_dim:n
+          {
+            \dim_to_fp:n { \box_ht:N #1 + \l__scaletextbullet_bottom_dim } *
+            \c__scaletextbullet_one_half_fp
+          }
+      }
+    \hbox_set:Nn #1
+      {
+        \box_move_down:nn { \l__scaletextbullet_bottom_dim } { \box_use:N #1 }
+      }
+    \box_scale:Nnn #1 {#2} {#2}
+    \hbox_set:Nn #1
+      {
+        \box_move_up:nn
+          {
+            \l__scaletextbullet_center_dim -
+            \fp_to_dim:n
+              {
+                \dim_to_fp:n { \box_ht:N #1 } * \c__scaletextbullet_one_half_fp
+              }
+          }
+          { \box_use:N #1 }
+      }
+  }
+
+%%> \section{Document commands}
+
+\NewDocumentCommand \settextbulletfactor { m }
+  { \__scaletextbullet_set_factor:n {#1} }
+\cs_new_protected:Npn \__scaletextbullet_set_factor:n #1
+  {
+    \fp_set:Nn \l__scaletextbullet_factor_fp {#1}
+    \fp_compare:nF { \c_zero_fp < \l__scaletextbullet_factor_fp <= \c_one_fp }
+      {
+        \msg_error:nne { scaletextbullet } { factor-out-of-bounds }
+          { \fp_use:N \l__scaletextbullet_factor_fp }
+      }
+  }
+
+\NewDocumentCommand \scaletextbullet { m }
+  {
+    \mode_leave_vertical:
+    \mode_if_math:TF
+      {
+        \msg_error:nne { scaletextbullet } { math-mode-error }
+          { \token_to_str:N \scaletextbullet }
+      }
+      { \__scaletextbullet_scaletextbullet:n {#1} }
+  }
+\cs_new_protected:Npn \__scaletextbullet_scaletextbullet:n #1
+  {
+    \fp_set:Nn \l__scaletextbullet_tmp_fp {#1}
+    \fp_compare:nNnTF \l__scaletextbullet_tmp_fp > \c_zero_fp
+      {
+        \__scaletextbullet_box_scale:Nn \l__scaletextbullet_tmp_box
+          { \l__scaletextbullet_tmp_fp }
+        \box_use:N \l__scaletextbullet_tmp_box
+      }
+      {
+        \fp_compare:nNnF \l__scaletextbullet_tmp_fp = \c_zero_fp
+          {
+            \msg_error:nne { scaletextbullet } { scale-out-of-bounds }
+              { \fp_use:N \l__scaletextbullet_tmp_fp }
+          }
+      }
+  }
+
+\NewDocumentCommand \scaletextbullets { o m }
+  {
+    \mode_leave_vertical:
+    \mode_if_math:TF
+      {
+        \msg_error:nne { scaletextbullet } { math-mode-error }
+          { \token_to_str:N \scaletextbullets }
+      }
+      {
+        \IfNoValueTF {#1}
+          { \__scaletextbullet_scaletextbullets:n {#2} }
+          { \__scaletextbullet_scaletextbullets:nn {#1} {#2} }
+      }
+  }
+\cs_new_protected:Npn \__scaletextbullet_scaletextbullets:n #1
+  {
+    \int_set:Nn \l__scaletextbullet_tmp_int {#1}
+    \int_compare:nNnTF \l__scaletextbullet_tmp_int > 0
+      {
+        \int_case:nnF { \l__scaletextbullet_tmp_int }
+          {
+            { 1 }
+            { \fp_set_eq:NN \l__scaletextbullet_tmp_fp \c_one_fp }
+            { 2 }
+            {
+              \fp_set_eq:NN \l__scaletextbullet_tmp_fp
+                \c__scaletextbullet_scaletextbullets_two_fp
+            }
+            { 3 }
+            {
+              \fp_set_eq:NN \l__scaletextbullet_tmp_fp
+                \c__scaletextbullet_scaletextbullets_three_fp
+            }
+            { 4 }
+            {
+              \fp_set_eq:NN \l__scaletextbullet_tmp_fp
+                \c__scaletextbullet_one_half_fp
+            }
+          }
+          {
+            \fp_set:Nn \l__scaletextbullet_tmp_fp
+              { \int_use:N \l__scaletextbullet_tmp_int ^ -0.5 }
+          }
+        \__scaletextbullet_box_scale:Nn \l__scaletextbullet_tmp_box
+          { \l__scaletextbullet_tmp_fp }
+        \prg_replicate:nn { \l__scaletextbullet_tmp_int }
+          { \box_use:N \l__scaletextbullet_tmp_box }
+      }
+      {
+        \int_if_zero:nF { \l__scaletextbullet_tmp_int }
+          {
+            \msg_error:nnV { scaletextbullet } { count-out-of-bounds }
+              \l__scaletextbullet_tmp_int
+          }
+      }
+  }
+\cs_new_protected:Npn \__scaletextbullet_scaletextbullets:nn #1#2
+  {
+    \fp_set:Nn \l__scaletextbullet_tmp_fp {#1}
+    \fp_compare:nNnTF \l__scaletextbullet_tmp_fp > \c_zero_fp
+      {
+        \int_set:Nn \l__scaletextbullet_tmp_int {#2}
+        \int_compare:nNnTF \l__scaletextbullet_tmp_int > 0
+          {
+            \__scaletextbullet_box_scale:Nn \l__scaletextbullet_tmp_box
+              { \l__scaletextbullet_tmp_fp }
+            \prg_replicate:nn { \l__scaletextbullet_tmp_int }
+              { \box_use:N \l__scaletextbullet_tmp_box }
+          }
+          {
+            \int_if_zero:nF { \l__scaletextbullet_tmp_int }
+              {
+                \msg_error:nnV { scaletextbullet } { count-out-of-bounds }
+                  \l__scaletextbullet_tmp_int
+              }
+          }
+      }
+      {
+        \fp_compare:nNnF \l__scaletextbullet_tmp_fp = \c_zero_fp
+          {
+            \msg_error:nne { scaletextbullet } { scale-out-of-bounds }
+              { \fp_use:N \l__scaletextbullet_tmp_fp }
+          }
+      }
+  }
+
+\NewDocumentCommand \scaletextbulletdebug { }
+  {
+    \mode_leave_vertical:
+    \mode_if_math:TF
+      {
+        \msg_error:nne { scaletextbullet } { math-mode-error }
+          { \token_to_str:N \scaletextbulletdebug }
+      }
+      { \__scaletextbullet_debug: }
+  }
+% I have referenced code by the great egreg:
+% https://tex.stackexchange.com/questions/620507/how-to-resize-textbullet-without-the-bullet-moving-down
+\cs_new_protected:Npn \__scaletextbullet_debug:
+  {
+    \int_step_inline:nn { 15 }
+      {
+        \fp_set:Nn \l__scaletextbullet_tmp_fp { ##1 ^ -0.5 }
+        \__scaletextbullet_box_scale:Nn \l__scaletextbullet_tmp_box
+          { \l__scaletextbullet_tmp_fp }
+        \box_use:N \l__scaletextbullet_tmp_box
+      }
+    \,
+    \group_begin:
+      \dim_set:Nn \fboxrule { 0.1pt }
+      \dim_zero:N \fboxsep
+      \framebox
+        [
+          \fp_to_dim:n
+            { \l__scaletextbullet_factor_fp * \dim_to_fp:n { \width } }
+        ]
+        { \textbullet }
+    \group_end:
+  }

@@ -1,0 +1,404 @@
+%! Package = versionchanges
+%! Author = Jander Moreira
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{versionchanges}[2024/05/03 v0.1 This package provides means to track changes to a document]
+\NewDocumentCommand{\VCVersion}{}{0.1}
+\NewDocumentCommand{\VCDate}{}{2024/05/03}
+
+\RequirePackage{pgfkeys}
+\RequirePackage{multicol}
+\RequirePackage{ragged2e}
+\RequirePackage{todonotes}
+
+\setlength{\marginparwidth}{2cm}
+\RequirePackage{marginnote}
+\let\marginpar\marginnote
+
+%% Options
+\pgfkeys{
+    /version changes/.cd,
+    version prefix/.store in = \vc@VersionPrefix,
+    version style/.store in = \vc@VersionStyle,
+    change style/.store in = \vc@ChangeStyle,
+}
+
+\NewDocumentCommand{\VCSet}{ > { \TrimSpaces } m }{%
+    \pgfkeys{
+        /version changes/.cd,
+        #1,
+    }%
+}
+
+\VCSet{
+    version prefix = {v},
+    version style = \bfseries\footnotesize,
+    change style = \footnotesize\RaggedRight,
+}
+
+% defaults
+
+
+%% Internal commands
+\ExplSyntaxOn
+
+% StepChangeCounter: proceeds to a new change
+\int_zero_new:N \g_vc_change_counter_int
+\NewDocumentCommand{\vc@StepChangeCounter}{}{
+    \int_gadd:Nn \g_vc_change_counter_int { 1 }
+}
+\NewDocumentCommand{\vc@CurrentChangeCounter}{}{
+    \int_use:N \g_vc_change_counter_int
+}
+
+% SetChangeAttribute: sets the an attribute of the current change record
+% #1: attribute
+% #2: value
+\cs_new:Npn \set_change_attribute:nn #1#2 {
+    \tl_clear_new:c { g_vc_change_ \int_use:N \g_vc_change_counter_int _#1_tl }
+    \tl_gset:cn { g_vc_change_ \int_use:N \g_vc_change_counter_int _#1_tl } { #2 }
+}
+\NewDocumentCommand{\vc@SetChangeAttribute}{ m m }{
+    \set_change_attribute:nn { #1 } { #2 }
+}
+
+% SetChangeAttributeExpanded: sets the an attribute of the current change record
+% #1: attribute
+% #2: value
+\NewDocumentCommand{\vc@SetChangeAttributeExpanded}{ m m }{
+    \exp_args:Nnf \set_change_attribute:nn { #1 } { #2 }
+}
+
+% GetChangeInfo: returns the field of a change
+% #1: number of the change
+% #2: field
+% #3: (optional) sets macro instead of returning value
+\NewDocumentCommand{\vc@GetChangeInfo}{ m m o }{
+    \IfValueTF{#3}{
+        \tl_set:Nx #3 { \tl_use:c { g_vc_change_#1_#2_tl } }
+    }{
+        \tl_use:c { g_vc_change_#1_#2_tl }
+    }
+}
+
+% SetMacroChangeInfo: sets a macro with the field of a change
+% #1: macro
+% #2: number of the change
+% #3: field
+\NewDocumentCommand{\vc@SetMacroChangeInfo}{ m m m }{
+    \tl_clear_new:N #1
+    \exp_args:NNc \tl_set:NV #1 { g_vc_change_#2_#3_tl }
+}
+
+% RunChangesList: apply a macro to each change of a version
+% #1: version
+% #2: macro with a single mandatory argument
+\NewDocumentCommand{\vc@RunChangesList}{ m m }{
+    \seq_map_inline:cn { g_version_#1_seq } { #2 { ##1 } }
+}
+
+
+% RegisterVersion: add a version to the list os versions if it doesn't exist
+% #1: version
+\seq_new:N \g_vc_versions_list_seq
+\cs_new:Npn \register_version:nn #1#2 {
+    \seq_if_in:NnTF \g_vc_versions_list_seq { #1 } { } {% else
+        \seq_put_right:Nn \g_vc_versions_list_seq { #1 }
+        \tl_clear_new:c { g_vc_version_#1_date_tl }
+        \tl_gset:cn { g_vc_version_#1_date_tl } { #2 }
+        \seq_new:c { g_version_#1_seq }
+    }
+}
+\NewDocumentCommand{\VCRegisterVersion}{ m m }{
+    \register_version:nn { #1 } { #2 }
+}
+
+% VersionDate: returns the date of a version OR sets a macro
+%   with its (expanded) value
+% #1: version
+% #2: (optional) macro to store the value
+\NewDocumentCommand{\vc@VersionDate}{ m o }{
+    \IfValueTF{#2}{
+        \tl_set:Nx #2 { \tl_use:c { g_vc_version_#1_date_tl } }
+    }{
+        \tl_use:c { g_vc_version_#1_date_tl }
+    }
+}
+
+
+% AddChangeToVersion: add a change reference to the list of the version
+% (a new list will be created if necessary)
+% #1: version
+\cs_new:Npn \add_change_to_version:n #1  {
+    % Add a reference (change number) to the list
+    % \tl_clear_new:N \l_change_number_tl
+    % \exp_args:NNe \tl_set:Nn \l_change_number_tl { \int_use:N \g_vc_change_counter_int }
+    \exp_args:Nco \seq_gput_right:Nn { g_version_#1_seq } { \int_use:N \g_vc_change_counter_int }
+}
+\NewDocumentCommand{\vc@AddChangeToVersion}{ }{
+    \add_change_to_version:n {
+        \tl_use:c { g_vc_change_ \int_use:N \g_vc_change_counter_int _version_tl }
+    }
+}
+
+
+% RunVersionList: apply a macro to each version of the list
+% #1: macro with a single mandatory argument
+\NewDocumentCommand{\vc@RunVersionList}{ m }{
+    \seq_map_inline:Nn \g_vc_versions_list_seq { #1 { ##1 } }
+}
+
+\ExplSyntaxOff
+
+%%
+
+\newif\ifvc@SuppressInListing\vc@SuppressInListingfalse
+\pgfkeys{
+    /version changes/changes/.cd,
+    version/.code = {\vc@SetChangeAttribute{version}{#1}},
+% date/.code = {\vc@SetChangeAttribute{date}{#1}},
+    description/.code = {\vc@SetChangeAttribute{description}{#1}},
+    page/.code = {\vc@SetChangeAttributeExpanded{page}{#1}},
+    suppress/.is if = vc@SuppressInListing,
+    type/.is choice,
+    type/released/.code = {\vc@SetChangeAttribute{type}{Released}},
+    type/new/.code = {\vc@SetChangeAttribute{type}{New in}},
+    type/updated/.code = {\vc@SetChangeAttribute{type}{Updated in}},
+    type/removed/.code = {\vc@SetChangeAttribute{type}{Removed in}},
+    type/deprecated/.code = {\vc@SetChangeAttribute{type}{Deprecated in}},
+    .unknown/.code = {\pgfkeysalso{type = \pgfkeyscurrentname}},
+}
+
+% #1: (optional) todonotes options
+% #2: text
+\NewDocumentCommand{\vc@MarginNote}{ O{} > { \TrimSpaces } m }{%
+    \todo[bordercolor = blue!20, backgroundcolor = blue!10,
+        linecolor = blue!20, tickmarkheight = 0.2ex, size = \tiny,
+        noline, #1]{%
+        #2
+    }%
+}
+
+% Change: records a change
+% #1: (optional) todonotes options
+% #2: comma-separated list with change description
+\NewDocumentCommand{\VCChange}{ O{} > { \TrimSpaces } m o }{%
+    \vc@StepChangeCounter%
+    \pgfkeys{
+        /version changes/changes/.cd,
+        suppress = false,
+        type = new,
+        page = \thepage,
+        #2,
+    }%
+    \hspace{0pt}%
+    \vc@AddChangeToVersion%
+    %! formatter = off
+    \ifvc@SuppressInListing%  starred VCPrintChange?
+        \vc@SetChangeAttribute{star}{*}%
+    \else
+        \vc@SetChangeAttribute{star}{}%
+    \fi%
+    %! formatter = on
+    \vc@SetChangeAttributeExpanded{label}{\vc@CurrentChangeCounter}%
+    \vc@GetChangeInfo{\vc@CurrentChangeCounter}{label}[\vc@InfoResult]%
+    \expandafter\label\expandafter{\vc@InfoResult:change}%
+    \vc@MarginNote[#1]{%
+        \IfValueT{#3}{\textbf{#3}:\\}%
+        \vc@GetChangeInfo{\vc@CurrentChangeCounter}{type}
+        \vc@VersionPrefix\vc@GetChangeInfo{\vc@CurrentChangeCounter}{version}%
+    }%
+}
+
+%%
+
+% Internal commands
+\ExplSyntaxOn
+
+% Reading from file
+\ior_new:N \g_vc_input_io
+
+% LoadFile: reads a previous compiled version changes
+\cs_new:Nn \load_file: {
+    \tl_clear_new:N \g_vc_file_contents_tl
+    \ior_open:NnTF \g_vc_input_io { \jobname.vcind } {
+        \ior_map_inline:Nn \g_vc_input_io {
+            \tl_gput_right:Nn \g_vc_file_contents_tl { ##1 }
+        }
+    }{}
+}
+\NewDocumentCommand{\vc@LoadChanges}{}{
+    \load_file:
+}
+\NewDocumentCommand{\vc@FileContentsNotEmpty}{ +m }{
+    \tl_if_empty:NTF \g_vc_file_contents_tl {} {
+        #1
+    }
+}
+
+% File contents
+\NewDocumentCommand{\vc@FileContents}{}{
+    \tl_use:N \g_vc_file_contents_tl
+}
+
+% Writing to file
+\iow_new:N \g_vc_output_io
+\tl_new:N \g_vc_output_buffer_tl
+
+% OpenFile: open file for writing
+\NewDocumentCommand{\vc@OpenFile}{ }{
+    \iow_open:Nn \g_vc_output_io { \jobname.vcind }
+}
+
+% CloseFile: close file
+\NewDocumentCommand{\vc@CloseFile}{ }{
+    \iow_close:N \g_vc_output_io
+}
+
+% WriteBuffer: write to file
+\cs_generate_variant:Nn \iow_now:Nn { NV }
+\NewDocumentCommand{\vc@WriteBuffer}{ }{
+    \iow_now:NV \g_vc_output_io \g_vc_output_buffer_tl
+    \tl_clear:N \g_vc_output_buffer_tl
+}
+
+\NewDocumentCommand{\vc@AddToBuffer}{ +m }{
+    \tl_gput_right:Nn \g_vc_output_buffer_tl { #1 }
+}
+
+\cs_generate_variant:Nn \tl_gput_right:Nn { Nx }
+\NewDocumentCommand{\vc@AddCharToBuffer}{ m }{
+    \tl_gput_right:Nx \g_vc_output_buffer_tl { \iow_char:N #1 }
+}
+\ExplSyntaxOff
+
+% WriteVersionChange: write to file a single change
+% #1: change number
+\NewDocumentCommand{\vc@WriteVersionChange}{ m }{%
+    \vc@AddToBuffer{ \VCPrintChange}%
+    \vc@SetMacroChangeInfo{\vc@InfoResult}{#1}{star}%
+    \expandafter\vc@AddToBuffer\expandafter{\vc@InfoResult}%
+    % version number
+    \vc@AddCharToBuffer{\{}%
+    \vc@SetMacroChangeInfo{\vc@InfoResult}{#1}{description}%
+    \expandafter\vc@AddToBuffer\expandafter{\vc@InfoResult}%
+    \vc@AddCharToBuffer{\}}%
+    % date
+    \vc@AddCharToBuffer{\{}%
+    \vc@SetMacroChangeInfo{\vc@InfoResult}{#1}{page}%
+    \expandafter\vc@AddToBuffer\expandafter{\vc@InfoResult}%
+    \vc@AddCharToBuffer{\}}%
+    % label
+    \vc@AddCharToBuffer{\{}%
+    \vc@SetMacroChangeInfo{\vc@InfoResult}{#1}{label}%
+    \expandafter\vc@AddToBuffer\expandafter{\vc@InfoResult}%
+    \vc@AddCharToBuffer{\}}%
+    \vc@WriteBuffer
+}
+
+\NewDocumentCommand{\vc@WriteVersion}{ m }{%
+%! parser = off
+    \vc@AddToBuffer{\begin{vcversionitem}}%
+    %! parser = on
+    \vc@AddCharToBuffer{\{}%
+    \vc@AddToBuffer{#1}%
+    \vc@AddCharToBuffer{\}}%
+    \vc@AddCharToBuffer{\{}%
+    \vc@VersionDate{#1}[\vc@InfoResult]%
+    \expandafter\vc@AddToBuffer\expandafter{\vc@InfoResult}%
+    \vc@AddCharToBuffer{\}}%
+    \vc@WriteBuffer
+    \vc@RunChangesList{#1}{\vc@WriteVersionChange}%
+%! parser = off
+    \vc@AddToBuffer{\end{vcversionitem}}%
+    %! parser = on
+    \vc@WriteBuffer
+}
+
+\NewDocumentCommand{\vc@SaveChanges}{}{%
+    \vc@OpenFile%
+    \vc@RunVersionList{\vc@WriteVersion}%
+    \vc@WriteBuffer
+    \vc@CloseFile%
+}
+
+\NewDocumentCommand{\VCPrintChanges}{ O{} }{%
+    \vc@FileContentsNotEmpty{
+        \VCSet{#1}
+        \section*{Change History}
+        \begin{multicols}{2}
+            \vc@FileContents%
+        \end{multicols}
+    }
+}
+
+%% Printing the list of changes
+\NewDocumentEnvironment{vcversionitem}{ m m }{%
+    \par\noindent%
+    {\vc@VersionStyle\vc@VersionPrefix#1 (#2)}
+    \vspace*{0.2em}\par%
+    \begingroup%
+    \setlength{\tabcolsep}{0pt}%
+    \vc@ChangeStyle%
+    }{%
+    \endgroup%
+    \vspace{0.5em}%
+}
+
+\newlength{\vc@PageNumberWidth}
+\setlength{\vc@PageNumberWidth}{1cm}
+\NewDocumentCommand{\VCPrintChange}{ s m m m }{%
+    \IfBooleanF{#1}{%
+        \hspace{0.25cm}%
+        \parbox[b]{\dimexpr \linewidth - \vc@PageNumberWidth - 0.25cm}{%
+            \setlength{\hangindent}{0.7cm}#2\dotfill%
+        }\hspace{-0.05cm}\dotfill~\hspace{0.05cm}\hyperref[#4:change]{#3}%
+        \par\vspace{0.5em}
+    }
+}
+
+%% Version numbering
+\ExplSyntaxOn
+
+\tl_new:N \g_vc_prefix_text_tl
+\tl_new:N \g_vc_number_tl % todo: turn to int?
+\tl_new:N \g_vc_suffix_text_tl
+\regex_new:N \g_versioning_regex
+\regex_set:Nn \g_versioning_regex { [^\.]+ }
+\regex_new:N \g_subversioning_regex
+\regex_set:Nn \g_subversioning_regex { ([^\d]*)(\d+)(.*) }
+
+\cs_new:Npn \subversioning_check:n #1 {
+    \seq_clear_new:N \l_subparts_seq
+    \regex_extract_all:NnNTF \g_subversioning_regex { #1 } \l_subparts_seq {
+        \tl_gset:Nx \g_vc_prefix_text_tl { \seq_item:Nn \l_subparts_seq {2} }
+        \tl_gset:Nx \g_vc_number_tl { \seq_item:Nn \l_subparts_seq {3} }
+        \tl_gset:Nx \g_vc_suffix_text_tl { \seq_item:Nn \l_subparts_seq {4} }
+    }{
+        \tl_gset:Nx \g_vc_prefix_text_tl { #1 }
+        \tl_gclear:N \g_vc_number_tl
+        \tl_gclear:N \g_vc_suffix_text_tl
+    }
+}
+\cs_new:Npn \versioning_check:n #1 {
+    \seq_clear_new:N \l_parts_seq
+    \regex_extract_all:NnN \g_versioning_regex { #1 } \l_parts_seq
+    \seq_map_inline:Nn \l_parts_seq {
+        \subversioning_check:n { ##1 }
+        <<(\tl_use:N \g_vc_prefix_text_tl)
+        (\tl_use:N \g_vc_number_tl)
+        (\tl_use:N \g_vc_suffix_text_tl)>>
+    }
+}
+\NewDocumentCommand{\VCVersioningCheck}{ m }{
+    \par\noindent[\texttt{#1}:~\versioning_check:n { #1 }]\bigskip\par
+}
+
+\ExplSyntaxOff
+
+% Hooks
+\AtBeginDocument{%
+    \reversemarginpar%
+    \vc@LoadChanges%
+}
+\AtEndDocument{\vc@SaveChanges}
