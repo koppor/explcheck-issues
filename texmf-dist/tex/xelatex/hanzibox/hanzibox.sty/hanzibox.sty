@@ -1,0 +1,1392 @@
+%%
+%% This is file `hanzibox.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% hanzibox.dtx  (with options: `package')
+%% 
+%%     Copyright (C) 2020-2022 by Nan Geng <nangeng@nwafu.edu.cn>
+%% --------------------------------------------------------------------------
+%% 
+%%     This work may be distributed and/or modified under the
+%%     conditions of the LaTeX Project Public License, either
+%%     version 1.3c of this license or (at your option) any later
+%%     version. This version of this license is in
+%%        http://www.latex-project.org/lppl/lppl-1-3c.txt
+%%     and the latest version of this license is in
+%%        http://www.latex-project.org/lppl.txt
+%%     and version 1.3 or later is part of all distributions of
+%%     LaTeX version 2005/12/01 or later.
+%% 
+%%     This work has the LPPL maintenance status "maintained".
+%% 
+%%     The Current Maintainer of this work is Nan Geng.
+%% 
+%% --------------------------------------------------------------------------
+%% 
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{expl3}
+\GetIdInfo$Id: hanzibox.dtx 2.3.0 2022-04-17 08:00:00 +0800 Nan Geng <nangeng@nwafu.edu.cn> $
+  {Boxed Chinese characters with Pinyin above and translation below.}
+\ProvidesExplPackage{\ExplFileName}
+  {\ExplFileDate}{\ExplFileVersion}{\ExplFileDescription}
+
+\RequirePackage { xtemplate, l3keys2e, l3draw, xparse }
+
+\cs_if_free:NT \box_ht_plus_dp:N
+  {
+    \cs_new_protected:Npn \box_ht_plus_dp:N #1
+      { \tex_dimexpr:D \box_ht:N #1 + \box_dp:N #1 \scan_stop: }
+  }
+\sys_if_engine_xetex:F
+  {
+    \msg_fatal:nnx { hanzibox } { unsupported-engine }
+      { \c_sys_engine_str }
+  }
+\msg_new:nnn { hanzibox } { unsupported-engine }
+  {
+    The~ hanzibox~ packages~ requires~ XeTeX. \\\\
+    "#1"~ is~ not~ supported~ at~ present.~ You~ must~ change \\
+    your~ typesetting~ engine~ to~ "xelatex"~ or~ "lualatex".
+  }
+
+\RequirePackage { xpinyin }
+
+\NewDocumentCommand{\hanzibox}{ s O{} m O{} O{} }
+  {
+    \IfBooleanTF{#1}
+      {
+        \bool_set_false:N \l__hanzibox_autopinyin_bool
+      }{
+        \bool_set_true:N  \l__hanzibox_autopinyin_bool
+      }
+      \group_begin:
+        \__hanzibox_handle:nnnn { #2 } { #3 } { #4 } { #5 }
+      \group_end:
+  }
+
+\NewDocumentCommand{\hanzidialog}{O{} m O{} O{} }
+  {
+    \group_begin:
+      \bool_set_false:N \l__hanzibox_autopinyin_bool
+      \__hanzibox_dialog:nnnn { #1 } { #2 } { #3 } { #4 }
+    \group_end:
+  }
+\NewDocumentCommand{\writegrid}{ O{} m }
+  {
+    \group_begin:
+      \__hanzibox_writegrid:nn { #1 } { #2 }
+    \group_end:
+  }
+\bool_new:N   \l__hanzibox_autopinyin_bool
+\bool_new:N   \l__hanzibox_withinitial_bool
+\bool_new:N   \l__hanzibox_withvowel_bool
+\bool_new:N   \l__hanzibox_withtone_bool
+\bool_new:N   \l__hanzibox_withpinyin_bool
+\bool_new:N   \l__hanzibox_withpinyinlines_bool
+\bool_new:N   \l__hanzibox_withhanzi_bool
+\bool_new:N   \l__hanzibox_withtran_bool
+
+\box_new:N    \l__hanzibox_basebox_box
+\tl_new:N     \l__hanzibox_frame_type_tl
+\clist_new:N  \g__hanzibox_frame_list_clist
+\tl_new:N     \l__hanzibox_resize_method_tl
+\clist_new:N  \g__hanzibox_resize_method_clist
+\dim_new:N    \l__hanzibox_frame_size_dim
+\dim_new:N    \l__hanzibox_char_width_dim
+\dim_new:N    \l__hanzibox_char_height_dim
+\dim_new:N    \l__hanzibox_pinyin_height_i_dim
+\dim_new:N    \l__hanzibox_pinyin_height_ii_dim
+\dim_new:N    \l__hanzibox_pinyin_height_iii_dim
+\dim_new:N    \l__hanzibox_box_width_dim
+\dim_new:N    \l__hanzibox_box_height_dim
+\dim_new:N    \l__hanzibox_frame_linewidth_dim
+\dim_new:N    \l__hanzibox_pinyin_linewidth_dim
+\dim_new:N    \l__hanzibox_cross_linewidth_dim
+
+\clist_new:N  \l__hanzibox_tone_pinyin_clist
+
+\coffin_new:N \l__hanzibox_str_box_coffin
+\coffin_new:N \l__hanzibox_box_coffin
+\coffin_new:N \l__hanzibox_pinyin_box_coffin
+\coffin_new:N \l__hanzibox_tran_box_coffin
+\coffin_new:N \l__hanzibox_pinyin_hanzi_coffin
+\coffin_new:N \l__hanzibox_tmpa_coffin
+\coffin_new:N \l__hanzibox_tmpb_coffin
+\coffin_new:N \l__hanzibox_grid_coffin
+\coffin_new:N \l__hanzibox_grid_tmpa_coffin
+\coffin_new:N \l__hanzibox_grid_tmpb_coffin
+
+\dim_new:N    \hanziboxwidth
+\dim_new:N    \hanziboxheight
+
+\tl_new:N     \l__hanzibox_pinyin_tl
+\tl_new:N     \l__hanzibox_character_tl
+\tl_new:N     \l__hanzibox_translation_tl
+\tl_new:N     \l__hanzibox_pinyin_format_tl
+\tl_new:N     \l__hanzibox_character_format_tl
+\tl_new:N     \l__hanzibox_translation_format_tl
+\int_new:N    \l__hanzibox_cross_color_ratio_int
+\int_new:N    \l__hanzibox_pinyin_int
+\int_new:N    \l__hanzibox_character_int
+\int_new:N    \l__hanzibox_translation_int
+\int_new:N    \l__hanzibox_charstroke_type_int
+\int_new:N    \l__hanzibox_grid_cols_int
+
+\int_new:N    \l__hanzibox_tone_int
+\str_new:N    \l__hanzibox_pinyin_str
+\tl_new:N     \l__hanzibox_initial_tl
+\tl_new:N     \l__hanzibox_vowel_tl
+\tl_new:N     \l__hanzibox_grid_sep_v_tl
+
+\cs_new_nopar:Nn \__hanzibox_aux_color_fill:
+  { }
+\cs_new:Npn \__hanzibox_calc_pinyin_h:
+  {
+    \hbox_set:Nn \l_tmpa_box
+      {
+        \tl_use:N \l__hanzibox_pinyin_format_tl
+        a
+      }
+    \dim_set:Nn \l__hanzibox_pinyin_height_i_dim
+      {
+        \box_ht:N \l_tmpa_box
+      }
+    \dim_set:Nn \l__hanzibox_pinyin_height_ii_dim
+      {
+        \l__hanzibox_pinyin_height_i_dim + \l__hanzibox_pinyin_height_i_dim
+      }
+    \dim_set:Nn \l__hanzibox_pinyin_height_iii_dim
+      {
+        \l__hanzibox_pinyin_height_i_dim + \l__hanzibox_pinyin_height_i_dim + \l__hanzibox_pinyin_height_i_dim
+      }
+  }
+\cs_new:Npn \__hanzibox_calc_basechar_w_h:
+  {
+    \dim_set:Nn \l__hanzibox_char_width_dim
+      {
+        \box_wd:N \l__hanzibox_basebox_box
+      }
+    \dim_set:Nn \l__hanzibox_char_height_dim
+      {
+        \box_ht_plus_dp:N \l__hanzibox_basebox_box
+      }
+  }
+\cs_new_nopar:Npn \__hanzibox_coffin_ht_plus_dp:N #1
+  {
+    \coffin_ht:N #1 + \coffin_dp:N #1
+  }
+\cs_new:Npn \__hanzibox_calc_frame_size:
+  {
+    \hbox_set:Nn \l_tmpa_box
+      {
+        \tl_use:N \l__hanzibox_character_format_tl
+        \tl_use:N \c__hanzibox_basechar_tl
+      }
+
+    \dim_set:Nn \l_tmpa_dim
+      {
+        \box_wd:N \l_tmpa_box
+      }
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \box_ht_plus_dp:N \l_tmpa_box
+      }
+
+    \dim_compare:nNnTF \l_tmpa_dim > \l_tmpb_dim
+      {
+        \dim_gset_eq:NN \l__hanzibox_frame_size_dim \l_tmpa_dim
+      }
+      {
+        \dim_gset_eq:NN \l__hanzibox_frame_size_dim \l_tmpb_dim
+      }
+
+    \dim_gadd:Nn \l__hanzibox_frame_size_dim { 1pt }
+
+    \dim_gset_eq:NN \hanziboxwidth \l__hanzibox_frame_size_dim
+    \dim_gset_eq:NN \hanziboxheight \l__hanzibox_frame_size_dim
+
+  }
+\cs_new_nopar:Npn \__hanzibox_frame_type:n #1
+  {
+    __hanzibox_frame_construct_type_ #1 :nnnnnn
+  }
+\cs_new_nopar:Npn \__hanzibox_frame_type_c:n #1
+  {
+    \use:c
+      {
+        __hanzibox_frame_construct_type_ #1 :nnnnnn
+      }
+  }
+\cs_new:Npn \__hanzibox_new_frame_construct:nn #1
+  {
+    \clist_put_right:Nn \g__hanzibox_frame_list_clist {#1}
+    \cs_new:cn { \__hanzibox_frame_type:n {#1} }
+  }
+\__hanzibox_new_frame_construct:nn { none } { }
+\__hanzibox_new_frame_construct:nn { pinyinlines }
+  {
+    \bool_if:NTF \l__hanzibox_withpinyinlines_bool
+      {
+        \draw_scope_begin:
+          \draw_path_moveto:n { #1, 0 }
+          \draw_path_lineto:n { #3, 0 }
+          \draw_path_moveto:n { #1, \l__hanzibox_pinyin_height_i_dim }
+          \draw_path_lineto:n { #3, \l__hanzibox_pinyin_height_i_dim }
+          \draw_path_moveto:n { #1, \l__hanzibox_pinyin_height_ii_dim }
+          \draw_path_lineto:n { #3, \l__hanzibox_pinyin_height_ii_dim }
+          \draw_path_moveto:n { #1, \l__hanzibox_pinyin_height_iii_dim }
+          \draw_path_lineto:n { #3, \l__hanzibox_pinyin_height_iii_dim }
+          \draw_path_use_clear:n { stroke }
+        \draw_scope_end:
+      }
+      {
+        \draw_scope_begin:
+          \hcoffin_set:Nn \l_tmpa_coffin
+            {
+              \tl_use:N \l__hanzibox_pinyin_format_tl
+              \phantom{a}
+            }
+
+          \coffin_resize:Nnn \l_tmpa_coffin
+            { #3 } { \l__hanzibox_pinyin_height_iii_dim }
+
+          \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+        \draw_scope_end:
+      }
+  }
+\__hanzibox_new_frame_construct:nn { filledbox }
+  {
+    \cs_if_eq:NNF \__hanzibox_aux_color_fill: \c_empty_tl
+      {
+        \color_stroke:n { hanziboxframecolor }
+        \draw_path_rectangle_corners:nn { #1, #2} { #3, #4}
+
+        \draw_path_use_clear:n { stroke, fill }
+      }
+  }
+\__hanzibox_new_frame_construct:nn { framebox }
+  {
+    \draw_scope_begin:
+      \color_stroke:n { hanziboxframecolor }
+      \draw_path_rectangle_corners:nn { #1, #2} { #3, #4}
+      \draw_path_use_clear:n { stroke }
+    \draw_scope_end:
+  }
+\__hanzibox_new_frame_construct:nn { 十 }
+  {
+    \draw_scope_begin:
+      \tl_if_empty:NF \l__hanzibox_dash_pattern_tl
+        {
+          \exp_args:No \draw_dash_pattern:nn { \l__hanzibox_dash_pattern_tl } { 0pt }
+        }
+      \draw_linewidth:n{ \l__hanzibox_cross_linewidth_dim }
+      \color_stroke:n { hanziboxcrosscolor }
+      \draw_path_moveto:n { (#3)/2, #2 }
+      \draw_path_lineto:n { #3/2, #4 }
+      \draw_path_moveto:n { #1, (#4)/2 }
+      \draw_path_lineto:n { #3, (#4)/2 }
+      \draw_path_use_clear:n { stroke }
+    \draw_scope_end:
+  }
+
+\__hanzibox_new_frame_construct:nn { × }
+  {
+    \draw_scope_begin:
+      \tl_if_empty:NF \l__hanzibox_dash_pattern_tl
+        {
+          \exp_args:No \draw_dash_pattern:nn { \l__hanzibox_dash_pattern_tl } { 0pt }
+        }
+      \draw_linewidth:n{ \l__hanzibox_cross_linewidth_dim }
+      \color_stroke:n { hanziboxcrosscolor }
+      \draw_path_moveto:n { #1, #2 }
+      \draw_path_lineto:n { #3, #4 }
+      \draw_path_moveto:n { #1, #4 }
+      \draw_path_lineto:n { #3, #2 }
+      \draw_path_use_clear:n { stroke }
+    \draw_scope_end:
+  }
+
+\__hanzibox_new_frame_construct:nn { 米 }
+  {
+    \__hanzibox_frame_type_c:n { × } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { 十 } {#1} {#2} {#3} {#4} {#5} {#6}
+  }
+
+\__hanzibox_new_frame_construct:nn { 口 }
+  {
+    \__hanzibox_frame_type_c:n { filledbox } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { framebox } {#1} {#2} {#3} {#4} {#5} {#6}
+  }
+
+\__hanzibox_new_frame_construct:nn { 田 }
+  {
+    \__hanzibox_frame_type_c:n { filledbox } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { 十 } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { framebox } {#1} {#2} {#3} {#4} {#5} {#6}
+  }
+
+\__hanzibox_new_frame_construct:nn { 咪 }
+  {
+    \__hanzibox_frame_type_c:n { filledbox } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { × } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { 十 } {#1} {#2} {#3} {#4} {#5} {#6}
+    \__hanzibox_frame_type_c:n { framebox } {#1} {#2} {#3} {#4} {#5} {#6}
+  }
+\msg_new:nnn { hanzibox } { frame-exists } { The~ frame~ type~ `#1~ not~ exists. }
+\cs_new_nopar:Npn \__hanzibox_resize:n #1
+  {
+    __hanzibox_processor_resize_ #1 :w
+  }
+\cs_new_nopar:Npn \__hanzibox_resize_c:n #1
+  {
+    \use:c
+      {
+        __hanzibox_processor_resize_ #1 :w
+      }
+  }
+\cs_new:Npn \__hanzibox_dim_gezero_dispatch:NNnnn #1#2 #3#4#5
+  {
+    \dim_compare:nNnTF #1 > \c_zero_dim
+      { #3 }
+      {
+        \dim_compare:nNnTF #2 > \c_zero_dim
+          { #4 } { #5 }
+      }
+  }
+\cs_new:Npn \__hanzibox_dim_gezero_dispatch:NNnnnn #1#2 #3#4#5#6
+  {
+    \dim_compare:nNnTF #1 > \c_zero_dim
+      {
+        \dim_compare:nNnTF #2 > \c_zero_dim
+          { #3 } { #4 }
+      }
+      {
+        \dim_compare:nNnTF #2 > \c_zero_dim
+          { #5 } { #6 }
+      }
+  }
+\cs_new:Npn \__hanzibox_force_size_dispatch:nnn % height, width, none
+  {
+    \__hanzibox_dim_gezero_dispatch:NNnnn \l__hanzibox_height_dim \l__hanzibox_width_dim
+  }
+\cs_new:Npn \__hanzibox_force_size_dispatch:nnnn % both, height, width, none
+  {
+    \__hanzibox_dim_gezero_dispatch:NNnnnn \l__hanzibox_box_height_dim \l__hanzibox_box_width_dim
+  }
+\cs_new:Npn \__hanzibox_new_resize_method:nn #1
+  {
+    \clist_put_right:Nn \g__hanzibox_resize_method_clist {#1}
+    \cs_new:cpn { \__hanzibox_resize:n {#1} }
+  }
+\__hanzibox_new_resize_method:nn { none } { }
+
+\__hanzibox_new_resize_method:nn { real }
+  {
+    \__hanzibox_force_size_dispatch:nnnn
+      {
+        \coffin_resize:Nnn \l__hanzibox_box_coffin
+                           \l__hanzibox_box_width_dim
+                           \l__hanzibox_box_height_dim
+      }
+      {
+        \coffin_scale:Nnn \l__hanzibox_box_coffin
+          {
+            \dim_ratio:nn { \l__hanzibox_box_height_dim }
+                          { \__hanzibox_coffin_ht_plus_dp:N \l__hanzibox_box_coffin }
+          }
+          {
+            \dim_ratio:nn { \l__hanzibox_box_height_dim }
+                          { \__hanzibox_coffin_ht_plus_dp:N \l__hanzibox_box_coffin }
+          }
+      }
+      {
+        \coffin_scale:Nnn \l__hanzibox_box_coffin
+          {
+            \dim_ratio:nn { \l__hanzibox_box_width_dim }
+                          { \coffin_wd:N \l__hanzibox_box_coffin }
+          }
+          {
+            \dim_ratio:nn { \l__hanzibox_box_width_dim }
+                          { \coffin_wd:N \l__hanzibox_box_coffin }
+          }
+      }
+      {
+        \coffin_scale:Nnn \l__hanzibox_box_coffin
+                          { \l__hanzibox_x_scale_tl }
+                          { \l__hanzibox_y_scale_tl }
+      }
+  }
+
+\__hanzibox_new_resize_method:nn { base }
+  {
+    \__hanzibox_force_size_dispatch:nnnn
+      {
+        \coffin_resize:Nnn \l__hanzibox_box_coffin
+                           \l__hanzibox_box_width_dim
+                           \l__hanzibox_box_height_dim
+      }
+      {
+        \coffin_resize:Nnn \l__hanzibox_box_coffin
+           {
+             \l__hanzibox_char_width_dim * \dim_ratio:nn { \l__hanzibox_box_height_dim }
+               { \__hanzibox_coffin_ht_plus_dp:N \l__hanzibox_box_coffin }
+           }
+           {
+             \l__hanzibox_box_height_dim
+           }
+      }
+      {
+        \coffin_resize:Nnn \l__hanzibox_box_coffin
+           {
+             \l__hanzibox_box_width_dim
+           }
+           {
+             \l__hanzibox_char_height_dim * \dim_ratio:nn { \l__hanzibox_box_width_dim }
+               { \coffin_wd:N \l__hanzibox_box_coffin }
+           }
+      }
+      {
+        \coffin_resize:Nnn \l__hanzibox_box_coffin
+           {
+             \l__hanzibox_x_scale_tl \l__hanzibox_char_width_dim
+           }
+           {
+             \l__hanzibox_y_scale_tl \l__hanzibox_char_height_dim
+           }
+      }
+  }
+
+\msg_new:nnn { hanzibox } { frame-type } { using~ `#1'~ frame. }
+\cs_new_nopar:Npn \__hanzibox_zihao:n #1 { \zihao {#1} }
+\cs_new:Npn \__hanzibox_chars_stroke:nn #1#2
+  {
+    \special { pdf:code ~ q ~ #1 } #2 \special { pdf:code ~ Q }
+  }
+\cs_new_protected:Npn \__hanzibox_chars_stroke_construct:n #1
+  {
+    \int_case:nn {\l__hanzibox_charstroke_type_int}
+      {
+        {1}{ #1 }
+        {2}{
+          \__hanzibox_chars_stroke:nn { 1 ~ Tr ~ 0.10 ~ w ~ [] ~ 0 ~ d ~ 1 ~ J } {#1}
+        }
+        {3}{
+          \__hanzibox_chars_stroke:nn { 1 ~ Tr ~ 0.10 ~ w ~ [1~1] ~ 0 ~ d ~ 1 ~ J } {#1}
+        }
+        {4}{
+          \__hanzibox_chars_stroke:nn { 3 ~ Tr } {#1}
+        }
+
+      }
+  }
+\cs_generate_variant:Nn  \__hanzibox_chars_stroke_construct:n { V }
+\cs_generate_variant:Nn  \__hanzibox_chars_stroke_construct:n { x }
+\cs_set_nopar:Npn \__hanzibox_color_select:nn #1#2
+  {
+    \color_set:nn {#1} {#2}
+  }
+\cs_generate_variant:Nn \__hanzibox_color_select:nn {nx}
+\cs_set_nopar:Npn \__hanzibox_color_select:nnn #1#2#3
+  {
+    \color_set:nnn {#1} {#2} {#3}
+  }
+\cs_generate_variant:Nn \__hanzibox_color_select:nnn {nnx}
+\cs_new:Npn \__hanzibox_debug:n
+  {
+    \bool_if:NTF \l__hanzibox_debug_bool
+      { \use:n } { \use_none:n }
+  }
+\keys_define:nn { hanzibox }
+  {
+    basechar  .code:n = { \tl_gset:Nx \c__hanzibox_basechar_tl {#1}
+                          \__hanzibox_calc_basechar_w_h:
+                        },
+    zihao     .code:n = { \hbox_gset:Nn \l__hanzibox_basebox_box
+                            {
+                              \__hanzibox_zihao:n {#1} \c__hanzibox_basechar_tl
+                            }
+                          \__hanzibox_calc_basechar_w_h:
+                        },
+    pinyinf .code:n = { \tl_set:Nn \l__hanzibox_pinyin_format_tl { #1 }
+                        \__hanzibox_calc_pinyin_h:
+                      },
+    pinyinf .initial:n = \tiny ,
+    charf .code:n = { \tl_gset:Nn \l__hanzibox_character_format_tl {#1}
+                      \__hanzibox_calc_frame_size:
+                    },
+    tranf .tl_set:N = \l__hanzibox_translation_format_tl ,
+    tranf .initial:n = \tiny ,
+    frametype .code:n = { \exp_args:NNx \clist_if_in:NnTF \g__hanzibox_frame_list_clist {#1}
+                            { \tl_set:Nx \l__hanzibox_frame_type_tl {#1} }
+                            { \msg_error:nnx { hanzibox } { frame-exists } {#1} }
+                        },
+    resize    .code:n = { \exp_args:NNx \clist_if_in:NnTF \g__hanzibox_resize_method_clist {#1}
+                            { \tl_set:Nx \l__hanzibox_resize_method_tl {#1} }
+                            { \msg_error:nnx { hanzibox } { resize-method } {#1} }
+                        },
+    xscale .tl_set:N = \l__hanzibox_x_scale_tl ,
+    xscale .initial:n = 1 ,
+    yscale .tl_set:N = \l__hanzibox_y_scale_tl ,
+    yscale .initial:n = 1 ,
+    scale  .meta:n = { xscale = #1 , yscale = #1 } ,
+    width  .dim_set:N = \l__hanzibox_box_width_dim ,
+    height .dim_set:N = \l__hanzibox_box_height_dim ,
+    linewidth .dim_set:N = \l__hanzibox_frame_linewidth_dim ,
+    linewidth .initial:n = 0.4pt ,
+    framelinewidth .dim_set:N = \l__hanzibox_frame_linewidth_dim ,
+    framelinewidth .initial:n = 0.4pt ,
+    pinyinlinewidth .dim_set:N = \l__hanzibox_pinyin_linewidth_dim ,
+    pinyinlinewidth .initial:n = 0.4pt ,
+    crosslinewidth .dim_set:N = \l__hanzibox_cross_linewidth_dim ,
+    crosslinewidth .initial:n = 0.3pt ,
+    crosscolorratio  .int_set:N = \l__hanzibox_cross_color_ratio_int,
+    crosscolorratio  .initial:n = 20,
+    framecolor  .code:n = { \tl_set:Nx \l_tmpa_tl { #1 ! \int_use:N \l__hanzibox_cross_color_ratio_int }
+                            \__hanzibox_color_select:nn { hanziboxframecolor } {#1}
+                            \__hanzibox_color_select:nx{ hanziboxcrosscolor } { \l_tmpa_tl } } ,
+    framecolor  .initial:n = black ,
+    framecolor* .code:n = { \tl_set:Nx \l_tmpa_tl { #1 ! \int_use:N \l__hanzibox_cross_color_ratio_int }
+                            \__hanzibox_color_select:nnn { hanziboxframecolor } #1
+                            \__hanzibox_color_select:nnx { hanziboxcrosscolor } \l_tmpa_tl } ,
+    charcolor  .code:n = { \__hanzibox_color_select:nn { hanziboxcharcolor } {#1} } ,
+    charcolor  .initial:n = black ,
+    charcolor* .code:n = { \__hanzibox_color_select:nnn { hanziboxcharcolor } #1 } ,
+    pinyincolor  .code:n = { \__hanzibox_color_select:nn { hanziboxpinyincolor } {#1} } ,
+    pinyincolor  .initial:n = black ,
+    pinyincolor* .code:n = { \__hanzibox_color_select:nnn { hanziboxpinyincolor } #1 } ,
+    trancolor  .code:n = { \__hanzibox_color_select:nn { hanziboxtrancolor } {#1} } ,
+    trancolor  .initial:n = black ,
+    trancolor* .code:n = { \__hanzibox_color_select:nnn { hanziboxtrancolor } #1 } ,
+    color  .meta:n = { framecolor = #1, crosscolor = #1,  charcolor = #1,
+                       pinyincolor = #1, trancolor = #1 } ,
+    color* .meta:n = { framecolor* = #1, crosscolor = #1,  charcolor* = #1,
+                       pinyincolor* = #1, trancolor* = #1 } ,
+    fillcolor  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                            {  \__hanzibox_color_select:nn { hanziboxfillcolor } { white }
+                               \cs_set_nopar:Npn \__hanzibox_aux_color_fill: { }
+                            }{ \__hanzibox_color_select:nn { hanziboxfillcolor } {#1}
+                               \cs_set_nopar:Npn \__hanzibox_aux_color_fill: { \color_fill:n {#1} }
+                            }
+                        } ,
+    fillcolor* .code:n = { \__hanzibox_color_select:nnn { hanziboxfillcolor } #1
+                           \cs_set_nopar:Npn \__hanzibox_aux_color_fill: { \color_fill:nn #1 }
+                         } ,
+    charstroke .choice:,
+    charstroke .value_required:n = true,
+    charstroke .choices:nn =
+      { none, solid, dashed, invisible }
+      { \int_set_eq:NN \l__hanzibox_charstroke_type_int \l_keys_choice_int },
+    charstroke .initial:n = none,
+    dashpattern .tl_set:N = \l__hanzibox_dash_pattern_tl ,
+    dashpattern .initial:n = { } ,
+    framearc  .code:n = { \tl_set:Nn \l__hanzibox_frame_arc_tl { {#1}{#1} } } ,
+    framearc* .tl_set:N = \l__hanzibox_frame_arc_tl ,
+    framearc* .initial:n = { { 0cm }{ 0cm } } ,
+    debug .bool_set:N = \l__hanzibox_debug_bool ,
+    debug .initial:n = false ,
+    debug .default:n = true ,
+    autopinyin .bool_set:N = \l__hanzibox_autopinyin_bool,
+    autopinyin .default:n = true,
+    autopinyin .initial:n = true,
+
+    initial .bool_set:N = \l__hanzibox_withinitial_bool,
+    initial .default:n = true,
+    initial .initial:n = true,
+
+    vowel .bool_set:N = \l__hanzibox_withvowel_bool,
+    vowel .default:n = true,
+    vowel .initial:n = true,
+
+    tone .bool_set:N = \l__hanzibox_withtone_bool,
+    tone .default:n = true,
+    tone .initial:n = true,
+
+    pinyinline .bool_set:N = \l__hanzibox_withpinyinlines_bool,
+    pinyinline .default:n = true,
+    pinyinline .initial:n = false,
+
+    pinyin .bool_set:N = \l__hanzibox_withpinyin_bool,
+    pinyin .default:n = true,
+    pinyin .initial:n = true,
+
+    hanzi .bool_set:N = \l__hanzibox_withhanzi_bool,
+    hanzi .default:n = true,
+    hanzi .initial:n = true,
+
+    tran .bool_set:N = \l__hanzibox_withtran_bool,
+    tran .default:n = true,
+    tran .initial:n = true,
+
+    gridsepv .tl_set:N  = \l__hanzibox_grid_sep_v_tl ,
+    gridsepv .initial:n = 4.0 ,
+    gridcols .int_set:N  = \l__hanzibox_grid_cols_int ,
+    gridcols .initial:n = 20 ,
+    unknown .code:n = { \__hanzibox_error:n { unknown-option } }
+  }
+\msg_new:nnn { hanzibox } { unknown-option }
+  { package~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+\keys_set:nn { hanzibox }
+  {
+    basechar = 好 ,
+    zihao = 4 ,
+    pinyinf = \tiny ,
+    charf = \normalsize ,
+    tranf = \tiny ,
+    frametype = none ,
+    resize = none ,
+  }
+
+\NewDocumentCommand \hanziboxset { m }
+  { \keys_set:nn { hanzibox } {#1} }
+\cs_new:Npn \__hanzibox_dialog:nnnn #1#2#3#4
+  {
+    \group_begin:
+      \keys_set:nn { hanzibox } { #1 }
+
+      \tl_set:Nx \l__hanzibox_character_tl {#2}
+      \tl_set:Nx \l__hanzibox_pinyin_tl {#3}
+      \tl_set:Nx \l__hanzibox_translation_tl {#4}
+
+      \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+        {
+          \tl_map_inline:Nn \l__hanzibox_character_tl
+            {
+              \__hanzibox_single_handle:N ##1
+            }
+        }
+      \hcoffin_set:Nn \l_tmpa_coffin
+        {
+          \hcoffin_set:Nn \l__hanzibox_pinyin_box_coffin
+            {
+              \color_select:n { hanziboxpinyincolor }
+              \tl_use:N \l__hanzibox_pinyin_format_tl
+              \tl_use:N \l__hanzibox_pinyin_tl
+            }
+          \dim_set:Nn \l_tmpa_dim { \coffin_wd:N \l__hanzibox_pinyin_box_coffin }
+          \draw_begin:
+            \draw_linewidth:n { \l__hanzibox_frame_linewidth_dim }
+            \color_stroke:n { hanziboxframecolor!50 }
+
+            \draw_path_scope_begin:
+              \__hanzibox_frame_type_c:n { pinyinlines }
+                { 0 } { 0 } { \l_tmpa_dim } { \hanziboxheight } { 1.0 } { 1.0 }
+              \draw_transform_shift:n {\l_tmpa_dim / 2.0, \l__hanzibox_pinyin_height_i_dim }
+              \draw_coffin_use:Nnn \l__hanzibox_pinyin_box_coffin { hc } { H }
+            \draw_path_scope_end:
+          \draw_end:
+        }
+      \hcoffin_set:Nn \l__hanzibox_tran_box_coffin
+        {
+          \tl_use:N \l__hanzibox_translation_format_tl
+          \tl_use:N \l__hanzibox_translation_tl
+        }
+      \coffin_join:NnnNnnnn \l_tmpa_coffin { hc } { b }
+        \l__hanzibox_str_box_coffin { hc } { t } { 0pt } { \l__hanzibox_frame_linewidth_dim }
+      \coffin_join:NnnNnnnn \l_tmpa_coffin
+        { hc } { b } \l__hanzibox_tran_box_coffin { hc } { t } { 0pt } { -2pt }
+
+      \coffin_set_eq:NN \l__hanzibox_box_coffin \l_tmpa_coffin
+
+      \__hanzibox_resize_c:n { \l__hanzibox_resize_method_tl }
+
+      \coffin_typeset:Nnnnn \l__hanzibox_box_coffin
+        { l } { b } { 0pt } { 0pt }
+      \allowbreak
+    \group_end:
+  }
+\cs_new:Npn \__hanzibox_single_pinyin_hanzi_construct:NN #1#2
+  {
+    \tl_if_empty:NTF #1
+      {
+        \hcoffin_set:Nn \l_tmpa_coffin
+          {
+            \__hanzibox_single_handle:N \c__hanzibox_basechar_tl
+          }
+      }
+      {
+        \hcoffin_set:Nn \l_tmpa_coffin
+          {
+            \__hanzibox_single_handle:N #1
+          }
+      }
+
+    \tl_if_empty:NTF #2
+      {
+        \hcoffin_set:Nn \l__hanzibox_pinyin_hanzi_coffin
+          {
+            \__hanzibox_single_pinyin_lines:
+          }
+
+        \coffin_join:NnnNnnnn \l__hanzibox_pinyin_hanzi_coffin
+          { hc } { b } \l_tmpa_coffin { hc } { t } { 0pt } { \l__hanzibox_pinyin_linewidth_dim }
+      }
+      {
+        \bool_if:NTF \l__hanzibox_withpinyin_bool
+          {
+            \hcoffin_set:Nn \l__hanzibox_pinyin_hanzi_coffin
+              {
+                \__hanzibox_single_pinyin:V #2
+              }
+
+            \coffin_join:NnnNnnnn \l__hanzibox_pinyin_hanzi_coffin
+              { hc } { b } \l_tmpa_coffin { hc } { t } { 0pt } { \l__hanzibox_pinyin_linewidth_dim }
+          }
+          {
+            \coffin_set_eq:NN \l__hanzibox_pinyin_hanzi_coffin \l_tmpa_coffin
+          }
+      }
+  }
+\cs_new:Npn \__hanzibox_multi_str_coffin_construct:
+  {
+    \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+      {
+      }
+    \bool_if:NTF \l__hanzibox_autopinyin_bool
+      {
+        \tl_map_inline:Nn \l__hanzibox_character_tl
+          {
+            \__hanzibox_get_hanzi_pinyin:n { ##1 }
+
+            \__hanzibox_single_pinyin_hanzi_construct:NN ##1 \l__hanzibox_hanzi_pinyin_tl
+
+            \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+              \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+          }
+      }
+      {
+        \__hanzibox_get_tone_pinyin:V \l__hanzibox_pinyin_tl
+        \clist_clear:N \l__hanzibox_tone_pinyin_clist
+        \clist_set:NV \l__hanzibox_tone_pinyin_clist \l__hanzibox_tone_pinyin_tl
+        \int_set:Nn \l_tmpa_int {\clist_count:N \l__hanzibox_tone_pinyin_clist}
+       \int_compare:nNnTF { \l__hanzibox_character_int } = { \l_tmpa_int }
+         {
+           \tl_map_inline:Nn \l__hanzibox_character_tl
+             {
+               \clist_pop:NN \l__hanzibox_tone_pinyin_clist \l_tmpb_tl
+               \__hanzibox_single_pinyin_hanzi_construct:NN ##1 \l_tmpb_tl
+
+               \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                 \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                   { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+             }
+         }
+         {
+           \int_compare:nNnTF { \l__hanzibox_character_int } > { \l_tmpa_int }
+             {
+               \int_step_inline:nn { \l_tmpa_int }
+                 {
+                   \tl_set:Nx \l_tmpa_tl {\tl_item:Nn \l__hanzibox_character_tl { ##1 }}
+                   \clist_pop:NN \l__hanzibox_tone_pinyin_clist \l_tmpb_tl
+
+                   \__hanzibox_single_pinyin_hanzi_construct:NN \l_tmpa_tl \l_tmpb_tl
+                   \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                     \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                       { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+                 }
+               \int_step_inline:nnn { \l_tmpa_int + 1 } { \l__hanzibox_character_int }
+                 {
+                   \tl_set:Nx \l_tmpa_tl {\tl_item:Nn \l__hanzibox_character_tl { ##1 }}
+                   \tl_clear:N \l_tmpb_tl
+
+                   \__hanzibox_single_pinyin_hanzi_construct:NN \l_tmpa_tl \l_tmpb_tl
+                   \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                     \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                       { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+                 }
+             }
+             {
+               \int_step_inline:nn { \l__hanzibox_character_int }
+                 {
+                   \tl_set:Nx \l_tmpa_tl {\tl_item:Nn \l__hanzibox_character_tl { ##1 }}
+                   \clist_pop:NN \l__hanzibox_tone_pinyin_clist \l_tmpb_tl
+
+                   \__hanzibox_single_pinyin_hanzi_construct:NN \l_tmpa_tl \l_tmpb_tl
+                   \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                     \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                       { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+                 }
+
+               \bool_set_eq:NN \l_tmpa_bool \l__hanzibox_withhanzi_bool
+               \bool_set_false:N \l__hanzibox_withhanzi_bool
+               \int_step_inline:nnn { \l__hanzibox_character_int + 1 } { \l_tmpa_int }
+                 {
+                   \tl_clear:N \l_tmpa_tl
+                   \clist_pop:NN \l__hanzibox_tone_pinyin_clist \l_tmpb_tl
+
+                   \__hanzibox_single_pinyin_hanzi_construct:NN \l_tmpa_tl \l_tmpb_tl
+                   \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                     \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                       { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+                 }
+               \bool_set_eq:NN \l__hanzibox_withhanzi_bool \l_tmpa_bool
+             }
+         }
+      }
+  }
+\cs_new:Npn \__hanzibox_single_str_coffin_construct:
+  {
+    \bool_if:NTF \l__hanzibox_autopinyin_bool
+      {
+        \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+          {
+            \__hanzibox_get_hanzi_pinyin:V \l__hanzibox_character_tl
+
+            \__hanzibox_single_pinyin_hanzi_construct:NN
+              \l__hanzibox_character_tl \l__hanzibox_hanzi_pinyin_tl
+            \coffin_typeset:Nnnnn \l__hanzibox_pinyin_hanzi_coffin
+              { l } { b } { 0pt } { 0pt }
+          }
+      }
+      {
+        \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+          {
+            \__hanzibox_get_tone_pinyin:V \l__hanzibox_pinyin_tl
+            \clist_clear:N \l__hanzibox_tone_pinyin_clist
+            \clist_set:NV \l__hanzibox_tone_pinyin_clist \l__hanzibox_tone_pinyin_tl
+            \tl_set:Nx \l_tmpb_tl { \clist_use:Nn \l__hanzibox_tone_pinyin_clist { } }
+
+            \__hanzibox_single_pinyin_hanzi_construct:NN \l__hanzibox_character_tl \l_tmpb_tl
+            \coffin_typeset:Nnnnn \l__hanzibox_pinyin_hanzi_coffin
+              { l } { b } { 0pt } { 0pt }
+          }
+      }
+  }
+\cs_new:Npn \__hanzibox_null_str_coffin_construct:
+  {
+    \bool_set_eq:NN \l_tmpa_bool \l__hanzibox_withhanzi_bool
+    \bool_set_false:N \l__hanzibox_withhanzi_bool
+    \bool_if:NTF \l__hanzibox_autopinyin_bool
+      {
+        \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+          {
+            \__hanzibox_single_handle:N \c__hanzibox_basechar_tl
+          }
+      }
+      {
+        \hcoffin_set:Nn \l__hanzibox_str_box_coffin
+          {
+          }
+        \bool_if:NTF \l__hanzibox_withpinyin_bool
+          {
+            \__hanzibox_get_tone_pinyin:V \l__hanzibox_pinyin_tl
+            \clist_clear:N \l__hanzibox_tone_pinyin_clist
+            \clist_set:NV \l__hanzibox_tone_pinyin_clist \l__hanzibox_tone_pinyin_tl
+            \int_set:Nn \l_tmpa_int {\clist_count:N \l__hanzibox_tone_pinyin_clist}
+
+            \int_step_inline:nn { \l_tmpa_int }
+              {
+                \tl_clear:N \l_tmpa_tl
+                \clist_pop:NN \l__hanzibox_tone_pinyin_clist \l_tmpb_tl
+
+                \__hanzibox_single_pinyin_hanzi_construct:NN \l_tmpa_tl \l_tmpb_tl
+                \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin { r } { b }
+                  \l__hanzibox_pinyin_hanzi_coffin { l } { b }
+                    { -\l__hanzibox_frame_linewidth_dim } { 0pt }
+              }
+          }
+          {
+            \bool_set_false:N \l__hanzibox_withhanzi_bool
+            \__hanzibox_single_handle:N \c__hanzibox_basechar_tl
+          }
+      }
+    \bool_set_eq:NN \l__hanzibox_withhanzi_bool \l_tmpa_bool
+  }
+\cs_new:Npn \__hanzibox_handle:nnnn #1#2#3#4
+  {
+    \group_begin:
+      \keys_set:nn { hanzibox } { #1 }
+
+      \tl_gset:Nx \l__hanzibox_character_tl {#2}
+      \tl_gset:Nx \l__hanzibox_pinyin_tl {#3}
+      \tl_gset:Nx \l__hanzibox_translation_tl {#4}
+
+      \int_set:Nn \l__hanzibox_character_int
+        {
+          \tl_count:V \l__hanzibox_character_tl
+        }
+      \int_set:Nn \l__hanzibox_translation_int
+        {
+          \tl_count:V \l__hanzibox_translation_tl
+        }
+      \int_set:Nn \l__hanzibox_pinyin_int
+        {
+          \tl_count:V \l__hanzibox_pinyin_tl
+        }
+
+      \int_compare:nNnTF { \l__hanzibox_character_int } > { 1 }
+        {
+          \__hanzibox_multi_str_coffin_construct:
+        }
+        {
+          \int_compare:nNnTF { \l__hanzibox_character_int } = { 1 }
+            {
+              \__hanzibox_single_str_coffin_construct:
+            }
+            {
+              \__hanzibox_null_str_coffin_construct:
+            }
+        }
+      \bool_if:NT \l__hanzibox_withtran_bool
+        {
+          \hcoffin_set:Nn \l__hanzibox_tran_box_coffin
+            {
+              \color_select:n { hanziboxtrancolor }
+              \tl_use:N \l__hanzibox_translation_format_tl
+              \tl_use:N \l__hanzibox_translation_tl
+            }
+        }
+      \coffin_join:NnnNnnnn \l__hanzibox_str_box_coffin
+        { hc } { b } \l__hanzibox_tran_box_coffin { hc } { t } { 0pt } { -3pt }
+
+      \coffin_set_eq:NN \l__hanzibox_box_coffin \l__hanzibox_str_box_coffin
+
+      \__hanzibox_resize_c:n { \l__hanzibox_resize_method_tl }
+
+      \coffin_typeset:Nnnnn \l__hanzibox_box_coffin
+        { l } { b } { 0pt } { 0pt }
+      \allowbreak
+    \group_end:
+  }
+\cs_new:Npn \__hanzibox_writegrid:nn #1#2
+  {
+    \group_begin:
+      \keys_set:nn { hanzibox } { #1 }
+
+      \tl_if_eq:NnT \l__hanzibox_frame_type_tl { none }
+        { \tl_set:Nn \l__hanzibox_frame_type_tl { 口 } }
+
+      \hcoffin_set:Nn \l__hanzibox_grid_tmpa_coffin
+        {
+          \draw_begin:
+            \draw_linewidth:n { \l__hanzibox_frame_linewidth_dim }
+            \__hanzibox_aux_color_fill:
+            \color_stroke:n { hanziboxframecolor }
+
+            \draw_path_scope_begin:
+              \__hanzibox_frame_type_c:n { \l__hanzibox_frame_type_tl }
+                { 0 } { 0 } { \hanziboxwidth } { \hanziboxheight } { 1.0 } { 1.0 }
+              \int_decr:N \l__hanzibox_grid_cols_int
+              \int_step_inline:nn  { \l__hanzibox_grid_cols_int }
+                {
+                  \draw_transform_shift:n {\hanziboxwidth, 0.0 }
+                  \__hanzibox_frame_type_c:n { \l__hanzibox_frame_type_tl }
+                    { 0 } { 0 } { \hanziboxwidth } { \hanziboxheight } { 1.0 } { 1.0 }
+                }
+            \draw_path_scope_end:
+          \draw_end:
+        }
+
+      \hcoffin_set:Nn \l__hanzibox_grid_tmpb_coffin
+        {
+          \coffin_typeset:Nnnnn \l__hanzibox_grid_tmpa_coffin
+            { l } { b } { 0pt } { 0pt }
+        }
+
+      \int_step_inline:nn { #2 - 1 }
+        {
+          \coffin_join:NnnNnnnn \l__hanzibox_grid_tmpb_coffin { hc } { b }
+            \l__hanzibox_grid_tmpa_coffin { hc } { t } { 0pt }
+            { -\hanziboxheight * \dim_ratio:nn { 1 pt }{ \l__hanzibox_grid_sep_v_tl pt } }
+        }
+
+      \dim_set:Nn \l_tmpa_dim
+        {
+          \coffin_wd:N \l__hanzibox_grid_tmpb_coffin
+        }
+      \dim_set:Nn \l_tmpb_dim
+        {
+          \tex_dimexpr:D \coffin_ht:N \l__hanzibox_grid_tmpb_coffin +
+                          \coffin_dp:N \l__hanzibox_grid_tmpb_coffin \scan_stop:
+        }
+
+      \draw_begin:
+        \draw_linewidth:n { \l__hanzibox_frame_linewidth_dim * 4 }
+        \__hanzibox_aux_color_fill:
+        \color_stroke:n { hanziboxframecolor }
+
+        \draw_path_scope_begin:
+          \draw_path_rectangle_corners:nn { 0cm , 0cm } { \l_tmpa_dim, \l_tmpb_dim }
+          \draw_path_use_clear:n { draw }
+          \draw_transform_shift:n {\l_tmpa_dim / 2.0, \l_tmpb_dim / 2.0 }
+          \draw_coffin_use:Nnn \l__hanzibox_grid_tmpb_coffin { hc } { vc }
+        \draw_path_scope_end:
+      \draw_end:
+
+    \group_end:
+  }
+\cs_new:Npn \__hanzibox_single_pinyin:n #1
+  {
+    \bool_if:NTF \l__hanzibox_withtone_bool
+      {
+        \bool_if:nTF { !(\l__hanzibox_withinitial_bool) || !(\l__hanzibox_withvowel_bool) }
+          {
+            \__hanzibox_split_pinyin_withtone:n { #1 }
+            \hcoffin_set:Nn \l__hanzibox_pinyin_box_coffin
+              {
+                \color_select:n { hanziboxpinyincolor }
+                \tl_use:N \l__hanzibox_pinyin_format_tl
+
+                \bool_if:NTF \l__hanzibox_withinitial_bool
+                  {
+                    \bool_if:NTF \l__hanzibox_withvowel_bool
+                    {
+                      \tl_use:N \l__hanzibox_initial_tl
+                      \tl_use:N \l__hanzibox_vowel_tl
+                    }
+                    {
+                      \tl_use:N \l__hanzibox_initial_tl
+                      \phantom{ \tl_use:N \l__hanzibox_vowel_tl }
+                    }
+                  }
+                  {
+                    \bool_if:NTF \l__hanzibox_withvowel_bool
+                    {
+                      \phantom{ \tl_use:N \l__hanzibox_initial_tl }
+                      \tl_use:N \l__hanzibox_vowel_tl
+                    }
+                    {
+                      \phantom{ \tl_use:N \l__hanzibox_initial_tl }
+                      \phantom{ \tl_use:N \l__hanzibox_vowel_tl }
+                    }
+                  }
+              }
+          }
+          {
+            \hcoffin_set:Nn \l__hanzibox_pinyin_box_coffin
+              {
+                \color_select:n { hanziboxpinyincolor }
+                \tl_use:N \l__hanzibox_pinyin_format_tl
+                #1
+              }
+          }
+      }
+      {
+        \__hanzibox_split_pinyin_withouttone:n { #1 }
+        \hcoffin_set:Nn \l__hanzibox_pinyin_box_coffin
+        {
+          \color_select:n { hanziboxtrancolor }
+          \tl_use:N \l__hanzibox_pinyin_format_tl
+
+          \tl_use:N \l__hanzibox_pinyin_tl
+        }
+      }
+      \__hanzibox_single_pinyin_lines_construct:
+  }
+\cs_generate_variant:Nn  \__hanzibox_single_pinyin:n { V }
+\cs_generate_variant:Nn  \__hanzibox_single_pinyin:n { x }
+\cs_set:Npn \__hanzibox_single_pinyin_o:n
+  { \exp_after:wN \__hanzibox_single_pinyin:n }
+\cs_set:Npn \__hanzibox_single_pinyin_f:n
+  { \exp_args:Nf \__hanzibox_single_pinyin:n }
+\cs_new:Npn \__hanzibox_single_handle:nN #1#2
+  {
+    \group_begin:
+      \tl_if_empty:nF {#1} { \keys_set:nn { hanzibox } {#1} }
+
+      \tl_set:Nf \l__hanzibox_curr_char_tl {#2}
+
+      \__hanzibox_single_construct_o:N \l__hanzibox_curr_char_tl
+    \group_end:
+  }
+\cs_new:Npn \__hanzibox_single_handle:N #1
+  {
+    \group_begin:
+      \tl_set:Nf \l__hanzibox_curr_char_tl {#1}
+      \__hanzibox_single_construct_o:N \l__hanzibox_curr_char_tl
+    \group_end:
+  }
+\cs_new:Npn \__hanzibox_single_construct:N #1
+  {
+    \bool_if:NTF \l__hanzibox_withhanzi_bool
+      {
+        \hcoffin_set:Nn \l__hanzibox_box_coffin
+          {
+            \color_select:n { hanziboxcharcolor }
+            \tl_use:N \l__hanzibox_character_format_tl
+            \__hanzibox_chars_stroke_construct:n { #1 }
+          }
+      }
+      {
+        \hcoffin_set:Nn \l__hanzibox_box_coffin
+          {
+            \color_select:n { hanziboxcharcolor }
+            \tl_use:N \l__hanzibox_character_format_tl
+            \phantom{#1}
+          }
+      }
+
+    \__hanzibox_single_frame_construct:
+  }
+\cs_set:Npn \__hanzibox_single_construct_o:N
+  { \exp_after:wN \__hanzibox_single_construct:N }
+\cs_set:Npn \__hanzibox_single_construct_f:N
+  { \exp_args:Nf \__hanzibox_single_construct:N }
+\cs_new:Npn \__hanzibox_single_frame_construct:
+  {
+    \draw_begin:
+      \draw_linewidth:n { \l__hanzibox_frame_linewidth_dim }
+      \__hanzibox_aux_color_fill:
+      \color_stroke:n { hanziboxframecolor }
+
+      \exp_after:wN \draw_path_corner_arc:nn \l__hanzibox_frame_arc_tl
+
+      \draw_path_scope_begin:
+        \__hanzibox_frame_type_c:n { \l__hanzibox_frame_type_tl }
+          { 0 } { 0 } { \hanziboxwidth } { \hanziboxheight } { 1.0 } { 1.0 }
+        \draw_transform_shift:n {\hanziboxwidth / 2.0, \hanziboxheight / 2.0 }
+        \draw_coffin_use:Nnn \l__hanzibox_box_coffin { hc } { vc }
+      \draw_path_scope_end:
+    \draw_end:
+  }
+\cs_new:Npn \__hanzibox_single_pinyin_lines_construct:
+  {
+    \draw_begin:
+      \draw_linewidth:n { \l__hanzibox_pinyin_linewidth_dim }
+      \color_stroke:n { hanziboxframecolor!50 }
+
+      \draw_path_scope_begin:
+        \__hanzibox_frame_type_c:n { pinyinlines }
+          { 0 } { 0 } { \hanziboxwidth } { \hanziboxheight } { 1.0 } { 1.0 }
+        \draw_transform_shift:n {\hanziboxwidth / 2.0, \l__hanzibox_pinyin_height_i_dim }
+        \draw_coffin_use:Nnn \l__hanzibox_pinyin_box_coffin { hc } { H }
+      \draw_path_scope_end:
+    \draw_end:
+  }
+\cs_new:Npn \__hanzibox_single_pinyin_lines:
+  {
+    \draw_begin:
+      \draw_linewidth:n { \l__hanzibox_pinyin_linewidth_dim }
+      \color_stroke:n { hanziboxframecolor!50 }
+
+      \__hanzibox_frame_type_c:n { pinyinlines }
+        { 0 } { 0 } { \hanziboxwidth } { \hanziboxheight } { 1.0 } { 1.0 }
+    \draw_end:
+  }
+\tl_new:N \l__hanzibox_save_tl
+\tl_new:N \l__hanzibox_hanzi_pinyin_tl
+\tl_new:N \l__hanzibox_tone_pinyin_tl
+\clist_const:Nn \c__hanzibox_tone_a_clist { ā,á,ǎ,à,a }
+\clist_const:Nn \c__hanzibox_tone_o_clist { ō,ó,ǒ,ò,o }
+\clist_const:Nn \c__hanzibox_tone_e_clist { ē,é,ě,è,e }
+\clist_const:Nn \c__hanzibox_tone_u_clist { ū,ú,ǔ,ù,u }
+\clist_const:Nn \c__hanzibox_tone_i_clist { ī,í,ǐ,ì,i }
+\clist_const:Nn \c__hanzibox_tone_v_clist { ǖ,ǘ,ǚ,ǜ,ü }
+\cs_new_protected:Npn \__hanzibox_pinyin_aux:n #1
+  {
+    \quark_if_recursion_tail_stop_do:nn {#1}
+      {
+        \bool_if:NT \l__xpinyin_first_bool
+          { \tl_set:NV \l__hanzibox_tone_pinyin_tl \l__xpinyin_item_tl }
+      }
+    \__xpinyin_if_number:nTF {#1}
+      {
+        \bool_if:NT \l__xpinyin_first_bool
+          { \bool_set_false:N \l__xpinyin_first_bool }
+        \tl_put_right:NV \l__hanzibox_tone_pinyin_tl \l__xpinyin_pre_tl
+        \tl_put_right:Nx \l__hanzibox_tone_pinyin_tl
+          { \clist_item:cn { c__hanzibox_tone_ \l__xpinyin_tone_tl _clist } {#1} }
+        \tl_put_right:NV \l__hanzibox_tone_pinyin_tl \l__xpinyin_post_tl
+        \bool_if:NF \l__hanzibox_autopinyin_bool
+          {
+            \tl_put_right:Nn \l__hanzibox_tone_pinyin_tl {,}
+          }
+        \__xpinyin_pinyin_init:
+      }
+      {
+        \int_compare:nNnTF
+          { 0 \cs_if_exist_use:c { c__xpinyin_ \tl_to_str:N \l__xpinyin_tone_tl _tl } } >
+          { 0 \cs_if_exist_use:c { c__xpinyin_ \tl_to_str:n {#1} _tl } }
+          { \tl_put_right:Nn \l__xpinyin_post_tl {#1} }
+          {
+            \tl_set:Nn \l__xpinyin_tone_tl {#1}
+            \tl_set_eq:NN \l__xpinyin_pre_tl \l__xpinyin_item_tl
+            \tl_clear:N \l__xpinyin_post_tl
+          }
+        \tl_put_right:Nx \l__xpinyin_item_tl { \__xpinyin_replace_v:n {#1} }
+      }
+    \__hanzibox_pinyin_aux:n
+  }
+\cs_new:Npn \__hanzibox_get_tone_pinyin:n #1
+  {
+    \tl_clear:N \l__hanzibox_tone_pinyin_tl
+    \__xpinyin_pinyin_init:
+    \tl_set:Nn \l__hanzibox_save_tl {#1}
+    \bool_set_true:N \l__xpinyin_first_bool
+    \__hanzibox_pinyin_aux:n #1 \q_recursion_tail \q_recursion_stop
+  }
+\cs_generate_variant:Nn  \__hanzibox_get_tone_pinyin:n { V }
+\cs_new:Npn \__hanzibox_get_hanzi_pinyin:n #1
+  {
+    \tl_set_eq:Nc \l_tmpa_tl { c__xpinyin_ \__xpinyin_char_to_unicode:n {#1} _tl }
+    \exp_args:No \tl_if_head_eq_meaning:nNTF { \l_tmpa_tl } \__xpinyin_pinyin:n
+      {
+        \exp_args:Nf \__hanzibox_get_tone_pinyin:n { \exp_after:wN \use_ii:nn \l_tmpa_tl }
+        \tl_set_eq:NN \l__hanzibox_hanzi_pinyin_tl \l__hanzibox_tone_pinyin_tl
+      }
+      { \tl_set_eq:NN \l__hanzibox_hanzi_pinyin_tl \l_tmpa_tl }
+  }
+\cs_generate_variant:Nn  \__hanzibox_get_hanzi_pinyin:n { V }
+\clist_set:Nn \l__hanzibox_initials_clist
+  {
+    {zh} , {ch} , {sh} , {b} , {p} , {m} , {f} ,
+    {d}  , {t}  , {l}  , {k} , {h} , {j} , {q} ,
+    {x}  , {r}  , {z}  , {c} , {s} , {y} , {w} ,
+    {g}  , {n}
+  }
+\clist_set:Nn \l__hanzibox_vowel_tone_clist
+  {
+    {iāng} , {iáng} , {iǎng} , {iàng} , {iang} ,
+    {iōng} , {ióng} , {iǒng} , {iòng} , {iong} ,
+    {uāng} , {uáng} , {uǎng} , {uàng} , {uang} ,
+    {uēng} , {uéng} , {uěng} , {uèng} , {ueng} ,
+    {āng}  , {áng}  , {ǎng}  , {àng}  , {ang}  ,
+    {ēng}  , {éng}  , {ěng}  , {èng}  , {eng}  ,
+    {īng}  , {íng}  , {ǐng}  , {ìng}  , {ing}  ,
+    {ōng}  , {óng}  , {ǒng}  , {òng}  , {ong}  ,
+    {uāi}  , {uái}  , {uǎi}  , {uài}  , {uai}  ,
+    {uān}  , {uán}  , {uǎn}  , {uàn}  , {uan}  ,
+    {uēi}  , {uéi}  , {uěi}  , {uèi}  , {uei}  ,
+    {uāo}  , {uáo}  , {uǎo}  , {uào}  , {uao}  ,
+    {iōu}  , {ióu}  , {iǒu}  , {iòu}  , {iou}  ,
+    {iān}  , {ián}  , {iǎn}  , {iàn}  , {ian}  ,
+    {üān}  , {üán}  , {üǎn}  , {üàn}  , {üan}  ,
+    {uēn}  , {uén}  , {uěn}  , {uèn}  , {uen}  ,
+    {āi}   , {ái}   , {ǎi}   , {ài}   , {ai}   ,
+    {ēi}   , {éi}   , {ěi}   , {èi}   , {ei}   ,
+    {uā}   , {uá}   , {uǎ}   , {uà}   , {ua}   ,
+    {uō}   , {uó}   , {uǒ}   , {uò}   , {uo}   ,
+    {uī}   , {uí}   , {uǐ}   , {uì}   , {ui}   ,
+    {āo}   , {áo}   , {ǎo}   , {ào}   , {ao}   ,
+    {ōu}   , {óu}   , {ǒu}   , {òu}   , {ou}   ,
+    {iū}   , {iú}   , {iǔ}   , {iù}   , {iu}   ,
+    {iā}   , {iá}   , {iǎ}   , {ià}   , {ia}   ,
+    {iē}   , {ié}   , {iě}   , {iè}   , {ie}   ,
+    {uē}   , {ué}   , {uě}   , {uè}   , {ue}   ,
+    {üē}   , {üé}   , {üě}   , {üè}   , {üe}   ,
+    {ēr}   , {ér}   , {ěr}   , {èr}   , {er}   ,
+    {ān}   , {án}   , {ǎn}   , {àn}   , {an}   ,
+    {ēn}   , {én}   , {ěn}   , {èn}   , {en}   ,
+    {īn}   , {ín}   , {ǐn}   , {ìn}   , {in}   ,
+    {ūn}   , {ún}   , {ǔn}   , {ùn}   , {un}   ,
+    {ǖn}   , {ǘn}   , {ǚn}   , {ǜn}   , {ün}   ,
+    {ā}    , {á}    , {ǎ}    , {à}    , {a}    ,
+    {ē}    , {é}    , {ě}    , {è}    , {e}    ,
+    {ī}    , {í}    , {ǐ}    , {ì}    , {i}    ,
+    {ō}    , {ó}    , {ǒ}    , {ò}    , {o}    ,
+    {ū}    , {ú}    , {ǔ}    , {ù}    , {u}    ,
+    {ǖ}    , {ǘ}    , {ǚ}    , {ǜ}    , {ü}
+  }
+\clist_set:Nn \l__hanzibox_vowel_clist
+  {
+    {iang} , {iong} , {uang} , {ueng} , {ang} , {eng} , {ing} ,
+    {ong}  , {uai}  , {uan}  , {uai}  , {uei} , {iao} , {iou} ,
+    {ian}  , {üan}  , {uen}  , {ai}   , {ei}  , {ua}  , {uo}  ,
+    {ui}   , {ao}   , {ou}   , {iu}   , {ie}  , {üe}  , {er}  ,
+    {an}   , {en}   , {in}   , {un}   , {ün}  , {a}   , {e}   ,
+    {i}    , {o}    , {ü}    , {u}
+  }
+\clist_set:Nn \l__hanzibox_tone_num_clist
+  {
+    {ā} {a1} , {á} {a2} , {ǎ} {a3} , {à} {a4} ,
+    {ō} {o1} , {ó} {o2} , {ǒ} {o3} , {ò} {o4} ,
+    {ē} {e1} , {é} {e2} , {ě} {e3} , {è} {e4} ,
+    {ū} {u1} , {ú} {u2} , {ǔ} {u3} , {ù} {u4} ,
+    {ḿ} {m2} ,
+    {ń} {n2} , {ň} {n3} , {ǹ} {n4} ,
+    {ī} {i1} , {í} {i2} , {ǐ} {i3} , {ì} {i4} ,
+    {ǖ} {v1} , {ǘ} {v2} , {ǚ} {v3} , {ǜ} {v4}
+  }
+\clist_set:Nn \l__hanzibox_nonetone_clist
+  {
+    {ā} {a} , {á} {a} , {ǎ} {a} , {à} {a} ,
+    {ō} {o} , {ó} {o} , {ǒ} {o} , {ò} {o} ,
+    {ē} {e} , {é} {e} , {ě} {e} , {è} {e} ,
+    {ū} {u} , {ú} {u} , {ǔ} {u} , {ù} {u} ,
+    {ḿ} {m} ,
+    {ń} {n} , {ň} {n} , {ǹ} {n} ,
+    {ī} {i} , {í} {i} , {ǐ} {i} , {ì} {i} ,
+    {ǖ} {ü} , {ǘ} {ü} , {ǚ} {ü} , {ǜ} {ü}
+  }
+\cs_new_protected:Npn \__hanzibox_split_pinyin_withtone:n #1
+  {
+    \int_zero:N  \l__hanzibox_tone_int
+    \str_clear:N \l__hanzibox_pinyin_str
+    \tl_clear:N  \l__hanzibox_pinyin_tl
+    \tl_clear:N  \l__hanzibox_initial_tl
+    \tl_clear:N  \l__hanzibox_vowel_tl
+
+    \tl_set:Nn \l__hanzibox_pinyin_tl {#1}
+
+    \tl_map_inline:Nn \l__hanzibox_pinyin_tl
+      {
+        \str_put_right:Nn \l__hanzibox_pinyin_str {##1}
+      }
+
+    \clist_map_inline:Nn \l__hanzibox_initials_clist
+      {
+        \str_if_in:NnT { \l__hanzibox_pinyin_str } {##1}
+          {
+            \tl_set:Nn \l__hanzibox_initial_tl {##1}
+            \clist_map_break:
+          }
+      }
+
+    \clist_map_inline:Nn \l__hanzibox_vowel_tone_clist
+      {
+        \str_if_in:NnT { \l__hanzibox_pinyin_str } { ##1 }
+          {
+            \tl_set:Nn \l__hanzibox_vowel_tl {##1}
+            \clist_map_break:
+          }
+      }
+  }
+\cs_new_protected:Npn \__hanzibox_split_pinyin_withouttone:n #1
+  {
+    \int_zero:N  \l__hanzibox_tone_int
+    \str_clear:N \l__hanzibox_pinyin_str
+    \tl_clear:N  \l__hanzibox_pinyin_tl
+    \tl_clear:N  \l__hanzibox_initial_tl
+    \tl_clear:N  \l__hanzibox_vowel_tl
+
+    \tl_set:Nn \l__hanzibox_pinyin_tl {#1}
+
+    \clist_map_inline:Nn \l__hanzibox_nonetone_clist
+      {
+        \tl_replace_all:Nnn \l__hanzibox_pinyin_tl ##1
+      }
+
+    \tl_map_inline:Nn \l__hanzibox_pinyin_tl
+      {
+        \str_put_right:Nn \l__hanzibox_pinyin_str {##1}
+      }
+
+    \clist_map_inline:Nn \l__hanzibox_initials_clist
+      {
+        \str_if_in:NnT {\l__hanzibox_pinyin_str} {##1}
+          {
+            \tl_set:Nn \l__hanzibox_initial_tl {##1}
+            \clist_map_break:
+          }
+      }
+
+    \clist_map_inline:Nn \l__hanzibox_vowel_clist
+      {
+        \str_if_in:NnT { \l__hanzibox_pinyin_str } { ##1 }
+          {
+            \tl_set:Nn \l__hanzibox_vowel_tl {##1}
+            \clist_map_break:
+          }
+      }
+  }
+%% 
+%%     This package consists of the file  hanzibox.dtx,
+%%                  and the derived files hanzibox.sty,
+%%                                        hanzibox.pdf,
+%%                                        hanzibox.ins,
+%%                                        README.md.
+%%
+%% End of file `hanzibox.sty'.
