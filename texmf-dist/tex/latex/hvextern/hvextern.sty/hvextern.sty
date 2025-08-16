@@ -1,0 +1,1194 @@
+%% $Id: hvextern.sty 1097 2025-05-14 07:41:01Z herbert $
+%% This is file `hvextern.sty',
+%%
+%% Copyright (C) 2016-25
+%% Herbert Voss
+%%
+%% It may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%    http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+
+\def\hvexternFileversion{0.42}
+\ProvidesFile{hvextern}[2025/05/14 v\hvexternFileversion: package for running external documents (HV)]
+
+\newif\ifhv@extern@checkCode
+\hv@extern@checkCodefalse
+\DeclareOption{checkCode}{\hv@extern@checkCodetrue}
+
+\ProcessOptions
+
+\RequirePackage{shellesc,xkeyval,graphicx,comment}
+
+\newif\ifhv@extern@shellescape  % the main command line option, for later test
+%\typeout{>>>> \the\ShellEscapeStatus}%
+\expandafter\ifnum\the\ShellEscapeStatus=1
+  \hv@extern@shellescapetrue
+  \typeout{>>>> command line option shell-escape is enabled!}%
+\else
+  \hv@extern@shellescapefalse
+  \typeout{>>>> command line option shell-escape is disabled!}%
+\fi
+
+\RequirePackage{fancyvrb,tikz,listings,ifplatform,iftex}
+\RequirePackage{ifoddpage,filemod}
+\RequirePackage{tcolorbox,xparse}
+\tcbuselibrary{skins,breakable}
+
+\def\hv@ex@typeout#1{\ifhv@extern@verbose\typeout{>>(hvextern) #1}\fi}
+
+\ifwindows
+  \def\hv@move{move }%
+  \def\hv@rm{del }%
+  \def\hv@mkdir{mkdir }%
+\else
+  \def\hv@move{mv }%
+  \def\hv@rm{rm }%
+  \def\hv@mkdir{mkdir -p }%
+  \def\hv@diff{diff }
+\fi
+
+\newcounter{hv@extern@runs}
+\newcounter{hv@extern@runsAfter}
+\newcounter{@@@runs} 
+\newcounter{hv@extern@pageCNT} 
+\newsavebox\hv@extern@box
+\newlength\hv@TextWidth
+\newlength\hv@extern@pagesep
+\newlength\hv@extern@mpsep
+\newlength\hv@extern@framesep
+\newlength\hv@extern@aboveskip
+\newlength\hv@extern@belowpreambleskip
+\newlength\hv@extern@belowbodyskip
+\newlength\hv@extern@belowskip
+\newlength\hv@extern@shiftFN
+\newlength\hv@extern@vshift
+
+\newlength\hvExternLineWidth
+\AtBeginDocument{\hvExternLineWidth=\the\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}
+
+\newlength\hv@extern@mpwidth \setlength\hv@extern@mpwidth{\z@}
+
+\newif\ifhv@extern@save@force@state
+\newif\ifhv@extern@runR
+
+\define@key{hv}{progpath}{\def\hv@extern@progpath{#1}}
+\define@key{hv}{pwd}{\def\hv@extern@pwd{#1}}
+\define@key{hv}{runsequence}[]{\def\hv@extern@runsequence{#1}}
+\define@key{hv}{runs}[1]{\setcounter{hv@extern@runs}{#1}}
+\define@key{hv}{runsAfter}[1]{\setcounter{hv@extern@runsAfter}{#1}}
+\define@key{hv}{grfOptions}[]{\def\hv@extern@grfOptions{#1}}
+\define@key{hv}{lstOptions}[]{\def\hv@extern@lstOptions{#1}}
+\define@key{hv}{textOptions}[]{\def\hv@extern@textOptions{#1}}
+\define@key{hv}{BGpreamble}[black!12]{\def\hv@extern@BGpreamble{#1}}
+\define@key{hv}{BGbody}[black!8]{\def\hv@extern@BGbody{#1}}
+\define@key{hv}{BOpreamble}[black!12]{\def\hv@extern@BOpreamble{#1}}
+\define@key{hv}{BObody}[black!8]{\def\hv@extern@BObody{#1}}
+\define@key{hv}{docType}[latex]{\def\hv@extern@docType{#1}}
+%\define@choicekey*+{hv}{docType}[\val\nr]{latex,mp,tex,py,pl,lua,java,context,sh,R}[latex]{% 
+%  \hv@typeout{doc type \nr}%
+%  \def\hv@extern@docType{\val}%
+%}{\PackageWarning{hvextern}{erroneous input (#1) for docType ignored. Using latex.}%
+%  \def\hv@extern@docType{latex}%
+% }
+\define@key{hv}{caption}[]{\def\hv@extern@caption{#1}}
+\define@key{hv}{label}[]{\def\hv@extern@label{#1}}
+\define@key{hv}{pages}[1]{\def\hv@extern@pages{#1}}
+\define@key{hv}{pagesep}[1em]{\hv@extern@pagesep=#1}
+\define@key{hv}{cropmargin}[2]{\def\hv@extern@cropmargin{#1 }}
+\define@key{hv}{mpwidth}[0pt]{\setlength\hv@extern@mpwidth{#1}}
+\define@key{hv}{mpsep}[1em]{\setlength\hv@extern@mpsep{#1}}
+\define@key{hv}{mpvalign}[t]{\def\hv@extern@mpvalign{#1}}
+\define@key{hv}{ext}[tex]{\def\hv@extern@ext{.#1}}
+\define@boolkey{hv}[hv@extern@]{redirect}[true]{}
+\define@boolkey{hv}[hv@extern@]{usefancyvrb}[true]{}
+\define@boolkey{hv}[hv@extern@]{showFilename}[true]{}
+\define@boolkey{hv}[hv@extern@]{outerFN}[true]{}
+\define@key{hv}{shiftFN}[0pt]{\setlength\hv@extern@shiftFN{#1}}
+\define@key{hv}{vshift}[0pt]{\setlength\hv@extern@vshift{#1}}% 
+\define@boolkey{hv}[hv@extern@]{code}[true]{}
+\define@boolkey{hv}[hv@extern@]{force}[true]{\@nameuse{hv@extern@save@force@state#1}}
+\define@boolkey{hv}[hv@extern@]{crop}[true]{}
+\define@boolkey{hv}[hv@extern@]{tcbox}[true]{}
+\define@boolkey{hv}[hv@extern@]{biber}[true]{}
+\define@boolkey{hv}[hv@extern@]{xindex}[true]{}
+\define@key{hv}{xindexOptions}[]{\def\hv@extern@xindexOptions{#1}}
+\define@boolkey{hv}[hv@extern@]{includegraphic}[true]{}
+\define@boolkey{hv}[hv@extern@]{showoutput}[true]{}
+\define@boolkey{hv}[hv@extern@]{inline}[true]{\hv@extern@codefalse\hv@extern@showFilenamefalse}
+\define@boolkey{hv}[hv@extern@]{frame}[true]{}
+\define@key{hv}{framesep}[\the\fboxsep]{\setlength\hv@extern@framesep{#1}}
+\define@boolkey{hv}[hv@extern@]{float}[true]{}
+\define@key{hv}{floatsetting}[]{\def\hv@extern@floatsetting{#1}}
+\define@key{hv}{cleanup}[{aux,log,psaux}]{\def\hv@extern@cleanup{#1}}% 
+\define@boolkey{hv}[hv@extern@]{moveToExampleDir}[true]{}
+\define@key{hv}{align}[\centering]{\def\hv@extern@align{#1}}
+\define@key{hv}{ExampleDir}[Examples]{%
+  \ifhv@extern@moveToExampleDir
+    \def\hv@extern@ExamplesDir{#1/}%
+  \else
+    \def\hv@extern@ExamplesDir{}%
+  \fi
+}
+\define@boolkey{hv}[hv@extern@]{eps}[true]{}
+\define@boolkey{hv}[hv@extern@]{verbose}[true]{}
+\define@boolkey{hv}[hv@extern@]{inactive}[true]{}
+
+
+\ifwindows
+  \define@choicekey*+{hv}{compiler}[\val\nr]{mpost.exe,tex.exe,latex.exe,luatex.exe,%
+     python3.exe,perl.exe,lua.exe,java.exe,%
+     xetex.exe,pdflatex.exe,lualatex.exe,xelatex.exe,context.exe,sh,%
+     texlua.exe,Rscript.exe,apl.exe}[pdflatex.exe]{% 
+      \hv@ex@typeout{Compiler type (\nr) \val}%
+      \def\hv@extern@compiler{\val}%
+      \edef\hv@extern@compilerNo{\nr}%
+      \ifnum\nr=15 \hv@extern@runRtrue\else\hv@extern@runRfalse\fi
+  }{\PackageWarning{hvextern}{unknown compiler type (#1). Maybe you should define 
+      a run sequence???}%
+    \def\hv@extern@compiler{#1}%
+    \def\hv@extern@compilerNo{-1}%
+  }
+\else
+  \define@choicekey*+{hv}{compiler}[\val\nr]{mpost,tex,latex,luatex,python3,perl,lua,java,%
+     xetex,pdflatex,lualatex,xelatex,context,sh,texlua,Rscript,apl}[pdflatex]{% 
+    \hv@ex@typeout{Compiler type (\nr) \val}%
+    \def\hv@extern@compiler{\val}%
+    \edef\hv@extern@compilerNo{\nr}%
+    \ifnum\nr=15 \hv@extern@runRtrue\else\hv@extern@runRfalse\fi
+  }{\PackageWarning{hvextern}{unknown compiler type (#1). Maybe you should define a run sequence???}%
+    \def\hv@extern@compiler{#1}%
+    \def\hv@extern@compilerNo{-1}%
+  }
+\fi
+\define@boolkey{hv}[hv@extern@]{shellesc}[true]{}
+\define@key{hv}{aboveskip}[\medskipamount]{\setlength\hv@extern@aboveskip{#1}}
+\define@key{hv}{belowpreambleskip}[2pt]{\setlength\hv@extern@belowpreambleskip{#1}}
+\define@key{hv}{belowbodyskip}[\smallskipamount]{\setlength\hv@extern@belowbodyskip{#1}}
+\define@key{hv}{belowskip}[\medskipamount]{\setlength\hv@extern@belowskip{#1}}
+\define@key{hv}{mposttex}[tex]{\def\hv@extern@mposttex{#1 }}
+
+\def\hvExternSetKeys#1{\setkeys{hv}{#1}}
+
+\def\ResetKeys{%
+ \setkeys{hv}{%
+  align=\centering,%    Ausgabe zentrieren
+  aboveskip=\medskipamount,% space above everything
+  belowpreambleskip=2pt,%\smallskipamount,% space below preamble
+  belowbodyskip=2pt,   %\smallskipamount,% space below body
+  belowskip=\medskipamount,% space below everything
+  BGpreamble=black!12,% Backgroundcolor for preamble
+  BGbody=black!8,%      Backgroundcolor for body
+  BOpreamble=black!12,% Bodercolor for preamble
+  BObody=black!8,%      Bodercolor for body
+  biber=false,%		    Biber laufen lassen?
+  caption=,%	        keine Caption
+  cleanup={},% 	        Hilfsdateien nicht löschen
+  code=false,%          show Code
+  compiler=pdflatex,%	zu verwendener Compiler
+  crop=false,%		    erzeugte PDF "croppen"
+  cropmargin=2,%        2pb margin
+  docType=latex,%	    LaTeX example Code
+  eps=false,%           create an eps output?          
+  ExampleDir=Examples,% Unterverzeichnis für Beispiele
+  ext=tex,%             file extension
+  float=false,%		    nicht als Gleitumgebung
+  floatsetting=!htb,%   placement
+  force=true,%	  	    Compile, auch wenn PDF existiert?
+  frame=false,%		    keinen Rahmen um Abbildung
+  framesep=\the\fboxsep,% 
+  grfOptions={},%	    Optionen der einzubindenden Grafik
+  includegraphic=true,% Grafik einbinden oder User überlassen
+  inline=false,%        Grafik nicht in derselben Zeile
+  label=,%		        kein Label
+  lstOptions={},%	    Optionen für das Listing
+  moveToExampleDir=false,%  Verschieben nach ExamplesDir
+  mpwidth=0pt,%         no minipage
+  mpsep=1em,%           sep  between two minipages
+  mpvalign=t,%          if side by side output the vertical alignment          
+  outerFN=false,%       use fullwidth in twocolumn mode (starred floats)
+  pages=1,%		        welche Seiten auszugeben sind
+  pagesep=1em,%         horizontal sep between pages
+  progpath={},%
+  pwd={},%              working directory if not .
+  redirect=false,%      write output into a file *.txt
+  runs=1,%		        Anzahl Compiler-Durchläufe
+  runsAfter=0, %        Anzahl Durchläufe nach makeindex
+  runsequence={},%	    Im  Moment nicht aktiv
+  shellesc=false,%      use shell-escape
+  shiftFN=\z@,%         raise printed filename
+  showFilename=false,%  Filenamen im Rand angeben
+  showoutput=true,%     with false only code is shown
+  tcbox=true,%          use tcolorbox
+  textOptions={},%	    Options for text output
+  usefancyvrb=false,%   use VerbatimInput instead of listings
+  verbose=false,%       no extra output in the logfile
+  vshift=\z@,%          raise object (pdf) with \raisebox{}{}
+  xindex=false,%	    xindex laufen lassen?
+  xindexOptions={},%    options for xindex
+  mposttex=tex,%        mpost program tex or latex
+  inactive=false,%      Does nothing for inactive
+  }%
+}
+
+\ResetKeys
+
+\ifhv@extern@checkCode
+  \ifluatex
+    \hv@ex@typeout{Loading hvextern.lua}%
+    \directlua{kpse.set_program_name("luatex")require "hvextern.lua" }%
+  \else
+    \ifhv@extern@checkCode
+      \hv@ex@typeout{Using xelatex or pdflatex! Will use a temporary file for diff}%
+%    \hv@extern@checkCodefalse
+    \fi
+  \fi
+\fi
+
+{\catcode`\%=12
+ \catcode`\#=12 
+ \gdef\perCent{%}
+ \gdef\DoubleperCent{%%}
+ \gdef\NumChar{#}
+ \gdef\DoubleNumChar{##}
+}
+
+\ExplSyntaxOn
+\NewDocumentCommand\run@hv@extern@cleanup{ m }
+ {
+  \clist_map_inline:nn {#1}{\ShellEscape{\hv@rm \hv@extern@ExamplesDir\hvExternFilename.##1}} 
+  \ifnum\hv@extern@compilerNo=0\relax   % we have metapost
+    \ShellEscape{\hv@rm\space epsf.*}%
+  \fi
+ }
+\NewDocumentCommand\run@hv@extern@sequenceList{ m }
+ {
+  \clist_map_inline:nn {#1}{%
+    \hv@ex@typeout{sequencerun: ##1}%
+    \ShellEscape{\hv@extern@progpath##1\space\hv@run@options\hvExternFilename}%
+  } 
+ }
+\ExplSyntaxOff
+
+\lstset{belowskip=0pt,aboveskip=0pt}% global
+\tcbset{breakable,left=2pt,right=2pt,top=2pt,bottom=2pt,boxsep=0pt}
+
+
+\def\hv@marginpar#1{%
+  \sbox\hv@extern@box{\rotatebox[origin=C]{90}{\rule{2\hv@extern@shiftFN}{0pt}\texttt{#1}}}%
+  \ht\hv@extern@box=\z@ \wd\hv@extern@box=\z@ \dp\hv@extern@box=\z@
+  \noindent
+  \checkoddpage
+  \ifoddpage%    we have a right page
+    \if@twocolumn
+      \ifhv@extern@outerFN
+        \makebox[\dimexpr\hv@TextWidth+\marginparsep-1.5ex][r]{\usebox\hv@extern@box}%
+      \else      
+        \if@firstcolumn
+          \llap{\usebox\hv@extern@box\rule{2.5ex}{0pt}}%
+        \else
+          \makebox[\dimexpr\hv@TextWidth+\marginparsep-1.5ex][r]{\usebox\hv@extern@box}%
+        \fi
+      \fi
+    \else  
+      \makebox[\dimexpr\hv@TextWidth+\marginparsep-1.5ex][r]{\usebox\hv@extern@box}%  
+    \fi
+  \else%       we have an even page (left page)
+    \if@twocolumn
+      \ifhv@extern@outerFN
+        \llap{\usebox\hv@extern@box\rule{2.5ex}{0pt}}%   left page left side
+      \else
+        \if@firstcolumn
+          \llap{\usebox\hv@extern@box\rule{2.5ex}{0pt}}%   left page left side
+        \else
+          \makebox[\dimexpr\hv@TextWidth+\marginparsep-1.5ex][r]{\usebox\hv@extern@box}% left page right side
+        \fi
+      \fi
+    \else  
+      \llap{\usebox\hv@extern@box\rule{2.5ex}{0pt}}%   onecolumn left page left side
+    \fi
+  \fi  
+}
+
+\newcommand\PreambleVerbatim[2][]{%
+  \hv@ex@typeout{Running PreambleVerbatim with #1, #2}%
+  \ifhv@extern@tcbox
+    \begin{tcolorbox}[before skip=0pt,after skip=0pt,breakable,enhanced jigsaw]\VerbatimInput[#1]{#2}\end{tcolorbox}%
+  \else
+    \VerbatimInput[#1]{#2}%
+  \fi}
+
+\newcommand\BodyVerbatim[2][]{%
+  \hv@ex@typeout{Running BodyVerbatim with #1, #2}%
+  \ifhv@extern@tcbox
+    \begin{tcolorbox}[before skip=0pt,after skip=0pt,breakable,enhanced jigsaw]\VerbatimInput[#1]{#2}\end{tcolorbox}%
+  \else
+    \VerbatimInput[#1]{#2}%
+  \fi}
+
+\newcommand\PreambleListing[2][]{%
+  \hv@ex@typeout{Running PreambleListing with #1, #2}%
+  \ifhv@extern@tcbox 
+    \begin{tcolorbox}[before skip=0pt,after skip=0pt,breakable,enhanced jigsaw%,top=-2pt
+    ]\expandafter\lstinputlisting\expandafter[#1]{#2}\end{tcolorbox}%
+  \else    
+    \expandafter\lstinputlisting\expandafter[#1]{#2}%
+  \fi}
+
+\newcommand\BodyListing[2][]{%
+  \hv@ex@typeout{Running BodyListing with #1, #2}%
+  \ifhv@extern@tcbox 
+    \begin{tcolorbox}[before skip=0pt,after skip=0pt,breakable,enhanced jigsaw,%top=-2pt
+    ]\expandafter\lstinputlisting\expandafter[#1]{#2}\end{tcolorbox}%
+  \else
+    \expandafter\lstinputlisting\expandafter[#1]{#2}%
+  \fi}
+
+\newcounter{hv@example@counter}
+
+\newcommand\hv@extern@ExampleType[5]{%
+  \@namedef{#1@initTextFancy}{\edef\FancyVerbStartString{#2}\edef\FancyVerbStopString{#3}}% text
+  \@namedef{#1@initPreambleFancy}{\edef\FancyVerbStartString{#4}\edef\FancyVerbStopString{#5}}% code
+  \@namedef{#1@initText}{linerange={#2}-{#3},includerangemarker=false}% text
+  \@namedef{#1@initPreamble}{linerange={#4}-{#5},includerangemarker=false}% code
+}%                                   {} ^^to prevent problems with lua comments
+
+% for the user interface
+\let\defMarkerType\hv@extern@ExampleType
+
+%%------------------   the config part --------------------
+
+%----  MP
+\hv@extern@ExampleType{mp}
+  {beginfig(1)}
+  {endfig;}
+  {\perCent StartVisiblePreamble}
+  {\perCent StopVisiblePreamble}
+
+\def\hv@extern@runMP#1#2#3#4{% path compiler file extension
+  \hv@ex@typeout{running #1#2 #3#4}%
+  \ShellEscape{#1#2\space -tex=\hv@extern@mposttex\space #3#4}%
+  \hv@ex@typeout{running #1tex #3}%
+  \ShellEscape{#1tex\space "\string\input\space epsf\string\relax\string\nopagenumbers\string\epsfbox{#3.1}\string\bye"}%
+  \hv@ex@typeout{running #1dvips #3}%
+  \ShellEscape{#1dvips\space -j\space -E\space -o\space #3.eps\space epsf.dvi}%
+  \hv@ex@typeout{running #1epstopdf #3}%
+  \ShellEscape{#1epstopdf\space #3.eps}%
+}
+%----  TeX
+%\input{hvextern-tex.cfg}
+\hv@extern@ExampleType{tex}
+  {\perCent StartBody}
+  {\string\bye}
+  {\perCent StartVisiblePreamble}
+  {\perCent StopVisiblePreamble}
+
+\def\hv@extern@runTEX#1#2#3#4{% path compiler file extension
+  \hv@ex@typeout{running #1#2 #3#4}%
+  \ShellEscape{#1tex\space\hv@run@options #3#4}%
+  \hv@ex@typeout{running #1dvips #3}%
+  \ShellEscape{#1dvips\space #3.dvi}%
+  \hv@ex@typeout{running ps2pdf #3.ps}%
+  \ShellEscape{#1ps2pdf\space -dAutoRotatePages=/None\space -dALLOWPSTRANSPARENCY\space #3.ps}%
+}
+
+%----  LaTeX
+%\input{hvextern-latex.cfg}
+\hv@extern@ExampleType{latex}%                      
+  {\string\begin\string{document\string}}%       
+  {\string\end\string{document\string}}%         
+  {\perCent StartVisiblePreamble}%               
+  {\perCent StopVisiblePreamble}%                
+
+% only for the sequence latex->dvips->ps2pdf
+\def\hv@extern@runLATEX#1#2#3#4{% path-compiler-file-extension
+  \hv@ex@typeout{running #1#2 #3#4}%
+  \ShellEscape{#1#2\space\hv@run@options #3#4}%
+  \hv@ex@typeout{running #1dvips #3}%
+  \ShellEscape{#1dvips\space #3.dvi}%
+  \hv@ex@typeout{running ps2pdf #3.ps}%
+  \ShellEscape{#1ps2pdf\space -dAutoRotatePages=/None\space -dALLOWPSTRANSPARENCY\space  #3.ps}%
+}
+
+%---- ConTeXt
+%\input{hvextern-context.cfg}
+\hv@extern@ExampleType{context}
+  {\string\starttext}
+  {\string\stoptext}
+  {\perCent StartVisiblePreamble}
+  {\perCent StopVisiblePreamble}
+
+%---- Python
+%\input{hvextern-py.cfg}
+\hv@extern@ExampleType{py}
+  {\NumChar StartVisibleMain}
+  {\NumChar StopVisibleMain}
+  {\NumChar StartVisiblePreamble}
+  {\NumChar StopVisiblePreamble}
+
+
+%----  Perl
+%\input{hvextern-pl.cfg}
+\hv@extern@ExampleType{pl}
+  {\NumChar StartVisibleMain}
+  {\NumChar StopVisibleMain}
+  {\NumChar StartVisiblePreamble}
+  {\NumChar StopVisiblePreamble}
+
+
+%----  Lua
+%\input{hvextern-lua.cfg}
+\hv@extern@ExampleType{lua}
+  {--StartVisibleMain}
+  {--StopVisibleMain}
+  {--StartVisiblePreamble}
+  {--StopVisiblePreamble}
+
+
+%----  Java
+\hv@extern@ExampleType{java}
+  {//StartVisibleMain}
+  {//StopVisibleMain}
+  {//StartVisiblePreamble}
+  {//StopVisiblePreamble}
+
+
+%----  Shell
+%\input{hvextern-sh.cfg}
+\hv@extern@ExampleType{sh}
+  {\NumChar StartVisibleMain}
+  {\NumChar StopVisibleMain}
+  {\NumChar StartVisiblePreamble}
+  {\NumChar StopVisiblePreamble}
+
+%---- R
+%\input{hvextern-R.cfg}
+\hv@extern@ExampleType{R}
+  {\NumChar StartVisibleMain}
+  {\NumChar StopVisibleMain}
+  {\NumChar StartVisiblePreamble}
+  {\NumChar StopVisiblePreamble}
+
+
+%%%---------------------------------  end config part ------------------
+
+%%
+%% [#1]: Optionen  #2: Filename
+%%
+\newenvironment{externalDocument}[2][]
+  {%
+   \ifhv@extern@inactive\else
+   %\the\hv@extern@belowbodyskip\par%  only for debug
+   \ifhv@extern@shellesc\gdef\hv@run@options{ --shell-escape }\else\gdef\hv@run@options{}\fi%
+   \xdef\hvExternFilename{#2-\arabic{hv@example@counter}}%
+   \gdef\hv@extern@savePara{#1}%
+   \setkeys{hv}{#1}%                   \begin
+   \hv@ex@typeout{External filename: \hvExternFilename}%
+   \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.pdf}{}{%  
+     \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.png}{}{%
+       \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.txt}{}{%
+         \global\hv@extern@forcetrue}}}%   set force, if no pdf or png or txt exists
+   \begingroup
+   \ifhv@extern@shellescape
+     \hv@ex@typeout{writing file \hvExternFilename\hv@extern@ext ...}%
+   \else
+     \hv@ex@typeout{no shell-escape, no writing of file \hvExternFilename\hv@extern@ext}%
+     \let\filecontents\comment
+     \let\endfilecontents\endcomment
+   \fi
+   \filecontents[force,noheader]{\hvExternFilename\hv@extern@ext}%
+   \fi%   of inactive
+  }%  end \begin{externaldocument}  env
+  {%  start \end{externaldocument}  env
+   \ifhv@extern@inactive\else
+   \endfilecontents
+   \ifhv@extern@shellescape\hv@ex@typeout{... done}\fi
+   \global\stepcounter{hv@example@counter}%
+   \endgroup
+   \expandafter\hvExternSetKeys\expandafter{\hv@extern@savePara}%
+   \xdef\hv@extern@fullPath{\hv@extern@ExamplesDir\hvExternFilename}%
+   \ifhv@extern@checkCode
+     \ifluatex
+       \directlua{if GetFileContents("\hvExternFilename\hv@extern@ext",
+		"\hv@extern@ExamplesDir\hvExternFilename\hv@extern@ext") then
+	  tex.print("\\csname hv@ex@typeout\\endcsname{current file is NOT newer: no run }\\global\\csname hv@extern@forcefalse\\endcsname")
+        else
+	   tex.print("\\csname hv@ex@typeout\\endcsname{current file is newer: force run }\\global\\csname hv@extern@forcetrue\\endcsname")
+	end}%
+     \else
+       \hv@ex@typeout{Check, if new file has a different code}%
+       \ShellEscape{hvextern-checkfile "\hvExternFilename\hv@extern@ext"
+		"\hv@extern@ExamplesDir\hvExternFilename\hv@extern@ext"}%
+       \InputIfFileExists{\hvExternFilename\hv@extern@ext.diff}{}{}%
+       \ifx\hvCheckNewFile\empty
+         \hv@ex@typeout{current file is NOT newer: no run }%
+         \global\hv@extern@forcefalse
+       \else
+         \hv@ex@typeout{current file is newer: force run }%
+         \hv@extern@forcetrue
+       \fi
+       \ifhv@extern@verbose\else\ShellEscape{\hv@rm \hvExternFilename\hv@extern@ext.diff}\fi
+     \fi
+   \fi
+   \ifhv@extern@force
+     \ifx\hv@extern@runsequence\@empty
+       \hv@ex@typeout{force=true: running \hv@extern@progpath\hv@extern@compiler\ \hv@run@options \hvExternFilename\hv@extern@ext ...}%
+       \setcounter{@@@runs}{\value{hv@extern@runs}}%
+       \loop\ifnum\the@@@runs > 0\relax
+         \ifcase\hv@extern@compilerNo  \relax   % we have metapost
+           \hv@ex@typeout{running mpost \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runMP{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \or %1
+           \hv@ex@typeout{running tex \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runTEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \or %2
+           \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runLATEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \else
+           \ifhv@extern@redirect
+             \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext > \hvExternFilename.txt}%
+             \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename\hv@extern@ext\space > \hvExternFilename.txt}%
+           \else
+             \ifwindows 
+               \hv@ex@typeout{running \hv@extern@compiler~\hv@run@options~\hvExternFilename\hv@extern@ext}%
+               \ShellEscape{"\hv@extern@progpath\hv@extern@compiler" \hv@run@options\space\hvExternFilename\hv@extern@ext}%
+             \else
+               \hv@ex@typeout{running \hv@extern@compiler~\hv@run@options~\hvExternFilename\hv@extern@ext}%
+               \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hv@run@options\space\hvExternFilename\hv@extern@ext}%
+             \fi
+           \fi
+         \fi
+         \addtocounter{@@@runs}{-1}%
+       \repeat
+       \ifhv@extern@runR   % we have Rscript
+         \hv@ex@typeout{copy r-dummy.pdf to \hvExternFilename.pdf}%
+         \ShellEscape{\hv@move\space Rplots.pdf \hvExternFilename.pdf}%
+       \fi      
+       \hv@ex@typeout{... done}%
+       \ifhv@extern@biber
+         \ShellEscape{biber  \hvExternFilename}%  NAch biber nochmal latex
+         \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename}%
+       \fi
+       \ifhv@extern@xindex 
+         \ShellEscape{xindex \hv@extern@xindexOptions\space \hvExternFilename.idx}%  NAch xindex nochmal latex
+         \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename}%
+       \fi
+       \expandafter\ifnum\value{hv@extern@runsAfter} > 0
+         \hv@ex@typeout{runsAfter>0: running \hv@extern@progpath\hv@extern@compiler~ \hvExternFilename\hv@extern@ext ...}%
+         \setcounter{@@@runs}{\value{hv@extern@runsAfter}}%
+         \loop\ifnum\the@@@runs > 0\relax
+           \ifcase\hv@extern@compilerNo  \relax   % we have metapost
+             \hv@ex@typeout{running mpost \hvExternFilename\hv@extern@ext}%
+             \hv@extern@runMP{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+           \or %1
+             \hv@ex@typeout{running tex \hvExternFilename\hv@extern@ext}%
+             \hv@extern@runTEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+           \or %2
+             \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+             \hv@extern@runLATEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+           \else
+             \ifhv@extern@redirect
+               \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext > \hvExternFilename.txt}%
+               \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename\hv@extern@ext\space > \hvExternFilename.txt}%
+             \else
+               \ifwindows
+                 \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+                 \ShellEscape{"\hv@extern@progpath\hv@extern@compiler" \hvExternFilename\hv@extern@ext}%
+               \else
+                 \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+                 \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename\hv@extern@ext}%
+               \fi
+             \fi
+           \fi
+           \addtocounter{@@@runs}{-1}%
+         \repeat
+         \hv@ex@typeout{... done}%
+       \fi
+     \else % runsequence
+       \expandafter\run@hv@extern@sequenceList\expandafter{\hv@extern@runsequence}%
+     \fi  
+     \ifhv@extern@crop
+       \hv@ex@typeout{running pdfcrop \hv@extern@pwd\hvExternFilename}%
+       \ShellEscape{\hv@extern@progpath pdfcrop --verbose --margins \hv@extern@cropmargin \hv@extern@pwd\hvExternFilename}%
+       \hv@ex@typeout{moving \hv@extern@pwd\hvExternFilename-crop.pdf~to \hv@extern@pwd\hvExternFilename.pdf}%
+       \ShellEscape{/bin/\hv@move \hv@extern@pwd\hvExternFilename-crop.pdf \hv@extern@pwd\hvExternFilename.pdf}%
+     \fi
+     \ifhv@extern@eps
+       \hv@ex@typeout{running pdftops -eps -f 1 -l 1 \hvExternFilename}%
+       \ShellEscape{\hv@extern@progpath pdftops -eps -f 1 -l 1 \hvExternFilename.pdf}%
+     \fi
+   \else % if force ...
+     \hv@ex@typeout{force=false: NOT running \hvExternFilename\hv@extern@ext ...}%
+   \fi%    end force
+   \hfuzz=\maxdimen
+   \ifhv@extern@code%--------------        Code Part
+     \vspace{\hv@extern@aboveskip}%
+     \hv@ex@typeout{Starting Code part with preamble ...}%
+     \begingroup
+       \if@twocolumn
+         \ifhv@extern@outerFN
+           \hv@TextWidth=\textwidth
+         \else
+           \hv@TextWidth=\columnwidth
+         \fi
+       \else
+         \hv@TextWidth=\textwidth
+       \fi
+       \ifdim\hv@extern@mpwidth>\z@ 
+         \noindent
+         \tcbset{breakable=false}%
+         \minipage[\hv@extern@mpvalign]{\hv@extern@mpwidth}
+         \vspace{0pt}%
+       \else
+         \vspace{\hv@extern@aboveskip}\noindent
+       \fi
+       \ifhv@extern@usefancyvrb
+         \@nameuse{\hv@extern@docType @initPreambleFancy}%
+         \edef\@@@temp{\@nameuse{\hv@extern@docType @initPreamble}}%
+         % we need lstinputlisting, because \VerbatimInput doesn't work in a box
+         \savebox\hv@extern@box{\expandafter\lstinputlisting\expandafter[\@@@temp]{\hvExternFilename\hv@extern@ext}}%
+         \ifdim\wd\hv@extern@box > \z@\relax
+           \expandafter\fvset\expandafter{\hv@extern@lstOptions}%
+           \tcbset{colback=\hv@extern@BGpreamble,colframe=\hv@extern@BOpreamble}%
+           \PreambleVerbatim{\hvExternFilename\hv@extern@ext}%
+           \vspace{\hv@extern@belowpreambleskip}%
+         \fi
+      \else
+        \edef\@@@temp{\@nameuse{\hv@extern@docType @initPreamble}}%
+        \savebox\hv@extern@box{\expandafter\lstinputlisting\expandafter[\@@@temp]{\hvExternFilename\hv@extern@ext}}%
+        \ifdim\wd\hv@extern@box>\z@\relax
+          \expandafter\lstset\expandafter{\hv@extern@lstOptions}%
+          \tcbset{colback=\hv@extern@BGpreamble,colframe=\hv@extern@BOpreamble}%
+          \PreambleListing[\@@@temp]{\hvExternFilename\hv@extern@ext}%
+          \vspace{\hv@extern@belowpreambleskip}%
+        \fi
+      \fi
+      \ifhv@extern@showFilename
+         \hv@ex@typeout{Set filename in the margin!}%
+         \noindent
+         \hfuzz=\maxdimen
+         \hv@marginpar{\hvExternFilename\hv@extern@ext}%
+      \fi
+%     
+      \hv@ex@typeout{Starting Code body ...}%}
+       \ifhv@extern@usefancyvrb
+         \@nameuse{\hv@extern@docType @initTextFancy}%
+         \expandafter\fvset\expandafter{\hv@extern@lstOptions}%
+         \tcbset{colback=\hv@extern@BGbody,colframe=\hv@extern@BObody}%
+         \expandafter\BodyVerbatim\expandafter[\hv@extern@lstOptions]{\hvExternFilename\hv@extern@ext}%
+      \else
+         \expandafter\lstset\expandafter{\hv@extern@lstOptions}%
+         \edef\@@@temp{\@nameuse{\hv@extern@docType @initText}}%
+         \tcbset{colback=\hv@extern@BGbody,colframe=\hv@extern@BObody}%
+         \BodyListing[\@@@temp]{\hvExternFilename\hv@extern@ext}%
+      \fi
+    \ifdim\hv@extern@mpwidth > \z@\relax \endminipage\fi
+    \endgroup
+   \fi % end code part
+   \ifhv@extern@code\else  % only if no code
+      \ifhv@extern@showFilename
+        \hv@ex@typeout{Set filename in the margin!}%
+        \noindent
+        \hv@marginpar{\hvExternFilename\hv@extern@ext}%
+      \fi
+   \fi
+   \ifhv@extern@moveToExampleDir
+%     \ShellEscape{mkdir\space\hv@extern@ExamplesDir/}%
+     \hv@ex@typeout{Move file into example dir}% 
+     \hv@ex@typeout{\hvExternFilename ----> \hv@extern@ExamplesDir}%
+     \ShellEscape{\hv@move \hvExternFilename.*\space \hv@extern@ExamplesDir}%
+   \fi
+   \ifhv@extern@showoutput
+     \ifhv@extern@includegraphic
+       \ifhv@extern@inline
+         \raisebox{\hv@extern@vshift}{%
+           \expandafter\includegraphics\expandafter[\hv@extern@grfOptions]{\hv@extern@fullPath}}%
+       \else
+         \ifhv@extern@float
+           \hv@ex@typeout{Floating environment}% 
+           \expandafter\figure\expandafter[\hv@extern@floatsetting]
+         \else
+           \hv@ex@typeout{No floating environment}% 
+           \vspace{\hv@extern@belowbodyskip}
+           \ifdim\hv@extern@mpwidth>\z@ 
+             \hfill\minipage[\hv@extern@mpvalign]{\dimexpr\linewidth-\hv@extern@mpwidth-1em\relax}\vspace{0pt}%
+           \else
+             \vspace{\hv@extern@belowbodyskip}\noindent
+             \begingroup
+           \fi
+         \fi
+         \hv@extern@align
+         \hv@ex@typeout{Input image \hv@extern@fullPath}% 
+         \ifhv@extern@frame
+           \begingroup
+           \fboxsep=\hv@extern@framesep
+           \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+             \fbox{\expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]%
+               {\hv@extern@fullPath}}\hspace{\hv@extern@pagesep}}%
+           \hspace*{-\hv@extern@pagesep}%
+           \endgroup
+         \else
+           \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+             \expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]%
+               {\hv@extern@fullPath}\hspace{\hv@extern@pagesep}}%
+           \hspace*{-\hv@extern@pagesep}%
+         \fi
+         \par% for \hv@extern@align
+         \ifx\hv@extern@caption\@empty\else\caption{\hv@extern@caption}\fi
+         \ifx\hv@extern@label\@empty\else\label{\hv@extern@label}\fi
+         \ifhv@extern@float
+           \endfigure
+         \else
+           \ifdim\hv@extern@mpwidth>\z@  \endminipage\else\endgroup\fi
+         \fi
+       \fi
+     \else% no graphic, only text
+       \ifdim\hv@extern@mpwidth>\z@ 
+         \hfill\minipage[t]{\dimexpr\linewidth-\hv@extern@mpwidth-\hv@extern@mpsep\relax}\vspace{0pt}
+         \ifhv@extern@usefancyvrb
+           \expandafter\VerbatimInput\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \else
+           \expandafter\lstinputlisting\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \fi
+         \endminipage
+       \else
+         \vspace{\hv@extern@belowbodyskip}%
+         \noindent
+         \ifhv@extern@usefancyvrb
+           \expandafter\VerbatimInput\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \else
+           \expandafter\lstinputlisting\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \fi
+       \fi
+     \fi
+  \fi%  end of \ifshowoutput
+  \ifhv@extern@force
+    \expandafter\run@hv@extern@cleanup\expandafter{\hv@extern@cleanup}%
+  \fi%   cleanup
+  \vspace{\hv@extern@belowskip}%
+  \ifhv@extern@save@force@state
+    \global\hv@extern@forcetrue
+  \else
+    \global\hv@extern@forcefalse
+  \fi% restore value
+  \fi%  \ifhv@extern@active
+  }
+
+\newcommand\runExtCmd[3][]{%  #1:options; #2:comamnd; #3:filename
+  \begingroup
+  \setkeys{hv}{cleanup={},code=false,includegraphic=false,#1}%
+  \xdef\hvExternFilename{#3-\arabic{hv@example@counter}}%
+  \xdef\hv@extern@fullPath{\hv@extern@ExamplesDir\hvExternFilename}%
+  \hv@ex@typeout{running #2}%
+  \ifhv@extern@redirect
+    \ShellEscape{\hv@extern@progpath#2   > \hv@extern@ExamplesDir\hvExternFilename.txt}%
+  \else
+    \ShellEscape{\hv@extern@progpath#2}%
+  \fi
+  \global\stepcounter{hv@example@counter}%
+  %-------------------------------------  showoutput -----------------------------------
+  \ifhv@extern@showoutput
+    \ifhv@extern@includegraphic
+      \ifhv@extern@inline
+        \expandafter\includegraphics\expandafter[\hv@extern@grfOptions]{\hv@extern@ExamplesDir\hvExternFilename}%
+      \else
+        \ifhv@extern@float
+          \hv@ex@typeout{Floating environment}% 
+          \expandafter\figure\expandafter[\hv@extern@floatsetting]
+        \else
+          \hv@ex@typeout{No floating environment}% 
+          \par\noindent\begingroup
+        \fi
+        \hv@extern@align
+        \hv@ex@typeout{Input image \hv@extern@ExamplesDir\hvExternFilename}% 
+        \ifhv@extern@frame
+          \begingroup
+          \fboxsep=\hv@extern@framesep
+          \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+            \fbox{\expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]{\hv@extern@fullPath}}%
+              \hspace{5pt}}\hspace*{-5pt}%
+          \endgroup
+        \else
+          \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+            \expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]{\hv@extern@fullPath}%
+               \hspace{5pt}}\hspace*{-5pt}%
+        \fi
+        \ifx\hv@extern@caption\@empty\else\caption{\hv@extern@caption}\fi
+        \ifx\hv@extern@label\@empty\else\label{\hv@extern@label}\fi
+        \ifhv@extern@float
+          \endfigure
+        \else
+          \ifdim\hv@extern@mpwidth>\z@  \endminipage\else\par\endgroup\fi
+        \fi
+      \fi
+    \else% no graphic, only text
+      \ifhv@extern@float
+        \hv@ex@typeout{Floating environment}% 
+        \expandafter\figure\expandafter[!htb]
+        \ifhv@extern@usefancyvrb
+          \expandafter\BodyVerbatim\expandafter[\hv@extern@lstOptions]{\hv@extern@fullPath.txt}
+        \else     
+          \expandafter\BodyListing\expandafter[\hv@extern@lstOptions,breakatwhitespace]{\hv@extern@fullPath.txt}
+        \fi
+        \ifx\hv@extern@caption\@empty\else\caption{\hv@extern@caption}\fi
+        \ifx\hv@extern@label\@empty\else\label{\hv@extern@label}\fi
+        \endfigure
+      \else
+        \noindent
+        \ifhv@extern@usefancyvrb
+          \expandafter\BodyVerbatim\expandafter[\hv@extern@lstOptions]{\hv@extern@fullPath.txt}
+        \else     
+          \hv@extern@tcboxfalse
+          \expandafter\BodyListing\expandafter[\hv@extern@lstOptions,breaklines,breakatwhitespace]{\hv@extern@fullPath.txt}
+        \fi
+      \fi
+    \fi
+  \fi% end \ifshowoutput
+  \ifhv@extern@force\expandafter\run@hv@extern@cleanup\expandafter{\hv@extern@cleanup}\fi%   cleanup
+  \endgroup
+}
+
+\def\WriteVerb{\FV@Environment{}{WriteVerb}}
+\def\FVB@WriteVerb#1{%
+  \@bsphack
+  \begingroup
+    \FV@UseKeyValues
+    \FV@DefineWhiteSpace
+    \def\FV@Space{\space}%
+    \FV@DefineTabOut
+    \def\FV@ProcessLine{\immediate\write\FV@OutFile}%
+    \immediate\openout\FV@OutFile #1\relax
+    \let\FV@FontScanPrep\relax
+    \let\@noligs\relax
+    \FV@Scan}
+\def\FVE@WriteVerb{\immediate\closeout\FV@OutFile\endgroup\@esphack}
+\DefineVerbatimEnvironment{WriteVerb}{WriteVerb}{}
+
+\begingroup
+\catcode`\^^M=\active
+  \gdef\FV@BeginScanning#1^^M{%
+    \def\@tempa{#1}\ifx\@tempa\@empty\else\FV@BadBeginError\fi%  <------
+    \FV@GetLine}%
+\gdef\FancyVerbGetLine#1^^M{%
+  \@nil
+  \FV@CheckEnd{#1}%
+  \ifx\@tempa\FV@EnvironName%            % True if end is found
+    \ifx\@tempb\FV@@@CheckEnd\else\FV@BadEndError\fi%
+    \let\next\FV@EndScanning%
+  \else%
+    \def\FV@Line{#1}%
+    \def\next{\FV@PreProcessLine\FV@GetLine}%
+  \fi%
+  \next}%
+\endgroup
+
+{\catcode`\ =12 \gdef\FancyVerbSpace{\ttfamily }}
+
+\newcommand\BeginPSTcode{%
+  \nobreak
+  \VerbatimEnvironment
+  \catcode`\<=12
+    \begin{VerbatimOut}{\EX@dir\EX@prefix\theEX@ct.\EX@suffix}}
+%
+\newcommand\EndPSTcode{%
+\end{VerbatimOut}
+  \global\let\Preamble@Commands\@empty
+  \global\let\Hidden@Preamble@Commands\@empty
+  \global\let\Require@Packages\@empty
+}
+%
+\renewcommand\FVE@VerbatimOut{%
+   \Write@Postamble
+   \immediate\closeout\FV@OutFile\endgroup\@esphack}
+
+\newcommand\hv@Write@EX[1]{%
+  \begingroup
+  \let\protect\@unexpandable@protect
+  \edef\reserved@a{\immediate\write\FV@OutFile{#1}}%
+  \reserved@a
+  \endgroup}
+
+\newcommand\hv@Write@EXOne[1]{{%
+  \@temptokena\expandafter{#1}%
+  \immediate\write\FV@OutFile{\the\@temptokena}}}
+
+\renewcommand\FVB@VerbatimOut[1]{%
+  \@bsphack
+  \begingroup
+    \FV@UseKeyValues%
+    \FV@DefineWhiteSpace% 
+    \def\FV@Space{\space}%
+    \FV@DefineTabOut% 
+    \def\FV@ProcessLine##1{\toks@{##1}\immediate\write\FV@OutFile{\the\toks@}}%
+    \immediate\openout\FV@OutFile #1\relax% 
+    \Write@Preamble
+    \let\FV@FontScanPrep\relax
+    \let\@noligs\relax%
+    \FV@Scan}
+%
+
+\newcommand\Write@Preamble@PST{%
+   \hv@Write@EX{\string\documentclass[pstricks]{standalone}}%
+   \hv@Write@EX{\string\pagestyle{empty}}%
+   \ifx\Preamble@Commands\@empty\else
+       \hv@Write@EX{\Preamble@Commands}%
+   \fi
+   \hv@Write@EX{\string\begin{document}}%
+}
+%
+%\hv@extern@ExampleType{ltx}
+%  {\Write@Preamble@LaTeX}
+%  {\hv@Write@EX{\string\end{document}}}
+%  {\string\begin{document}}
+%  {\string\end{document}}
+%  {\perCent StartShownPreambleCommands}
+%  {\perCent StopShownPreambleCommands}
+
+\newenvironment{createPNGfromPSTricks}[3][]% #1:options  #2: pstricks packages  #3: filename
+  {%
+   \xdef\hvExternFilename{#2-\arabic{hv@example@counter}}%
+   \gdef\hv@extern@savePara{#1}%
+   \setkeys{hv}{#1}%                   \begin
+   \hv@ex@typeout{External filename: \hvExternFilename}%
+   \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.pdf}{}{%  
+     \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.png}{}{%
+       \expandafter\IfFileExists\expandafter{\hv@extern@ExamplesDir\hvExternFilename.txt}{}{%
+         \gdef\hv@extern@save@force@state{}
+         \global\hv@extern@forcetrue}}}%   set force, if no pdf or png exists
+   \begingroup
+   \hv@ex@typeout{writing file \hvExternFilename\hv@extern@ext ...}%
+   \filecontents[force,noheader]{\hvExternFilename\hv@extern@ext}%
+  }
+  {\endfilecontents%         \end%
+   \hv@ex@typeout{... done}%
+   \global\stepcounter{hv@example@counter}%
+   \endgroup
+   \expandafter\hvExternSetKeys\expandafter{\hv@extern@savePara}%
+   \xdef\hv@extern@fullPath{\hv@extern@ExamplesDir\hvExternFilename}%
+   \ifhv@extern@checkCode
+     \ifluatex
+       \directlua{if GetFileContents("\hvExternFilename\hv@extern@ext",
+		"\hv@extern@ExamplesDir\hvExternFilename\hv@extern@ext") then
+	  tex.print("\\csname hv@ex@typeout\\endcsname{current file is NOT newer: no run }\\global\\csname hv@extern@forcefalse\\endcsname")
+        else
+	   tex.print("\\csname hv@ex@typeout\\endcsname{current file is newer: force run }\\global\\csname hv@extern@forcetrue\\endcsname")
+	end}%
+     \else
+       \hv@ex@typeout{Check, if new file has a different code}%
+       \ShellEscape{hvextern-checkfile "\hvExternFilename\hv@extern@ext"
+		"\hv@extern@ExamplesDir\hvExternFilename\hv@extern@ext"}%
+       \InputIfFileExists{\hvExternFilename\hv@extern@ext.diff}{}{}%
+       \ifx\hvCheckNewFile\empty
+         \hv@ex@typeout{current file is NOT newer: no run }%
+         \global\hv@extern@forcefalse
+       \else
+         \hv@ex@typeout{current file is newer: force run }%
+         \global\hv@extern@forcetrue
+       \fi
+       \ifhv@extern@verbose\else\hv@rm{\hvExternFilename\hv@extern@ext.diff}\fi
+     \fi
+   \fi
+   \ifhv@extern@force
+     \ifx\hv@extern@runsequence\@empty
+       \hv@ex@typeout{force=true: running \hv@extern@progpath\hv@extern@compiler~ \hvExternFilename\hv@extern@ext ...}%
+       \setcounter{@@@runs}{\value{hv@extern@runs}}%
+       \loop\ifnum\the@@@runs > 0\relax
+         \ifcase\hv@extern@compilerNo  \relax   % we have metapost
+           \hv@ex@typeout{running mpost \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runMP{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \or %1
+           \hv@ex@typeout{running tex \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runTEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \or %2
+           \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+           \hv@extern@runLATEX{\hv@extern@progpath}{\hv@extern@compiler}{\hvExternFilename}{\hv@extern@ext}%       
+         \else
+           \ifhv@extern@redirect
+             \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext > \hvExternFilename.txt}%
+             \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename\hv@extern@ext\space > \hvExternFilename.txt}%
+           \else
+             \hv@ex@typeout{running \hv@extern@compiler~ \hvExternFilename\hv@extern@ext}%
+             \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename\hv@extern@ext}%
+           \fi
+         \fi
+         \addtocounter{@@@runs}{-1}%
+       \repeat
+       \hv@ex@typeout{... done}%
+       \ifhv@extern@biber
+         \ShellEscape{biber  \hvExternFilename}%  NAch biber nochmal latex
+         \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename}%
+       \fi
+       \ifhv@extern@xindex 
+         \ShellEscape{xindex \hv@extern@xindexOptions\space \hvExternFilename.idx}%  NAch xindex nochmal latex
+         \ShellEscape{\hv@extern@progpath\hv@extern@compiler\space\hvExternFilename}%
+       \fi
+     \else % runsequence
+       \expandafter\run@hv@extern@sequenceList\expandafter{\hv@extern@runsequence}%
+     \fi  
+     \ifhv@extern@crop
+       \hv@ex@typeout{running pdfcrop --verbose --margins \hv@extern@cropmargin \hv@extern@pwd\hvExternFilename}%
+       \ShellEscape{\hv@extern@progpath pdfcrop --verbose --margins \hv@extern@cropmargin \hv@extern@pwd\hvExternFilename}%
+       \hv@ex@typeout{moving \hv@extern@pwd\hvExternFilename-crop.pdf to \hv@extern@pwd\hvExternFilename.pdf}%
+       \ShellEscape{/bin/\hv@move \hv@extern@pwd\hvExternFilename-crop.pdf \hv@extern@pwd\hvExternFilename.pdf}%
+     \fi
+     \ifhv@extern@eps
+       \ShellEscape{/usr/local/texlive/current/bin/universal-darwin/pdftops -eps -f 1 -l 1 \hvExternFilename.pdf}%
+     \fi
+   \else
+     \hv@ex@typeout{force=false: NOT running \hvExternFilename\hv@extern@ext ...}%
+   \fi%    end force
+   \hfuzz=\maxdimen
+   \ifhv@extern@code%--------------        Code Part
+     \hv@ex@typeout{Starting Code part with preamble ...}%
+     \begingroup
+       \if@twocolumn
+         \ifhv@extern@outerFN
+           \hv@TextWidth=\textwidth
+         \else
+           \hv@TextWidth=\columnwidth
+         \fi
+       \else
+         \hv@TextWidth=\textwidth
+       \fi
+       \ifdim\hv@extern@mpwidth>\z@ 
+         \noindent
+         \tcbset{breakable=false}%
+         \minipage[\hv@extern@mpvalign]{\hv@extern@mpwidth}
+         \vspace{0pt}%
+       \else
+         \vspace{\hv@extern@aboveskip}\noindent
+       \fi
+       \ifhv@extern@usefancyvrb
+         \@nameuse{\hv@extern@docType @initPreambleFancy}%
+         \edef\@@@temp{\@nameuse{\hv@extern@docType @initPreamble}}%
+         % we need lstinputlisting, because \VerbatimInput doesn't work in a box
+         \savebox\hv@extern@box{\expandafter\lstinputlisting\expandafter[\@@@temp]{\hvExternFilename\hv@extern@ext}}%
+         \ifdim\wd\hv@extern@box > \z@\relax
+           \expandafter\fvset\expandafter{\hv@extern@lstOptions}%
+           \tcbset{colback=\hv@extern@BGpreamble,colframe=\hv@extern@BOpreamble}%
+           \PreambleVerbatim{\hvExternFilename\hv@extern@ext}%
+           \vspace{\hv@extern@belowpreambleskip}%
+         \fi
+      \else
+        \edef\@@@temp{\@nameuse{\hv@extern@docType @initPreamble}}%
+        \savebox\hv@extern@box{\expandafter\lstinputlisting\expandafter[\@@@temp]{\hvExternFilename\hv@extern@ext}}%
+        \ifdim\wd\hv@extern@box>\z@\relax
+          \expandafter\lstset\expandafter{\hv@extern@lstOptions}%
+          \tcbset{colback=\hv@extern@BGpreamble,colframe=\hv@extern@BOpreamble}%
+          \PreambleListing[\@@@temp]{\hvExternFilename\hv@extern@ext}%
+          \vspace{\hv@extern@belowpreambleskip}%
+        \fi
+      \fi
+      \ifhv@extern@showFilename
+         \hv@ex@typeout{Set filename in the margin!}%
+         \noindent
+         \hfuzz=\maxdimen
+         \hv@marginpar{\hvExternFilename\hv@extern@ext}%
+      \fi
+%     
+      \hv@ex@typeout{Starting Code body ...}%}
+       \ifhv@extern@usefancyvrb
+         \@nameuse{\hv@extern@docType @initTextFancy}%
+         \expandafter\fvset\expandafter{\hv@extern@lstOptions}%
+         \tcbset{colback=\hv@extern@BGbody,colframe=\hv@extern@BObody}%
+         \expandafter\BodyVerbatim\expandafter[\hv@extern@lstOptions]{\hvExternFilename\hv@extern@ext}%
+      \else
+         \expandafter\lstset\expandafter{\hv@extern@lstOptions}%
+         \edef\@@@temp{\@nameuse{\hv@extern@docType @initText}}%
+         \tcbset{colback=\hv@extern@BGbody,colframe=\hv@extern@BObody}%
+         \BodyListing[\@@@temp]{\hvExternFilename\hv@extern@ext}%
+      \fi
+    \ifdim\hv@extern@mpwidth > \z@\relax \endminipage\fi
+    \endgroup
+   \fi % end code part
+   \ifhv@extern@code\else  % only if no code
+      \ifhv@extern@showFilename
+        \hv@ex@typeout{Set filename in the margin!}%
+        \noindent
+        \hv@marginpar{\hvExternFilename\hv@extern@ext}%
+      \fi
+   \fi
+   \ifhv@extern@moveToExampleDir
+%     \ShellEscape{mkdir\space\hv@extern@ExamplesDir/}%
+     \hv@ex@typeout{Move file into example dir}% 
+     \hv@ex@typeout{\hvExternFilename.* ----> \hv@extern@ExamplesDir}%
+     \ShellEscape{\hv@move \hvExternFilename.*\space \hv@extern@ExamplesDir}%
+   \fi
+   \ifhv@extern@showoutput
+     \ifhv@extern@includegraphic
+       \ifhv@extern@inline
+         \expandafter\includegraphics\expandafter[\hv@extern@grfOptions]{\hv@extern@fullPath}%
+       \else
+         \ifhv@extern@float
+           \hv@ex@typeout{Floating environment}% 
+           \expandafter\figure\expandafter[\hv@extern@floatsetting]
+         \else
+           \hv@ex@typeout{No floating environment}% 
+           \vspace{\hv@extern@belowbodyskip}
+           \ifdim\hv@extern@mpwidth>\z@ 
+             \hfill\minipage[\hv@extern@mpvalign]{\dimexpr\linewidth-\hv@extern@mpwidth-1em\relax}\vspace{0pt}%
+           \else
+             \vspace{\hv@extern@belowbodyskip}\noindent
+             \begingroup
+           \fi
+         \fi
+         \hv@extern@align
+         \hv@ex@typeout{Input image \hv@extern@fullPath}% 
+         \ifhv@extern@frame
+           \begingroup
+           \fboxsep=\hv@extern@framesep
+           \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+             \fbox{\expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]%
+               {\hv@extern@fullPath}}\hspace{\hv@extern@pagesep}}%
+           \hspace*{-\hv@extern@pagesep}%
+           \endgroup
+         \else
+           \expandafter\@for\expandafter\next\expandafter:\expandafter=\hv@extern@pages\do{%
+             \expandafter\includegraphics\expandafter[\hv@extern@grfOptions,page=\next]%
+               {\hv@extern@fullPath}\hspace{\hv@extern@pagesep}}%
+           \hspace*{-\hv@extern@pagesep}%
+         \fi
+         \par% for \hv@extern@align
+         \ifx\hv@extern@caption\@empty\else\caption{\hv@extern@caption}\fi
+         \ifx\hv@extern@label\@empty\else\label{\hv@extern@label}\fi
+         \ifhv@extern@float
+           \endfigure
+         \else
+           \ifdim\hv@extern@mpwidth>\z@  \endminipage\else\endgroup\fi
+         \fi
+       \fi
+     \else% no graphic, only text
+       \ifdim\hv@extern@mpwidth>\z@ 
+         \hfill\minipage[t]{\dimexpr\linewidth-\hv@extern@mpwidth-\hv@extern@mpsep\relax}\vspace{0pt}
+         \ifhv@extern@usefancyvrb
+           \expandafter\VerbatimInput\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \else
+           \expandafter\lstinputlisting\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \fi
+         \endminipage
+       \else
+         \vspace{\hv@extern@belowbodyskip}%
+         \noindent
+         \ifhv@extern@usefancyvrb
+           \expandafter\VerbatimInput\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \else
+           \expandafter\lstinputlisting\expandafter[\hv@extern@textOptions]{\hv@extern@fullPath.txt}%
+         \fi
+       \fi
+     \fi
+   \fi%  end of \ifshowoutput
+   \ifhv@extern@force\expandafter\run@hv@extern@cleanup\expandafter{\hv@extern@cleanup}\fi%   cleanup
+  \vspace{\hv@extern@belowskip}%
+}
+
+
+
+
+
+\stepcounter{hv@example@counter}%
+%
+%%
+\endinput
