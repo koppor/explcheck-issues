@@ -1,0 +1,134 @@
+\NeedsTeXFormat{LaTeX2e}[1994/06/01]
+\ProvidesExplPackage{jobname-suffix}{2022/09/17}{1.0}{Compile differently based on the filename}
+
+\RequirePackage{expl3}
+\ExplSyntaxOn
+
+%
+%  Variants
+%
+\cs_generate_variant:Nn \str_set:Nn {Ne}
+\cs_generate_variant:Nn \str_if_eq:nnTF {nfTF}
+
+%
+% Messages
+%
+\msg_new:nnn {jobname-suffix} {initial-data} {
+	\\
+	(jobname-suffix)\ \ \ Found~jobname~~`#1'~~with~suffix~~`#2'
+	\\
+}
+\msg_new:nnn {jobname-suffix} {override} {
+	\\
+	(jobname-suffix)\ \ \ Overriding~suffix~with~`#1'
+	\\
+}
+\msg_new:nnn {jobname-suffix} {test} {
+	\\
+	(jobname-suffix)\ \ \ Testing~`#1'~==~`#2'
+	\\
+}
+\msg_new:nnn {jobname-suffix} {condition} {
+	\\
+	(jobname-suffix)\ \ \ Condition~is~`#1'
+	\\
+}
+
+
+
+
+
+\str_new:N \g__suffix_str
+\str_new:N \g__jobname_str
+\str_new:N \g__split_char_str
+\str_set:Nn \g__split_char_str {-}
+\seq_new:N \l__suffix_list_seq
+\str_new:N \l__suffix_list_str
+
+
+
+
+
+\int_new:N \l__slice_pos_int
+% Slice #1 at the char indicated by #2 and store the result in #3
+\cs_new_protected:Nn \__slice_at_char:NNN {
+	\int_set:Nn \l__slice_pos_int {1}
+	\str_map_inline:Nn #1 {
+		\int_incr:N \l__slice_pos_int
+		\str_if_eq:VnTF {#2} {##1} {
+			\str_map_break:
+		}{}
+	}
+	\str_set:Nx #3 {\str_range:Nnn #1 {\l__slice_pos_int}{\c_max_int}}
+}
+
+
+% If the string starts with a quote, trim it off.
+\cs_new:Nn \__trim_quotes:N {
+	\str_if_eq:nfTF {"} { \str_range:Nnn #1 {1}{1}} {
+		\str_range:Nnn #1 {2}{-1+\str_count:N #1}
+	}{
+		#1
+	}
+}
+
+% The jobname will be surrounded by quotes if there are any spaces in it,
+% so we first trim it if needed.
+\str_set:Nx \g__jobname_str { \__trim_quotes:N \c_sys_jobname_str }
+% Find the suffix string. The result will be stored in the last argument
+\__slice_at_char:NNN \g__jobname_str \g__split_char_str \g__suffix_str
+
+\msg_term:nnxx {jobname-suffix} {initial-data} {\g__jobname_str} {\g__suffix_str}
+
+%
+% User-facing commands and environments
+%
+
+% Optional arg is a comma-separate list of suffixes. If any of the listed
+% suffixes match the jobname's suffix, the true contiditon is executed. Otherwise
+% the false condition is executed.
+\NewDocumentCommand{\IfSuffixTF}{ o +m +m }{
+	%\msg_term:nnxx {jobname-suffix} {test} {#1} {\g__suffix_str}
+
+	\IfNoValueTF {#1} {
+		%\msg_term:nnx {jobname-suffix} {condition} {FALSE}
+		#3
+	}{
+		% We want to do string-based comparisons, so we must first
+		% cast our argument list as a string (otherwise, \seq_* operations
+		% won't work properly).
+		\str_set:Nn \l__suffix_list_str {#1}
+		\seq_set_split:NnV \l__suffix_list_seq {,} {\l__suffix_list_str}
+
+		\seq_if_in:NVTF \l__suffix_list_seq {\g__suffix_str} {
+			%\msg_term:nnx {jobname-suffix} {condition} {TRUE}
+			#2
+		} {
+			%\msg_term:nnx {jobname-suffix} {condition} {FALSE}
+			#3
+		}
+	}
+}
+
+\NewDocumentCommand{\IfSuffixT}{ o +m }{
+	\IfSuffixTF[#1]{#2}{}
+}
+
+\NewDocumentCommand{\IfSuffixF}{ o +m }{
+	\IfSuffixTF[#1]{}{#2}
+}
+
+\NewDocumentEnvironment{IfSuffix}{ o +b }{
+	\IfSuffixT[#1]{#2}
+}{}
+
+\NewDocumentCommand{\OverrideSuffix}{ m }{
+	\str_set:Nn \g__suffix_str {#1}
+	\msg_term:nnx {jobname-suffix} {override} {\g__suffix_str}
+}
+\NewExpandableDocumentCommand{\JobnameSuffix}{}{
+	\str_use:N \g__suffix_str
+}
+
+
+\ExplSyntaxOff
