@@ -1,0 +1,378 @@
+% support for responsive font size, based on the document dimensions
+\ProvidesPackage{responsive}
+\RequirePackage{expl3,l3keys2e}
+\RequirePackage{kvoptions}
+\ProvidesExplPackage{responsive}
+{2024-07-14}{v0.1a}{Responsive design for LaTeX}
+
+%%%%%%%%%%%%%%%%%%%%%%
+% keyval  processing %
+%%%%%%%%%%%%%%%%%%%%%%
+
+% numbers of characters that should fit on the line
+\int_new:N\l_resp_charlines_int
+\l_resp_charlines_int = 66
+
+% line height ratio
+% see https://www.smashingmagazine.com/2020/07/css-techniques-legibility/
+% for more details
+\fp_new:N\l_resp_lineheight_ratio
+% this value corresponds to lineheight with  1.2
+\fp_set:Nn\l_resp_lineheight_ratio{33.33333}
+
+% alternatively, we can use lineheight
+\fp_new:N\l_resp_lineheight
+
+% this is used in line spacing, the idea is to make larger spacing
+% for larger font sizes, but I need to find a better calculation method,
+% as it doesn't work well for now
+\fp_new:N\l_resp_lineheight_multiplier
+\fp_set:Nn\l_resp_lineheight_multiplier{1}
+
+
+% type of typograhic scale
+\tl_new:N\l_resp_scaletype_str
+\tl_set:Nn\l_resp_scaletype_str {tetratonic}
+
+% these numbers are used in the typo scale calculation
+\fp_new:N\l_resp_scalen_fp 
+\fp_new:N\l_resp_scaler_fp
+
+\bool_new:N\l_resp_no_execute
+\bool_set_false:N\l_resp_no_execute  
+
+\tl_new:N\l_resp_boxwidth
+\tl_set:Nn \l_resp_boxwidth \textwidth
+
+\keys_define:nn {responsive} {
+  characters .int_set:N = \l_resp_charlines_int,
+  noautomatic .bool_set:N = \l_resp_no_execute,
+  number .fp_set:N = \l_resp_scalen_fp,
+  ratio .fp_set:N =\l_resp_scaler_fp,
+  scale .tl_set:N = \l_resp_scaletype_str,
+  lineratio .fp_set:N = \l_resp_lineheight_ratio,
+  lineheight .fp_set:N = \l_resp_lineheight,
+  lineheight .default:n = 0,
+  boxwidth .tl_set:N = \l_resp_boxwidth,
+}
+
+
+\ProcessKeysOptions{responsive}
+
+% the \l_resp_charlist_tl is used to construct string used for line length measurement
+\str_new:N\l_resp_alphabet_tl
+\str_new:N\l_resp_charlist_tl
+% construct really long string that will enable to measure wide number of characters 
+% on a text line
+\str_set:Nn\l_resp_alphabet_tl{abcdefghijklmnopqrstuvwxyz}
+\str_set:NV\l_resp_charlist_tl{
+  \l_resp_alphabet_tl\l_resp_alphabet_tl\l_resp_alphabet_tl
+  \l_resp_alphabet_tl\l_resp_alphabet_tl\l_resp_alphabet_tl
+  \l_resp_alphabet_tl\l_resp_alphabet_tl\l_resp_alphabet_tl
+  \l_resp_alphabet_tl\l_resp_alphabet_tl\l_resp_alphabet_tl
+}
+
+
+
+
+\NewDocumentCommand\ResponsiveScale{O{\l_resp_scaletype_str}}{
+  % decide which typographic scale should be used in \setfontsize
+  \str_case_e:nn{\l_resp_scaletype_str}{
+    {heptatonic}{
+      \fp_set:Nn\l_resp_scaler_fp{2}
+      \fp_set:Nn\l_resp_scalen_fp{7}
+    }
+    {pentatonic}{
+      \fp_set:Nn\l_resp_scaler_fp{2}
+      \fp_set:Nn\l_resp_scalen_fp{5}
+    }
+    {tetratonic}{
+      \fp_set:Nn\l_resp_scaler_fp{2}
+      \fp_set:Nn\l_resp_scalen_fp{4}
+    }
+    {tritonic}{
+      \fp_set:Nn\l_resp_scaler_fp{2}
+      \fp_set:Nn\l_resp_scalen_fp{3}
+    }
+    {golden}{
+      \fp_set:Nn\l_resp_scaler_fp{1.618}
+      \fp_set:Nn\l_resp_scalen_fp{2}
+    }
+    {none}{}
+  }
+}
+
+% set default scale
+\ResponsiveScale
+
+% enable setting of the keys also in the document
+\NewDocumentCommand\ResponsiveSetup{m}{%
+  \keys_set:nn {responsive} {#1}
+  \ResponsiveScale
+}
+
+\dim_new:N\resp_font_size
+\dim_new:N\resp_line_skip
+
+% change font size to fix text to a given width
+% usage \fonttobox{\textwidth}{hello world}
+% optional parameter changes line spacing, smaller the value, bigger the spacing
+% details about the value are in the following article:
+% https://www.smashingmagazine.com/2020/07/css-techniques-legibility/
+\NewDocumentCommand\fonttobox{O{\l_resp_lineheight_ratio} m m}{
+  % set initial fontsize and typeset text in a box
+  \dimen1=#2\relax%
+  \fontsize{10}{12}\selectfont%
+  \setbox0=\hbox{#3}%
+  % calculate ratio betwen the typeset box and desired width
+  \resp_font_size=\fp_to_dim:n {\f@size * (\dim_to_fp:n{\dimen1} / \dim_to_fp:n{\wd0})}%
+  % calculate line height. inspired by https://www.smashingmagazine.com/2020/07/css-techniques-legibility/
+  \resp_line_skip=\fp_to_dim:n {\dim_to_fp:n{1ex} * (\dim_to_fp:n{\dimen1} / \dim_to_fp:n{\wd0}) / (#1/100)}
+  \fontsize{\resp_font_size}{\resp_line_skip}\selectfont%
+  \typeout{calculated~font~size: \fp_to_dim:n {\dim_to_fp:n{\dimen1} / \dim_to_fp:n{\wd0}}, \f@size, \the\baselineskip}%
+}
+
+
+% calculate typographic scale 
+% based on formula from https://spencermortensen.com/articles/typographic-scale/
+% #1 - base size, #2, number of note, #3 r, #4 n
+\NewDocumentCommand\typoscale{m m m m}{%
+  \fp_to_dim:n{\dim_to_fp:n{#1} * (#3 ^ (#2/#4)) }
+}
+
+
+% calculate font size for the given note and multiply it
+% #1 base font size #2 number of note, #3 multiplication factor
+\cs_set:Npn\resp_multiply_note:nnn #1#2#3{
+  \fp_to_dim:n{\dim_to_fp:n{#1} * (\l_resp_scaler_fp ^ (#2/\l_resp_scalen_fp)) * #3 }
+}
+
+% calculate font size for the given note and multiply it
+% #1 number of note, #2 multiplication factor
+\cs_set:Npn\resp_multiply_font_size:nn #1#2{
+  % \fp_to_dim:n{\dim_to_fp:n{\resp_font_size} * (\l_resp_scaler_fp ^ (#1/\l_resp_scalen_fp)) * #2 }
+  \resp_multiply_note:nnn\resp_font_size{#1}{#2}
+}
+
+% Copy of skip setting commands from size10.clo
+% Instead of hardcoded values, we use calculations based on the font size
+\cs_set:Npn\resp_skips:n #1{
+  \abovedisplayskip \resp_multiply_font_size:nn{#1}{1} \@plus\resp_multiply_font_size:nn{#1}{0.2} \@minus\resp_multiply_font_size:nn{#1}{0.5}
+  \abovedisplayshortskip \z@ \@plus\resp_multiply_font_size:nn{#1}{0.3}
+  \belowdisplayshortskip \resp_multiply_font_size:nn{#1}{0.6} \@plus\resp_multiply_font_size:nn{#1}{0.3} \@minus\resp_multiply_font_size:nn{#1}{0.3}
+  \belowdisplayskip \abovedisplayskip
+}
+
+% #1 font command, #2 note number
+\cs_set:Npn\resp_set_font_size:Nn #1#2{%
+  \@setfontsize#1{\resp_multiply_note:nnn\resp_font_size{#2}{1}}{\resp_multiply_note:nnn\resp_line_skip{#2}{\l_resp_lineheight_multiplier}}
+}
+
+% This is a dummy definition. It should restore page dimensions using the Geometry package if it is loaded.
+% The correct definition is added in \AtBeginDocument
+\cs_set:Npn\resp_reset_geometry{}
+
+% recalculate \textheight and \headheight with the changed font size
+% this is necessary to prevent the underfull \vbox messages from the output rutine
+\cs_set:Npn\resp_textheight:n {
+  % divide original textheight by the current baseline size - this gives us the number of lines that will fit
+  % then multipy it by the baseline again, to get the new \textheight
+  \setlength\textheight{\fp_to_dim:n{floor(\textheight/\resp_line_skip) * \resp_line_skip }}
+  \setlength\topskip{\resp_line_skip}
+  % \setlength\topskip{\resp_font_size}
+  \addtolength\textheight{\topskip}
+  \setlength\maxdepth{0.5\topskip}
+  \setlength\@maxdepth{0.5\topskip}
+  \setlength\headheight{\resp_font_size}
+  \setlength\headsep   {1.5\resp_font_size}
+  \setlength\footskip{\fp_to_dim:n{2*\resp_font_size+1}}
+  \setlength\topmargin{\fp_to_dim:n{(\paperheight-\textheight -\headheight-\headsep-\footskip)/2 - 1in}}
+  \resp_reset_geometry
+  % \addtolength\topmargin{\topskip}
+}
+
+% the functionality to fix the textheight should be available as a document command
+\NewDocumentCommand\fixtextheight{}{%
+  \resp_textheight:n%
+}
+
+\cs_set:Npn\resp_declare_font_sizes{%
+  \DeclareRobustCommand\normalsize{\resp_set_font_size:Nn\normalsize{0}\resp_skips:n{1}}%
+  \DeclareRobustCommand\tiny{\resp_set_font_size:Nn\tiny{-3}}
+  \DeclareRobustCommand\scriptsize{\resp_set_font_size:Nn\scriptsize{-2}}
+  \DeclareRobustCommand\small{\resp_set_font_size:Nn\small{-1}\resp_skips:n{-1}}
+  \DeclareRobustCommand\footnotesize{\resp_set_font_size:Nn\footnotesize{-2}\resp_skips:n{-2}}
+  \DeclareRobustCommand\large{\resp_set_font_size:Nn\large{1}}
+  \DeclareRobustCommand\Large{\resp_set_font_size:Nn\Large{2}}
+  \DeclareRobustCommand\LARGE{\resp_set_font_size:Nn\LARGE{3}}
+  \DeclareRobustCommand\huge{\resp_set_font_size:Nn\huge{4}}
+  \DeclareRobustCommand\Huge{\resp_set_font_size:Nn\Huge{5}}
+}
+
+
+% #1 line spacing ratio 
+% #2 number or characters that should fit to a text line
+\NewDocumentCommand\setsizes{O{\l_resp_lineheight_ratio} m}{%
+  \ifx\relax#2\relax
+    \int_set_eq:NN\l_tmpa_int\l_resp_charlines_int
+  \else
+    \int_set:Nn\l_tmpa_int{#2}
+  \fi
+  % if lineheight is set directly, we need to calculate lineheight_ratio,
+  % because it is used on a lot of places
+  \fp_compare:nTF{\l_resp_lineheight=0}{}{
+    % divide "x" size by desired line spacing (font size * lineheight)
+    % lineheight should be ratio, for example 1.2, which is used by default in LaTeX
+    \fp_set:Nn\l_resp_lineheight_ratio{\fp_eval:n{(\dim_to_fp:n{1ex} / (\f@size * \l_resp_lineheight))*100}}
+  }
+  \fonttobox[#1]{\l_resp_boxwidth}{\tl_range:Nnn\l_resp_charlist_tl{1}{\l_tmpa_int}}%
+  \resp_declare_font_sizes%
+  \normalsize%
+  \if@twocolumn
+    \parindent=\resp_font_size
+  \else
+    \parindent=\fp_to_dim:n{\resp_font_size * 1.5}
+  \fi
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Media query support %%
+%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\prop_new:N \l_responsive_media_query
+\bool_new:N \l_responsive_media_query_matched
+
+
+% define new test for a media query
+% #1 name of test
+% #2 test that can be used in LaTeX 3 boolean query
+\NewDocumentCommand\DeclareMediaQueryMatcher{m m}{
+  \cs_set:cpn{responsive_query_test:#1}##1{#2}
+}
+
+% this command should be used by media query tests to symbolize that they were successful
+\NewDocumentCommand\mediaquerytrue{}{\bool_set_true:N\l_responsive_media_query_matched}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%% media query tests %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%  tests if the passed dimension is larger than paperwidth
+\DeclareMediaQueryMatcher{max-paperwidth}{
+  \dim_compare:nT{\paperwidth<=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is smaller than paperwidth
+\DeclareMediaQueryMatcher{min-paperwidth}{
+  \dim_compare:nT{\paperwidth>=#1}{\mediaquerytrue}
+}
+
+% match exaxt paperwidth
+\DeclareMediaQueryMatcher{paperwidth}{
+  \dim_compare:nT{\paperwidth=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is larger than paperheight
+\DeclareMediaQueryMatcher{max-paperheight}{
+  \dim_compare:nT{\paperheight<=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is smaller than paperheight
+\DeclareMediaQueryMatcher{min-papeheight}{
+  \dim_compare:nT{\paperheight>=#1}{\mediaquerytrue}
+}
+
+% match exaxt paperheight
+\DeclareMediaQueryMatcher{paperheight}{
+  \dim_compare:nT{\paperheight=#1}{\mediaquerytrue}
+}
+
+
+%  tests if the passed dimension is smaller than textwidth
+\DeclareMediaQueryMatcher{max-textwidth}{
+  \dim_compare:nT{\textwidth<=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is larger than textwidth
+\DeclareMediaQueryMatcher{min-textwidth}{
+  \dim_compare:nT{\textwidth>=#1}{\mediaquerytrue}
+}
+
+% match exaxt textwidth
+\DeclareMediaQueryMatcher{textwidth}{
+  \dim_compare:nT{\textwidth=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is larger than textheight
+\DeclareMediaQueryMatcher{max-textheight}{
+  \dim_compare:nT{\textheight<=#1}{\mediaquerytrue}
+}
+
+%  tests if the passed dimension is smaller than textheight
+\DeclareMediaQueryMatcher{min-textheight}{
+  \dim_compare:nT{\textheight>=#1}{\mediaquerytrue}
+}
+
+% match exaxt textheight
+\DeclareMediaQueryMatcher{textheight}{
+  \dim_compare:nT{\textheight=#1}{\mediaquerytrue}
+}
+
+% test if the current page is in landscape mode
+% we assume that if \paperwidth / \paperheight > 1 then we are in the landscape mode
+\DeclareMediaQueryMatcher{orientation}{
+  \str_if_eq:nnTF{#1}{landscape}{
+    \fp_compare:nT{\dim_ratio:nn{\paperwidth}{\paperheight} > 1}{\mediaquerytrue}
+  }{
+    \fp_compare:nT{\dim_ratio:nn{\paperwidth}{\paperheight} < 1}{\mediaquerytrue}
+  }
+}
+
+\DeclareMediaQueryMatcher{twocolumn}{%
+  \if@twocolumn\mediaquerytrue\fi
+}
+
+
+% find if handler exists for the passed media query type and execute it
+\cs_set:Npn \l_responsive_handle_media_query#1#2{
+  \cs_if_exist_use:cTF{responsive_query_test:#1}{{#2}}{\PackageWarning{responsive}{Unknown~media~query~test:~#1=#2}}
+}
+
+% #1 - media query
+% #2 - code executed when query matches
+% #3 - code executed when query fails
+\NewDocumentCommand\mediaquery{m m m}{
+  % change the list of media queries to a property list, which we can loop over
+  \prop_set_from_keyval:Nn\l_responsive_media_query{#1}
+  % loop over all media queries
+  \prop_map_inline:Nn\l_responsive_media_query{
+    % initialize boolean condition for media queries
+    \bool_set_false:N\l_responsive_media_query_matched
+    % the media query handler must use \mediaquerytrue if the query matches
+    \l_responsive_handle_media_query{##1}{##2}
+    % escape the loop immediately if the query doesn't run \mediaquerytrue
+    \bool_if:NF\l_responsive_media_query_matched{\prop_map_break:}
+  }
+  %
+  \bool_if:NTF\l_responsive_media_query_matched{#2}{#3}
+
+}
+
+
+
+% setup font sizes at the begin document, in order to support Geometry etc.
+\AtBeginDocument{
+  \@ifpackageloaded{geometry}{
+    \cs_set:Npn\resp_reset_geometry{\Gm@process}
+  }{}
+  % set the default font size, based on numbers of characters we want to show on a line of text
+  % \fonttobox[32]\textwidth{\tl_range:Nnn\l_resp_charlist_tl{1}{\l_resp_charlines_int}}%
+  \bool_if:NTF\l_resp_no_execute {}{
+    \setsizes{\l_resp_charlines_int}
+    \fixtextheight
+  }
+}
+
+
+
+\endinput

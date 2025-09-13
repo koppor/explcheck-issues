@@ -1,0 +1,3530 @@
+%% file: istgame.sty
+%%
+%% Drawing Game Trees with TikZ
+%%
+%% (C) Copyright 2015-2022 In-Sung Cho <ischo at ktug.org>
+%%
+%% This work may be distributed and/or modified 
+%% under the conditions of the LaTeX Project Public License, 
+%% either version 1.3c of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%  http://www.latex-project.org/lppl.txt.
+%%
+%% -------------------------------------------------
+\ProvidesPackage{istgame}[2022/03/22 v2.1 Draw Game Trees with TikZ]
+
+% expl3,xparse: LPPL
+% tikz: LPPL and/or GNU GPL
+\RequirePackage{expl3,xparse,tikz}
+\usetikzlibrary
+{ 
+    trees , calc , arrows , shapes , positioning ,
+    backgrounds ,              % for information sets and subgames
+    fit ,                      % for \xtSubgameBox(Oval)
+    decorations.markings ,     % for \xtShowArrows and middle arrows
+    patterns , intersections , % for additional use
+    arrows.meta , bending      % added in version 2.1
+}
+
+% backgrounds
+\pgfdeclarelayer{background}
+\pgfdeclarelayer{behind}
+\pgfdeclarelayer{above}
+\pgfdeclarelayer{foreground}
+
+\pgfsetlayers{background,behind,main,above,foreground}
+
+
+%% prefixes for macros and defaults
+% \ist<...> stands for "an insung's simple tree" (or "it's a simple tree")
+% \xt<...> stands for "extensive tree"
+% \xtCI stands for "curved information set"
+% \cntm<...> stands for "continuum"
+% \cntmA<...> stands for "continuum arc"
+% \istdefault@<...>
+% \xtdefault@<...>
+% \xtCI@default@<...>
+% \cntm@default@<...>
+% \cntmA@default@<...>
+
+
+%% node styles
+
+\ExplSyntaxOn
+
+% basics (in node styles)
+\def\istdefault@node@innersep{1pt}    %% default node inner sep
+\def\istdefault@node@outersep{0pt}    %% default node outer sep
+\def\istdefault@node@drawcolor{black} %% default node color
+\def\istdefault@node@fillcolor{white} %% default node background color
+% (can be used in preamble)
+\newcommand*\setistdefaultnodeinnersep[1]{\renewcommand*\istdefault@node@innersep{#1}}
+\newcommand*\setistdefaultnodeoutersep[1]{\renewcommand*\istdefault@node@outersep{#1}}
+\newcommand*\setistdefaultnodefillcolor[1]{\renewcommand*\istdefault@node@fillcolor{#1}}
+\newcommand*\setistdefaultnodedrawcolor[1]{\renewcommand*\istdefault@node@drawcolor{#1}}
+
+% plain node: definition
+\newcommand*\istplainnodeinnersep { \istdefault@node@innersep } % 1pt by default
+\newcommand*\istplainnodeoutersep { \istdefault@node@outersep } % 0pt by default
+
+% {inner sep} {outer sep}
+\NewDocumentCommand \setistPlainNodeStyle
+{ G{\istdefault@node@innersep} G{\istdefault@node@outersep} }
+{
+    \renewcommand*\istplainnodeinnersep {#1} % 1pt by default
+    \renewcommand*\istplainnodeoutersep {#2} % 0pt by default
+}
+\tikzset{ plain~node /.style =
+    {  
+      draw = none ,
+      inner~sep = \istplainnodeinnersep , outer~sep = \istplainnodeoutersep
+    } 
+}
+
+% null node: definition
+\newcommand*\istnullnodedrawcolor { \istdefault@node@drawcolor } % (#1) black
+\def\istdefault@null@nodesize { .2pt } % default of (#2)
+\def\istdefault@null@node@fillcolor { \istnullnodedrawcolor } % fill color = draw color
+\newcommand*\istnullnodesize { \istdefault@null@nodesize } % (#2)
+\newcommand*\istnullnodefillcolor { \istdefault@node@drawcolor } % (#3)  <= black (o.k.)
+\newcommand*\istnullnodefillopacity { 1 } % (#4)
+
+% [draw color] {minimum size} [fill color] [fill opacity]
+\NewDocumentCommand \setistNullNodeStyle
+{ O{\istdefault@node@drawcolor} G{\istdefault@null@nodesize} O{\istdefault@null@node@fillcolor} O{1} }
+{
+    \renewcommand*\istnullnodedrawcolor{#1}
+    \renewcommand*\istnullnodesize{#2}        % .2pt by default
+    \IfNoValueTF {#3}
+    {
+      \renewcommand*\istnullnodefillcolor{#1} % same as {#1} with default black
+    }
+    {
+      \renewcommand*\istnullnodefillcolor{#3}
+    }
+    \renewcommand*\istnullnodefillopacity{#4}
+}
+\tikzset{ null~node /.style = 
+    {
+      circle , draw , thin , solid , 
+      inner~sep = 0pt , outer~sep = \istdefault@node@outersep ,
+      minimum~size = \istnullnodesize ,
+      draw = \istnullnodedrawcolor ,
+      fill = \istnullnodedrawcolor ,
+      fill~opacity = \istnullnodefillopacity
+    }
+}
+
+% solid node: definition
+\newcommand*\istsolidnodedrawcolor { \istdefault@node@drawcolor } % (#1) black
+\def\istdefault@solid@node@size { 2.4pt } % default of (#2)
+\def\istdefault@solid@node@fillcolor { \istsolidnodedrawcolor }
+\newcommand*\istsolidnodesize { \istdefault@solid@node@size } % (#2)
+\newcommand*\istsolidnodefillcolor { \istdefault@solid@node@fillcolor } % (#3)  <= black (o.k.)
+\newcommand*\istsolidnodefillopacity { 1 } % (#4)
+
+% [draw color] {minimum size} [fill color] [fill opacity]
+\NewDocumentCommand \setistSolidNodeStyle
+{ O{\istdefault@node@drawcolor} G{\istdefault@solid@node@size} O{\istdefault@solid@node@fillcolor} O{1} }
+{
+    \renewcommand*\istsolidnodedrawcolor{#1}
+    \renewcommand*\istsolidnodesize{#2}
+    \IfNoValueTF {#3}
+    {
+      \renewcommand*\istsolidnodefillcolor{#1} % same as {#1} with default black
+    }
+    {
+      \renewcommand*\istsolidnodefillcolor{#3}
+    }
+    \renewcommand*\istsolidnodefillopacity{#4}
+}
+\tikzset{ solid~node /.style = 
+    {
+      circle , draw , thin , solid , 
+      inner~sep = 0pt , outer~sep = \istdefault@node@outersep ,
+      minimum~size = \istsolidnodesize ,
+      draw = \istsolidnodedrawcolor , 
+      fill = \istsolidnodefillcolor ,
+      fill~opacity = \istsolidnodefillopacity
+    }
+}
+
+% decision node & terminal node
+\let\setistDecisionNodeStyle\setistSolidNodeStyle
+\let\setistTerminalNodeStyle\setistSolidNodeStyle
+
+% hollow node: definition
+\newcommand*\isthollownodedrawcolor { \istdefault@node@drawcolor } % (#1) black
+\def\istdefault@hollow@node@size { 2.8pt } % default of (#2)
+\newcommand*\isthollownodesize { \istdefault@hollow@node@size } % (#2)
+\newcommand*\isthollownodefillcolor { \istdefault@node@fillcolor } % (#3) white
+\newcommand*\isthollownodefillopacity { 1 } % (#4)
+
+% [draw color] {minimum size} [fill color] [fill opacity]
+\NewDocumentCommand \setistHollowNodeStyle
+{ O{\istdefault@node@drawcolor} G{\istdefault@hollow@node@size} O{\istdefault@node@fillcolor} O{1} }
+{
+    \renewcommand*\isthollownodedrawcolor{#1}
+    \renewcommand*\isthollownodesize{#2}
+    \renewcommand*\isthollownodefillcolor{#3}
+    \renewcommand*\isthollownodefillopacity{#4}
+}
+\tikzset{ hollow~node /.style = 
+    {
+      circle , draw , thin , solid ,
+      inner~sep = 0pt , outer~sep = \istdefault@node@outersep ,
+      minimum~size = \isthollownodesize ,
+      draw = \isthollownodedrawcolor ,
+      fill = \isthollownodefillcolor ,
+      fill~opacity = \isthollownodefillopacity
+    }
+}
+
+% initial node & chance node
+\let\setistInitialNodeStyle\setistHollowNodeStyle
+\let\setistChanceNodeStyle\setistHollowNodeStyle
+
+% rectangle node: definition
+\newcommand*\istrectanglenodedrawcolor { \istdefault@node@drawcolor } %(#1) black
+\def\istdefault@rectangle@node@size { 4pt } % default of (#2)
+\newcommand*\istrectanglenodesize { \istdefault@rectangle@node@size } % (#2)
+\newcommand*\istrectanglenodefillcolor { \istdefault@node@fillcolor } % (#3) white
+\newcommand*\istrectanglenodefillopacity { 1 } % (#4)
+
+% [draw color] {minimum size} [fill color] [fill opacity]
+\NewDocumentCommand \setistRectangleNodeStyle
+{ O{\istdefault@node@drawcolor} G{\istdefault@rectangle@node@size} O{\istdefault@node@fillcolor} O{1} }
+{
+    \renewcommand*\istrectanglenodedrawcolor{#1}
+    \renewcommand*\istrectanglenodesize{#2}
+    \renewcommand*\istrectanglenodefillcolor{#3}
+    \renewcommand*\istrectanglenodefillopacity{#4}
+}
+\tikzset{ rectangle~node /.style = 
+    {
+      rectangle , draw , thin , solid , 
+      inner~sep = 2pt , outer~sep = \istdefault@node@outersep ,
+      minimum~size = \istrectanglenodesize ,
+      draw = \istrectanglenodedrawcolor ,
+      fill = \istrectanglenodefillcolor ,
+      fill~opacity = \istrectanglenodefillopacity
+    }
+}
+
+% box node & square node
+\let\setistBoxNodeStyle\setistRectangleNodeStyle
+\let\setistSquareNodeStyle\setistRectangleNodeStyle
+
+% ellipse node: definition
+\newcommand*\istellipsenodedrawcolor { \istdefault@node@drawcolor } % (#1) black
+\def\istdefault@ellipse@node@size { 4.8pt } % default of (#2)
+\newcommand*\istellipsenodesize { \istdefault@ellipse@node@size } % (#2)
+\newcommand*\istellipsenodefillcolor { \istdefault@node@fillcolor } % (#3) white
+\newcommand*\istellipsenodefillopacity { 1 } % (#4)
+
+\NewDocumentCommand \setistEllipseNodeStyle
+{ O{\istdefault@node@drawcolor} G{\istdefault@ellipse@node@size} O{\istdefault@node@fillcolor} O{1} }
+{
+    \renewcommand*\istellipsenodedrawcolor{#1}
+    \renewcommand*\istellipsenodesize{#2}
+    \renewcommand*\istellipsenodefillcolor{#3}
+    \renewcommand*\istellipsenodefillopacity{#4}
+}
+\tikzset{ ellipse~node /.style = 
+    {
+      ellipse , draw , thin , solid ,
+      inner~sep = 1.5pt , outer~sep = \istdefault@node@outersep ,
+      minimum~size = \istellipsenodesize ,
+      draw = \istellipsenodedrawcolor ,
+      fill = \istellipsenodefillcolor ,
+      fill~opacity = \istellipsenodefillopacity
+    }
+}
+
+% oval node
+\let\setistOvalNodeStyle\setistEllipseNodeStyle
+
+
+%% aliases: node styles
+\tikzset{ initial~node  /.style = hollow~node }
+\tikzset{ chance~node   /.style = hollow~node }
+\tikzset{ decision~node /.style = solid~node }     % decision nodes
+\tikzset{ terminal~node /.style = solid~node }     % terminal nodes
+\tikzset{ box~node      /.style = rectangle~node }
+\tikzset{ square~node   /.style = rectangle~node }
+\tikzset{ oval~node     /.style = ellipse~node }
+
+
+% \setistNewNodeStyle
+% {node name} [node opt] {minimum size}
+\NewDocumentCommand \setistNewNodeStyle { m O{} G{6mm} }
+{
+    \tikzset
+    { #1 /.style =
+      {
+        - , circle , thin , solid , 
+        inner~sep = \istdefault@node@innersep ,
+        minimum~size = #3 ,
+        draw = \istdefault@node@drawcolor , 
+        fill = \istdefault@node@fillcolor ,
+        #2
+      }
+    }
+}
+
+
+%% input mode changer: (math mode True/False) - owner, action labels, payoff
+
+% owner: (default: mathfalse)
+
+\newcount\istmathflagowner
+\def\istownermathtrue  { \istmathflagowner = 1 } 
+\def\istownermathfalse { \istmathflagowner = 0 }
+\istownermathfalse % default declared : mathfalse
+
+% owner text font
+\newcommand*\istownertextfont [1] { \def\ist@owner@text@font {#1} }
+\istownertextfont { }
+
+% \istownerstyle
+\NewDocumentCommand \istownerstyle { m }
+{
+  	\int_compare:nTF { \istmathflagowner == 1 }
+    {	\ensuremath {#1} }
+  	{
+	    \tl_if_empty:NF \ist@owner@text@font 
+	    { \exp_args:No \use:c { \ist@owner@text@font } } {#1} % owner text font
+	  }
+}
+
+% action labels: (default: mathtrue)
+
+\newcount\istmathflagactionlabel
+\newcommand*\istactionlabelmathtrue  { \istmathflagactionlabel = 1 }
+\newcommand*\istactionlabelmathfalse { \istmathflagactionlabel = 0 }
+\istactionlabelmathtrue % default declared : mathtrue
+
+% action labels text font
+% used for automatic "italics" for action labels (with \setistmathTF*001 -- second zero)
+\newcommand*\istactionlabeltextfont [1] { \def\ist@actionlabel@text@font {#1} }
+\istactionlabeltextfont { }
+
+% \istactionlabelstyle
+\NewDocumentCommand \istactionlabelstyle{m}
+{
+  \int_compare:nTF { \istmathflagactionlabel == 1 }
+  { \ensuremath {#1} }
+  {
+    \tl_if_empty:NF \ist@actionlabel@text@font
+    { \exp_args:No \use:c { \ist@actionlabel@text@font } } {#1} % AL text font
+  }
+}
+
+% payoffs: (default: mathtrue)
+
+\newcount\istmathflagpayoff
+\newcommand*\istpayoffmathtrue  { \istmathflagpayoff = 1 }
+\newcommand*\istpayoffmathfalse { \istmathflagpayoff = 0 }
+\istpayoffmathtrue % default declared : mathtrue
+
+% payoff text font
+% (not used)
+\newcommand*\istpayofftextfont [1] { \def\ist@payoff@text@font {#1} }
+\istpayofftextfont { }
+
+% \istpayoffstyle
+\NewDocumentCommand \istpayoffstyle{m}
+{
+  \int_compare:nTF { \istmathflagpayoff == 1 }
+  { \ensuremath {#1} }
+  {
+    \tl_if_empty:NF \ist@payoff@text@font
+    { \exp_args:No \use:c { \ist@payoff@text@font } } {#1} % payoff text font
+  }
+}
+
+% \setistmathTF(*)
+% * {} {} {} <owner font> {action labels font} [payoff font]
+\NewDocumentCommand \setistmathTF{ s m m m D<>{} G{textit} O{} }
+{ 
+  \int_compare:nTF { #2 == 1 } { \istownermathtrue }       { \istownermathfalse }
+  \int_compare:nTF { #3 == 1 } { \istactionlabelmathtrue } { \istactionlabelmathfalse }
+  \int_compare:nTF { #4 == 1 } { \istpayoffmathtrue }      { \istpayoffmathfalse }
+  \IfBooleanT {#1}
+  {
+	  \istownertextfont { #5 }
+	  \istactionlabeltextfont { #6 }
+	  \istpayofftextfont { #7 }
+  }
+}
+
+
+%% fine tuning: labels (experimental)
+\newcommand*\xtALxShift{0pt}  % default xshift
+\newcommand*\xtALyShift{0pt}  % default yshift
+
+\NewDocumentCommand \xtALPush { m m }
+{
+    \renewcommand*\xtALxShift{#1}
+    \renewcommand*\xtALyShift{#2}
+}
+
+\newcommand*\istactionlabelxshift{1pt}  % default horizontal push (alternatively, .67pt)
+\newcommand*\istactionlabelyshift{2pt}  % default vertical   push (alternatively, 2.5pt)
+
+\NewDocumentCommand \xtALShift { G{\istactionlabelxshift} G{\istactionlabelyshift} }
+{
+    \renewcommand*\istactionlabelxshift{#1}
+    \renewcommand*\istactionlabelyshift{#2}
+}
+
+
+%% node anchors (experimental, used only in test, not documented)
+\let\istparentanchor\tikzparentanchor % empty by default
+\let\istchildanchor\tikzchildanchor   % empty by default
+\newcommand*\setistparentanchor [1] { \renewcommand*\istparentanchor{.#1} }
+\newcommand*\setistchildanchor  [1] { \renewcommand*\istchildanchor{.#1}  }
+
+\NewDocumentCommand \setistbranchanchors{ m G{center} }
+{
+    \renewcommand*\istparentanchor {.#1}
+    \renewcommand \istchildanchor  {.#2}
+}
+
+
+%%%%%%%%%%%%%%%%%
+%% istgame macros
+%%%%%%%%%%%%%%%%%
+
+%% basics (in child)
+% -- used in the definition of \istb and its variants
+\def\xt@ndot{node[solid~node]{}} % (within child) default node dot: decision node
+\def\xt@show@tndot{}             % default: no terminal nodes printed
+\def\xt@show@endpoint{}          % default: no endpoints printed
+\def\cntm@ndot{}                 % default: no cntm node dot printed
+\def\cntm@show@endpoint{}        % default: no cntm endpoint printed
+
+
+\ExplSyntaxOff
+
+%%-----------------
+%% expl3 up to here (paused, because of colon problem)
+%%-----------------
+
+
+%% payoffs
+
+
+%---syntaxoff-----
+% remark: label={[opt]pos:{text}}  (needed this form for \istgrowdirection to put payoffs)
+\NewDocumentCommand \istpayoff{ m +m }
+{
+  node [ inner sep = 0pt , text depth = .25ex , 
+         label = {#1:\istpayoffstyle{#2} } ] {}                                  % colon here
+}
+
+%---syntaxoff-----
+% \ISTRoot
+% (used in \istroot)
+% ' [grow] (root) (at) [node] <angle> {owner} +levdist..sibdist+
+\NewDocumentCommand \ISTRoot
+{ t' O{south} r() D(){0,0} O{} D<>{} G{} D+.{\xtlevdist} D.+{\xtsibdist} } 
+{ 
+    \IfBooleanTF {#1}
+    {
+    \tikzset{level 1/.style = { level distance = #8 , sibling distance = #9 } }  % colon here
+    \node (#3) at (#4) [decision node , #5 , label = {#6:{#7} } ] 
+                       {} [ \xt@growswap=#2 ] 
+    }
+    {
+    \tikzset{level 1/.style = { level distance = #8 , sibling distance = #9 } }  % colon here
+    \node (#3) at (#4) [ decision node , #5 , label = {#6:{#7} } ] 
+                       {} [ \xt@grow=#2 ]    
+    }
+}
+
+
+%%-----------------
+%% expl3 from here again
+%%-----------------
+
+\ExplSyntaxOn
+
+%% main macros: \xtdistance, \ISTRoot(O), \ISTCntm(Arc)
+
+\def\xtdefault@levdist {15mm}                %% (default) level distance   : 15mm
+\def\xtdefault@sibdist {\xtdefault@levdist}  %% (default) sibling distance : 15mm
+\newcommand*\xtlevdist {\xtdefault@levdist}
+\newcommand*\xtsibdist {\xtdefault@sibdist}
+
+\NewDocumentCommand \xtdistance
+{ O{1} m G{\xtdefault@sibdist} }
+{
+    \renewcommand*\xtlevdist {#2}
+    \renewcommand*\xtsibdist {#3}
+    \tikzset{ level~#1/.style = {level~distance = \xtlevdist , sibling~distance = \xtsibdist } }
+}
+
+
+%% counterclockwise (grow=) or clockwise (grow'=)
+
+% default: growing south counterclockwise
+\def\xt@grow { grow }
+\def\xt@growswap { grow' }
+\def\istdefault@grow { south } % tree growing direction
+
+% \setxtgrowkey %% just for one simple tree
+\NewDocumentCommand \setxtgrowkey { m }
+{ 
+    \renewcommand*\xt@grow {#1}
+}
+
+% growsawp call test
+\bool_new:N \xt_growswap_call_bool 
+\bool_set_false:N \xt_growswap_call_bool
+
+% \setistgrowdirection %% for whole tree
+\NewDocumentCommand \setistgrowdirection{ t' m }
+{ \IfBooleanTF {#1}
+    {
+      \bool_set_true:N \xt_growswap_call_bool
+      \renewcommand*\xt@grow { grow' }
+      \renewcommand*\istdefault@grow {#2}
+    }
+    {
+      \renewcommand*\xt@grow { grow }
+      \renewcommand*\istdefault@grow {#2}
+    }
+}
+
+
+% \ISTRootO (oval version)
+% (used in \istrooto)
+% ' [grow] (root) (at) [node] <angle> {owner} +levdis..sibdist+
+\NewDocumentCommand \ISTRootO
+{ t' O{south} r() D(){0,0} O{} D<>{} G{} D+.{\xtlevdist} D.+{\xtsibdist} } 
+{ 
+    \IfBooleanTF {#1}
+    {
+    \tikzset { level~1/.style = { level~distance = #8 , sibling~distance = #9} }
+    \node (#3) at (#4) [ oval~node , #5 ] {#7} [ \xt@growswap = #2 ]
+    }
+    {
+    \tikzset { level~1/.style = { level~distance = #8 , sibling~distance = #9 } }
+    \node (#3) at (#4) [ oval~node , #5 ] {#7} [ \xt@grow = #2 ]
+    }
+}
+
+%% istgame environment (can be used in the preamble)
+
+\def\istgame@default@fontsize { \normalsize }
+\def\istgame@default@arrowend@shorten { 0pt } % 0pt needed, otherwise affects all the lines
+
+\NewDocumentCommand \setistgamefontsize { m } 
+{
+    \renewcommand*{\istgame@default@fontsize} {#1}
+}
+
+\NewDocumentCommand \setistgameshorten { m }
+{
+    \renewcommand*{\istgame@default@arrowend@shorten} {#1}
+}
+
+%% (2021/04/09)
+%% more global macros (can be used in the preamble)
+
+\NewDocumentCommand \setistsolidnodesize { m } 
+{
+    \renewcommand*{\istdefault@solid@node@size} {#1}
+}
+
+\NewDocumentCommand \setisthollownodesize { m } 
+{
+    \renewcommand*{\istdefault@hollow@node@size} {#1}
+}
+
+\NewDocumentCommand \setistellipsenodesize { m } 
+{
+%    \renewcommand*{\istdefault@ellipse@node@size} {#1}
+    \renewcommand*{\istellipsenodesize} {#1}
+}
+
+\NewDocumentCommand \setistrectagnlenodesize { m } 
+{
+    \renewcommand*{\istdefault@rectangle@node@size} {#1}
+}
+
+
+% get ready for checking (x)(y)scale option
+\clist_new:N \l_parseopt_clist
+
+% \xtxscale
+\cs_new_nopar:Npn \get_xscale_option_string:n #1
+{
+  	\get_opt_xvalue:w #1\q_stop
+}
+\cs_new_nopar:Npn \get_opt_xvalue:w #1=#2\q_stop
+{
+  	% keep the value of xscale
+  	\tl_gset:Nn \xtxscale { #2 }
+}
+
+% \xtyscale
+\cs_new_nopar:Npn \get_yscale_option_string:n #1
+{
+  	\get_opt_yvalue:w #1\q_stop
+}
+\cs_new_nopar:Npn \get_opt_yvalue:w #1=#2\q_stop
+{
+  	% keep the value of yscale
+  	\tl_gset:Nn \xtyscale { #2 }
+}
+
+% \xtscale
+\cs_new_nopar:Npn \get_scale_option_string:n #1
+{
+  	\get_opt_value:w #1\q_stop
+}
+\cs_new_nopar:Npn \get_opt_value:w #1=#2\q_stop
+{
+  	% keep the value of scale
+  	\tl_gset:Nn \xtscale { #2 }
+}
+
+
+% to resolve TikZ problem: sloped label conflict with x-y-scale
+% temporary solution (experimental)
+
+% \xtcureslopedlabelsNS (for north and south growing tree)
+\NewDocumentCommand \xtcureslopedlabelsNS { }
+{
+    \istgameScaleCallTestAndAdjust
+    \bool_if:NTF \xt_xscale_call_bool
+    {
+        \pgfmathsetmacro\xtsibdistadj {\xtxscale*\xtsibdist}
+        \pgfmathsetmacro\xtlevdistadj {1*\xtlevdist}
+    }
+    {
+      \bool_if:NT \xt_yscale_call_bool
+      {
+        \pgfmathsetmacro\xtsibdistadj {1*\xtsibdist}
+        \pgfmathsetmacro\xtlevdistadj {\xtyscale*\xtlevdist}
+      }
+    }
+    \xtdistance{\xtlevdistadj}{\xtsibdistadj}
+}
+
+% \xtcureslopedlabelsEW (for east and west growing tree)
+\NewDocumentCommand \xtcureslopedlabelsEW { }
+{
+    \istgameScaleCallTestAndAdjust
+    \bool_if:NTF \xt_xscale_call_bool
+    {
+        \pgfmathsetmacro\xtsibdistadj {1*\xtsibdist}
+        \pgfmathsetmacro\xtlevdistadj {\xtxscale*\xtlevdist}
+    }
+    {
+      \bool_if:NT \xt_yscale_call_bool
+      {
+        \pgfmathsetmacro\xtsibdistadj {\xtyscale*\xtsibdist}
+        \pgfmathsetmacro\xtlevdistadj {1*\xtlevdist}
+      }
+    }
+    \xtdistance{\xtlevdistadj}{\xtsibdistadj}
+}
+
+
+%%% istgame: main environment
+\DeclareDocumentEnvironment {istgame} { s O{} }   % accepts tikzpicture options
+{
+    % call set (false)
+    \bool_set_false:N \cntm_distance_call_bool            % to distinguish cntm sibdist
+    \bool_set_false:N \cntm_act_sibdist_call_bool         %    from cntm action sibdist
+    \bool_set_false:N \xt_xscale_call_bool                % for InfosetO, CInfosetO, and more
+    \bool_set_false:N \xt_yscale_call_bool                % for InfosetO, CInfosetO, and more
+    \bool_set_false:N \xt_scale_call_bool                 % for InfosetO, CInfosetO, and more
+    \bool_set_false:N \_arrow_option_exist_bool           % for arrow shorten
+    \bool_set_false:N \xt_growswap_call_bool              % for CInfoset(O)
+    \bool_set_false:N \_istroot_cntmA_call_bool           % for \istbA
+    \bool_set_false:N \_istroot_cntm_call_bool            % for \istbA
+    \bool_set_false:N \_xt_levdist_local_call_bool        % for \istbA
+    \bool_set_false:N \_cntm_distance_local_call_bool     % for \istbA
+    \bool_set_false:N \_cntmA_distance_local_call_bool    % for \istbA
+    
+  \IfBooleanTF { #1 }
+  {
+    \def\xtxscale{1}
+    \def\xtyscale{1}
+    \def\xtscale{1}
+    
+    \def\xtcureslopedlabelsNS{}
+    \def\xtcureslopedlabelsEW{}
+  
+    \begin{tikzpicture} [ #2 ]
+  }
+  {
+    % extract the value of xscale/yscale/scale
+    % (extract scale value, only if it is used alone)
+    \clist_set:Nn \l_parseopt_clist { #2 }
+    \tl_gset:Nn \xtxscale {1.0}
+    \tl_gset:Nn \xtyscale {1.0}
+    \tl_gset:Nn \xtscale {1.0}
+    \clist_map_inline:Nn \l_parseopt_clist 
+    {
+      \str_if_in:nnTF { ##1 } { xscale }
+      {
+        \bool_set_true:N \xt_xscale_call_bool
+        \get_xscale_option_string:n { ##1 }
+        \str_if_in:nnT { ##1 } {yscale}
+        {
+          \bool_set_true:N \xt_yscale_call_bool
+          \get_yscale_option_string:n { ##1 }        
+        }
+      }
+      { 
+        \str_if_in:nnTF { ##1 } { yscale }
+        {
+          \bool_set_true:N \xt_yscale_call_bool
+          \get_yscale_option_string:n { ##1 }
+          \str_if_in:nnT {##1} { xscale }
+          {
+            \bool_set_true:N \xt_xscale_call_bool
+            \get_xscale_option_string:n { ##1 }          
+          }
+        }
+        { % xscale:false, yscale:false
+          \str_if_in:nnT { ##1 } { scale }
+          {
+            \bool_set_true:N \xt_scale_call_bool
+            \get_scale_option_string:n { ##1 }
+          }
+        }
+      }       
+    }
+
+  	\clist_if_in:NnT \l_parseopt_clist { -> } % check if [->] exists
+  	{
+	    \bool_set_true:N \_arrow_option_exist_bool
+  		\clist_remove_all:Nn \l_parseopt_clist { -> }
+  		\clist_put_left:No \l_parseopt_clist { -> , shorten~> = \istgame@default@arrowend@shorten }
+  	}
+
+  	\tl_set:Nn \l_tmpa_tl { font = \istgame@default@fontsize , > = stealth , }
+    \tl_put_right:Nx \l_tmpa_tl { \clist_use:Nn \l_parseopt_clist { , } }
+    
+    \exp_last_unbraced:NnNo 
+    \begin{tikzpicture} [ \l_tmpa_tl ]
+  }
+}
+{
+  	\end{tikzpicture}
+}
+%%%  % add the following as env option: tikz-qtree conflict resolution
+%%%    edge~from~parent~path = { (\tikzparentnode) -- (\tikzchildnode) }
+
+
+%% scale call test and adjust
+
+\def\xtinfosetheightvar   {\xtinfosetheight}
+\def\cntminfosetheightvar {\cntminfosetheight}
+
+% \istgameScaleCallTestAndAdjust
+% use this only in a GROUP
+\NewExpandableDocumentCommand \istgameScaleCallTestAndAdjust { }
+{
+    \bool_if:NTF \xt_xscale_call_bool 
+    { 
+      \pgftransformxscale{1/\xtxscale}
+      % keep going for yscale
+      \bool_if:NT \xt_yscale_call_bool
+      {
+        \pgftransformyscale{1/\xtyscale} 
+      }
+      % for scaling infosetO if scaled together with x-y-scale
+      \renewcommand*\xtinfosetheightvar   {\xtinfosetheight*\xtscale}
+      \renewcommand*\cntminfosetheightvar {\cntminfosetheight*\xtscale}
+    }
+    {
+      \bool_if:NTF \xt_yscale_call_bool 
+      { 
+        \pgftransformyscale{1/\xtyscale}
+        % keep going for xscale
+        \bool_if:NT \xt_xscale_call_bool
+        {
+          \pgftransformxscale{1/\xtxscale} 
+        }
+        % for scaling infosetO if scaled together with x-y-scale
+        \renewcommand*\xtinfosetheightvar   {\xtinfosetheight*\xtscale}
+        \renewcommand*\cntminfosetheightvar {\cntminfosetheight*\xtscale}
+      }
+      { 
+        \bool_if:NT \xt_scale_call_bool 
+        { 
+          % no scaling infosetO if scaled without x-y-scale
+          \pgftransformscale{1/\xtscale}
+        }
+      }
+    }
+}
+
+
+%% ---------------
+%% core macro part
+%% ---------------
+
+% get ready
+\tl_new:N \ischo_game_tl
+
+% action (with abbreviations)
+% BE CAREFUL: each case has different options (do not try to shorten)
+% {#1: branch line style} {#2: position} {#3: action labels}
+\cs_new:Npn \ist_move:nnn #1 #2 #3
+{
+%    \str_case_e:nnF { #2 }
+    \str_case:nnF { #2 }
+    {
+      { al } {
+               edge~from~parent [ #1 ] 
+               node [ above~left , text~depth = .25ex , 
+                      xshift = \istactionlabelxshift ,  yshift = -\istactionlabelyshift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { ar } {
+               edge~from~parent [ #1 ] 
+               node [ above~right , text~depth = .25ex , 
+                      xshift = -\istactionlabelxshift , yshift = -\istactionlabelyshift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { bl } {
+               edge~from~parent [ #1 ] 
+               node [ below~left , text~depth = .25ex , 
+                      xshift = \istactionlabelxshift ,  yshift = \istactionlabelyshift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { br } {
+               edge~from~parent [ #1 ] 
+               node [ below~right , text~depth = .25ex , 
+                      xshift = -\istactionlabelxshift , yshift = \istactionlabelyshift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { l }  {
+               edge~from~parent [ #1 ] 
+               node [ left , text~depth = .25ex ,  xshift = -\xtALxShift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { r }  { 
+               edge~from~parent [ #1 ] 
+               node [ right , text~depth = .25ex , xshift = \xtALxShift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { a }  { 
+               edge~from~parent [ #1 ] 
+               node [ above , text~depth = .25ex , yshift = \xtALyShift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+      { b }  { 
+               edge~from~parent [ #1 ] 
+               node [ below , text~depth = .25ex , yshift = -\xtALyShift ] 
+                    { \istactionlabelstyle{#3} } 
+             }
+    }
+    {
+        edge~from~parent [ #1 ] 
+               node [ text~depth = .25ex , #2 ] { \istactionlabelstyle{#3} }  % was \istmove{#1}{#2}{#3}
+    }
+}
+
+% payoff (with abbreviations)
+% {#1: position} {#2: payoffs}
+\cs_new:Npn \ist_payoff:nn #1 #2
+{
+%    \str_case_e:nnF { #1 }
+    \str_case:nnF { #1 }
+    {
+      { al } { \istpayoff { above~left }  { #2 } }
+      { ar } { \istpayoff { above~right } { #2 } }
+      { bl } { \istpayoff { below~left }  { #2 } }
+      { br } { \istpayoff { below~right } { #2 } }
+      { l }  { \istpayoff { left }        { #2 } }
+      { r }  { \istpayoff { right }       { #2 } }
+      { a }  { \istpayoff { above }       { #2 } }
+      { b }  { \istpayoff { below }       { #2 } }
+    }
+    {
+      \istpayoff { #1 } { #2 }
+    }
+}
+
+
+%% core macros: \istroot, \istb, \endist
+
+% \istroot(') -- standard version
+% ' [grow, tree opt] (root) (at) [node style] <angle> {owner} +levdis..sibdist+
+\NewDocumentCommand \istroot 
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. D.+{\xtsibdist} }
+{
+    % for \istbA
+    \IfNoValueTF {#8} 
+    { % if the third option exists in \cntmdistance(*)
+      \bool_set_false:N \_xt_levdist_local_call_bool 
+      \tl_set:Nn \_xt_levdist_local_tl { \xtlevdist } 
+      \tl_set:Nn \_xt_sibdist_local_tl { \xtsibdist } 
+    }
+    { 
+      \bool_set_true:N \_xt_levdist_local_call_bool
+      \tl_set:Nn \_xt_levdist_local_tl { #8 } 
+      \tl_set:Nn \_xt_sibdist_local_tl { #9 } 
+    }
+    % normal process
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}  % used in \istb to specify [payoff direction]
+
+    \IfBooleanTF {#1}
+    { 
+      \tl_put_right:Nn \ischo_game_tl { \ISTRoot' }
+    }
+    { 
+      \tl_put_right:Nn \ischo_game_tl { \ISTRoot }
+    }
+
+    \tl_put_right:Nx  \ischo_game_tl  { [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] < #6 > }
+    \tl_put_right:Nn  \ischo_game_tl  { { \istownerstyle{ #7 } } }
+    \tl_put_right:Nx  \ischo_game_tl  { + { \_xt_levdist_local_tl } .. { #9 } + }
+                                      % { } needed for #8 and #9 with decimal dim
+}
+
+% \istrooto(') -- oval version
+% ' [grow] (root) (at) [node style] <angle> {owner} +levdis..sibdist+  --- <angle>: redundant
+\NewDocumentCommand \istrooto
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. D.+{\xtsibdist} }
+{
+    % for \istbA
+    \IfNoValueTF {#8} 
+    { 
+      \bool_set_false:N \_xt_levdist_local_call_bool 
+      \tl_set:Nn \_xt_levdist_local_tl { \xtlevdist } 
+      \tl_set:Nn \_xt_sibdist_local_tl { \xtsibdist } 
+    }
+    { 
+      \bool_set_true:N \_xt_levdist_local_call_bool
+      \tl_set:Nn \_xt_levdist_local_tl { #8 } 
+      \tl_set:Nn \_xt_sibdist_local_tl { #9 } 
+    }
+    % normal process    
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}  % used in \istb to specify [payoff direction]
+
+    \IfBooleanTF {#1}
+    { 
+      \tl_put_right:Nn \ischo_game_tl { \ISTRootO' }
+    }
+    { 
+      \tl_put_right:Nn \ischo_game_tl { \ISTRootO }
+    }
+
+    \tl_put_right:Nx  \ischo_game_tl  { [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] }
+    \tl_put_right:Nn  \ischo_game_tl  { { \istownerstyle { #7 } } }
+    \tl_put_right:Nx  \ischo_game_tl  { + { \_xt_levdist_local_tl } .. { #9 } + }
+                                      % { } needed for #8 and #9 with decimal dim
+}
+
+% \istbm % missing version
+\NewDocumentCommand \istbm { }
+{
+    \istb<missing>
+}
+
+% \istbm % missing version (just in case)
+\NewDocumentCommand \istbAm { }
+{
+    \istbA<missing>
+}
+
+
+% \istb(*)
+% * (redundant) <grow,xtdistances> [line style] {action labels} [pos] {payoffs} [pos]
+% second option is redundant (this helps not getting errors when playing with \istbA)
+% default payoff postion: \istgrowdirection 
+\NewDocumentCommand \istb 
+{ s D(){1} D<>{} O{} +G{} O{} +g O{\istgrowdirection} }
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #3 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@endpoint }
+        \IfValueT     { #7 } { \ist_payoff:nn { #8 } { #7 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #4 } { #6 } { #5 } 
+      }
+    }
+}
+
+% \istbt(*)  % terminal version
+% this is the replacement of \istb.(*)
+% * (redundant) <grow,xtdistances> [line style] {action labels} [pos] {payoffs} [pos]
+% second option is redundant (this helps not getting errors when playing with \istbA)
+\NewDocumentCommand \istbt
+{ s D(){1} D<>{} O{} +G{} O{} +g O{\istgrowdirection} }
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #3 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@tndot }
+        \IfValueT     { #7 } { \ist_payoff:nn { #8 } { #7 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #4 } { #6 } { #5 } 
+      }
+    }
+}
+
+
+% \istB(*) % dual version
+% * <grow,xtdistances> [line style] {AL 1} [pos 1] {AL 2} [pos 2] {payoffs} [pos]
+\NewDocumentCommand \istB
+{ s D<>{} O{} +G{} O{} +G{} O{} +g O{\istgrowdirection} }  
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #2 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@endpoint }
+        \IfValueT     { #8 } { \ist_payoff:nn { #9 } { #8 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow } { #7 } { #6 } 
+        \ist_move:nnn { #3 } { #5 } { #4 } 
+      }
+    }
+}
+
+
+% \istBt(*)  % dual terminal version
+% * <grow,xt-distances> [line style] {AL 1} [pos 1] {AL 2} [pos 2] {payoffs} [pos]
+\NewDocumentCommand \istBt
+{ s D<>{} O{} +G{} O{} +G{} O{} +g O{\istgrowdirection} }  
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #2 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@tndot }
+        \IfValueT     { #8 } { \ist_payoff:nn { #9 } { #8 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow } { #7 } { #6 } 
+        \ist_move:nnn { #3 } { #5 } { #4 } 
+      }
+    }
+}
+
+
+% \istbA (arc version)  -- to work with \istrootcntmA and variants
+% * (Xpoint adj factor) <grow,xt-distances> [line style] {action labels} [pos] {payoffs} [pos]
+% code complication, inevitable to take care of too many cases
+\NewDocumentCommand \istbA
+{ s D(){1} D<>{} O{} +G{} O{} +g O{\istgrowdirection} }
+{
+    %% to toss adjusted levdist and sibdist for every case
+    \bool_if:NTF \_istroot_cntmA_call_bool
+    { % with \istrootcntmA
+      % adjust levdist (to make longer branch only for \istrootcntmA and its oval version)
+      \pgfmathsetmacro \xtlevdistVarA { \cntmApos * \_cntmA_levdist_local_tl * \cntmAplotfactorAdj } 
+      \pgfmathsetmacro \xtsibdistVarA { \cntmApos * \_cntm_act_sibdist_local_tl } % better not mul \...Adj
+      % this is correct            (there is no \_cntmA_act_sibdist_local_tl)
+    }
+    {
+      \bool_if:NTF \_istroot_cntm_call_bool
+      { % with \istrootcntm
+        \pgfmathsetmacro \xtlevdistVarA { \cntmpos * \_cntm_levdist_local_tl }
+        \pgfmathsetmacro \xtsibdistVarA { \cntmpos * \_cntm_act_sibdist_local_tl }
+      }
+      { 
+        \bool_if:NTF \_xt_levdist_local_call_bool
+        { % if +#8..#9+ exists ( \_xt_levdist_local_tl defined in \istroot )
+          \pgfmathsetmacro \xtlevdistVarA { \_xt_levdist_local_tl }  
+          \pgfmathsetmacro \xtsibdistVarA { \_xt_sibdist_local_tl }
+        }
+        { % ordinary case
+          \pgfmathsetmacro \xtlevdistVarA { \xtlevdist } 
+          \pgfmathsetmacro \xtsibdistVarA { \xtsibdist }
+        }
+      }
+    }
+    %% draw branch
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ level~distance = #2 * \xtlevdistVarA , sibling~distance = \xtsibdistVarA , #3 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@endpoint }
+        \IfValueT     { #7 } { \ist_payoff:nn { #8 } { #7 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #4 } { #6 } { #5 } 
+      }
+    }
+}
+
+
+% \istbAt (arc terminal version)
+% * (Xpoint adj factor) <grow,xt-distances> [line style] {action labels} [pos] {payoffs} [pos]
+\NewDocumentCommand \istbAt
+{ s D(){1} D<>{} O{} +G{} O{} +g O{\istgrowdirection} }
+{   
+    %% to toss adjusted levdist and sibdist for every case
+    \bool_if:NTF \_istroot_cntmA_call_bool
+    { % with \istrootcntmA
+      % adjust levdist (to make longer branch only for \istrootcntmA and its oval version)
+      \pgfmathsetmacro \xtlevdistVarA { \cntmApos * \_cntmA_levdist_local_tl * \cntmAplotfactorAdj } 
+      \pgfmathsetmacro \xtsibdistVarA { \cntmApos * \_cntm_act_sibdist_local_tl } % better not mul \...Adj
+      % this is correct            (there is no \_cntmA_act_sibdist_local_tl)
+    }
+    {
+      \bool_if:NTF \_istroot_cntm_call_bool
+      { % with \istrootcntm
+        \pgfmathsetmacro \xtlevdistVarA { \cntmpos * \_cntm_levdist_local_tl }
+        \pgfmathsetmacro \xtsibdistVarA { \cntmpos * \_cntm_act_sibdist_local_tl }
+      }
+      { 
+        \bool_if:NTF \_xt_levdist_local_call_bool
+        { % if +#8..#9+ exists ( \_xt_levdist_local_tl defined in \istroot )
+          \pgfmathsetmacro \xtlevdistVarA { \_xt_levdist_local_tl }  
+          \pgfmathsetmacro \xtsibdistVarA { \_xt_sibdist_local_tl }
+        }
+        { % ordinary case
+          \pgfmathsetmacro \xtlevdistVarA { \xtlevdist } 
+          \pgfmathsetmacro \xtsibdistVarA { \xtsibdist }
+        }
+      }
+    }
+    %% draw branch
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ level~distance = #2 * \xtlevdistVarA , sibling~distance = \xtsibdistVarA , #3 ] 
+      { 
+        \IfBooleanTF  { #1 } { \xt@ndot } { \xt@show@tndot }
+        \IfValueT     { #7 } { \ist_payoff:nn { #8 } { #7 } }
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #4 } { #6 } { #5 } 
+      }
+    }
+}
+
+
+% \printist  (to use \istrootcntm and all its variants)
+\NewDocumentCommand \printist { }
+{
+    \tl_use:N \ischo_game_tl
+}
+
+% \endist
+\NewDocumentCommand \endist { }
+{
+    % call set false for changing branch lengths with \istbA
+    \bool_set_false:N \_istroot_cntm_call_bool
+    \bool_set_false:N \_istroot_cntmA_call_bool
+    % final print of simple tree
+    \printist ;
+    % restore initial values for \cntmistb and \cntmAistb
+    \cntmistbVariablesRestore
+    \cntmAistbVariablesRestore
+}
+
+
+%%% continuum of branches %%%
+
+
+%% preset for continuum of branches (used in \ISTCntm, \ISTCntmArc)
+
+%% cntm distances
+\def\cntmdefaultlevdist{8mm}
+%\def\cntmdefaultsibdist{3*\cntmdefaultlevdist}
+\def\cntmdefaultsibdist{24mm}
+\newcommand*\cntmlevdist{\cntmdefaultlevdist}
+\pgfmathsetmacro\tmpcntmsibdist{3*\cntmlevdist} % this detour is safer
+\newcommand*\cntmsibdist{\tmpcntmsibdist}
+
+% cntm action sibling distance (used in \ISTCntm, \ISTCntmArc)
+\def\cntm@default@actsibdist{\cntmsibdist/3}
+\newcommand*\cntmACTsibdist{\cntm@default@actsibdist}
+\NewDocumentCommand \cntmactsibdist{m}
+{
+    \renewcommand*\cntmACTsibdist{#1}
+}
+
+% \cntmdistance call test
+\bool_new:N \cntm_distance_call_bool 
+\bool_set_false:N \cntm_distance_call_bool
+\bool_new:N \cntm_act_sibdist_call_bool 
+\bool_set_false:N \cntm_act_sibdist_call_bool
+
+% \cntmdistance
+% use this BEFORE \istrootcntm and \istrootcntmA
+% * {cntmlevdist} {cntmsibdist} {cntm act sibdist} [cntm color]
+\NewDocumentCommand \cntmdistance
+{ s m G{ \cntmdefaultsibdist } g }
+{ 
+    \IfBooleanT {#1}
+    {
+      \renewcommand*\xtlevdist { \cntmlevdist }
+      \renewcommand*\xtsibdist { \cntmsibdist }
+    }
+
+    \renewcommand*\cntmlevdist {#2}
+    \renewcommand*\cntmsibdist {#3}
+
+    \IfValueTF {#4} 
+    { % this call set is used in \istrootcntm and its variants
+      % distinguish \cntmactsibdist from \cntmsibdist, the latter used only for cntm
+      \bool_set_true:N \cntm_act_sibdist_call_bool 
+      \cntmactsibdist {#4}
+    }
+    { 
+      \cntmactsibdist { \cntm@default@actsibdist }
+    }
+    
+    \bool_set_true:N \cntm_distance_call_bool
+%    \tikzset{level~1/.style={level~distance=\cntmlevdist,sibling~distance=\cntmsibdist}}
+}
+
+%===========================================
+%===========================================
+
+%% information sets
+
+% infoset layer (for every infoset)
+\def\xtdefault@infosetlayer{background}
+\newcommand*\xtinfosetlayer{\xtdefault@infosetlayer}
+\NewDocumentCommand \setxtinfosetlayer{ G{ \xtdefault@infosetlayer } }
+{
+    \renewcommand*\xtinfosetlayer {#1}
+}
+
+% infoset style (for every infoset)
+\def\xtdefault@infoset@style{}
+\newcommand*\xtdefaultinfosetstyle{\xtdefault@infoset@style}
+
+\NewDocumentCommand \setxtinfosetstyle { G{} }
+{
+    \tikzset { infoset~style/.style = { semithick, densely~dotted, #1 } }
+}
+% initial set (as infoset style = {semithick,densely dotted})
+\setxtinfosetstyle
+
+% infoset height (for oval type)
+\def\xtdefault@infosetheight { 1em } % 1em=12pt
+\newcommand*\xtinfosetheight { \xtdefault@infosetheight }
+
+
+% \xtInfoset
+% * [opt] (from) (to) {owner} [pos]
+\NewDocumentCommand \xtInfoset { s O{} r() r() +G{} O{} }
+{
+    \begin{pgfonlayer}{\xtinfosetlayer}
+    \draw [ - , infoset~style , #2 ] (#3) to (#4) ;
+    \IfBooleanTF {#1} { } { \setistmathTF011 \istownertextfont{} } % must be in group
+%    \str_case_e:nnF {#6}
+    \str_case:nnF {#6}
+    {
+      {al} { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ above~left ]  { \istownerstyle{#5} } ; }
+      {ar} { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ above~right ] { \istownerstyle{#5} } ; }
+      {bl} { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ below~left ]  { \istownerstyle{#5} } ; }
+      {br} { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ below~right ] { \istownerstyle{#5} } ; }
+      {l}  { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ left ]        { \istownerstyle{#5} } ; }
+      {r}  { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ right ]       { \istownerstyle{#5} } ; }
+      {a}  { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ above ]       { \istownerstyle{#5} } ; }
+      {b}  { \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ below ]       { \istownerstyle{#5} } ; }
+    }
+    {
+             \node [-] at ( $ (#3) ! .5 ! (#4) $ ) 
+                   [ above , #6 ]  { \istownerstyle{#5} } ;
+    }
+    \end{pgfonlayer}
+}
+
+% \xtInfosetO -- oval version
+
+% * [opt] (from) (to) {owner} [pos] (height dim)
+\NewDocumentCommand \xtInfosetO { s O{} r() r() +G{} O{} D(){\xtdefault@infosetheight} }
+{
+    \begin{scope} % in group: to make \setistmathT011 local
+    \IfBooleanTF {#1} { } { \setistmathTF011 \istownertextfont{} }
+    \coordinate (xtinfoA) at (#3) ;
+    \coordinate (xtinfoB) at (#4) ;
+    \renewcommand*\xtinfosetheight {#7}
+
+    \istgameScaleCallTestAndAdjust % (must be in a GROUP) % this determines \xsinfosetheightvar 
+    
+%    \str_if_eq:eeTF { #3 } { #4 }
+    \str_if_eq:nnTF { #3 } { #4 }
+    {% singleton infoset with a circle
+      \begin{pgfonlayer}{\xtinfosetlayer}
+      \draw [ - ] (xtinfoA) node [ - , draw ,  circle , samples=500 , inner~sep = 0pt, 
+            minimum~size = \xtinfosetheightvar , infoset~style , #2 ] {} ; % -var needed for scaling
+      \end{pgfonlayer}
+      \draw [ draw = none , - ] (#3) node [ - , #6 ] { \istownerstyle{#5} } ;      
+    }
+    {% connecting two nodes
+      \renewcommand*\xtinfosetheight {#7}
+      \begin{pgfonlayer}{\xtinfosetlayer}
+        \path 
+          let
+          \p1 = ( $ (xtinfoA.center) - (xtinfoB.center) $ ) ,
+          \n1 = { veclen(\x1,\y1) }
+          in
+          (xtinfoA) -- (xtinfoB)
+          node [ - , draw , rectangle , samples = 500 , inner~sep = 0pt ,
+                 transform~shape , sloped , midway ,
+                 rounded~corners = .5*\xtinfosetheightvar , % var needed for scaling
+                 minimum~width = \n1 + \xtinfosetheight , 
+                 minimum~height = \xtinfosetheight , infoset~style , #2 ] { } ;
+        \draw [ draw = none , - ] (xtinfoA) to 
+              [ edge~node = { node [ - , #6 ] { \istownerstyle{#5} } } ] (xtinfoB) ; % (in group)
+      \end{pgfonlayer}
+    }
+    \end{scope}
+}
+
+
+%===========================================
+
+%% CI(curve infoset) defaults
+\def\xtCI@default@opt {   }          % CI line option
+\def\xtCI@default@pos { 1 }          % CI position
+\def\xtCI@default@plotfactor { 1.3 } % CI curvature
+\def\xtCInfosetplotfactor { \xtCI@default@plotfactor }
+\newcommand*\xtCIopt { \xtCI@default@opt }  
+\newcommand*\xtCIpos { \xtCI@default@pos }  
+\newcommand*\xtCIplotfactor { \xtCI@default@plotfactor } 
+\def\xtcimidvarfactor { .5 }
+
+% base distance to CI-root and mid-point (used in \xtCInfosetO)
+\def\xtCI@default@rootdist { 25mm }
+
+% xtCI default positions (used in \xtCInfosetO)
+\def\xtCIdefaultpos  { 0 }
+\def\xtCIdefaultposA { -1 }
+\def\xtCIdefaultposB { 1 }
+
+% \setxtCIplotfactor
+% use this before \istrootcntmA
+\NewDocumentCommand \setxtCIplotfactor { m }
+{
+    \renewcommand*\xtCIplotfactor {#1}
+    \edef\xtCInfosetplotfactor {#1}
+} 
+
+% detouring colon problem
+\NewExpandableDocumentCommand \setxtCIAngleAccordingtoGrowswapCall { }
+{
+    \bool_if:NTF \xt_growswap_call_bool
+    { \tl_set:Nn \xtCIang {  90 } } 
+    { \tl_set:Nn \xtCIang { -90 } } 
+}
+
+% detouring colon problem
+\def\xtciang@adjusted { 35 }
+\def\xtciang@adjustedLessThanOne { -15 }
+
+% #1 : \xtciplotfactor
+% #2 : midvarfactor
+\NewExpandableDocumentCommand \setxtCIAngleAccordingtoGrowswapCallForCI { m m }
+{
+  \bool_if:NTF \xt_growswap_call_bool
+    { % growswap true
+      \tl_set:Nn \xtCIangNew { 90 } 
+      \tl_set:Nn \xtcisign { -1 }
+      \pgfmathsetmacro \xtciangA {  45-45*(#1-1)/.6 } 
+      \pgfmathsetmacro \xtciangB { -45+45*(#1-1)/.6 } 
+      \tl_if_novalue:nF { #2 }  %% equivalent to \IfNoValueTF
+      {
+        \fp_compare:nTF { .5 > #2 }
+        {
+          \fp_compare:nTF { 1 > #1 }
+          {
+            \pgfmathsetmacro \xtciangA { \xtciangA + 60 - \xtciang@adjusted }
+          }
+          {
+            \pgfmathsetmacro \xtciangA { \xtciangA - \xtciang@adjusted }
+          }
+        }
+        {
+          \fp_compare:nT { .5 < #2 }
+          {
+            \fp_compare:nTF { 1 > #1 }
+            { 
+              \pgfmathsetmacro \xtciangB { \xtciangB - 60 + \xtciang@adjusted }
+            }
+            { 
+              \pgfmathsetmacro \xtciangB { \xtciangB + \xtciang@adjusted }
+            }
+          }
+        }
+      }
+    } 
+    { % growswap false (no problem)
+      \tl_set:Nn \xtCIangNew { -90 } 
+      \tl_set:Nn \xtcisign { 1 }
+      \pgfmathsetmacro\xtciangA{ -45+45*(#1-1)/.6 }
+      \pgfmathsetmacro\xtciangB{  45-45*(#1-1)/.6 }
+      \fp_compare:nT { 1.0 > #1 } { \edef\xtciang@adjusted { \xtciang@adjustedLessThanOne } }
+      \tl_if_novalue:nF { #2 }  %% equivalent to \IfNoValueTF
+      {
+        \fp_compare:nTF { .5 > #2 }
+        {
+          \pgfmathsetmacro \xtciangA { \xtciangA + \xtciang@adjusted } % if midvarfactor < .5
+        }
+        {
+          \fp_compare:nT { .5 < #2 }
+          {
+            \pgfmathsetmacro \xtciangB { \xtciangB - \xtciang@adjusted } % if midvarfactor > .5
+          }
+        }
+      }
+    }
+}
+
+
+%% detouring colon problem
+\def\ciang@adjusted { 35 }
+\def\ciang@adjustedLessThanOne { -15 }
+
+\let \cntminfosetheight \xtinfosetheight
+% #1 : \ciplotfactor
+\NewExpandableDocumentCommand \setciAngleAccordingtoGrowswapCallForCntmAI { m }
+{
+  \bool_if:NTF \xt_growswap_call_bool
+    { % growswap true
+      \tl_set:Nn \ciangNew { 90 } 
+      \tl_set:Nn \cisign { -1 }
+      \pgfmathsetmacro \ciangA { -45+45*(#1-1)/.9 }
+      \pgfmathsetmacro \ciangB {  45-45*(#1-1)/.9 }
+    } 
+    { % growswap false
+      \tl_set:Nn \ciangNew { -90 } 
+      \tl_set:Nn \cisign { 1 }
+      \pgfmathsetmacro \ciangA {  45-45*(#1-1)/.9 }
+      \pgfmathsetmacro \ciangB { -45+45*(#1-1)/.9 }
+    }
+}
+
+%% detouring abbreviations (used in \xtCInfoset)
+\NewDocumentCommand \xtCInfosetAbbreviations { m }
+{
+%  \str_case_e:nnF {#1}
+  \str_case:nnF {#1}
+  {
+    {l}  { \def\xtciowner@pos { left }        }
+    {r}  { \def\xtciowner@pos { right}        }
+    {a}  { \def\xtciowner@pos { above}        }
+    {b}  { \def\xtciowner@pos { below}        }
+    {al} { \def\xtciowner@pos { above~left }  }
+    {ar} { \def\xtciowner@pos { above~right } }
+    {bl} { \def\xtciowner@pos { below~left }  }
+    {br} { \def\xtciowner@pos { below~right } }
+  }
+  {
+    \def\xtciowner@pos {#1}
+  }
+  \tl_set:Nx \xtcioptionstring { at (xtC) [ above , \xtciowner@pos ] }
+}
+
+% detouring colon problem (for comparing two node being identical or not)
+% \xtCITestCoordinates (used in \xtCInfoset)
+\newif \ifxtCIsamecoordinates
+\NewDocumentCommand \xtCITestCoordinates { m m }
+{
+%    \str_if_eq:eeTF {#1} {#2}
+    \str_if_eq:nnTF {#1} {#2}
+    {
+      \xtCIsamecoordinatestrue
+    }
+    {
+      \xtCIsamecoordinatesfalse
+    }
+}
+
+
+%++++++++++++++++++++++++++++++++++++
+%% +++ ONLY FOR DEVELOPER +++++++++++
+%% to show X points and X circles (this is used in definition of \xtCInfosetO and \cntmAInfosetO)
+
+% getting ready to show X points
+\newif \ifxtXpoints
+\newif \ifxtXpointsONE
+\newif \ifxtXpointsTWO
+\newif \ifxtXpointsTHREE
+\newif \ifxtXpointsFOUR
+\newif \ifxtXpointsLabel
+% getting ready to show X circles
+\newif \ifxtXcircles
+\newif \ifxtXcircleX
+\newif \ifxtXcircleY
+
+% showing X circles
+% used in \xtshowXpoints
+% can be used independently
+\NewDocumentCommand \xtshowXcircles { m }
+{
+    \xtXcircleXfalse
+    \xtXcircleYfalse
+    \xtXcirclestrue
+    \int_compare:nTF { #1 >= 3 }
+    {
+      \xtXcircleXtrue
+      \xtXcircleYtrue
+    }
+    {
+      \int_compare:nTF { #1 >= 2 }
+      {
+        \xtXcircleXfalse
+        \xtXcircleYtrue
+      }
+      {
+        \int_compare:nT { #1 >= 1 }
+        {
+          \xtXcircleXtrue
+          \xtXcircleYfalse
+        }
+      }
+    }
+}
+
+% hide X circles
+\NewDocumentCommand \xthideXcircles { }
+{
+  \xtXcirclesfalse
+}
+
+% to control point size
+\def\xtXpoint@sizeA { \istsolidnodesize }
+\def\xtXpoint@sizeB { 5/3 * \istsolidnodesize }
+\newcommand*\xtXpointsizeA { \xtXpoint@sizeA }
+\newcommand*\xtXpointsizeB { \xtXpoint@sizeB }
+
+% showing X points
+% \xtshowXpoints
+% * {point choice num}{circle choice num}(points size dim)(basic points size dim)
+% usage: \xtshowXpoints33(2pt)(3pt)
+% point choice number: 0,1,2,3,4
+% circle choice number: 0,1,2,3
+% this serves \xtCInfosetO as well as \cntmAInfosetO
+\NewDocumentCommand \xtshowXpoints { s m m D(){\xtXpoint@sizeA} D(){\xtXpoint@sizeB} }
+{
+    \renewcommand*\xtXpointsizeA {#4}
+    \renewcommand\xtXpointsizeB {#5}
+    \xtXpointsLabelfalse
+    \IfBooleanTF {#1} { \xtXpointsLabeltrue } { \xtXpointsLabelfalse }
+    \xtXpointsONEfalse
+    \xtXpointsTWOfalse
+    \xtXpointsTHREEfalse
+    \xtXpointsFOURfalse
+    \xtXpointstrue 
+    \int_compare:nTF { #2 >= 4 }
+    {
+        \xtXpointsTHREEtrue
+        \xtXpointsTWOtrue
+        \xtXpointsONEtrue
+    }
+    {
+      \int_compare:nTF { #2 >= 3 }
+      {
+          \xtXpointsONEfalse
+          \xtXpointsTWOtrue
+          \xtXpointsTHREEtrue
+      }
+      {
+        \int_compare:nTF { #2 >= 2 }
+        {
+          \xtXpointsONEtrue
+          \xtXpointsTWOtrue
+          \xtXpointsTHREEfalse
+        }
+        {
+          \int_compare:nT { #2 >= 1 }
+          {
+          \xtXpointsONEtrue
+          \xtXpointsTWOfalse
+          \xtXpointsTHREEfalse
+          }
+        }
+      }
+    }
+    \xtshowXcircles{#3}
+}
+
+% hide X points
+\NewDocumentCommand \xthideXpoints {}
+{
+    \xtXpointsfalse
+}
+%++++++++++++++++++++++++++++++++++++
+
+
+\ExplSyntaxOff
+
+%%-----------------
+%% expl3 up to here (paused, because of colon problem)
+%%-----------------
+
+%---syntaxoff-----
+% \xtCInfoset
+% * [line opt] (beg-coor) !offmid weight! (end-coor) <plotfactor> +G{} O{} (info height dim)
+\NewDocumentCommand \xtCInfoset
+{ s O{} r() d!! r() D<>{\xtCIplotfactor} +G{} O{} }
+{
+\begin{scope}
+\istgameScaleCallTestAndAdjust % (must be in a GROUP)
+    \IfBooleanTF {#1} { } { \setistmathTF011 \istownertextfont{} } % must be in a group
+    
+    \coordinate (xtA) at (#3) ;
+    \coordinate (xtB) at (#5) ;
+    \edef\xtciplotfactor {#6}
+    \def\xtcitension { 1 }
+
+    \IfValueT {#4} { \edef\xtcimidvarfactor {#4} }
+    \setxtCIAngleAccordingtoGrowswapCallForCI {#6} {#4}
+    
+    \path
+      let \p1 = ($(xtA)-(xtB)$) , \n1 = { veclen(\p1) }
+      in  \pgfextra{ \xdef\xtcidist {\n1} } ;
+    
+    \coordinate (xtcimid) at ( $ (xtA) ! .5 ! (xtB) $ ) ;
+    \coordinate (xtciroot) at ( $ (xtcimid) ! .5 * \xtcidist ! \xtCIangNew:(xtB) $ ) ;
+    \coordinate (xtcimid-var) at ( $ (xtA) ! \xtcimidvarfactor ! (xtB) $ ) ;
+    \coordinate (xtC) at ( $ (xtciroot) ! \xtciplotfactor ! (xtcimid-var) $ ) ;
+
+    \begin{pgfonlayer}{\xtinfosetlayer}
+    \draw [ - , samples=500 , tension = \xtcitension , infoset style , #2 ]
+          plot [ smooth ] coordinates { (xtA) (xtC) (xtB) } ;
+    % detoured abbreviations (\node at (xtC) [ above , #8 ] { \istownerstyle{#7} } ;)
+    \xtCInfosetAbbreviations {#8}
+    \expandafter \node \xtcioptionstring [-] { \istownerstyle{#7} };
+    \end{pgfonlayer}
+\end{scope}
+}
+
+%++++++++++++++++++++++++++++++++++++
+%% +++ ONLY FOR DEVELOPER +++++++++++
+%---syntaxoff-----
+% for controlling X points
+\tikzset { nodedot/.style = 
+           { - , draw , fill , circle , inner sep = 0pt , minimum size = 2pt }
+         }
+
+%---syntaxoff-----
+% * [node opt] (coor) <pos> {label} (min size dim)
+\NewDocumentCommand \xtXnodedot { s O{} r() D<>{above} G{} D(){\istsolidnodesize} }
+{
+    \IfBooleanTF {#1}
+    {
+      \node at (#3) [ nodedot , minimum size = #6 ,
+                      label={[label distance=-2pt]#4:{\tiny\ttfamily #5}} , #2 ] {} ;
+    }
+    {
+      \node at (#3) [ nodedot , minimum size = #6 , #2 ] {} ;
+    }
+}
+%++++++++++++++++++++++++++++++++++++
+
+%---syntaxoff-----
+% initial values
+\def\xtcibegang {0}
+\def\xtciendang {0}
+
+\NewDocumentCommand \xtCInfosetOTurnX { m g }
+{
+    \renewcommand*\xtcibegang{#1}
+    \IfNoValueTF {#2} 
+      { \renewcommand*\xtciendang{-\xtcibegang} } 
+      { \renewcommand*\xtciendang{#2} }
+}
+
+%---syntaxoff-----
+% \xtCInfosetO
+% * [line opt] (beg-coor) !offmid weight! (end-coor) <plotfactor> +G{} O{} (info height dim)
+\NewDocumentCommand \xtCInfosetO
+{ s O{} r() d!! r() D<>{\xtCIplotfactor} +G{} O{} D(){\xtdefault@infosetheight} }
+{
+    \begin{scope}
+    \IfBooleanTF {#1} { } { \setistmathTF011 \istownertextfont{} } % must be in a group
+    
+    \coordinate (xtA) at (#3) ;
+    \coordinate (xtB) at (#5) ;
+    \renewcommand*\xtinfosetheight{#9}
+
+    \istgameScaleCallTestAndAdjust % (must be in a GROUP)   % this determines \xsinfosetheightvar 
+    \xtCITestCoordinates{#3}{#5}
+    \ifxtCIsamecoordinates 
+      \begin{pgfonlayer}{\xtinfosetlayer}
+      \draw [ - ] (xtA) 
+            node [ - , draw , circle , samples = 500 , inner sep = 0pt , 
+                   minimum size=\xtinfosetheightvar , % var needed for scaling
+                   infoset style , #2 
+                 ] { } ; 
+      \end{pgfonlayer}
+      \node at (#3) [ - , #8 ] { \istownerstyle{#7} } ;
+    \else
+      \edef\xtciplotfactor{#6}
+      \def\xtcitension{1}
+      \def\xradius{ .5*\xtinfosetheight }
+      \xdef\tosstoxtXcircles{\xtinfosetheightvar}           % +++ for developer (see below) +++
+  
+      \IfValueT {#4} {\edef\xtcimidvarfactor{#4}}
+      \setxtCIAngleAccordingtoGrowswapCallForCI{#6}{#4}
+      
+      \path
+        let \p1 = ($(xtA)-(xtB)$) , \n1 = {veclen(\p1)}
+        in  \pgfextra{\xdef\xtcidist{\n1}} ;
+  
+      \pgfmathsetmacro\xratio{ scalar(\xtCI@default@rootdist/\xtcidist) }
+      
+      \coordinate (xtcimid) at ($(xtA)!.5!(xtB)$) ;
+      \coordinate (xtciroot) at ($(xtcimid)!.5*\xtcidist!\xtCIangNew:(xtB)$) ;
+      \coordinate (xtcimid-var) at ($(xtA)!\xtcimidvarfactor!(xtB)$) ;
+      \coordinate (xtC) at ($(xtciroot)!\xtciplotfactor!(xtcimid-var)$) ;
+  
+      \path (xtciroot) -- (xtA) -- 
+            ( [turn] \xtciangA+\xtcibegang:\xradius) coordinate (xtAA1) ; 
+      \path (xtciroot) -- (xtB) -- 
+            ( [turn] \xtciangB+\xtciendang:\xradius) coordinate (xtBB1) ; 
+  
+      \coordinate (xtAA2) at ($(xtAA1)!2!(xtA)$) ;
+      \coordinate (xtBB2) at ($(xtBB1)!2!(xtB)$) ;
+  
+      \draw [ draw=none , - ] (xtciroot) -- (xtC) -- ([turn]0:\xradius) coordinate (xtCC1) ;
+      \draw [ draw=none , - ] (xtciroot) -- (xtC) -- ([turn]180:\xradius) coordinate (xtCC2) ;
+      
+      \coordinate (XpointA) at ($(xtA)!\xradius!-\xtCIangNew:(xtAA1)$) ;
+      \coordinate (XpointB) at ($(xtB)!\xradius! \xtCIangNew:(xtBB1)$) ;
+  
+      \begin{pgfonlayer}{\xtinfosetlayer}
+      \draw [ - , samples = 500 , tension = \xtcitension , infoset style , #2 ]
+            plot [smooth] 
+                 coordinates {(xtAA1)(xtCC1)(xtBB1)} --
+            plot [smooth,tension=1.75] 
+                 coordinates {(xtBB1)(XpointB)(xtBB2)} --
+            plot [smooth] 
+                 coordinates {(xtBB2)(xtCC2)(xtAA2)} --
+            plot [smooth,tension=1.75] 
+                 coordinates {(xtAA2)(XpointA)(xtAA1)} -- cycle ;
+      \node at (xtC) [ - , #8 ] { \istownerstyle{#7} } ;
+      \end{pgfonlayer}
+    \fi
+    \end{scope}
+    % back to initial values
+    \def\xtcibegang{0}
+    \def\xtciendang{0}
+    %++++++++++++++++++++++++++++++++++++
+    %% +++ ONLY FOR DEVELOPER +++++++++++
+    %% control points
+    \ifxtXpoints
+      \ifxtXpointsONE
+        \ifxtXpointsLabel
+          \xtXnodedot*[fill=green](xtA)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot*[fill=green](xtB)<left>{B}(\xtXpointsizeB)
+          \xtXnodedot*[green](xtC)<right>{C}(\xtXpointsizeB)
+          \xtXnodedot*[fill=blue!40](xtciroot)<right>{root}(\xtXpointsizeB)
+          \xtXnodedot*[fill=green](xtcimid-var)<right>{m}(\xtXpointsizeB)
+        \else
+          \xtXnodedot[fill=green](xtA)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot[fill=green](xtB)<left>{B}(\xtXpointsizeB)
+          \xtXnodedot[green](xtC)<right>{C}(\xtXpointsizeB)
+          \xtXnodedot[fill=blue!40](xtciroot)<right>{root}(\xtXpointsizeB)
+          \xtXnodedot[fill=green](xtcimid-var)<right>{m}(\xtXpointsizeB)
+        \fi
+      \fi
+      \ifxtXpointsTWO
+        \ifxtXpointsLabel
+          \xtXnodedot*[blue](xtAA1){a1}(\xtXpointsizeA)
+          \xtXnodedot*[red](xtAA2)<below>{a2}(\xtXpointsizeA)
+          \xtXnodedot*[blue](xtBB1){b1}
+          \xtXnodedot*[red](xtBB2)<below>{b2}(\xtXpointsizeA)
+          \xtXnodedot*[blue](xtCC1){c1}(\xtXpointsizeA)
+          \xtXnodedot*[red](xtCC2)<below>{c2}(\xtXpointsizeA)
+        \else
+          \xtXnodedot[blue](xtAA1){a1}(\xtXpointsizeA)
+          \xtXnodedot[red](xtAA2)<below>{a2}(\xtXpointsizeA)
+          \xtXnodedot[blue](xtBB1){b1}(\xtXpointsizeA)
+          \xtXnodedot[red](xtBB2)<below>{b2}(\xtXpointsizeA)
+          \xtXnodedot[blue](xtCC1){c1}(\xtXpointsizeA)
+          \xtXnodedot[red](xtCC2)<below>{c2}(\xtXpointsizeA)
+        \fi
+      \fi
+      \ifxtXpointsTHREE
+        \ifxtXpointsLabel
+          \xtXnodedot*[blue](XpointA)<left>{x}(\xtXpointsizeA)
+          \xtXnodedot*[red](XpointB)<right>{y}(\xtXpointsizeA)
+        \else
+          \xtXnodedot[blue](XpointA)<left>{x}(\xtXpointsizeA)
+          \xtXnodedot[red](XpointB)<right>{y}(\xtXpointsizeA)
+        \fi
+      \fi
+    \fi
+    % X circles
+    \ifxtXcircles
+      \ifxtXcircleX
+        \node at (xtA) [ - , circle , draw=blue , opacity=.5 , 
+                         minimum size=\tosstoxtXcircles ] {} ;
+      \fi
+      \ifxtXcircleY
+        \node at (xtB) [ - , circle , draw=red , opacity=.5 , 
+                         minimum size=\tosstoxtXcircles ] {} ;
+      \fi
+    \fi
+    %++++++++++++++++++++++++++++++++++++
+}
+
+
+%% continuum of branches : information sets
+
+%---syntaxoff-----
+%% cntmA defaults (used in \ISTCntmArc)
+\def\cntmA@default@opt {}   % arc line option
+\def\cntmA@default@pos {1} % arc position %% default was .5
+\def\cntmA@default@plotfactor {1.333} % arc curvature
+\def\cntmAInfosetplotfactor {\cntmA@default@plotfactor}
+\def\cntmA@default@fillcolor {transparent} % no white
+\newcommand*\cntmAopt {\cntmA@default@opt}  
+\newcommand*\cntmApos {\cntmA@default@pos}  
+\newcommand*\cntmAplotfactor {\cntmA@default@plotfactor} 
+\newcommand*\cntmAfillcolor  {\cntmA@default@fillcolor}
+
+%---syntaxoff-----
+% \cntmAplotfactorset
+% use this before \istrootcntmA
+\NewDocumentCommand \cntmAplotfactorset { m }
+{
+    \renewcommand*\cntmAplotfactor {#1}
+    \edef\cntmAInfosetplotfactor {#1}
+} 
+
+%---syntaxoff-----
+% \cntmApreset
+% use this before \istrootcntmA
+% \cntmApreset
+% [Aopt]<plotfactor>{Apos}[fill color]
+% use fill color only at the second bracket option (not first)
+\NewDocumentCommand \cntmApreset
+{ O{\cntmA@default@opt} D<>{\cntmA@default@plotfactor} g O{\cntmA@default@fillcolor} }
+{
+    \IfNoValueTF {#3}
+    {
+      \renewcommand*\cntmApos {\cntmA@default@pos}
+    }
+    {
+      \renewcommand*\cntmApos {#3}
+    }
+    \renewcommand*\cntmAopt {#1}
+    \cntmAplotfactorset {#2}
+    \renewcommand*\cntmAfillcolor {#4}
+}
+
+
+%---syntaxoff-----
+% cntm layer
+\def\cntm@default@layer{background} % better than behind
+\NewDocumentCommand \cntmlayerset{ m }
+{
+    \renewcommand*\cntm@default@layer{#1}
+}
+
+%---syntaxoff-----
+% cntmA layer
+\def\cntmA@default@layer{behind} % better than background
+\newcommand*\cntmAdefaultlayer{\cntmA@default@layer}
+\NewDocumentCommand \cntmAlayerpreset{ G{\cntmA@default@layer} }
+{
+    \renewcommand*\cntmAdefaultlayer{#1}
+}
+
+
+%---syntaxoff-----
+% \cntmAInfoset
+% [Aopt] (cntm-root) <\xtCIplotfactor> {addto cntmApos} 
+\NewDocumentCommand \cntmAInfoset
+{ O{\cntmA@default@opt} r() D<>{\cntmAInfosetplotfactor} G{.1} } 
+{
+    % save arc options and position
+    \let\tmpAIpos\cntmApos
+    \let\tmpAIopt\cntmAopt
+    \pgfmathsetmacro{\cntmAInfosetpos}{\cntmApos+#4}
+  
+    \coordinate (ciroot) at (#2) ;
+    \coordinate (ciA) at ($(ciroot)!\cntmAInfosetpos!(cntm-1)$) ;
+    \coordinate (ciB) at ($(ciroot)!\cntmAInfosetpos!(cntm-2)$) ;
+    \edef\ciplotfactor{#3}
+    \def\citension{1}
+    
+    \pgfmathsetmacro\cidistratio{ scalar(\cntmlevdist/\cntmsibdist) }
+    \pgfmathsetmacro\ciplotfactorVal{ 1 + (\ciplotfactor-1) * sqrt(1/3) / sqrt(\cidistratio) }
+    
+    \coordinate (cimid) at ($(ciA)!.5!(ciB)$) ;
+    \coordinate (ciC) at ($(ciroot)!\ciplotfactorVal!(cimid)$) ;
+    
+    \begin{pgfonlayer}{\xtinfosetlayer}
+    \draw [ - , samples=500 , tension = \citension , infoset style , #1 ]
+          plot [smooth] coordinates {(ciA)(ciC)(ciB)} ;
+    \end{pgfonlayer}
+    \let\cntmApos\tmpAIpos
+    \let\cntmAopt\tmpAIopt
+}
+
+
+%---syntaxoff-----
+% \cntmAInfosetO
+% [Aopt] (cntm-root) <plot factor> {Apos} [turn X-ang] (infoset height)
+\NewDocumentCommand \cntmAInfosetO
+{ O{\cntmA@default@opt} r() D<>{\cntmAInfosetplotfactor} G{\cntmApos} O{0} D(){\xtdefault@infosetheight} }
+{
+    \begin{scope}   
+    \coordinate (ciroot) at (#2) ;
+    \coordinate (ciA) at ($(ciroot)!#4!(cntm-1)$) ;
+    \coordinate (ciB) at ($(ciroot)!#4!(cntm-2)$) ;
+    \edef\ciplotfactor{#3}
+    \def\ciAdjXang{#5}
+    \def\cntminfosetheight{#6}
+    \def\citension{1}
+
+    \istgameScaleCallTestAndAdjust % (must be in a GROUP)
+    \def\ciradius{ .5*\cntminfosetheight } % not -var
+    \xdef\tosstocntmXcircles{\cntminfosetheightvar} % +++ for developer (see below) +++
+    \setciAngleAccordingtoGrowswapCallForCntmAI{#3}
+    
+    \pgfmathsetmacro\cidistratio{ scalar(\cntmlevdist/\cntmsibdist) }
+    % to ease the curvature (using \cidistratio)
+    \pgfmathsetmacro\ciplotfactorVal{ 1 + (\ciplotfactor-1)*sqrt(1/3)/sqrt(\cidistratio) }
+    % adjust Xangle
+    \ifdim .5pt <\cidistratio pt
+      \pgfmathsetmacro\ciDefaultAdjXang{  -5 + 30*\cidistratio }  % (10 if ratio=1/2 )
+    \else
+      \pgfmathsetmacro\ciDefaultAdjXang{ -10 + 30*\cidistratio } % (0 if ratio=1/3 )    
+    \fi
+    \pgfmathsetmacro\ciXadj{ \cisign * (\ciDefaultAdjXang - \ciAdjXang) }
+
+    % defining coordinates
+    \coordinate (cimid) at ($(ciA)!.5!(ciB)$) ;
+    \coordinate (ciC) at ($(ciroot)!\ciplotfactorVal!(cimid)$) ;
+
+    \path (ciroot) -- (ciA) -- 
+          ( [turn] \ciangA-\ciXadj:\ciradius) coordinate (ciAA1) ;
+    \path (ciroot) -- (ciB) -- 
+          ( [turn] \ciangB+\ciXadj:\ciradius) coordinate (ciBB1) ;
+
+    \coordinate (ciAA2) at ($(ciAA1)!2!(ciA)$) ;
+    \coordinate (ciBB2) at ($(ciBB1)!2!(ciB)$) ;
+
+    \draw [ draw=none , - ] 
+          (ciroot) -- (ciC) -- ([turn]0:\ciradius) coordinate (ciCC1) ;
+    \draw [ draw=none , - ] 
+          (ciroot) -- (ciC) -- ([turn]180:\ciradius) coordinate (ciCC2) ;
+    
+    \coordinate (ciXpointA) at ($(ciA)!\ciradius! \ciangNew:(ciAA1)$) ;
+    \coordinate (ciXpointB) at ($(ciB)!\ciradius!-\ciangNew:(ciBB1)$) ;
+
+    \begin{pgfonlayer}{\xtinfosetlayer}
+    \draw [ - , samples=500 , tension = \citension , infoset style , #1 ]
+          plot [smooth] 
+               coordinates {(ciAA1)(ciCC1)(ciBB1)} --
+          plot [smooth,tension=1.75] 
+               coordinates {(ciBB1)(ciXpointB)(ciBB2)} --
+          plot [smooth] 
+               coordinates {(ciBB2)(ciCC2)(ciAA2)} --
+          plot [smooth,tension=1.75] 
+               coordinates {(ciAA2)(ciXpointA)(ciAA1)} -- cycle ;
+    \end{pgfonlayer}
+    \end{scope}
+    %++++++++++++++++++++++++++++++++++++
+    %% +++ ONLY FOR DEVELOPER +++++++++++
+    %% control points
+    \ifxtXpoints
+      \ifxtXpointsONE
+        \ifxtXpointsLabel
+          \xtXnodedot*[fill=green](ciA)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot*[fill=green](ciB)<left>{B}(\xtXpointsizeB)
+          \xtXnodedot*[green](ciC)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot*[fill=green](ciroot)(\xtXpointsizeB)
+          \xtXnodedot*[fill=green](cimid)<right>{m}(\xtXpointsizeB)
+        \else
+          \xtXnodedot[fill=green](ciA)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot[fill=green](ciB)<left>{B}(\xtXpointsizeB)
+          \xtXnodedot[green](ciC)<right>{A}(\xtXpointsizeB)
+          \xtXnodedot[fill=green](ciroot)(\xtXpointsizeB)
+          \xtXnodedot[fill=green](cimid)<right>{m}(\xtXpointsizeB)
+        \fi
+      \fi
+      \ifxtXpointsTWO
+        \ifxtXpointsLabel
+          \xtXnodedot*[blue](ciAA1)<below>{a1}(\xtXpointsizeA)
+          \xtXnodedot*[red](ciAA2)<above>{a2}(\xtXpointsizeA)
+          \xtXnodedot*[blue](ciBB1)<below>{b1}(\xtXpointsizeA)
+          \xtXnodedot*[red](ciBB2)<above>{b2}(\xtXpointsizeA)
+          \xtXnodedot*[blue](ciCC1)<below>{c1}(\xtXpointsizeA)
+          \xtXnodedot*[red](ciCC2)<above>{c2}(\xtXpointsizeA)
+        \else  
+          \xtXnodedot[blue](ciAA1)<below>{a1}(\xtXpointsizeA)
+          \xtXnodedot[red](ciAA2)<above>{a2}(\xtXpointsizeA)
+          \xtXnodedot[blue](ciBB1)<below>{b1}(\xtXpointsizeA)
+          \xtXnodedot[red](ciBB2)<above>{b2}(\xtXpointsizeA)
+          \xtXnodedot[blue](ciCC1)<below>{c1}(\xtXpointsizeA)
+          \xtXnodedot[red](ciCC2)<above>{c2}(\xtXpointsizeA)
+        \fi
+      \fi
+      \ifxtXpointsTHREE
+        \ifxtXpointsLabel
+          \xtXnodedot*[blue](ciXpointA)<left>{x}(\xtXpointsizeA)
+          \xtXnodedot*[red](ciXpointB)<right>{y}(\xtXpointsizeA)
+        \else
+          \xtXnodedot[blue](ciXpointA)<left>{x}(\xtXpointsizeA)
+          \xtXnodedot[red](ciXpointB)<right>{y}(\xtXpointsizeA)
+        \fi
+      \fi
+    \fi
+    % X circles
+    \ifxtXcircles
+      \ifxtXcircleX
+        \node at (ciA) [ - , circle , draw=blue , opacity=.5,
+                         minimum size=\tosstocntmXcircles ] {} ;
+      \fi
+      \ifxtXcircleY
+        \node at (ciB) [ - , circle , draw=red , opacity=.5 , 
+                         minimum size=\tosstocntmXcircles ] {} ;
+      \fi
+    \fi
+    %++++++++++++++++++++++++++++++++++++
+}
+
+
+%%-----------------
+%% expl3 from here again
+%%-----------------
+
+\ExplSyntaxOn
+
+%% preset for \istb (for outermost branches) for "cntm triangle" and "cntm arc"
+% cntmA stands for "cntm arc"
+
+% cntm color
+
+\def\cntm@default@opt { }
+\newcommand*\cntmopt  { \cntm@default@opt }
+
+\def\cntm@default@drawcolor { black!25 }
+\newcommand*\cntmdrawcolor  { \cntm@default@drawcolor }
+\def\cntm@default@fillcolor { \cntm@default@drawcolor }
+\newcommand*\cntmfillcolor  { \cntm@default@fillcolor }
+\def\cntm@default@pos { 1 }
+\newcommand*\cntmpos  { \cntm@default@pos }
+
+% cntm outermost draw options
+\def\cntm@default@branchopt { draw = none } % "draw=none" needed to keep cntm "triangle" default
+\newcommand*\cntmbranchopt { \cntm@default@branchopt }
+
+\def\cntmLeftAL     { } % leftmost AL
+\def\cntmLeftALpos  { } % leftmost AL position
+\def\cntmRightAL    { } % rightmost AL
+\def\cntmRightALpos { } % rightmost AL position
+
+% cntmA outermost draw options
+\def\cntmAbranchdrawopt { } % "empty" needed for cntmA outermost "branch" control
+
+\def\cntmALeftAL     { } % leftmost AL
+\def\cntmALeftALpos  { } % leftmost AL position
+\def\cntmARightAL    { } % rightmost AL
+\def\cntmARightALpos { } % rightmost AL position
+
+
+\bool_set_false:N \_cntm_pos_call_bool
+
+% \cntmpreset
+% * [ draw, color, fill ] { shrink factor } [ fill color ]
+% the first, if exists, [ fill=color ] wins the second [ fill color ]
+% that is, \cntmopt (with fill=color) wins \cntmfillcolor
+\NewDocumentCommand \cntmpreset { s O{} g o }
+{
+    \IfNoValueTF {#3}
+    {
+      \renewcommand*\cntmpos{\cntm@default@pos}
+    }
+    {
+      \renewcommand*\cntmpos{#3}
+      \bool_set_true:N \_cntm_pos_call_bool
+    }
+    \IfBooleanTF {#1}
+    {
+      \IfValueTF {#4}
+      {
+        \renewcommand*\cntmfillcolor{#4}
+        \renewcommand*\cntmopt{ - , solid , draw = black , fill = \cntmfillcolor , #2 }
+      }
+      {
+        \renewcommand*\cntmopt{ - , solid , draw = black , fill = none , #2 }
+      }
+    }
+    {
+      \IfValueT {#4}
+      {
+        \renewcommand*\cntmdrawcolor{#4}
+        \let\cntmfillcolor\cntmdrawcolor
+      }
+      \renewcommand*\cntmopt{ - , solid, draw = \cntmdrawcolor , fill = \cntmfillcolor, #2}
+    }
+}
+
+
+% ============
+% complication needed to resolve tex expansion issues
+% ------------
+
+% \cntmistb
+% complication:
+  % controls options for outermost branches via \l_cntm_left/rightmost_branch_opt_tl
+  % finally used in \istrootcntm and \istrootocntm
+% USE this BEFORE \istrootcntm
+% * [ line opt ] { LEFT AL } [ LEFT pos ] { RIGHT AL } [ RIGHT pos ]
+\NewDocumentCommand \cntmistb{ s O{} +G{} O{} +G{} O{} }
+{
+    % to resolve the nullfont problem (ndh)
+    \tl_set_eq:NN \l_nullfont_tl \cntm@show@endpoint
+
+    \renewcommand*\cntmbranchopt { - , draw=none, #2 }
+    \renewcommand*\cntmLeftAL    {#3}
+    \renewcommand*\cntmRightAL   {#5}
+    \renewcommand*\cntmLeftALpos
+    {
+%      \str_case_e:nnF {#4}
+      \str_case:nnF {#4}
+      {
+        {al} { above~left ,  text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {ar} { above~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {bl} { below~left ,  text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {br} { below~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {l}  { left ,  text~depth = .25ex , xshift = -\xtALxShift }
+        {r}  { right , text~depth = .25ex , xshift =  \xtALxShift }
+        {a}  { above , text~depth = .25ex , xshift =  \xtALxShift }
+        {b}  { below , text~depth = .25ex , xshift = -\xtALxShift }
+      }
+      {
+        #4
+      }
+    }
+    \renewcommand*\cntmRightALpos
+    {
+%      \str_case_e:nnF {#6}
+      \str_case:nnF {#6}
+      {
+        {al} { above~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {ar} { above~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {bl} { below~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {br} { below~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {l}  { left ,  text~depth = .25ex , xshift = -\xtALxShift }
+        {r}  { right , text~depth = .25ex , xshift =  \xtALxShift }
+        {a}  { above , text~depth = .25ex , xshift =  \xtALxShift }
+        {b}  { below , text~depth = .25ex , xshift = -\xtALxShift }
+      }
+      {
+        #6
+      }
+    }
+    \IfBooleanTF {#1}
+    { % disobey \xtShowEndPoints* -- force to print solid node
+      \renewcommand*\cntm@show@endpoint { node [ at~end , solid~node ] {} }
+    }
+    { % obey \xtShowEndPoints* and toss the value to \istrootcntm(A) via \cntmOUTERistb
+	    \tl_set:NV \cntm@show@endpoint \l_nullfont_tl  % (ndh)
+    }
+}
+
+
+% \cntmAistb
+% complication:
+  % controls options for outermost branches via \l_cntmA_left/rightmost_branch_opt_tl
+  % finally used in \istrootcntmA and \istrootocntmA
+% USE this BEFORE \istrootcntmA
+% * [ line opt ] { LEFT AL } [ LEFT pos ] { RIGHT AL } [ RIGHT pos ]
+\NewDocumentCommand \cntmAistb { s O{-} +G{} O{} +G{} O{} }
+{    
+    % to resolve the nullfont problem (ndh)
+    \tl_set_eq:NN \l_nullfont_tl \cntm@show@endpoint
+
+    \renewcommand*\cntmAbranchdrawopt {#2}
+    \renewcommand*\cntmALeftAL        {#3}
+    \renewcommand*\cntmARightAL       {#5}
+    \renewcommand*\cntmALeftALpos
+    {
+%      \str_case_e:nnF {#4}
+      \str_case:nnF {#4}
+      {
+        {al} { above~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {ar} { above~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {bl} { below~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {br} { below~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {l}  { left ,  text~depth = .25ex , xshift = -\xtALxShift }
+        {r}  { right , text~depth = .25ex , xshift =  \xtALxShift }
+        {a}  { above , text~depth = .25ex , xshift =  \xtALxShift }
+        {b}  { below , text~depth = .25ex , xshift = -\xtALxShift }
+      }
+      {
+        #4
+      }
+    }
+    \renewcommand*\cntmARightALpos
+    {
+%      \str_case_e:nnF {#6}
+      \str_case:nnF {#6}
+      {
+        {al} { above~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {ar} { above~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift = -\istactionlabelyshift }
+        {bl} { below~left  , text~depth = .25ex ,
+               xshift =  \istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {br} { below~right , text~depth = .25ex ,
+               xshift = -\istactionlabelxshift , yshift =  \istactionlabelyshift }
+        {l}  { left ,  text~depth = .25ex , xshift = -\xtALxShift }
+        {r}  { right , text~depth = .25ex , xshift =  \xtALxShift }
+        {a}  { above , text~depth = .25ex , xshift =  \xtALxShift }
+        {b}  { below , text~depth = .25ex , xshift = -\xtALxShift }
+      }
+      {
+        #6
+      }
+    }
+    \IfBooleanTF {#1}
+    { % disobey \xtShowEndPoints* -- force to print solid node
+      \renewcommand*\cntm@show@endpoint { node [ at~end , solid~node ] {} }
+    }
+    { % obey \xtShowEndPoints* and toss the value to \istrootcntm(A) via \cntmOUTERistb
+	    \tl_set:NV \cntm@show@endpoint \l_nullfont_tl  % (ndh)
+    }
+}
+
+% to restore initial values after \cntmistb
+% (restore is done by \endist)
+\def\cntmistbVariablesRestore
+{
+    \renewcommand*\cntmbranchopt  { \cntm@default@branchopt }
+    \renewcommand*\cntmLeftAL     { }
+    \renewcommand*\cntmRightAL    { }
+    \renewcommand*\cntmLeftALpos  { }
+    \renewcommand*\cntmRightALpos { }
+}
+
+% to restore initial values after \cntmistb
+% (restore is done by \endist)
+\def\cntmAistbVariablesRestore
+{
+    \renewcommand*\cntmAbranchdrawopt { }
+    \renewcommand*\cntmALeftAL        { }
+    \renewcommand*\cntmARightAL       { }
+    \renewcommand*\cntmALeftALpos     { }
+    \renewcommand*\cntmARightALpos    { }
+}
+
+% \cntmistb LEFT/RIGHT options:
+% (still in the complication) collecting branch options input by \cntmistb
+% the collected token list will be used in \istrootcntm and \istrootocntm
+% [ - , \cntmAbranchdrawopt ] { LEFT AL } [ LEFT pos ] { RIGHT AL } [ RIGHT pos ]
+\cs_new:Npn \_collect_cntm_leftmost_branch_opts:
+{
+    \tl_set:Nn \l_cntm_leftmost_branch_opt_tl       { [ - , }
+    \tl_put_right:Nx \l_cntm_leftmost_branch_opt_tl { \cntmbranchopt ] }
+    \tl_put_right:Nn \l_cntm_leftmost_branch_opt_tl { { \istactionlabelstyle { \cntmLeftAL } } }
+    \tl_put_right:Nx \l_cntm_leftmost_branch_opt_tl { [ \cntmLeftALpos ] }
+}
+
+\cs_new:Npn \_collect_cntm_rightmost_branch_opts:
+{
+    \tl_set:Nn \l_cntm_rightmost_branch_opt_tl { [ - , }
+    \tl_put_right:Nx \l_cntm_rightmost_branch_opt_tl { \cntmbranchopt ] }
+    \tl_put_right:Nn \l_cntm_rightmost_branch_opt_tl { { \istactionlabelstyle { \cntmRightAL } } }
+    \tl_put_right:Nx \l_cntm_rightmost_branch_opt_tl { [ \cntmRightALpos ] }
+}
+
+
+% \cntmAistb LEFT/RIGHT options:
+% (still in the complication) collecting branch options input by \cntmAistb
+% the collected token list will be used in \istrootcntmA and \istrootocntmA
+% [ - , \cntmAbranchdrawopt ] { LEFT AL } [ LEFT pos ] { RIGHT AL } [ RIGHT pos ]
+\cs_new:Npn \_collect_cntmA_leftmost_branch_opts:
+{
+    \tl_set:Nn \l_cntmA_leftmost_branch_opt_tl       { [ - , }
+    \tl_put_right:Nx \l_cntmA_leftmost_branch_opt_tl { \cntmAbranchdrawopt ] }
+    \tl_put_right:Nn \l_cntmA_leftmost_branch_opt_tl { { \istactionlabelstyle { \cntmALeftAL } } }
+    \tl_put_right:Nx \l_cntmA_leftmost_branch_opt_tl { [ \cntmALeftALpos ] }
+}
+
+\cs_new:Npn \_collect_cntmA_rightmost_branch_opts:
+{
+    \tl_set:Nn \l_cntmA_rightmost_branch_opt_tl       { [ - , }
+    \tl_put_right:Nx \l_cntmA_rightmost_branch_opt_tl { \cntmAbranchdrawopt ] }
+    \tl_put_right:Nn \l_cntmA_rightmost_branch_opt_tl { { \istactionlabelstyle { \cntmARightAL } } }
+    \tl_put_right:Nx \l_cntmA_rightmost_branch_opt_tl { [ \cntmARightALpos ] }
+}
+
+
+% complication needed to resolve tex expansion issues (for cntm triangle)
+% this will be used to draw cntm triangle in \istrootcntm and \istrootcntmo
+% [ - , draw = \cntmdrawcolor , fill = \cntmfillcolor ]
+\cs_new:Npn \_collect_cntm_triangle_cmdstr:  
+{
+  	\tl_set:Nn \l_tmp_option_str_tl       { [ - , }
+  	\tl_put_right:Nn \l_tmp_option_str_tl { draw = }
+  	\tl_put_right:Nx \l_tmp_option_str_tl { \cntmdrawcolor , }
+  	\tl_put_right:Nn \l_tmp_option_str_tl { fill = }
+  	\tl_put_right:Nx \l_tmp_option_str_tl { \cntmfillcolor , }
+  	\tl_put_right:Nx \l_tmp_option_str_tl { \cntmopt ] }
+}
+
+
+% \cntmOUTERistb
+% modification of \istb for cntm outermost branches with NO PAYOFF
+% this actually draws outermost branches (used in \istrootcntm and \istrootocntm)
+\NewDocumentCommand \cntmOUTERistb 
+{ s D<>{} O{} +G{} O{} }
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #2 ] 
+      { 
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #3 } { #5 } { #4 } 
+        % the next must NOT go BEFORE \ist_move:nnn : PROBLEMatic (possibly TikZ problem)
+        \IfBooleanTF  { #1 } { \cntm@ndot } { \cntm@show@endpoint }
+      }
+    }
+}
+
+
+% \cntmAOUTERistb
+% modification of \istb for cntmA outermost branches with NO PAYOFF
+% this actually draws outermost branches (used in \istrootcntmA and \istrootocntmA)
+\NewDocumentCommand \cntmAOUTERistb 
+{ s D<>{} O{} +G{} O{} +g O{\istgrowdirection} }
+{ 
+    \tl_put_right:Nn \ischo_game_tl
+    { 
+      child [ #2 ] 
+      { 
+        \ist_move:nnn { \xt@show@midarrow , \xt@show@arrow , #3 } { #5 } { #4 } 
+        % the next must NOT go BEFORE \ist_move:nnn : PROBLEMatic (possibly TikZ problem)
+        \IfBooleanTF  { #1 } { \cntm@ndot } { \cntm@show@endpoint }
+      }
+    }
+}
+
+% ------------
+% complication so far needed to resolve tex expansion issues
+% still more complication below
+% ============
+
+
+%% main macros: continuum of branches
+
+% \istrootcntm -- standard cntm version
+% ' [grow] (root) (at) [node style] <angle> {owner} +cntmlevdist..cntmsibdist+
+\NewDocumentCommand \istrootcntm
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. d.+ }
+{ 
+    % to suppress \xtShowArrows for cntm
+    \let\tmp@xt@show@arrow\xt@show@arrow
+    \def\xt@show@arrow { }
+    \let\tmp@xt@show@midarrow\xt@show@midarrow
+    \def\xt@show@midarrow { }
+
+    % Now \_cntm_levdist_local_tl and \_cntm_sibdist_local_tl is the bases
+    \IfNoValueTF {#8} 
+    { 
+      \bool_set_false:N \_cntm_distance_local_call_bool 
+      \tl_set:Nn \_cntm_levdist_local_tl { \cntmlevdist } 
+      \tl_set:Nn \_cntm_sibdist_local_tl { \cntmsibdist } 
+    }
+    { 
+      \bool_set_true:N \_cntm_distance_local_call_bool
+      \tl_set:Nn \_cntm_levdist_local_tl { #8 } 
+      \tl_set:Nn \_cntm_sibdist_local_tl { #9 } 
+    }
+    
+    % Now \_cntm_act_sibdist_tl is the base
+    \bool_if:NTF \cntm_act_sibdist_call_bool
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl { \cntmACTsibdist }
+    }
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl { 1/3 * \_cntm_sibdist_local_tl }
+    }
+    
+    % adjust \cntm position for smaller triangle
+    \pgfmathsetmacro \cntmlevdistVar { \cntmpos * \_cntm_levdist_local_tl } 
+    \pgfmathsetmacro \cntmsibdistVar { \cntmpos * \_cntm_sibdist_local_tl } 
+
+    %% \istroot(') : cntm outermost branches
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}
+    
+    % execute \ISTRoot [\istgrowdirection] (cntm) (#4) [null node] +{#8}..{#9}+
+    % this defines (cntm)
+    \IfBooleanTF {#1}
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot } }
+    % collect arguments
+    \tl_put_right:Nx \ischo_game_tl 
+      { 
+        [ \istgrowdirection ] (cntm) (#4) [ null~node ] 
+        + { \cntmlevdistVar } .. { \cntmsibdistVar } + 
+      }
+ 
+    %% (before executing \istb) call options collected from above complication
+    \_collect_cntm_leftmost_branch_opts: 
+    \_collect_cntm_rightmost_branch_opts:
+      
+    % execute \istb \istb for cntm LEFT/RIGHT outermost branches
+    % this defines (cntm-1) and (cntm-2)
+    \exp_last_unbraced:NV \cntmOUTERistb \l_cntm_leftmost_branch_opt_tl
+    \exp_last_unbraced:NV \cntmOUTERistb \l_cntm_rightmost_branch_opt_tl
+    \printist ;
+    
+    %% draw cntm triangle, using (cntm), (cntm-1), (cntm-2)
+    \begin{scope}[ shorten~< = 0pt , shorten~> = 0pt ]
+    % call (draw and fill) options collected from above complication 
+    \_collect_cntm_triangle_cmdstr:
+    % and finally draw "cntm triangle"
+    % \draw [opts] (cntm) -- (cntm-1) -- (cntm-2) - (cntm) ;
+    \begin{pgfonlayer}{\cntm@default@layer} % default: background
+      \exp_last_unbraced:No \draw \l_tmp_option_str_tl (cntm)--(cntm-1)--(cntm-2)--(cntm) ;
+    \end{pgfonlayer}
+    \end{scope}   
+    
+    %% cntm action (actually taken by a player)
+    % this is normal \istroot(')
+    \tl_clear:N \ischo_game_tl
+    
+    \IfBooleanTF {#1} 
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot } }
+    % collect arguments 
+    \tl_put_right:Nx \ischo_game_tl { [ \istgrowdirection ] (#3) (cntm) [#5] <#6> }
+    \tl_put_right:Nn \ischo_game_tl { { \istownerstyle{ #7 } } }
+    \tl_put_right:Nx \ischo_game_tl { +{ \_cntm_levdist_local_tl }..{ 1*\_cntm_act_sibdist_local_tl }+ }
+        
+    % call set (for \istbA)
+    \bool_set_true:N \_istroot_cntm_call_bool    % for \istbA
+    
+    % back to normal \xtShowArrows
+    \let\xt@show@arrow\tmp@xt@show@arrow 
+    \let\xt@show@midarrow\tmp@xt@show@midarrow
+}
+
+
+% resolving expansion issue (for cntmA)
+% [ - , tension=1 , \cntmAopt ]
+\cs_new:Npn \_collect_cntmA_cmdstr:
+{
+  	\tl_set:Nn \l_tmp_arc_option_str_tl       { [ - , tension=1 , }
+  	\tl_put_right:Nx \l_tmp_arc_option_str_tl { \cntmAopt ] }
+}
+
+% [ - , tension=1 , \cntmAfillcolor ]
+\cs_new:Npn \_collect_cntmA_color_cmdstr:
+{
+  	\tl_set:Nn \l_tmp_arc_color_str_tl       { [ - , tension=1 , }
+  	\tl_put_right:Nx \l_tmp_arc_color_str_tl { \cntmAfillcolor ] }
+}
+
+% \istrootcntmA -- cntm arc version
+% ' [grow] (root) (at) [node style] <angle> {owner} +cntmlevdist..cntmsibdist+
+\NewDocumentCommand \istrootcntmA
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. d.+ }
+{ 
+    % to suppress \xtShowArrows for cntm
+    \let\tmp@xt@show@arrow\xt@show@arrow
+    \def\xt@show@arrow { }
+    \let\tmp@xt@show@midarrow\xt@show@midarrow
+    \def\xt@show@midarrow { }
+
+    % Now \_cntm_levdist_local_tl and \_cntm_sibdist_local_tl is the bases
+    \IfNoValueTF {#8} 
+    { 
+      \bool_set_false:N \_cntmA_distance_local_call_bool 
+      \tl_set:Nn \_cntmA_levdist_local_tl { \cntmlevdist } 
+      \tl_set:Nn \_cntmA_sibdist_local_tl { \cntmsibdist } 
+    }
+    { 
+      \bool_set_true:N \_cntmA_distance_local_call_bool
+      \tl_set:Nn \_cntmA_levdist_local_tl { #8 } 
+      \tl_set:Nn \_cntmA_sibdist_local_tl { #9 } 
+    }
+
+    % Now \_cntm_act_sibdist_tl is the base
+    \bool_if:NTF \cntm_act_sibdist_call_bool
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {\cntmACTsibdist}
+    }
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {1/3*\_cntmA_sibdist_local_tl}
+    }
+    
+    %% \ISTRoot(') : for drawing cntmA outermost branches
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}
+    
+    % execute \ISTRoot
+    % this defines (cntm)
+    \IfBooleanTF {#1}
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot } }    
+    % collect arguments
+    \tl_put_right:Nx \ischo_game_tl 
+      { [ \istgrowdirection ] (cntm) (#4) [ null~node ] 
+        +{\_cntmA_levdist_local_tl}..{\_cntmA_sibdist_local_tl}+ }
+
+    %% (before executing \istb) call options collected from above complication
+    \_collect_cntmA_leftmost_branch_opts:
+    \_collect_cntmA_rightmost_branch_opts:
+    
+    % execute \istb \istb for cntmA LEFT/RIGHT outermost branches
+    % this defines (cntm-1) and (cntm-2)
+    \exp_last_unbraced:NV \cntmAOUTERistb \l_cntmA_leftmost_branch_opt_tl
+    \exp_last_unbraced:NV \cntmAOUTERistb \l_cntmA_rightmost_branch_opt_tl
+    \printist ;
+    
+    %% defining cntmA points
+    % First, adjust plot vertex to compensate dependency of tree shape
+    \pgfmathsetmacro\cntmdistratio{ scalar (\_cntmA_levdist_local_tl/\_cntmA_sibdist_local_tl) }
+    % sqrt(1/3) is to make the cntmdist ratio 1/3 as standard
+    \pgfmathsetmacro\cntmAplotfactorVal
+      { 1 + (\cntmAplotfactor-1) * sqrt(1/3) / sqrt(\cntmdistratio) }
+    \xdef\cntmAplotfactorAdj{\cntmAplotfactorVal} % used also in \istbA(t)
+    \coordinate (cntmA-beg) at ( $ (cntm) ! \cntmApos ! (cntm-1) $ ) ; % begin point
+    \coordinate (cntmA-end) at ( $ (cntm) ! \cntmApos ! (cntm-2) $ ) ; % end point
+    \coordinate (cntmA-mid-base) at ( $ (cntm-1) ! .5 ! (cntm-2)$) ; % base midpoint
+    % defines "compensated" plot vertex
+    \coordinate (cntmA-vertex) 
+      at ( $ (cntm) ! \cntmAplotfactorAdj*\cntmApos ! (cntmA-mid-base) $ ) ;
+    % (for expost/outside use)
+    \coordinate (cntmAi-begpoint) at ( $ (cntm) ! \cntmApos ! (cntm-1) $ ) ;
+    \coordinate (cntmAi-endpoint) at ( $ (cntm) ! \cntmApos ! (cntm-2) $ ) ;
+    
+    %% plot cntmA
+    % \draw [ \cntmAopt , - , <opts> , tension=1 ]
+    \_collect_cntmA_cmdstr:
+    \_collect_cntmA_color_cmdstr:
+    
+    \begin{scope}[ shorten~< = 0pt , shorten~> = 0pt ]
+    \begin{pgfonlayer}{\cntmAdefaultlayer} % default: behind
+    \exp_last_unbraced:No \fill \l_tmp_arc_color_str_tl 
+      (cntm) -- plot [ smooth ] coordinates { (cntmA-beg) (cntmA-vertex) (cntmA-end) } -- cycle ;
+    \exp_last_unbraced:No \draw \l_tmp_arc_option_str_tl
+      plot [ smooth ] coordinates { (cntmA-beg) (cntmA-vertex) (cntmA-end) } ;
+    \end{pgfonlayer}
+    \end{scope}
+
+    %% cntmA action (actually taken by a player)
+    % this is normal \istroot(')
+    \tl_clear:N \ischo_game_tl
+    
+    \IfBooleanTF {#1} 
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRoot } }
+    % collect arguments 
+    \tl_put_right:Nx \ischo_game_tl { [ \istgrowdirection ] (#3) (cntm) [#5] <#6> }
+    \tl_put_right:Nn \ischo_game_tl { { \istownerstyle{ #7 } } }
+    \tl_put_right:Nx \ischo_game_tl { +{ \_cntmA_levdist_local_tl }..{ 1*\_cntm_act_sibdist_local_tl }+ }
+    
+    % call set (for \istbA)
+    \bool_set_true:N \_istroot_cntmA_call_bool
+    
+    % back to normal \xtShowArrows
+    \let\xt@show@arrow\tmp@xt@show@arrow
+    \let\xt@show@midarrow\tmp@xt@show@midarrow
+}
+
+% \cntmAexpostShowEndPoints
+% use this right after \istrootcntmA and \istrootocntmA 
+%               (before \cntmAInfoset and \cntmAInfosetO)
+\NewDocumentCommand \cntmAexpostShowEndPoints
+{ O{} O{} }
+{
+%\begin{pgfonlayer}{above} % main is ok
+\node [ solid~node , #1 ] at (cntmAi-begpoint)  {} ;
+\node [ solid~node , #2 ] at (cntmAi-endpoint)  {} ;
+%\end{pgfonlayer}
+}
+
+
+% \istrootocntm -- oval cntm version
+% ' [grow] (root) (at) [node style] <angle> {owner} +cntmlevdist..cntmsibdist+
+\NewDocumentCommand \istrootocntm
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. d.+ }
+{ 
+    % to suppress \xtShowArrows for cntm
+    \let\tmp@xt@show@arrow\xt@show@arrow
+    \def\xt@show@arrow { }
+    \let\tmp@xt@show@midarrow\xt@show@midarrow
+    \def\xt@show@midarrow { }
+
+    % Now \_cntm_levdist_local_tl and \_cntm_sibdist_local_tl is the bases
+    \IfNoValueTF {#8} 
+    { 
+      \bool_set_false:N \_cntm_distance_local_call_bool 
+      \tl_set:Nn \_cntm_levdist_local_tl { \cntmlevdist } 
+      \tl_set:Nn \_cntm_sibdist_local_tl { \cntmsibdist } 
+    }
+    { 
+      \bool_set_true:N \_cntm_distance_local_call_bool
+      \tl_set:Nn \_cntm_levdist_local_tl { #8 } 
+      \tl_set:Nn \_cntm_sibdist_local_tl { #9 } 
+    }
+    
+    % Now \_cntm_act_sibdist_tl is the base
+    \bool_if:NTF \cntm_act_sibdist_call_bool
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {\cntmACTsibdist}
+    }
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {1/3*\_cntm_sibdist_local_tl}
+    }
+    
+    % adjust \cntm position for smaller triangle
+    \pgfmathsetmacro\cntmlevdistVar{\cntmpos*\_cntm_levdist_local_tl} 
+    \pgfmathsetmacro\cntmsibdistVar{\cntmpos*\_cntm_sibdist_local_tl} 
+
+    %% \istrooto(') : cntm outermost branches
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}
+    
+    % execute \ISTRoot [\istgrowdirection] (cntm) (#4) [null node] +{#8}..{#9}+
+    % this defines (cntm)
+    \IfBooleanTF {#1}
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO } }
+    % collect arguments
+    \tl_put_right:Nx \ischo_game_tl 
+      { 
+        [ \istgrowdirection ] (cntm) (#4) [ null~node ] 
+        +{\cntmlevdistVar}..{\cntmsibdistVar}+ 
+      }
+ 
+    %% (before executing \istb) call options collected from above complication
+    \_collect_cntm_leftmost_branch_opts: 
+    \_collect_cntm_rightmost_branch_opts:
+      
+    % execute \istb \istb for cntm LEFT/RIGHT outermost branches
+    % this defines (cntm-1) and (cntm-2)
+    \exp_last_unbraced:NV \cntmOUTERistb \l_cntm_leftmost_branch_opt_tl
+    \exp_last_unbraced:NV \cntmOUTERistb \l_cntm_rightmost_branch_opt_tl
+    \printist ;
+    
+    %% draw cntm triangle, using (cntm), (cntm-1), (cntm-2)
+    \begin{scope}[ shorten~< = 0pt , shorten~> = 0pt ]
+    % call (draw and fill) options collected from above complication 
+    \_collect_cntm_triangle_cmdstr:
+    % and finally draw "cntm triangle"
+    % \draw [opts] (cntm) -- (cntm-1) -- (cntm-2) - (cntm) ;
+    \begin{pgfonlayer}{\cntm@default@layer} % default: background
+      \exp_last_unbraced:No \draw \l_tmp_option_str_tl (cntm)--(cntm-1)--(cntm-2)--(cntm) ;
+    \end{pgfonlayer}
+    \end{scope}   
+    
+    %% cntm action (actually taken by a player)
+    % this is normal \istrooto(')
+    \tl_clear:N \ischo_game_tl
+    
+    \IfBooleanTF {#1} 
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO } }
+    % collect arguments 
+    \tl_put_right:Nx \ischo_game_tl { [ \istgrowdirection ] (#3) (cntm) [#5] <#6> }
+    \tl_put_right:Nn \ischo_game_tl { { \istownerstyle{ #7 } } }
+    \tl_put_right:Nx \ischo_game_tl { +{ \_cntm_levdist_local_tl }..{ 1*\_cntm_act_sibdist_local_tl }+ }
+        
+    % call set (for \istbA)
+    \bool_set_true:N \_istroot_cntm_call_bool  % for \istbA  (HERE, USE \_istroot_ but not \_istrooto_ )
+    
+    % back to normal \xtShowArrows
+    \let\xt@show@arrow\tmp@xt@show@arrow 
+    \let\xt@show@midarrow\tmp@xt@show@midarrow
+}
+
+% \istrootocntmA -- oval cntm arc version
+% ' [grow] (root) (at) [node style] <angle> {owner} +cntmlevdist..cntmsibdist+
+\NewDocumentCommand \istrootocntmA
+{ t' O{\istdefault@grow} r() D(){0,0} O{} D<>{above} G{} d+. d.+ }
+{ 
+    % to suppress \xtShowArrows for cntm
+    \let\tmp@xt@show@arrow\xt@show@arrow
+    \def\xt@show@arrow { }
+    \let\tmp@xt@show@midarrow\xt@show@midarrow
+    \def\xt@show@midarrow { }
+
+    % Now \_cntm_levdist_local_tl and \_cntm_sibdist_local_tl is the bases
+    \IfNoValueTF {#8} 
+    { 
+      \bool_set_false:N \_cntmA_distance_local_call_bool 
+      \tl_set:Nn \_cntmA_levdist_local_tl { \cntmlevdist } 
+      \tl_set:Nn \_cntmA_sibdist_local_tl { \cntmsibdist } 
+    }
+    { 
+      \bool_set_true:N \_cntmA_distance_local_call_bool
+      \tl_set:Nn \_cntmA_levdist_local_tl { #8 } 
+      \tl_set:Nn \_cntmA_sibdist_local_tl { #9 } 
+    }
+
+    % Now \_cntm_act_sibdist_tl is the base
+    \bool_if:NTF \cntm_act_sibdist_call_bool
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {\cntmACTsibdist}
+    }
+    {
+      \tl_set:Nn \_cntm_act_sibdist_local_tl {1/3*\_cntmA_sibdist_local_tl}
+    }
+    
+    %% \ISTRootO(') : for drawing cntmA outermost branches
+    \tl_clear:N \ischo_game_tl
+    \xdef\istgrowdirection{#2}
+    
+    % execute \ISTRootO
+    % this defines (cntm)
+    \IfBooleanTF {#1}
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO } }    
+    % collect arguments
+    \tl_put_right:Nx \ischo_game_tl 
+      { [ \istgrowdirection ] (cntm) (#4) [ null~node ] 
+        +{\_cntmA_levdist_local_tl}..{\_cntmA_sibdist_local_tl}+ }
+
+    %% (before executing \istb) call options collected from above complication
+    \_collect_cntmA_leftmost_branch_opts:
+    \_collect_cntmA_rightmost_branch_opts:
+    
+    % execute \istb \istb for cntmA LEFT/RIGHT outermost branches
+    % this defines (cntm-1) and (cntm-2)
+    \exp_last_unbraced:NV \cntmAOUTERistb \l_cntmA_leftmost_branch_opt_tl
+    \exp_last_unbraced:NV \cntmAOUTERistb \l_cntmA_rightmost_branch_opt_tl
+    \printist ;
+    
+    %% defining cntmA points
+    % First, adjust plot vertex to compensate dependency of tree shape
+    \pgfmathsetmacro\cntmdistratio{ scalar (\_cntmA_levdist_local_tl/\_cntmA_sibdist_local_tl) }
+    % sqrt(1/3) is to make the cntmdist ratio 1/3 as standard
+    \pgfmathsetmacro\cntmAplotfactorVal
+      { 1 + (\cntmAplotfactor-1) * sqrt(1/3) / sqrt(\cntmdistratio) }
+    \xdef\cntmAplotfactorAdj{\cntmAplotfactorVal} % used also in \istbA(t)
+    \coordinate (cntmA-beg) at ( $ (cntm) ! \cntmApos ! (cntm-1) $ ) ; % begin point
+    \coordinate (cntmA-end) at ( $ (cntm) ! \cntmApos ! (cntm-2) $ ) ; % end point
+    \coordinate (cntmA-mid-base) at ( $ (cntm-1) ! .5 ! (cntm-2)$) ; % base midpoint
+    % defines "compensated" plot vertex
+    \coordinate (cntmA-vertex) 
+      at ( $ (cntm) ! \cntmAplotfactorAdj*\cntmApos ! (cntmA-mid-base) $ ) ;
+    % (for expost/outside use)
+    \coordinate (cntmAi-begpoint) at ( $ (cntm) ! \cntmApos ! (cntm-1) $ ) ;
+    \coordinate (cntmAi-endpoint) at ( $ (cntm) ! \cntmApos ! (cntm-2) $ ) ;
+    
+    %% plot cntmA
+    % \draw [ \cntmAopt , - , <opts> , tension=1 ]
+    \_collect_cntmA_cmdstr:
+    \_collect_cntmA_color_cmdstr:
+    
+    \begin{scope}[ shorten~< = 0pt , shorten~> = 0pt ]
+    \begin{pgfonlayer}{\cntmAdefaultlayer} % default: behind
+    \exp_last_unbraced:No \fill \l_tmp_arc_color_str_tl 
+      (cntm) -- plot [ smooth ] coordinates { (cntmA-beg) (cntmA-vertex) (cntmA-end) } -- cycle ;
+    \exp_last_unbraced:No \draw \l_tmp_arc_option_str_tl
+      plot [ smooth ] coordinates { (cntmA-beg) (cntmA-vertex) (cntmA-end) } ;
+    \end{pgfonlayer}
+    \end{scope}
+
+    %% cntmA action (actually taken by a player)
+    % this is normal \istrooto(')
+    \tl_clear:N \ischo_game_tl
+    
+    \IfBooleanTF {#1} 
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO' } }
+      { \tl_put_right:Nn \ischo_game_tl { \ISTRootO } }
+    % collect arguments 
+    \tl_put_right:Nx \ischo_game_tl { [ \istgrowdirection ] (#3) (cntm) [#5] <#6> }
+    \tl_put_right:Nn \ischo_game_tl { { \istownerstyle{ #7 } } }
+    \tl_put_right:Nx \ischo_game_tl { +{ \_cntmA_levdist_local_tl }..{ 1*\_cntm_act_sibdist_local_tl }+ }
+
+    % call set (for \istbA)
+    \bool_set_true:N \_istroot_cntmA_call_bool
+    
+    % back to normal \xtShowArrows
+    \let\xt@show@arrow\tmp@xt@show@arrow
+    \let\xt@show@midarrow\tmp@xt@show@midarrow
+}
+
+
+%% OBSOLETE macros - backward compatibility (to be removed next update)
+
+% \obsoleteISTCntm (obsolete) - backward compatibility
+% (used in \istcntm)
+\NewDocumentCommand \obsoleteISTCntm
+{ t' O{south} r() D(){0,0} O{\cntm@default@drawcolor} G{.5} 
+  D+.{\cntmdefaultlevdist} D.+{\cntmdefaultsibdist} }
+{
+    \cntmdistance{#7}{#8}
+    \tikzset{level~1/.style={level~distance=\cntmlevdist,sibling~distance=\cntmsibdist}}
+    %
+    \IfBooleanTF {#1}
+    {
+      \setistNullNodeStyle[#5]{\istdefault@null@nodesize}[#5]
+      \begin{pgfonlayer}{background}
+      \node (#3) at (#4) [ null~node ] { } [ \xt@growswap = #2 ] child child ;
+      \draw [ #5 , fill = #5 ] (#3) -- (#3-1) -- (#3-2) -- (#3) ;
+      \end{pgfonlayer}
+      \setistNullNodeStyle{\istdefault@null@nodesize}
+    }
+    {
+      \setistNullNodeStyle[#5]{\istdefault@null@nodesize}[#5]
+      \begin{pgfonlayer}{background}
+      \node (#3) at (#4) [ null~node ] { } [ \xt@grow = #2 ] child child ;
+      \draw [ #5 , fill = #5 ] (#3) -- (#3-1) -- (#3-2) -- (#3) ;
+      \end{pgfonlayer}
+      \setistNullNodeStyle{\istdefault@null@nodesize}
+    }
+}
+
+% \obsoleteISTCntmArc (arc version) (obsolete) - backward compatibility
+% (used in \istcntmA)
+\NewDocumentCommand \obsoleteISTCntmArc
+{ t' O{south} r() D(){0,0} O{} G{.5} D+.{\cntmdefaultlevdist} D.+{\cntmdefaultsibdist} }
+{
+    \cntmdistance{#7}{#8}
+    \tikzset{level~1/.style={level~distance=\cntmlevdist,sibling~distance=\cntmsibdist}}
+    %
+    \IfBooleanTF {#1}
+    { 
+      \begin{pgfonlayer}{background}
+      \node (#3) at (#4) [ null~node ] { } [\xt@growswap=#2] child child ;
+      \draw [ bend~left , #5 ] ( $ (#3) ! #6 ! (#3-1) $ ) to ( $ (#3) ! #6 ! (#3-2) $ ) ;
+      \end{pgfonlayer}
+    }
+    { 
+      \begin{pgfonlayer}{background}
+      \node (#3) at (#4) [ null~node ] { } [\xt@grow=#2] child child ;
+      \draw [ bend~right , #5 ] ( $ (#3) ! #6 ! (#3-1) $ ) to ( $ (#3) ! #6 ! (#3-2) $ ) ;
+      \end{pgfonlayer}
+    }
+}
+
+
+% \istcntm(')  (obsolete) - backward compatibility
+\NewDocumentCommand \istcntm 
+{ t' O{\istdefault@grow} r() D(){0,0} O{\cntm@default@drawcolor} G{} 
+  D+.{\cntmdefaultlevdist} D.+{\cntmdefaultsibdist} }
+{ 
+    \xdef\istgrowdirection{#2}  % used in \istb to specify [payoff direction]
+    \IfBooleanTF {#1}
+    {
+      \obsoleteISTCntm' [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] + #7 .. #8 +
+    }
+    {
+      \obsoleteISTCntm  [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] + #7 .. #8 +
+    }
+}
+
+% \istcntmarc(') (obsolete) - backward compatibility
+\NewDocumentCommand \istcntmarc
+{ t' O{\istdefault@grow} r() D(){0,0} O{} G{.5} D+.{\cntmdefaultlevdist} D.+{\cntmdefaultsibdist} }
+{     
+    \xdef\istgrowdirection{#2}  % used in \istb to specify [payoff direction]
+    \IfBooleanTF {#1}
+    {
+      \obsoleteISTCntmArc' [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] { #6 } + #7 .. #8 +
+    }
+    {
+      \obsoleteISTCntmArc  [ \istgrowdirection ] ( #3 ) ( #4 ) [ #5 ] { #6 }+ #7 .. #8 +
+    }
+}
+
+
+%% supplementary macros
+
+%% \xInfosetOwner (with abbreviations)
+% * (from) (to) {owner} [pos]
+\NewDocumentCommand \xtInfosetOwner{ s r() r() +m O{} }
+{ 
+    \begin{scope} % in group: to make \setistmathTF011 local
+    \IfBooleanTF { #1 } { } { \setistmathTF011 \istownertextfont{} }
+%    \str_case_e:nnF { #5 }
+    \str_case:nnF { #5 }
+    {
+      { al } { \node [ above~left ]  at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { ar } { \node [ above~right ] at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { bl } { \node [ below~left ]  at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { br } { \node [ below~right ] at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { l }  { \node [ left ]        at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { r }  { \node [ right ]       at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { a }  { \node [ above ]       at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+      { b }  { \node [ below ]       at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ; }
+    }
+    {
+               \node [ #5 ]          at ( $ (#2)!.5!(#3) $ ) { \istownerstyle{#4} } ;
+    }
+    \end{scope}
+}
+
+% \xtOwner (with abbreviations)
+% * (coor) {owner} [pos]
+\NewDocumentCommand \xtOwner{ s r() +m O{} }
+{ 
+    \begin{scope} % in group: to make \setistmathTF011 local
+    \IfBooleanTF { #1 } { } { \setistmathTF011 \istownertextfont{} }
+%    \str_case_e:nnF { #4 }
+    \str_case:nnF { #4 }
+    {
+      { al } { \node [ above~left ]  at (#2) { \istownerstyle{#3} } ; }
+      { ar } { \node [ above~right ] at (#2) { \istownerstyle{#3} } ; }
+      { bl } { \node [ below~left ]  at (#2) { \istownerstyle{#3} } ; }
+      { br } { \node [ below~right ] at (#2) { \istownerstyle{#3} } ; }
+      { l }  { \node [ left ]        at (#2) { \istownerstyle{#3} } ; }
+      { r }  { \node [ right ]       at (#2) { \istownerstyle{#3} } ; }
+      { a }  { \node [ above ]       at (#2) { \istownerstyle{#3} } ; }
+      { b }  { \node [ below ]       at (#2) { \istownerstyle{#3} } ; }
+    }
+    {
+               \node [ above , #4 ]  at (#2) { \istownerstyle{#3} } ;
+    }
+    \end{scope}
+}
+
+% \xtActionLabel
+% BE CAREFUL: each case has different options (do not try to shorten)
+% * [opt] (parent) (child) {action label} [pos]
+\NewDocumentCommand \xtActionLabel{ s O{} r() r() G{} O{} }
+{ 
+    \begin{scope} % in group: to make \setistmathTF011 local
+    \IfBooleanTF { #1 } { } { \setistmathTF011 \istactionlabeltextfont{} }
+%    \str_case_e:nnF { #6 }
+    \str_case:nnF { #6 }
+    {
+      { al } {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ above~left , black , text~depth = .25ex ,
+                                            xshift =  \istactionlabelxshift ,
+                                            yshift = -\istactionlabelyshift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { ar } {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ above~right , black , text~depth = .25ex ,
+                                            xshift = -\istactionlabelxshift ,
+                                            yshift = -\istactionlabelyshift ]
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { bl } {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ below~left , black , text~depth = .25ex ,
+                                            xshift =  \istactionlabelxshift ,
+                                            yshift =  \istactionlabelyshift ]
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { br } {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ below~right , black , text~depth = .25ex ,
+                                            xshift = -\istactionlabelxshift ,
+                                            yshift =  \istactionlabelyshift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { l }  {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ left , black , text~depth = .25ex ,
+                                            yshift = -\xtALyShift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { r }  {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ right , black , text~depth = .25ex ,
+                                            yshift =  \xtALyShift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { a }  {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ above , black , text~depth = .25ex ,
+                                            yshift =  \xtALyShift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+      { b }  {
+               \draw [ - , draw = none , #2 ] (#3) to 
+                     [ edge~node = { node [ below , black , text~depth = .25ex ,
+                                            yshift = -\xtALyShift ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ; 
+             }
+    }
+    {
+               \draw [ - , draw = none , #2] (#3) to 
+                     [ edge~node = { node [ black , text~depth = .25ex , #6 ] 
+                                          { \istactionlabelstyle{#5} } } ] (#4) ;
+    }
+    \end{scope}
+}
+
+
+
+\def\xtdefault@xtpayoff@outersep{4pt}
+% \xtPayoff (with abbreviations)
+% * (coor) {payoffs} [pos]
+\NewDocumentCommand \xtPayoff{ s r() +m O{below} }
+{ 
+    \begin{scope} % in group: to make \setistmathTF011 local
+    \IfBooleanTF { #1 } { } { \setistmathTF011 \istpayofftextfont{} }
+%    \str_case_e:nnF { #4 }
+    \str_case:nnF { #4 }
+    {
+      { al } {
+               \node [ above~left , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ] 
+                     at (#2) { \istpayoffstyle{#3} } ; 
+             }
+      { ar } {
+               \node [ above~right , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ]
+                     at (#2) { \istpayoffstyle{#3} } ; 
+             }
+      { bl } {
+               \node [ below~left , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ]
+                     at (#2) { \istpayoffstyle{#3} } ; 
+             }
+      { br } {
+               \node [ below~right , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ]
+                     at (#2) { \istpayoffstyle{#3} } ; 
+             }
+      { l }  { 
+               \node [ left , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ] 
+                     at (#2) { \istpayoffstyle{#3} } ; 
+             }
+      { r }  { 
+               \node [ right , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ] 
+                     at (#2) { \istpayoffstyle{#3} } ; }
+      { a }  { 
+               \node [ above , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ] 
+                     at (#2) { \istpayoffstyle{#3} } ; }
+      { b }  { 
+               \node [ below , inner~sep = 0pt , 
+                       outer~sep = \xtdefault@xtpayoff@outersep , text~depth = .25ex ] 
+                     at (#2) { \istpayoffstyle{#3} } ; }
+    }
+    {
+               \node [ inner~sep = 0pt , outer~sep = \xtdefault@xtpayoff@outersep , 
+                       text~depth = .25ex , #4 ] 
+                     at (#2) { \istpayoffstyle{#3} } ;
+    }
+    \end{scope}
+}
+
+
+% \xtNode(*)
+% * [opt] (coor) [node style] {text}
+\NewDocumentCommand \xtNode{ s O{} r() O{} +G{} }
+{ \IfBooleanTF {#1}
+    {
+      \istrooto (#3) (#3) [ plain~node , #4 ] {#5} \printist ;
+    }
+    {
+      \node [ - , #2 ] at (#3)  [ solid~node , #4 ] {#5} ;
+    }
+}
+
+
+%% show and hide endpoints
+
+\NewDocumentCommand \xtShowEndPoints{ s O{solid~node} }
+{ \IfBooleanTF {#1}
+    {
+      \def\xt@show@endpoint{node[#2]{}}
+      \def\xt@show@tndot{node[#2]{}}
+      \def\cntm@show@endpoint{node[at~end,#2]{}} %% PROBLEMatic: node [#2] (ref. \cntmOUTERistb)
+    }
+    {
+      \def\xt@show@endpoint{node[#2]{}}
+      \def\xt@show@tndot{node[#2]{}}
+    }
+}
+
+\NewDocumentCommand \xtHideEndPoints{s}
+{
+    \IfBooleanTF {#1}
+    { % works only for cntm
+      \renewcommand*\cntm@show@endpoint{}
+    }
+    {
+      \renewcommand*\xt@show@endpoint{}
+      \renewcommand*\xt@show@tndot{}
+    }
+}
+
+%% show and hide terminal nodes
+
+\NewDocumentCommand \xtShowTerminalNodes{ O{terminal~node} }
+{
+    \def\xt@show@tndot{node[#1]{}}
+}
+
+\NewDocumentCommand \xtHideTerminalNodes{}
+{
+    \renewcommand*\xt@show@tndot{}
+}
+
+
+%% subgames
+
+% subgame box/oval layer
+\def\xtdefault@subgamelayer { background }
+\newcommand*\xtsubgamelayer{ \xtdefault@subgamelayer }
+\NewDocumentCommand \setxtsubgamelayer { G{\xtdefault@subgamelayer} }
+{
+    \renewcommand \xtsubgamelayer { #1 }
+}
+
+\def\xtdefault@subrootshiftbox { 0 , -.3 }
+% \xtSubgameBox
+% * (root coor) { (coor1) (coor2)... } [additional opt]
+\NewDocumentCommand \xtSubgameBox { s r() m O{} }
+{
+    \IfBooleanTF {#1}
+    {
+      \coordinate (xtsubroot) at ( $ (#2) + (\xtdefault@subrootshiftbox) $ ) ;
+      \begin{pgfonlayer}{\xtsubgamelayer}
+      \node [ rectangle , fill , red!20 , inner~sep = 20pt , rounded~corners = 15pt , #4 ] 
+            [ fit = (xtsubroot) #3 ] { } ;
+      \end{pgfonlayer}
+    }
+    {
+      \coordinate (xtsubroot) at ( $ (#2) + ( 0 , -.3 ) $ ) ;
+      \begin{pgfonlayer}{\xtsubgamelayer}
+      \node [ rectangle , draw , dashed , inner~sep = 20pt , rounded~corners = 15pt , black!50 , #4 ] 
+            [ fit = (xtsubroot) #3 ] {} ;
+      \end{pgfonlayer}
+    }
+}
+
+\def\xtdefault@subrootshiftoval { 0 , -.7 }
+% \xtSubgameOval
+% * (root coor) { (coor1) (coor2)... } [additional opt]
+\NewDocumentCommand \xtSubgameOval { s r() m O{} }
+{
+    \IfBooleanTF {#1}
+    {
+      \coordinate (xtsubroot) at ( $ (#2) + (\xtdefault@subrootshiftoval) $ ) ;
+      \begin{pgfonlayer}{\xtsubgamelayer}
+        \node [ ellipse , fill , red!20 , inner~sep = 15pt , #4 ] 
+              [ fit = (xtsubroot) #3 ] { } ;
+      \end{pgfonlayer}
+    }
+    {
+      \coordinate (xtsubroot) at ( $ (#2) + ( 0 , -.7 ) $ ) ;
+      \begin{pgfonlayer}{\xtsubgamelayer} % borrowed from infoset
+      \node [ ellipse , draw , dashed , inner~sep = 15pt , black!50 , #4 ] 
+            [ fit = (xtsubroot) #3 ] { } ;
+      \end{pgfonlayer}
+    }
+}
+
+% \xtTimeLineH
+% ' [line opt] (passing point) {from dim} {to dim} {label} [pos]
+\NewDocumentCommand \xtTimeLineH { t' O{} r() m m G{} O{}}
+{
+    \bool_if:NTF \xt_growswap_call_bool
+    { % if swapped, go opposite direction
+        \pgfmathsetmacro \tlhAA { -1 * #4 }
+        \pgfmathsetmacro \tlhBB { -1 * #5 }  
+        \IfBooleanTF { #1 }
+        {
+          \coordinate (tlhCC) at ( #3 -| { \tlhBB , \tlhAA } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { left }
+        }
+        {
+          \coordinate (tlhCC) at ( #3 -| { \tlhAA , \tlhBB } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }  
+    }
+    {
+        \def \tlhAA { #4 }
+        \def \tlhBB { #5 } 
+        \IfBooleanTF {#1}
+        {
+          \coordinate (tlhCC) at ( #3 -| { \tlhAA , \tlhBB } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { left }
+        }
+        {
+          \coordinate (tlhCC) at ( #3 -| { \tlhBB , \tlhAA } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }  
+    }
+    \begin{pgfonlayer}{\xtsubgamelayer}
+%      \str_case_e:nnF {#7}
+      \str_case:nnF {#7}
+      {
+        {al} { \node at (tlhCC) [ above~left ]  {#6} ; }
+        {ar} { \node at (tlhCC) [ above~right ] {#6} ; }
+        {bl} { \node at (tlhCC) [ below~left ]  {#6} ; }
+        {br} { \node at (tlhCC) [ below~right ] {#6} ; }
+        {l}  { \node at (tlhCC) [ left ]        {#6} ; }
+        {r}  { \node at (tlhCC) [ right ]       {#6} ; }
+        {a}  { \node at (tlhCC) [ above ]       {#6} ; }
+        {b}  { \node at (tlhCC) [ below ]       {#6} ; }
+      }
+      {
+        \node at ( tlhCC ) [ \_TH_label_pos_tl , #7 ] {#6} ;
+      }
+      \draw [ - , dotted , shorten~< = 0pt, shorten~> = 0pt , #2 ] 
+            ( #3 -| { \tlhAA , \tlhBB } ) -- ( #3 -| { \tlhBB , \tlhAA } ) ;
+    \end{pgfonlayer}
+}
+
+
+% \xtTimeLineV
+% ' [line opt] (passing point) {from dim} {to dim} {label} [pos]
+\NewDocumentCommand \xtTimeLineV { t' O{} r() m m G{} O{}}
+{    
+    \bool_if:NTF \xt_growswap_call_bool
+    {
+        \def\tlvAA{#4}
+        \def\tlvBB{#5} 
+        \IfBooleanTF {#1}
+        {
+          \coordinate (tlvCC) at ( #3 |- { \tlvAA , \tlvBB } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }
+        {
+          \coordinate (tlvCC) at ( #3 |- { \tlvBB , \tlvAA } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }  
+    }
+    { % if not swapped, go opposite direction
+        \pgfmathsetmacro\tlvAA{-1*#4}
+        \pgfmathsetmacro\tlvBB{-1*#5}  
+        \IfBooleanTF {#1}
+        {
+          \coordinate (tlvCC) at ( #3 |- { \tlvBB , \tlvAA } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }
+        {
+          \coordinate (tlvCC) at ( #3 |- { \tlvAA , \tlvBB } ) ;
+          \tl_set:Nn \_TH_label_pos_tl { right }
+        }  
+    }
+    
+    \begin{pgfonlayer}{\xtsubgamelayer}
+%      \str_case_e:nnF {#7}
+      \str_case:nnF {#7}
+      {
+        {al} { \node at (tlvCC) [ above~left ]  {#6} ; }
+        {ar} { \node at (tlvCC) [ above~right ] {#6} ; }
+        {bl} { \node at (tlvCC) [ below~left ]  {#6} ; }
+        {br} { \node at (tlvCC) [ below~right ] {#6} ; }
+        {l}  { \node at (tlvCC) [ left ]        {#6} ; }
+        {r}  { \node at (tlvCC) [ right ]       {#6} ; }
+        {a}  { \node at (tlvCC) [ above ]       {#6} ; }
+        {b}  { \node at (tlvCC) [ below ]       {#6} ; }
+      }
+      {
+        \node at ( tlvCC ) [ \_TH_label_pos_tl , #7 ] {#6} ;
+      }
+      \draw [ - , dotted , shorten~< = 0pt, shorten~> = 0pt , #2 ] 
+            ( #3 |- { \tlvBB , \tlvAA } ) -- ( #3 |- { \tlvAA , \tlvBB } ) ;
+    \end{pgfonlayer}
+}
+
+
+%% \xtCommentTo
+% [line opt] (absolute to-coor) (relative from-coor) {text} [pos] (arrow end shorten dim)
+\NewDocumentCommand \xtCommentTo { O{} r() r() G{} O{} D(){1pt} }
+{
+    \draw [ -> , densely~dotted , shorten~< = 0pt , shorten~> = #6 , #1 ] 
+          ( $ (#2) + (#3) $ ) to (#2) ;
+%    \str_case_e:nnF {#5}
+    \str_case:nnF {#5}
+    {
+      {al}  { \node at ( $ (#2) + (#3) $ ) [ above~left ]  {#4} ; }
+      {ar}  { \node at ( $ (#2) + (#3) $ ) [ above~right ] {#4} ; }
+      {bl}  { \node at ( $ (#2) + (#3) $ ) [ below~left ]  {#4} ; }
+      {br}  { \node at ( $ (#2) + (#3) $ ) [ below~right ] {#4} ; }
+      {l}   { \node at ( $ (#2) + (#3) $ ) [ left ]        {#4} ; }
+      {r}   { \node at ( $ (#2) + (#3) $ ) [ right ]       {#4} ; }
+      {a}   { \node at ( $ (#2) + (#3) $ ) [ above ]       {#4} ; }
+      {b}   { \node at ( $ (#2) + (#3) $ ) [ below ]       {#4} ; }
+    }
+    {
+      \node at ( $ (#2) + (#3) $ ) [ above, #5 ] {#4} ;
+    }
+}
+
+%% \xtCommentFrom
+% [line opt] (absolute from-coor) (absolute from-coor) {text} [pos] (arrow end shorten dim)
+\NewDocumentCommand \xtCommentFrom{ O{} r() r() G{} O{} D(){1pt}}
+{
+    \draw [ -> , densely~dotted , shorten~< = 0pt , shorten~> = #6 , #1 ] (#2) to (#3) ;
+%    \str_case_e:nnF {#5}
+    \str_case:nnF {#5}
+    {
+      {al}  { \node at (#2) [ above~left ]  {#4} ; }  
+      {ar}  { \node at (#2) [ above~right ] {#4} ; }  
+      {bl}  { \node at (#2) [ below~left ]  {#4} ; }  
+      {br}  { \node at (#2) [ below~right ] {#4} ; }  
+      {l}   { \node at (#2) [ left ]        {#4} ; }  
+      {r}   { \node at (#2) [ right ]       {#4} ; }  
+      {a}   { \node at (#2) [ above ]       {#4} ; }  
+      {b}   { \node at (#2) [ below ]       {#4} ; }  
+    }
+    {
+      \node at (#2) [ above , #5 ] {#4} ;
+    }
+}
+
+%% mid arrow styles: basics
+% \xt@default... used
+
+\def\xt@default@arrow@pos   { .55 }
+\def\xt@arrow@pos           { \xt@default@arrow@pos }
+\def\xt@default@arrow@opt   { black } % black needed here (not to depend on branch color)
+\def\xt@arrow@opt           { \xt@default@arrow@opt }
+\def\xt@default@arrow@shape { > }
+\def\xt@arrow@shape         { \xt@default@arrow@shape }
+\newcommand*\xtarrowpos     { \xt@arrow@pos }
+\newcommand*\xtarrowopt     { \xt@arrow@opt }
+\newcommand*\xtarrowshape   { \xt@arrow@shape }
+
+
+% \setxtarrowtips
+% to toss values to arrow tip styles
+\NewDocumentCommand \setxtarrowtips
+{
+    D<>{ \xt@default@arrow@pos } 
+    G{ \xt@default@arrow@shape } 
+    O{ \xt@default@arrow@opt } 
+}
+{
+    \renewcommand*\xt@arrow@pos   {#1}
+    \renewcommand*\xt@arrow@shape {#2}
+    \renewcommand*\xtarrowopt     { - , thin , solid , shorten~> = 0 , #3}
+}
+% initial set for defaults
+\AtBeginDocument{\setxtarrowtips}
+
+% variable style [->]: 
+% accepts an option value changed by \xtarrowopt (this is better)
+% alternative choice: use original value \xt@arrow@opt by default
+\tikzset
+{ ->- /.style =
+  { 
+    decoration =
+    {
+      markings ,
+      mark = at~position~ #1 ~with~ 
+             { \exp_last_unbraced:NNV \arrow [ \xtarrowopt ] { \xtarrowshape } }
+    } ,
+    postaction = {decorate}
+  } ,
+  ->-/.default = \xt@arrow@pos
+}
+
+\tikzset
+{ ->>- /.style =
+  { 
+    decoration =
+    {
+      markings ,
+      mark = at~position~ #1 ~with~ 
+             { \exp_last_unbraced:NNo \arrow [ \xtarrowopt ] { >> } } 
+    } ,
+    postaction = {decorate}
+  } ,
+  ->>-/.default = .6
+}
+
+\tikzset
+{ ->>>- /.style =
+  { 
+    decoration =
+    {
+      markings ,
+      mark = at~position~ #1 ~with~ 
+             { \exp_last_unbraced:NNo \arrow [ \xtarrowopt ] { >>> } } 
+    } ,
+    postaction = {decorate}
+  } ,
+  ->>>-/.default = .65
+}
+
+\tikzset
+{ -o- /.style =
+  { 
+    decoration =
+    {
+      markings ,
+      mark = at~position~ #1 ~with~ 
+             { \exp_last_unbraced:NNo \arrow [ \xtarrowopt ] { o } } 
+    } ,
+    postaction = {decorate}
+  } ,
+  -o-/.default = .55
+}
+
+\tikzset
+{ -x- /.style =
+  { 
+    decoration = 
+    {
+      markings ,
+      mark 
+      = at~position~ #1 ~with~ 
+        { 
+          \exp_last_unbraced:NNo \draw [ \xtarrowopt ]
+                                       (-2pt,-2pt) -- (2pt,2pt);
+          \exp_last_unbraced:NNo \draw [ \xtarrowopt ]
+                                       (2pt,-2pt) -- (-2pt,2pt); 
+        }
+    } ,
+    postaction = {decorate}
+  } ,
+  -x-/.default = .5
+}
+
+
+%% show midarrows
+
+\def\xt@show@midarrow               { }
+\def\xt@default@show@midarrow@pos   { .55 }
+\def\xt@show@midarrow@pos           { \xt@default@show@midarrow@pos }
+\def\xt@default@show@midarrow@opt   { black }
+\def\xt@show@midarrow@opt           { \xt@default@show@midarrow@opt }
+\def\xt@default@show@midarrow@shape { >}
+\def\xt@show@midarrow@shape         { \xt@default@show@midarrow@shape }
+\newcommand*\xtshowmidarrowpos      { \xt@show@midarrow@pos }
+\newcommand*\xtshowmidarrowopt      { \xt@show@midarrow@opt }
+\newcommand*\xtshowmidarrowshape    { \xt@show@midarrow@shape }
+
+% \setxtshowmidarrows (for simple tree)
+% to toss values to [show~midarrow]
+\NewDocumentCommand \setxtshowmidarrows
+{ 
+    D<>{ \xt@default@show@midarrow@pos } 
+    G{ \xt@default@show@midarrow@shape } 
+    O{ \xt@default@show@midarrow@opt } 
+}
+{
+    \renewcommand*\xt@show@midarrow@pos   {#1} % default: .55
+    \renewcommand*\xt@show@midarrow@shape {#2}
+    \renewcommand*\xtshowmidarrowopt      {#3}
+}
+
+
+% show midarrow style
+\tikzset { stoppostaction/.code = { \let \tikz@postactions \pgfutil@empty } }
+\tikzset
+{ show~midarrow /.style = 
+    { 
+      decoration =
+      {
+        markings ,
+        mark = { at~position~ #1 ~with~ 
+                 { \exp_last_unbraced:NNV 
+                   \arrow [ \xtshowmidarrowopt ] { \xt@show@midarrow@shape } }
+               } 
+      } ,
+      postaction = { stoppostaction , decorate }
+    } ,
+    show~midarrow/.default = \xt@show@midarrow@pos % default: .55
+}
+
+
+% \xtShowMidArrows
+% on [show~midarrow]
+\NewDocumentCommand \xtShowMidArrows{ }
+{
+    \renewcommand*\xt@show@midarrow { show~midarrow }
+}
+
+% \xtHideMidArrows
+% off [show~midarrow]
+\NewDocumentCommand \xtHideMidArrows { }
+{
+    \renewcommand \xt@show@midarrow { }
+}
+
+
+%% show arrows
+
+\def\xt@show@arrow                 { }
+\def\xt@default@show@arrow@pos     { .55 }
+\def\xt@show@arrow@pos             { \xt@default@show@arrow@pos }
+\def\xt@default@show@arrow@opt     { black }
+\def\xt@show@arrow@opt             { \xt@default@show@arrow@opt }
+\def\xt@default@show@arrow@shape   { > }
+\def\xt@show@arrow@shape           { \xt@default@show@arrow@shape }
+\def\xt@default@show@arrow@shorten { 1.2pt }
+\def\xt@show@arrow@shorten         { \xt@default@show@arrow@shorten }
+\newcommand*\xtshowarrowpos        { \xt@show@arrow@pos }
+\newcommand*\xtshowarrowopt        { \xt@show@arrow@opt }
+\newcommand*\xtshowarrowshape      { \xt@show@arrow@shape }
+\newcommand*\xtshowarrowshorten    { \xt@show@arrow@shorten }
+
+% \setxtshowarrows
+% to toss values to [show~arrow]
+\NewDocumentCommand \setxtshowarrows
+{ 
+    G{>} 
+    O{\xt@default@show@arrow@opt} 
+    D(){\xt@default@show@arrow@shorten} 
+}
+{
+    \renewcommand*\xt@show@arrow@shape{#1}   % default: >
+    \renewcommand*\xtshowarrowopt{#2}        % default: black
+    \renewcommand*\xt@show@arrow@shorten{#3} % default: 1.2pt
+}
+
+% show arrow style
+\tikzset{stoppostaction/.code={\let\tikz@postactions\pgfutil@empty}}
+\tikzset
+{ show~arrow /.style = 
+    { 
+      decoration =
+      {
+        markings ,
+        mark = { 
+                 at~position~ 1 + - \pgf@shorten@end@additional + - #1 ~with~ 
+                 { \exp_last_unbraced:NNV 
+                   \arrow [ \xtshowarrowopt ] { \xt@show@arrow@shape } }
+               } 
+      } ,
+      postaction = { stoppostaction , decorate }
+    } ,
+    show~arrow/.default = \xt@show@arrow@shorten % default: 1.2pt
+}
+
+% \xtShowArrows
+% on [show~arrow]
+\NewDocumentCommand \xtShowArrows { O{solid~node} }
+{ 
+    \xtShowEndPoints[#1]
+    \renewcommand*\xt@show@arrow { show~arrow }
+}
+
+% \xtHideArrows
+% off [show~arrow]
+\NewDocumentCommand \xtHideArrows { s }
+{
+    \IfBooleanTF {#1} { \xtShowEndPoints } { \xtHideEndPoints }
+    \renewcommand\xt@show@arrow { }
+}
+
+\ExplSyntaxOff 
+\endinput
