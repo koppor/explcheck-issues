@@ -1,0 +1,912 @@
+%% liftarm.sty
+%% Copyright 2022-2025 Matthias Floré
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Matthias Floré.
+%
+% This work consists of the files liftarm.pdf, liftarm.sty,
+% liftarm.tex and README.md.
+\NeedsTeXFormat{LaTeX2e}
+\RequirePackage[dvipsnames]{xcolor}
+\RequirePackage{tikz}
+\usetikzlibrary{calc}
+\ProvidesExplPackage{liftarm}{2025/07/24}{4.0}{Geometric constructions with liftarms using TikZ and LaTeX3}
+
+%%> \subsection{Variables}
+
+\newcounter { g__liftarm_animate_frame_number_counter }
+\newcounter { g__liftarm_animate_number_of_animation_counter }
+\newcounter { g__liftarm_animate_number_of_steps_counter }
+\newcounter { g__liftarm_animate_step_number_counter }
+
+\bool_new:N \l__liftarm_animate_bool
+\bool_new:N \l__liftarm_brick_bool
+\bool_new:N \l__liftarm_contour_bool
+\bool_new:N \l__liftarm_LU_bool
+
+\clist_new:N \l__liftarm_trace_clist
+
+\fp_new:N \l__liftarm_angle_fp
+\fp_const:Nn \c__liftarm_axle_hole_angle_fp { 21.76702028497987 }%asind ( 1.78 / ( 16 * 0.3 ) )
+\fp_new:N \l__liftarm_connect_det_fp
+\fp_new:N \l__liftarm_connect_norm_fp
+\fp_new:N \l__liftarm_connect_start_constant_x_fp
+\fp_new:N \l__liftarm_connect_start_constant_y_fp
+\fp_new:N \l__liftarm_connect_stop_value_fp
+\fp_new:c { l__liftarm_connect_two_1_option_0_angle_fp }
+\fp_new:c { l__liftarm_connect_two_1_option_1_angle_fp }
+\fp_new:c { l__liftarm_connect_two_2_option_0_angle_fp }
+\fp_new:c { l__liftarm_connect_two_2_option_1_angle_fp }
+\fp_new:N \l__liftarm_connect_two_angle_fp
+\fp_new:N \l__liftarm_connect_two_A_angle_fp
+\fp_new:N \l__liftarm_connect_two_A_length_fp
+\fp_new:N \l__liftarm_connect_two_A_x_fp
+\fp_new:N \l__liftarm_connect_two_A_y_fp
+\fp_new:N \l__liftarm_connect_two_B_angle_fp
+\fp_new:N \l__liftarm_connect_two_B_length_fp
+\fp_new:N \l__liftarm_connect_two_B_x_fp
+\fp_new:N \l__liftarm_connect_two_B_y_fp
+\fp_new:N \l__liftarm_connect_two_length_fp
+\fp_new:N \g__liftarm_coord_x_fp
+\fp_new:N \g__liftarm_coord_y_fp
+\fp_new:N \l__liftarm_half_thickness_fp
+\fp_new:N \l__liftarm_hole_radius_fp
+\fp_new:N \l__liftarm_length_fp
+\fp_new:N \l__liftarm_LU_maxA_fp
+\fp_new:N \l__liftarm_LU_tmp_fp
+\fp_new:N \l__liftarm_mark_radius_fp
+\fp_new:N \l__liftarm_origin_fp
+\fp_new:N \l__liftarm_origin_connect_initial_fp
+\fp_new:N \l__liftarm_scalefactor_fp
+\fp_new:N \l__liftarm_screw_angle_fp
+\fp_new:N \l__liftarm_screw_radius_fp
+
+\int_new:N \l__liftarm_connect_count_int
+\int_new:N \l__liftarm_connect_equation_int
+\int_new:N \l__liftarm_LU_count_int
+\int_new:N \l__liftarm_LU_imax_int
+\int_new:N \l__liftarm_LU_j_int
+\int_new:N \l__liftarm_LU_N_int
+
+\iow_new:N \g__liftarm_animate_write_timeline_iow
+
+\seq_new:N \l__liftarm_connect_coordinate_seq
+\seq_new:N \l__liftarm_connect_start_arg_seq
+\seq_new:N \l__liftarm_connect_start_coeff_seq
+\seq_new:N \l__liftarm_coordinate_seq
+\seq_new:N \l__liftarm_trace_item_seq
+
+\str_new:N \l__liftarm_connect_stop_type_str
+\str_new:N \l__liftarm_type_str
+
+\tl_new:N \g__liftarm_animate_frames_tl
+\tl_new:N \g__liftarm_animate_frames_trace_tl
+\tl_new:N \l__liftarm_animate_value_tl
+\tl_new:N \l__liftarm_color_tl
+\tl_new:N \g__liftarm_construct_tl
+\tl_const:Nn \c__liftarm_cos_sin_diff_x_tl { - sin }
+\tl_const:Nn \c__liftarm_cos_sin_diff_y_tl { cos }
+\tl_const:Nn \c__liftarm_cos_sin_x_tl { cos }
+\tl_const:Nn \c__liftarm_cos_sin_y_tl { sin }
+\tl_new:N \l__liftarm_holes_tl
+\tl_new:N \l__liftarm_shape_tl
+\tl_new:N \l__liftarm_tmp_tl
+
+%%> \subsection{Pgfkeys}
+
+\pgfkeys
+  {
+    / liftarm /. is~family ,
+    / liftarm ,
+    axle~holes /. initial = {} ,
+    brick /. code = { \bool_set:Nn \l__liftarm_brick_bool { \cs:w c_#1_bool \cs_end: } } ,
+    brick /. default = true ,
+    brick = false ,
+    color /. code~2~args =
+      {
+        \tl_clear_new:c { l__liftarm_color_\int_eval:n {#1}_tl }
+        \tl_set:cn { l__liftarm_color_\int_eval:n {#1}_tl } {#2}
+      } ,
+    color = { 0 } { Gray } ,
+    color = { 1 } { darkgray } ,
+    color = { 2 } { Yellow } ,
+    color = { 3 } { Orange } ,
+    color = { 4 } { Red } ,
+    color = { 5 } { Green } ,
+    color = { 6 } { Blue } ,
+    color = { 7 } { Brown } ,
+    color~modulo /. initial = 8 ,
+    connect~stop /. is~choice ,
+    connect~stop / 1-norm /. code =
+      {
+        \str_set:Nn \l__liftarm_connect_stop_type_str { 1-norm }
+        \fp_set:Nn \l__liftarm_connect_stop_value_fp {#1}
+      } ,
+    connect~stop / 1-norm /. default = 0.001 ,
+    connect~stop / 2-norm /. code =
+      {
+        \str_set:Nn \l__liftarm_connect_stop_type_str { 2-norm }
+        \fp_set:Nn \l__liftarm_connect_stop_value_fp {#1}
+      } ,
+    connect~stop / 2-norm /. default = 0.001 ,
+    connect~stop / iterations /. code =
+      {
+        \str_set:Nn \l__liftarm_connect_stop_type_str { iterations }
+        \fp_set:Nn \l__liftarm_connect_stop_value_fp {#1}
+      } ,
+    connect~stop / iterations /. default = 10 ,
+    connect~stop = 1-norm ,
+    contour /. code = { \bool_set:Nn \l__liftarm_contour_bool { \cs:w c_#1_bool \cs_end: } } ,
+    contour /. default = true ,
+    contour = false ,
+    contour~style /. style = { contour_style /. style = {#1} } ,
+    contour_style /. style = {} ,
+    coordinate /. initial = {} ,
+    hole~radius /. initial = 0.3 ,
+    liftarm~style /. style = { liftarm_style /. style = {#1} } ,
+    liftarm_style /. style = {} ,
+    liftarm~thickness /. initial = 0.92 ,
+    mark~holes /. initial = {} ,
+    mark~radius /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_mark_radius_fp { \pgfmathresult }
+      } ,
+    mark~radius = 1 ,
+    mark~style /. style = { mark_style /. style = {#1} } ,
+    mark_style /. style = {} ,
+    origin /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_origin_fp { \pgfmathresult }
+      } ,
+    origin = 0 ,
+    scalefactor /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_scalefactor_fp { \pgfmathresult }
+      } ,
+    scalefactor = 0.5 ,
+    screw~angle /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_screw_angle_fp { \pgfmathresult }
+      } ,
+    screw~angle = 10 ,
+    screw~holes /. initial = {} ,
+    screw~radius /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_screw_radius_fp { \pgfmathresult }
+      } ,
+    screw~radius = 0.8 ,
+    screw~style /. style = { screw_style /. style = {#1} } ,
+    screw_style /. style = {} ,
+    trace /. code = { \clist_set:Nn \l__liftarm_trace_clist {#1} } ,
+    type /. is~choice ,
+    type / liftarm /. code = { \str_set:Nn \l__liftarm_type_str { liftarm } } ,
+    type / liftarm /. value~forbidden ,
+    type / line~segment /. code = { \str_set:Nn \l__liftarm_type_str { line~segment } } ,
+    type / line~segment /. value~forbidden ,
+    type = liftarm ,
+  }
+
+\pgfkeys
+  {
+    / liftarm / connect_algorithm /. is~family ,
+    / liftarm / connect_algorithm /. unknown /. code = {} ,
+    / liftarm / connect_algorithm ,
+    coordinate /. initial = {} ,
+    origin /. code =
+      {
+        \pgfmathparse {#1}
+        \fp_set:Nn \l__liftarm_origin_fp { \pgfmathresult }
+      } ,
+  }
+
+%%> \subsection{Functions}
+
+\cs_generate_variant:Nn \clist_if_in:nnTF { enTF }
+\cs_generate_variant:Nn \clist_map_inline:nn { en }
+\cs_generate_variant:Nn \seq_map_indexed_inline:Nn { cn }
+\cs_generate_variant:Nn \tl_build_begin:N { c }
+\cs_generate_variant:Nn \tl_build_gbegin:N { c }
+\cs_generate_variant:Nn \tl_build_end:N { c }
+\cs_generate_variant:Nn \tl_build_gend:N { c }
+\cs_generate_variant:Nn \tl_build_put_right:Nn { ce , cn }
+\cs_generate_variant:Nn \tl_build_gput_right:Nn { ce , cn }
+
+\cs_new_protected:Npn \__liftarm_connect:nnnn #1#2#3#4
+  {
+    \int_incr:N \l__liftarm_connect_count_int
+    \fp_zero_new:c { l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp }
+    \pgfmathparse {#4}
+    \fp_set:cn { l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp } { \pgfmathresult * deg }
+    \fp_set_eq:NN \l__liftarm_origin_fp \l__liftarm_origin_connect_initial_fp
+    \pgfkeys
+      {
+        / liftarm / connect_algorithm ,
+        coordinate = \pgfkeysvalueof { / liftarm / coordinate } ,
+        #1
+      }
+    \seq_if_in:NnTF \l__liftarm_connect_coordinate_seq {#2}
+      {
+        \fp_set_eq:Nc \l__liftarm_connect_start_constant_x_fp { l__liftarm_connect_constant_x_coord_#2_fp }
+        \fp_set_eq:Nc \l__liftarm_connect_start_constant_y_fp { l__liftarm_connect_constant_y_coord_#2_fp }
+        \seq_set_eq:Nc \l__liftarm_connect_start_arg_seq { l__liftarm_connect_arg_coord_#2_seq }
+        \seq_set_eq:Nc \l__liftarm_connect_start_coeff_seq { l__liftarm_connect_coeff_coord_#2_seq }
+      }
+      {
+        \__liftarm_def_coord:n {#2}
+        \fp_set_eq:NN \l__liftarm_connect_start_constant_x_fp \g__liftarm_coord_x_fp
+        \fp_set_eq:NN \l__liftarm_connect_start_constant_y_fp \g__liftarm_coord_y_fp
+        \seq_clear:N \l__liftarm_connect_start_arg_seq
+        \seq_clear:N \l__liftarm_connect_start_coeff_seq
+      }
+    \clist_map_inline:en { \pgfkeysvalueof { / liftarm / connect_algorithm / coordinate } }
+      {
+        \seq_set_split:Nnn \l__liftarm_coordinate_seq { / } {##1}
+        \pgfmathparse { \seq_item:Nn \l__liftarm_coordinate_seq { 1 } }
+        \fp_set:Nn \l__liftarm_length_fp { \pgfmathresult - \l__liftarm_origin_fp }
+        \seq_if_in:NeTF \l__liftarm_connect_coordinate_seq { \seq_item:Nn \l__liftarm_coordinate_seq { 2 } }
+          {
+            \clist_map_inline:nn { x , y }
+              {
+                \int_incr:N \l__liftarm_connect_equation_int
+                \tl_clear_new:c { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                \tl_build_begin:c { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                \int_step_inline:nn { \l__liftarm_LU_N_int }
+                  {
+                    \tl_clear_new:c { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########1_tl }
+                    \tl_build_begin:c { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########1_tl }
+                    \tl_build_put_right:cn { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########1_tl }
+                      { 0 }
+                    \fp_zero_new:c { l__liftarm_LU_A_\int_use:N \l__liftarm_connect_equation_int _########1_fp }
+                  }
+                \tl_build_put_right:ce { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                  {
+                    \fp_use:c { l__liftarm_connect_constant_####1_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_fp }
+                    - \fp_use:c { l__liftarm_connect_start_constant_####1_fp }
+                    - \fp_use:N \l__liftarm_length_fp * \cs:w c__liftarm_cos_sin_####1_tl \cs_end:
+                    ( \exp_not:N \cs:w l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp \exp_not:N \cs_end: )
+                  }
+                \tl_build_put_right:ce
+                  {
+                    l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _
+                    \int_use:N \l__liftarm_connect_count_int _tl
+                  }
+                  {
+                    - \fp_use:N \l__liftarm_length_fp * \cs:w c__liftarm_cos_sin_diff_####1_tl \cs_end:
+                    ( \exp_not:N \cs:w l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp \exp_not:N \cs_end: )
+                  }
+                \seq_map_indexed_inline:cn { l__liftarm_connect_arg_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq }
+                  {
+                    \tl_build_put_right:ce { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                      {
+                        + \seq_item:cn { l__liftarm_connect_coeff_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq } {########1}
+                        * \cs:w c__liftarm_cos_sin_####1_tl \cs_end:
+                        ( \exp_not:N \cs:w l__liftarm_connect_angle_########2_fp \exp_not:N \cs_end: )
+                      }
+                    \tl_build_put_right:ce { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########2_tl }
+                      {
+                        + \seq_item:cn { l__liftarm_connect_coeff_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq } {########1}
+                        * \cs:w c__liftarm_cos_sin_diff_####1_tl \cs_end:
+                        ( \exp_not:N \cs:w l__liftarm_connect_angle_########2_fp \exp_not:N \cs_end: )
+                      }
+                  }
+                \seq_map_indexed_inline:Nn \l__liftarm_connect_start_arg_seq
+                  {
+                    \tl_build_put_right:ce { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                      {
+                        - \seq_item:Nn \l__liftarm_connect_start_coeff_seq {########1} * \cs:w c__liftarm_cos_sin_####1_tl \cs_end:
+                        ( \exp_not:N \cs:w l__liftarm_connect_angle_########2_fp \exp_not:N \cs_end: )
+                      }
+                    \tl_build_put_right:ce { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########2_tl }
+                      {
+                        - \seq_item:Nn \l__liftarm_connect_start_coeff_seq {########1} * \cs:w c__liftarm_cos_sin_diff_####1_tl \cs_end:
+                        ( \exp_not:N \cs:w l__liftarm_connect_angle_########2_fp \exp_not:N \cs_end: )
+                      }
+                  }
+                \tl_build_end:c { l__liftarm_connect_F_\int_use:N \l__liftarm_connect_equation_int _tl }
+                \int_step_inline:nn { \l__liftarm_LU_N_int }
+                  { \tl_build_end:c { l__liftarm_connect_Jacobian_\int_use:N \l__liftarm_connect_equation_int _########1_tl } }
+              }
+          }
+          {
+            \clist_map_inline:nn { x , y }
+              {
+                \fp_zero_new:c { l__liftarm_connect_constant_####1_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_fp }
+                \fp_set_eq:cc { l__liftarm_connect_constant_####1_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_fp }
+                  { l__liftarm_connect_start_constant_####1_fp }
+              }
+            \clist_map_inline:nn { arg , coeff }
+              {
+                \seq_clear_new:c { l__liftarm_connect_####1_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq }
+                \seq_set_eq:cc { l__liftarm_connect_####1_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq }
+                  { l__liftarm_connect_start_####1_seq }
+              }
+            \seq_put_right:ce { l__liftarm_connect_arg_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq }
+              { \int_use:N \l__liftarm_connect_count_int }
+            \seq_put_right:ce { l__liftarm_connect_coeff_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_seq }
+              { \fp_use:N \l__liftarm_length_fp }
+            \seq_put_right:Ne \l__liftarm_connect_coordinate_seq { \seq_item:Nn \l__liftarm_coordinate_seq { 2 } }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__liftarm_connect_stop_criterion:
+  {
+    \int_step_inline:nn { \l__liftarm_LU_N_int }
+      { \fp_set:cn { l__liftarm_LU_b_##1_fp } { \cs:w l__liftarm_connect_F_##1_tl \cs_end: } }
+    \str_case:Vn \l__liftarm_connect_stop_type_str
+      {
+        { 1-norm }
+          {
+            \fp_zero:N \l__liftarm_connect_norm_fp
+            \int_step_inline:nn { \l__liftarm_LU_N_int }
+              { \fp_add:Nn \l__liftarm_connect_norm_fp { abs ( \cs:w l__liftarm_LU_b_##1_fp \cs_end: ) } }
+            \bool_set:Nn \l__liftarm_LU_bool
+              { \fp_compare_p:nNn { \l__liftarm_connect_norm_fp } > { \l__liftarm_connect_stop_value_fp } }
+          }
+        { 2-norm }
+          {
+            \fp_zero:N \l__liftarm_connect_norm_fp
+            \int_step_inline:nn { \l__liftarm_LU_N_int }
+              { \fp_add:Nn \l__liftarm_connect_norm_fp { ( \cs:w l__liftarm_LU_b_##1_fp \cs_end: ) ^ 2 } }
+            \bool_set:Nn \l__liftarm_LU_bool
+              { \fp_compare_p:nNn { sqrt ( \l__liftarm_connect_norm_fp ) } > { \l__liftarm_connect_stop_value_fp } }
+          }
+        { iterations }
+          {
+            \bool_set:Nn \l__liftarm_LU_bool
+              { \fp_compare_p:nNn { \l__liftarm_LU_count_int } < { \l__liftarm_connect_stop_value_fp } }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__liftarm_def_coord:n #1
+  {
+    \path let \p { l__liftarm_coord } = (#1) in
+      [
+        / utils / exec =
+          {
+            \fp_gset:Nn \g__liftarm_coord_x_fp
+              { ( \pgf@yy * \x { l__liftarm_coord } - \pgf@yx * \y { l__liftarm_coord } ) / \l__liftarm_connect_det_fp }
+            \fp_gset:Nn \g__liftarm_coord_y_fp
+              { ( \pgf@xx * \y { l__liftarm_coord } - \pgf@xy * \x { l__liftarm_coord } ) / \l__liftarm_connect_det_fp }
+          }
+      ] ;
+  }
+
+\cs_new_protected:Npn \__liftarm_default:nnnn #1#2#3#4
+  {
+    \pgfmathparse {#3}
+    \fp_set:Nn \l__liftarm_length_fp { \pgfmathresult }
+    \fp_compare:nNnTF { \l__liftarm_length_fp } < { 0 }
+      { \PackageWarning { liftarm } { The~length~( \fp_use:N \l__liftarm_length_fp )~of~the~liftarm~is~smaller~than~0. } }
+      {
+        \pgfmathparse {#4}
+        \fp_set:Nn \l__liftarm_angle_fp { \pgfmathresult }
+        \begin { scope }
+          [
+            shift = { (#2) } ,
+            rotate = \fp_use:N \l__liftarm_angle_fp
+          ]
+          \pgfkeys { / liftarm , #1 }
+          \tl_set:Ne \l__liftarm_color_tl
+            {
+              \cs:w
+                l__liftarm_color_
+                \int_mod:nn { \fp_eval:n { trunc ( \l__liftarm_length_fp , 0 ) } } { \pgfkeysvalueof { / liftarm / color~modulo } }_tl
+              \cs_end:
+            }
+          \begin { scope } [ shift = { ( - \fp_use:N \l__liftarm_origin_fp , 0 ) } ]
+            \str_case:Vn \l__liftarm_type_str
+              {
+                { liftarm }
+                  {
+                    \pgfmathparse { \pgfkeysvalueof { / liftarm / liftarm~thickness } }
+                    \fp_set:Nn \l__liftarm_half_thickness_fp { 0.5 * \l__liftarm_scalefactor_fp * \pgfmathresult }
+                    \pgfmathparse { \pgfkeysvalueof { / liftarm / hole~radius } }
+                    \fp_set:Nn \l__liftarm_hole_radius_fp { \l__liftarm_scalefactor_fp * \pgfmathresult }
+                    \bool_if:NTF \l__liftarm_brick_bool
+                      {
+                        \tl_build_begin:N \l__liftarm_shape_tl
+                        \tl_build_put_right:Ne \l__liftarm_shape_tl
+                          {
+                            ( -1 , \fp_eval:n { - \l__liftarm_scalefactor_fp * 0.7 } )
+                            -- ( -1 , \fp_eval:n { \l__liftarm_scalefactor_fp * 0.5 } )
+                          }
+                        \int_step_inline:nnn { -1 } { \fp_eval:n { trunc ( \l__liftarm_length_fp , 0 ) } }
+                          {
+                            \tl_build_put_right:Ne \l__liftarm_shape_tl
+                              {
+                                -- (
+                                  \fp_eval:n { ##1 + 0.5 - \l__liftarm_scalefactor_fp * 0.3 } ,
+                                  \fp_eval:n { \l__liftarm_scalefactor_fp * 0.5 }
+                                )
+                                --++ ( 0 , \fp_eval:n { \l__liftarm_scalefactor_fp * 0.2 } )
+                                --++ ( \fp_eval:n { \l__liftarm_scalefactor_fp * 0.6 } , 0 )
+                                --++ ( 0 , \fp_eval:n { - \l__liftarm_scalefactor_fp * 0.2 } )
+                              }
+                          }
+                        \tl_build_put_right:Ne \l__liftarm_shape_tl
+                          {
+                            -- ( \fp_eval:n { \l__liftarm_length_fp + 1 } , \fp_eval:n { \l__liftarm_scalefactor_fp * 0.5 } )
+                            --++ ( 0 , \fp_eval:n { - \l__liftarm_scalefactor_fp * 1.2 } )
+                            -- cycle
+                          }
+                        \tl_build_end:N \l__liftarm_shape_tl
+                      }
+                      {
+                        \tl_set:Ne \l__liftarm_shape_tl
+                          {
+                            ( 0 , \fp_use:N \l__liftarm_half_thickness_fp )
+                            arc
+                              [
+                                start~angle = 90 ,
+                                end~angle = 270 ,
+                                radius = \fp_use:N \l__liftarm_half_thickness_fp
+                              ]
+                            -- ( \fp_use:N \l__liftarm_length_fp , - \fp_use:N \l__liftarm_half_thickness_fp )
+                            arc
+                              [
+                                start~angle = -90 ,
+                                end~angle = 90 ,
+                                radius = \fp_use:N \l__liftarm_half_thickness_fp
+                              ]
+                            -- cycle
+                          }
+                      }
+                    \tl_build_begin:N \l__liftarm_holes_tl
+                    \int_step_inline:nnn { 0 } { \fp_eval:n { trunc ( \l__liftarm_length_fp , 0 ) } }
+                      {
+                        \clist_if_in:enTF { \pgfkeysvalueof { / liftarm / axle~holes } } {##1}
+                          {
+                            \int_step_inline:nn { 4 }
+                              {
+                                \tl_build_put_right:Ne \l__liftarm_holes_tl
+                                  {
+                                    (
+                                      \fp_eval:n
+                                        {
+                                          ##1 + sqrt ( 2 ) * \l__liftarm_hole_radius_fp * sind ( \c__liftarm_axle_hole_angle_fp )
+                                          * cosd ( ####1 * 90 - 45 )
+                                        } ,
+                                      \fp_eval:n { sqrt ( 2 ) * \l__liftarm_hole_radius_fp * sind ( \c__liftarm_axle_hole_angle_fp )
+                                      * sind ( ####1 * 90 - 45 ) }
+                                    )
+                                    -- (
+                                      \fp_eval:n
+                                        {
+                                          ##1
+                                          + \l__liftarm_hole_radius_fp * cosd ( ####1 * 90 - \c__liftarm_axle_hole_angle_fp )
+                                        } ,
+                                      \fp_eval:n { \l__liftarm_hole_radius_fp * sind ( ####1 * 90 - \c__liftarm_axle_hole_angle_fp ) }
+                                    )
+                                    arc
+                                      [
+                                        start~angle = \fp_eval:n { ####1 * 90 - \c__liftarm_axle_hole_angle_fp } ,
+                                        end~angle = \fp_eval:n { ####1 * 90 + \c__liftarm_axle_hole_angle_fp } ,
+                                        radius = \fp_use:N \l__liftarm_hole_radius_fp
+                                      ]
+                                    --
+                                  }
+                              }
+                            \tl_build_put_right:Nn \l__liftarm_holes_tl { cycle }
+                          }
+                          {
+                            \tl_build_put_right:Ne \l__liftarm_holes_tl
+                              { ( ##1 , 0 ) circle [ radius = \fp_use:N \l__liftarm_hole_radius_fp ] }
+                          }
+                      }
+                    \tl_build_end:N \l__liftarm_holes_tl
+                    \fill [ \l__liftarm_color_tl , even~odd~rule , / liftarm / liftarm_style ]
+                      \l__liftarm_shape_tl \l__liftarm_holes_tl ;
+                    \bool_if:NT \l__liftarm_contour_bool
+                      { \draw [ \l__liftarm_color_tl ! 75 ! black , ultra~thick , / liftarm / contour_style ] \l__liftarm_shape_tl ; }
+                    \clist_map_inline:en { \pgfkeysvalueof { / liftarm / mark~holes } }
+                      {
+                        \fill [ black , / liftarm / mark_style ]
+                          ( {##1} , 0 ) circle [ radius = \fp_eval:n { \l__liftarm_mark_radius_fp * \l__liftarm_hole_radius_fp } ] ;
+                      }
+                    \clist_map_inline:en { \pgfkeysvalueof { / liftarm / screw~holes } }
+                      {
+                        \clist_map_inline:nn { -1 , 1 }
+                          {
+                            \fill [ black , shift = { ( {##1} , 0 ) } , rotate = 45 , / liftarm / screw_style ]
+                              (
+                                \fp_eval:n { ####1 * \l__liftarm_screw_angle_fp }
+                                \c_colon_str
+                                \fp_eval:n { \l__liftarm_screw_radius_fp * \l__liftarm_hole_radius_fp }
+                              )
+                              arc
+                                [
+                                  start~angle = \fp_eval:n { ####1 * \l__liftarm_screw_angle_fp } ,
+                                  end~angle = \fp_eval:n { ####1 * ( 180 - \l__liftarm_screw_angle_fp ) } ,
+                                  radius = \fp_eval:n { \l__liftarm_screw_radius_fp * \l__liftarm_hole_radius_fp }
+                                ]
+                              ;
+                          }
+                      }
+                  }
+                { line~segment }
+                  {
+                    \draw [ \l__liftarm_color_tl , / liftarm / liftarm_style ] ( 0 , 0 ) -- ( \fp_use:N \l__liftarm_length_fp , 0 ) ;
+                  }
+              }
+            \clist_map_inline:en { \pgfkeysvalueof { / liftarm / coordinate } }
+              {
+                \seq_set_split:Nnn \l__liftarm_coordinate_seq { / } {##1}
+                \coordinate ( \seq_item:Nn \l__liftarm_coordinate_seq { 2 } )
+                  at ( { \seq_item:Nn \l__liftarm_coordinate_seq { 1 } } , 0 ) ;
+              }
+            \bool_if:NT \l__liftarm_animate_bool
+              {
+                \clist_map_inline:Nn \l__liftarm_trace_clist
+                  {
+                    \seq_set_split:Nnn \l__liftarm_trace_item_seq { / } {##1}
+                    \stepcounter { g__liftarm_animate_frame_number_counter }
+                    \tl_build_gput_right:Ne \g__liftarm_animate_frames_trace_tl
+                      {
+                        \exp_not:n { \newframe \begin } { scope }
+                        [ shift = { (#2) } , rotate = \fp_use:N \l__liftarm_angle_fp ]
+                        \exp_not:N \begin { scope }
+                        [ shift = { ( \fp_eval:n { \seq_item:Nn \l__liftarm_trace_item_seq { 1 } - \l__liftarm_origin_fp } , 0 ) } ]
+                        \tl_if_empty:eTF { \seq_item:Nn \l__liftarm_trace_item_seq { 3 } }
+                          {
+                            \exp_not:N \fill
+                            [ black ] ( 0 , 0 ) circle [ radius = \fp_eval:n { \l__liftarm_hole_radius_fp * 2 / 3 } ] ;
+                          }
+                          { \seq_item:Nn \l__liftarm_trace_item_seq { 3 } }
+                        \exp_not:n { \end { scope } \end { scope } }
+                      }
+                    \tl_if_empty:eTF { \seq_item:Nn \l__liftarm_trace_item_seq { 2 } }
+                      {
+                        \tl_build_gput_right:ce { g__liftarm_animate_timeline_0_tl }
+                          { \theg__liftarm_animate_frame_number_counter x 0 , }
+                      }
+                      {
+                        \pgfmathparse { \use:e { \seq_item:Nn \l__liftarm_trace_item_seq { 2 } } }
+                        \tl_build_gput_right:ce { g__liftarm_animate_timeline_\theg__liftarm_animate_step_number_counter _tl }
+                          { \theg__liftarm_animate_frame_number_counter x \fp_eval:n { \pgfmathresult } , }
+                      }
+                  }
+              }
+          \end { scope }
+        \end { scope }
+      }
+  }
+
+\cs_new_protected:Npn \__liftarm_LU_decomposition:
+  {
+    \int_step_inline:nn { \l__liftarm_LU_N_int }
+      {
+        \int_zero_new:c { l__liftarm_LU_P_##1_int }
+        \int_set:cn { l__liftarm_LU_P_##1_int } {##1}
+      }
+    \int_step_inline:nn { \l__liftarm_LU_N_int }
+      {
+        \fp_zero:N \l__liftarm_LU_maxA_fp
+        \int_set:Nn \l__liftarm_LU_imax_int {##1}
+        \int_step_inline:nnn {##1} { \l__liftarm_LU_N_int }
+          {
+            \fp_set:Nn \l__liftarm_LU_tmp_fp { abs ( \cs:w l__liftarm_LU_A_####1_##1_fp \cs_end: ) }
+            \fp_compare:nNnT { \l__liftarm_LU_tmp_fp } > { \l__liftarm_LU_maxA_fp }
+              {
+                \fp_set_eq:NN \l__liftarm_LU_maxA_fp \l__liftarm_LU_tmp_fp
+                \int_set:Nn \l__liftarm_LU_imax_int {####1}
+              }
+          }
+        \int_compare:nNnF { \l__liftarm_LU_imax_int } = {##1}
+          {
+            \int_set_eq:Nc \l__liftarm_LU_j_int { l__liftarm_LU_P_##1_int }
+            \int_set_eq:cc { l__liftarm_LU_P_##1_int } { l__liftarm_LU_P_\int_use:N \l__liftarm_LU_imax_int _int }
+            \int_set_eq:cN { l__liftarm_LU_P_\int_use:N \l__liftarm_LU_imax_int _int } \l__liftarm_LU_j_int
+            \int_step_inline:nn { \l__liftarm_LU_N_int }
+              {
+                \fp_set_eq:Nc \l__liftarm_LU_tmp_fp { l__liftarm_LU_A_##1_####1_fp }
+                \fp_set_eq:cc { l__liftarm_LU_A_##1_####1_fp } { l__liftarm_LU_A_\int_use:N \l__liftarm_LU_imax_int _####1_fp }
+                \fp_set_eq:cN { l__liftarm_LU_A_\int_use:N \l__liftarm_LU_imax_int _####1_fp } \l__liftarm_LU_tmp_fp
+              }
+          }
+        \int_step_inline:nnn { ##1 + 1 } { \l__liftarm_LU_N_int }
+          {
+            \fp_set:cn { l__liftarm_LU_A_####1_##1_fp }
+              { \cs:w l__liftarm_LU_A_####1_##1_fp \cs_end: / \cs:w l__liftarm_LU_A_##1_##1_fp \cs_end: }
+            \int_step_inline:nnn { ##1 + 1 } { \l__liftarm_LU_N_int }
+              {
+                \fp_sub:cn { l__liftarm_LU_A_####1_########1_fp }
+                  { \cs:w l__liftarm_LU_A_####1_##1_fp \cs_end: * \cs:w l__liftarm_LU_A_##1_########1_fp \cs_end: }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__liftarm_LU_solve:
+  {
+    \int_step_inline:nn { \l__liftarm_LU_N_int }
+      {
+        \fp_zero_new:c { l__liftarm_LU_x_##1_fp }
+        \fp_set_eq:cc { l__liftarm_LU_x_##1_fp } { l__liftarm_LU_b_\int_use:c { l__liftarm_LU_P_##1_int }_fp }
+        \int_step_inline:nn { ##1 - 1 }
+          {
+            \fp_sub:cn { l__liftarm_LU_x_##1_fp }
+              { \cs:w l__liftarm_LU_A_##1_####1_fp \cs_end: * \cs:w l__liftarm_LU_x_####1_fp \cs_end: }
+          }
+      }
+    \int_step_inline:nnnn { \l__liftarm_LU_N_int } { -1 } { 1 }
+      {
+        \int_step_inline:nnn { ##1 + 1 } { \l__liftarm_LU_N_int }
+          {
+            \fp_sub:cn { l__liftarm_LU_x_##1_fp }
+              { \cs:w l__liftarm_LU_A_##1_####1_fp \cs_end: * \cs:w l__liftarm_LU_x_####1_fp \cs_end: }
+          }
+        \fp_set:cn { l__liftarm_LU_x_##1_fp } { \cs:w l__liftarm_LU_x_##1_fp \cs_end: / \cs:w l__liftarm_LU_A_##1_##1_fp \cs_end: }
+      }
+  }
+
+\cs_new:Npn \__liftarm_Mod:nn #1#2
+  {
+    min
+      (
+        Mod
+          (
+            \fp_eval:n { \cs:w l__liftarm_connect_two_#1_option_#2_angle_fp \cs_end: - \cs:w l__liftarm_connect_angle_#1_fp \cs_end: } ,
+            360
+          ) ,
+        Mod
+          (
+            \fp_eval:n { \cs:w l__liftarm_connect_angle_#1_fp \cs_end: - \cs:w l__liftarm_connect_two_#1_option_#2_angle_fp \cs_end: } ,
+            360
+          )
+      )
+  }
+
+%%> \subsection{Document commands and environment}
+
+\NewDocumentCommand \liftarm { O {} m m m }
+  { \__liftarm_default:nnnn {#1} {#2} {#3} {#4} }
+
+\NewDocumentCommand \liftarmanimate { O {} m m m }
+  {
+    \bool_set_true:N \l__liftarm_animate_bool
+    \stepcounter { g__liftarm_animate_number_of_animation_counter }
+    \setcounter { g__liftarm_animate_number_of_steps_counter } { -1 }
+    \tl_build_gbegin:N \g__liftarm_animate_frames_tl
+    \tl_build_gbegin:N \g__liftarm_animate_frames_trace_tl
+    \setcounter { g__liftarm_animate_step_number_counter } { -1 }
+    \foreach \l__liftarm_animate_value_tl in {#3}
+      {
+        \stepcounter { g__liftarm_animate_number_of_steps_counter }
+        \tl_build_gput_right:Ne \g__liftarm_animate_frames_tl
+          {
+            \exp_not:n { \newframe \stepcounter { g__liftarm_animate_step_number_counter } #4 }
+            { \l__liftarm_animate_value_tl }
+          }
+      }
+    \tl_build_gend:N \g__liftarm_animate_frames_tl
+    \int_step_inline:nnn { 0 } { \theg__liftarm_animate_number_of_steps_counter }
+      {
+        \tl_clear_new:c { g__liftarm_animate_timeline_##1_tl }
+        \tl_build_gbegin:c { g__liftarm_animate_timeline_##1_tl }
+      }
+    \tl_build_gput_right:cn { g__liftarm_animate_timeline_0_tl } { c , }
+    \setcounter { g__liftarm_animate_frame_number_counter } { \theg__liftarm_animate_number_of_steps_counter }
+    \file_if_exist:nF { \c_sys_jobname_str \theg__liftarm_animate_number_of_animation_counter . tln }
+      {
+        \iow_open:Nn \g__liftarm_animate_write_timeline_iow
+          { \c_sys_jobname_str \theg__liftarm_animate_number_of_animation_counter . tln }
+        \iow_now:Ne \g__liftarm_animate_write_timeline_iow { \c_colon_str \c_colon_str c , 0 }
+        \iow_close:N \g__liftarm_animate_write_timeline_iow
+      }
+    \begin { animateinline } [ #1 , timeline = \c_sys_jobname_str \theg__liftarm_animate_number_of_animation_counter . tln ] {#2}
+      \tl_tail:N \g__liftarm_animate_frames_tl%remove the first \newframe
+      \tl_build_gend:N \g__liftarm_animate_frames_trace_tl
+      \g__liftarm_animate_frames_trace_tl
+    \end { animateinline }
+    \iow_open:Nn \g__liftarm_animate_write_timeline_iow { \c_sys_jobname_str \theg__liftarm_animate_number_of_animation_counter . tln }
+    \int_step_inline:nnn { 0 } { \theg__liftarm_animate_number_of_steps_counter }
+      {
+        \tl_build_gend:c { g__liftarm_animate_timeline_##1_tl }
+        \iow_now:Ne \g__liftarm_animate_write_timeline_iow
+          { \c_colon_str \c_colon_str \cs:w g__liftarm_animate_timeline_##1_tl \cs_end: ##1 }
+      }
+    \iow_close:N \g__liftarm_animate_write_timeline_iow
+    \bool_set_false:N \l__liftarm_animate_bool
+  }
+
+\NewDocumentCommand \liftarmconstruct { m }
+  {
+    \tl_gput_right:Nn \g__liftarm_construct_tl {#1}
+    \g__liftarm_construct_tl
+  }
+
+\NewDocumentCommand \liftarmconstructclear {}
+  { \tl_gclear:N \g__liftarm_construct_tl }
+
+\NewDocumentEnvironment { liftarmconnect } { O {} +b }
+  {
+    \pgfkeys { / liftarm , #1 }
+    %verify that the contents consists only of commands \liftarm because the contents of this environment are processed several times
+    \DeclareExpandableDocumentCommand \liftarm { O {} m m m } {}%expandable for usage in \tl_set:Ne
+    \tl_set:Ne \l__liftarm_tmp_tl {#2}
+    \tl_remove_all:Nn \l__liftarm_tmp_tl { \par }
+    \tl_if_blank:VF \l__liftarm_tmp_tl
+      { \PackageError { liftarm } { The~environment~liftarmconnect~should~only~consist~of~commands~\protect \liftarm } {} }
+    \int_zero:N \l__liftarm_LU_N_int
+    \RenewDocumentCommand \liftarm { O {} m m m } { \int_incr:N \l__liftarm_LU_N_int }
+    #2
+    \fp_set:Nn \l__liftarm_connect_det_fp { \pgf@yy * \pgf@xx - \pgf@yx * \pgf@xy }
+    \int_case:nnF { \l__liftarm_LU_N_int }
+      {
+        { 0 }
+          {}
+        { 1 }
+          {
+            \RenewDocumentCommand \liftarm { O {} m m m }
+              { \__liftarm_default:nnnn {##1} {##2} {##3} {##4} }
+          }
+        { 2 }
+          {
+            \int_zero:N \l__liftarm_connect_count_int
+            \int_zero:N \l__liftarm_connect_equation_int
+            \seq_clear:N \l__liftarm_connect_coordinate_seq
+            \fp_set_eq:NN \l__liftarm_origin_connect_initial_fp \l__liftarm_origin_fp
+            \RenewDocumentCommand \liftarm { O {} m m m }
+              {
+                \int_incr:N \l__liftarm_connect_count_int
+                \fp_zero_new:c { l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp }
+                \pgfmathparse {##4}
+                \fp_set:cn { l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp } { \pgfmathresult }
+                \fp_set_eq:NN \l__liftarm_origin_fp \l__liftarm_origin_connect_initial_fp
+                \pgfkeys
+                  {
+                    / liftarm / connect_algorithm ,
+                    coordinate = \pgfkeysvalueof { / liftarm / coordinate } ,
+                    ##1
+                  }
+                \__liftarm_def_coord:n {##2}
+                \fp_set_eq:cN { l__liftarm_connect_two_\int_to_Alph:n { \l__liftarm_connect_count_int }_x_fp } \g__liftarm_coord_x_fp
+                \fp_set_eq:cN { l__liftarm_connect_two_\int_to_Alph:n { \l__liftarm_connect_count_int }_y_fp } \g__liftarm_coord_y_fp
+                \int_compare:nNnTF { \l__liftarm_connect_count_int } = { 1 }
+                  {
+                    \clist_map_inline:en { \pgfkeysvalueof { / liftarm / connect_algorithm / coordinate } }
+                      {
+                        \seq_set_split:Nnn \l__liftarm_coordinate_seq { / } {####1}
+                        \tl_clear_new:c { l__liftarm_connect_two_A_length_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_tl }
+                        \tl_set:ce { l__liftarm_connect_two_A_length_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_tl }
+                          { \seq_item:Nn \l__liftarm_coordinate_seq { 1 } - \fp_use:N \l__liftarm_origin_fp }
+                        \seq_put_right:Ne \l__liftarm_connect_coordinate_seq { \seq_item:Nn \l__liftarm_coordinate_seq { 2 } }
+                      }
+                  }
+                  {
+                    \clist_map_inline:en { \pgfkeysvalueof { / liftarm / connect_algorithm / coordinate } }
+                      {
+                        \seq_set_split:Nnn \l__liftarm_coordinate_seq { / } {####1}
+                        \seq_if_in:NeT \l__liftarm_connect_coordinate_seq { \seq_item:Nn \l__liftarm_coordinate_seq { 2 } }
+                          {
+                            \int_incr:N \l__liftarm_connect_equation_int
+                            \int_compare:nNnT { \l__liftarm_connect_equation_int } > { 1 }
+                              { \PackageError { liftarm } { There~are~too~many~conditions~for~2~liftarms } {} }
+                            \pgfmathparse
+                              { \cs:w l__liftarm_connect_two_A_length_coord_\seq_item:Nn \l__liftarm_coordinate_seq { 2 }_tl \cs_end: }
+                            \fp_set:Nn \l__liftarm_connect_two_A_length_fp { \pgfmathresult }
+                            \pgfmathparse { \seq_item:Nn \l__liftarm_coordinate_seq { 1 } }
+                            \fp_set:Nn \l__liftarm_connect_two_B_length_fp { \pgfmathresult - \l__liftarm_origin_fp }
+                          }
+                      }
+                  }
+              }
+            #2
+            \fp_set:Nn \l__liftarm_connect_two_length_fp
+              {
+                sqrt (
+                  ( \l__liftarm_connect_two_A_x_fp - \l__liftarm_connect_two_B_x_fp ) ^ 2
+                  + ( \l__liftarm_connect_two_A_y_fp - \l__liftarm_connect_two_B_y_fp ) ^ 2
+                )
+              }
+            \fp_set:Nn \l__liftarm_connect_two_angle_fp
+              {
+                atand (
+                  \l__liftarm_connect_two_B_y_fp - \l__liftarm_connect_two_A_y_fp ,
+                  \l__liftarm_connect_two_B_x_fp - \l__liftarm_connect_two_A_x_fp
+                )
+              }
+            \fp_set:Nn \l__liftarm_connect_two_A_angle_fp
+              {
+                acosd (
+                  (
+                    ( \l__liftarm_connect_two_A_length_fp ) ^ 2 + ( \l__liftarm_connect_two_length_fp ) ^ 2
+                    - ( \l__liftarm_connect_two_B_length_fp ) ^ 2
+                  ) / ( 2 * \l__liftarm_connect_two_A_length_fp * \l__liftarm_connect_two_length_fp )
+                )
+              }
+            \fp_set:Nn \l__liftarm_connect_two_B_angle_fp
+              {
+                acosd (
+                  (
+                    ( \l__liftarm_connect_two_B_length_fp ) ^ 2 + ( \l__liftarm_connect_two_length_fp ) ^ 2
+                    - ( \l__liftarm_connect_two_A_length_fp ) ^ 2
+                  ) / ( 2 * \l__liftarm_connect_two_B_length_fp * \l__liftarm_connect_two_length_fp )
+                )
+              }
+            \fp_set:cn { l__liftarm_connect_two_1_option_0_angle_fp }
+              { \l__liftarm_connect_two_angle_fp + \l__liftarm_connect_two_A_angle_fp }
+            \fp_set:cn { l__liftarm_connect_two_1_option_1_angle_fp }
+              { \l__liftarm_connect_two_angle_fp - \l__liftarm_connect_two_A_angle_fp }
+            \fp_set:cn { l__liftarm_connect_two_2_option_0_angle_fp }
+              { 180 + \l__liftarm_connect_two_angle_fp - \l__liftarm_connect_two_B_angle_fp }
+            \fp_set:cn { l__liftarm_connect_two_2_option_1_angle_fp }
+              { 180 + \l__liftarm_connect_two_angle_fp + \l__liftarm_connect_two_B_angle_fp }
+            \pgfmathparse
+              {
+                \__liftarm_Mod:nn { 1 } { 0 } + \__liftarm_Mod:nn { 2 } { 0 }
+                >
+                \__liftarm_Mod:nn { 1 } { 1 } + \__liftarm_Mod:nn { 2 } { 1 }
+              }
+            \tl_set:Ne \l__liftarm_tmp_tl { \pgfmathresult }
+            \int_zero:N \l__liftarm_connect_count_int
+            \RenewDocumentCommand \liftarm { O {} m m m }
+              {
+                \int_incr:N \l__liftarm_connect_count_int
+                \__liftarm_default:nnnn {##1} {##2} {##3}
+                  { \fp_use:c { l__liftarm_connect_two_\int_use:N \l__liftarm_connect_count_int _option_\l__liftarm_tmp_tl _angle_fp } }
+              }
+          }
+      }
+      {
+        \int_zero:N \l__liftarm_connect_count_int
+        \int_zero:N \l__liftarm_connect_equation_int
+        \seq_clear:N \l__liftarm_connect_coordinate_seq
+        \fp_set_eq:NN \l__liftarm_origin_connect_initial_fp \l__liftarm_origin_fp
+        \RenewDocumentCommand \liftarm { O {} m m m } { \__liftarm_connect:nnnn {##1} {##2} {##3} {##4} }
+        #2
+        \int_compare:nNnF { \l__liftarm_connect_equation_int } = { \l__liftarm_LU_N_int }
+          {
+            \PackageError { liftarm }
+              {
+                The~Jacobian~matrix~is~not~square~
+                (the~size~is~\int_use:N \l__liftarm_connect_equation_int \space by~\int_use:N \l__liftarm_LU_N_int )
+              } {}
+          }
+        \int_zero:N \l__liftarm_LU_count_int
+        \int_step_inline:nn { \l__liftarm_LU_N_int }
+          { \fp_zero_new:c { l__liftarm_LU_b_##1_fp } }
+        \__liftarm_connect_stop_criterion:
+        \bool_while_do:Nn \l__liftarm_LU_bool
+          {
+            \int_step_inline:nn { \l__liftarm_LU_N_int }
+              {
+                \int_step_inline:nn { \l__liftarm_LU_N_int }
+                  { \fp_set:cn { l__liftarm_LU_A_##1_####1_fp } { \cs:w l__liftarm_connect_Jacobian_##1_####1_tl \cs_end: } }
+              }
+            \__liftarm_LU_decomposition:
+            \__liftarm_LU_solve:
+            \int_step_inline:nn { \l__liftarm_LU_N_int }
+              { \fp_sub:cn { l__liftarm_connect_angle_##1_fp } { \cs:w l__liftarm_LU_x_##1_fp \cs_end: } }
+            \int_incr:N \l__liftarm_LU_count_int
+            \__liftarm_connect_stop_criterion:
+          }
+        \int_zero:N \l__liftarm_connect_count_int
+        \RenewDocumentCommand \liftarm { O {} m m m }
+          {
+            \int_incr:N \l__liftarm_connect_count_int
+            \__liftarm_default:nnnn {##1} {##2} {##3}
+              { \fp_eval:n { \cs:w l__liftarm_connect_angle_\int_use:N \l__liftarm_connect_count_int _fp \cs_end: / deg } }
+          }
+      }
+    #2
+  }
+  {}
+
+\endinput
