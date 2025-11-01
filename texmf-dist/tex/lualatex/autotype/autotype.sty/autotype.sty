@@ -1,0 +1,319 @@
+%% autotype.sty
+%% Copyright 2020-2024 Stephan Hennig and Keno Wehr
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+% http://www.latex-project.org/lppl.txt
+% and version 1.3 or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+\ProvidesExplPackage {autotype} {2024-01-05} {0.5} {automatic language-specific typography}
+
+% Variables
+\str_new:N \l_autotype_lang_str % for storing a language name
+\str_new:N \l_autotype_font_str % font name given by the user
+
+% Error messages
+\msg_new:nnn {autotype} {bad-engine}
+  {
+    LuaTeX~engine~required.~You~could~try~with~the~'lualatex'~command.
+  }
+\msg_new:nnn {autotype} {undefined-language} {Language~'#1'~is~not~loaded.}
+
+\msg_new:nnn {autotype} {strange-noligbreak}
+  {
+    The~ligbreak~option~is~not~active~for~\languagename.~
+    The~\noligbreak~command~is~useless~\msg_line_context: .
+  }
+
+% Test for the LuaTeX engine
+\sys_if_engine_luatex:F { \msg_fatal:nn {autotype} {bad-engine} }
+
+% Load autotype's Lua module
+\directlua { autotype = require('autotype') }
+
+% To be able to switch the node list manipulation on and off even within a
+% paragraph, we define a LuaTeX attribute for every language and autotype
+% option requested be the user. E.g., for breaking up ligatures in language
+% 'ngerman' we create an attribute \autotype_ngerman_ligbreak_attr.
+
+% Check if a LuaTeX attribute exists
+% #1: language name, #2: autotype option
+\prg_new_conditional:Npnn \autotype_attribute_if_exist:nn #1#2 {T,F,TF}
+  {
+    \cs_if_exist:cTF {autotype_#1_#2_attr} {\prg_return_true:} {\prg_return_false:}
+  }
+
+\cs_generate_variant:Nn \autotype_attribute_if_exist:nnT {V}
+\cs_generate_variant:Nn \autotype_attribute_if_exist:nnF {V}
+
+% Command for creating LuaTeX attributes
+% #1: language name, #2: autotype option
+\cs_new:Npn \autotype_new_attribute:nn #1#2
+  {
+    \exp_after:wN \newattribute \cs:w autotype_#1_#2_attr \cs_end:
+  }
+
+\cs_generate_variant:Nn \autotype_new_attribute:nn {Vn}
+
+% Command for setting LuaTeX attributes
+% #1: language name, #2: autotype option
+\cs_new:Npn \autotype_set_attribute:nn #1#2
+  {
+    \exp_after:wN \setattribute \cs:w autotype_#1_#2_attr \cs_end: {1}
+  }
+
+\cs_generate_variant:Nn \autotype_set_attribute:nn {Vn}
+
+% Command for unsetting LuaTeX attributes
+% #1: language name, #2: autotype option
+\cs_new:Npn \autotype_unset_attribute:nn #1#2
+  {
+    \exp_after:wN \unsetattribute \cs:w autotype_#1_#2_attr \cs_end:
+  }
+
+\cs_generate_variant:Nn \autotype_unset_attribute:nn {Vn}
+
+% Check if a LuaTeX attribute is set
+% #1: language name, #2: autotype option
+\prg_new_conditional:Npnn \autotype_attribute_if_set:nn #1#2 {TF}
+  {
+    \int_compare:nNnTF { \cs:w autotype_#1_#2_attr \cs_end: } = {1}
+      {
+        \prg_return_true:
+      }
+      {
+        \prg_return_false:
+      }
+  }
+
+% #1: language name, #2: Lua function name
+\cs_new:Npn \autotype_activate_lang_option:nn #1#2
+  {
+    \@ifpackageloaded {polyglossia}
+      {
+        \begin {#1} % invoke polyglossia language environment
+        \directlua { autotype.#2 ('#1', tex.language) }
+        \end {#1}
+      }
+      {
+        \directlua { autotype.#2 ('#1') }
+      }
+  }
+
+\cs_generate_variant:Nn \autotype_activate_lang_option:nn {Vn}
+
+% #1: attribute name
+\cs_new:Npn \autotype_activate_lang_option_with_attribute:n #1
+  {
+    % Create attribute if not already existing
+    \autotype_attribute_if_exist:VnF \l_autotype_lang_str {#1}
+      {
+        \autotype_new_attribute:Vn \l_autotype_lang_str {#1}
+        % Register callback
+        \autotype_activate_lang_option:Vn \l_autotype_lang_str {#1}
+      }
+    % Set attribute
+    \autotype_set_attribute:Vn \l_autotype_lang_str {#1}
+  }
+
+% #1: attribute name
+\cs_new:Npn \autotype_deactivate_lang_option_with_attribute:n #1
+  {
+    % Unset attribute if existing
+    \autotype_attribute_if_exist:VnT \l_autotype_lang_str {#1}
+      {
+        \autotype_unset_attribute:Vn \l_autotype_lang_str {#1}
+      }
+  }
+
+% Command for executing language options
+% #1: language name, #2: option
+\cs_new:Npn \autotype_execute_lang_option:nn #1#2
+  {
+    \str_set:Nn \l_autotype_lang_str {#1}
+    \keys_set:nn {autotype-lang} {#2}
+  }
+
+\keys_define:nn {autotype-lang}
+  {
+    hyphenation .choices:nn = {default, primary, weighted}
+      {
+        \str_case:nn {#1}
+          {
+            {default} { \autotype_activate_lang_option:Vn \l_autotype_lang_str {default_hyph} }
+            {primary} { \autotype_activate_lang_option:Vn \l_autotype_lang_str {primary_hyph} }
+            {weighted} { \autotype_activate_lang_option:Vn \l_autotype_lang_str {weighted_hyph} }
+          }
+      } ,
+    hyphenation .value_required:n = true ,
+    mark-hyph. choices:nn = {on, off}
+      {
+        \str_case:nn {#1}
+          {
+            {on}  { \autotype_activate_lang_option_with_attribute:n {mark_hyph} }
+            {off} { \autotype_deactivate_lang_option_with_attribute:n {mark_hyph} }
+          }
+      } ,
+    mark-hyph .default:n = {on} ,
+    ligbreak .choices:nn = {on, off}
+      {
+        \str_case:nn {#1}
+          {
+            {on}  { \autotype_activate_lang_option_with_attribute:n {ligbreak} }
+            {off} { \autotype_deactivate_lang_option_with_attribute:n {ligbreak} }
+          }
+      } ,
+    ligbreak .default:n = {on} ,
+    long-s .choices:nn = {on, off}
+      {
+        \str_case:nn {#1}
+          {
+            {on}  { \autotype_activate_lang_option_with_attribute:n {long_s} }
+            {off} { \autotype_deactivate_lang_option_with_attribute:n {long_s} }
+          }
+      } ,
+    long-s .default:n = {on}
+  }
+
+\keys_define:nn {autotype-font}
+  {
+    long-s-codepoint .code:n = { \directlua { autotype.set_long_s_codepoint ( "\l_autotype_font_str" , #1 ) } } ,
+    round-s-codepoint .code:n = { \directlua { autotype.set_round_s_codepoint ( "\l_autotype_font_str" , #1 ) } } ,
+    final-round-s-codepoint .code:n = { \directlua { autotype.set_final_round_s_codepoint ( "\l_autotype_font_str" , #1 ) } }
+  }
+
+% Command for executing font options
+% #1: font name, #2: option
+\cs_new:Npn \autotype_execute_font_option:nn #1#2
+  {
+    \str_set:Nn \l_autotype_font_str {#1}
+    \keys_set:nn {autotype-font} {#2}
+  }
+
+
+%%%%% Document commands
+
+% Command for setting autotype language options
+% #1: language name, #2: a comma-separated list of options
+\NewDocumentCommand \autotypelangoptions {mm}
+  {
+    % Test if language #1 is defined and iterate over options.
+    \@ifpackageloaded {polyglossia}
+      {
+        \iflanguageloaded {#1}
+          {
+            \clist_map_inline:nn {#2} { \autotype_execute_lang_option:nn {#1} {##1} }
+          }
+          {
+            \msg_error:nnn {autotype} {undefined-language} {#1}
+          }
+      }
+      {
+        \cs_if_exist:cTF {l@#1}
+          {
+            \clist_map_inline:nn {#2} { \autotype_execute_lang_option:nn {#1} {##1} }
+          }
+          {
+            \msg_error:nnn {autotype} {undefined-language} {#1}
+          }
+      }
+  }
+
+% Command for setting autotype font options
+% #1: font name, #2: a comma-separated list of options
+\NewDocumentCommand \autotypefontoptions {mm}
+  {
+    \clist_map_inline:nn {#2} { \autotype_execute_font_option:nn {#1} {##1} }
+  }
+
+% Command for temporarily switching off the breaking up of ligatures
+% #1: text for which no ligatures are broken up
+% Note: This command may fail, if the language is changed within the argument.
+\NewDocumentCommand \noligbreak {m}
+  {
+    % Check if the current language's ligbreak attribute exists
+    \autotype_attribute_if_exist:nnTF {\languagename} {ligbreak}
+      {
+        % Check if the current language's ligbreak attribute is set
+        \autotype_attribute_if_set:nnTF {\languagename} {ligbreak}
+          {
+            % Store the current language name (just in case it is changed
+            % within the command argument)
+            \str_set_eq:NN \l_autotype_lang_str \languagename
+            % Unset the attribute
+            \autotype_unset_attribute:nn {\languagename} {ligbreak}
+            % Insert the argument
+            #1
+            % Reset the attribute
+            \autotype_set_attribute:nn {\l_autotype_lang_str} {ligbreak}
+          }
+          {
+            % Issue a warning
+            \msg_warning:nn {autotype} {strange-noligbreak}
+            % Insert the argument
+            #1
+          }
+      }
+      {
+        % Issue a warning
+        \msg_warning:nn {autotype} {strange-noligbreak}
+        % Insert the argument
+        #1
+      }
+  }
+
+% Command for inserting a long s
+\NewDocumentCommand \autotypelongs { }
+  {
+    % Check if the current language's long_s attribute exists
+    \autotype_attribute_if_exist:nnTF {\languagename} {long_s}
+      {
+        % Check if the current language's long_s attribute is set
+        \autotype_attribute_if_set:nnTF {\languagename} {long_s}
+          {
+            % Unset the attribute
+            \autotype_unset_attribute:nn {\languagename} {long_s}
+            % Insert a long s
+            \symbol { \directlua { tex.write(autotype.get_current_long_s_codepoint()) } }
+            % Reset the attribute
+            \autotype_set_attribute:nn {\languagename} {long_s}
+          }
+          {
+            % Insert a long s
+            \symbol { \directlua { tex.write(autotype.get_current_long_s_codepoint()) } }
+          }
+      }
+      {
+        % Insert a long s
+        \symbol { \directlua { tex.write(autotype.get_current_long_s_codepoint()) } }
+      }
+  }
+
+% Command for inserting a round s
+\NewDocumentCommand \autotyperounds { }
+  {
+    % Check if the current language's long_s attribute exists
+    \autotype_attribute_if_exist:nnTF {\languagename} {long_s}
+      {
+        % Check if the current language's long_s attribute is set
+        \autotype_attribute_if_set:nnTF {\languagename} {long_s}
+          {
+            % Unset the attribute
+            \autotype_unset_attribute:nn {\languagename} {long_s}
+            % Insert a round s
+            \symbol { \directlua { tex.write(autotype.get_current_round_s_codepoint()) } }
+            % Reset the attribute
+            \autotype_set_attribute:nn {\languagename} {long_s}
+          }
+          {
+            % Insert a long s
+            \symbol { \directlua { tex.write(autotype.get_current_round_s_codepoint()) } }
+          }
+      }
+      {
+        % Insert a long s
+        \symbol { \directlua { tex.write(autotype.get_current_round_s_codepoint()) } }
+      }
+  }

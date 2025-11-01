@@ -1,0 +1,154 @@
+% Author     : C. Pierquet
+% licence    : Released under the LaTeX Project Public License v1.3c or later, see http://www.latex-project.org/lppl.txt
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage{randintlist-l3}{2025-10-17}{0.1.6}{Create a list of random numbers with or without multiple values}
+
+%------History
+% 0.1.6	Improvements with latex3
+% 0.1.5	Initial version
+
+%------Main macro
+%variables
+\clist_new:N \l_randintlist_clist
+\clist_new:N \l_randintlist_excluded_clist
+\clist_new:N \l_randintlist_result_clist
+\int_new:N \l_randintlist_min_int
+\int_new:N \l_randintlist_max_int
+\int_new:N \l_randintlist_nb_int
+\int_new:N \l_randintlist_random_number
+\int_new:N \l_randintlist_seed_int
+\bool_new:N \l_randintlist_repeat_bool
+\bool_new:N \l_randintlist_keepvalue_bool
+%\tl_new:N \l_randintlist_sep_tl
+\tl_new:N \l_randintlist_sort_tl
+\str_new:N \l_randintlist_sort_str
+
+%keys
+\keys_define:nn { randomlistintegers }
+{
+	min      .int_set:N    = \l_randintlist_min_int,
+	max      .int_set:N    = \l_randintlist_max_int,
+	nb       .int_set:N    = \l_randintlist_nb_int,
+	seed     .int_set:N    = \l_randintlist_seed_int,
+	excluded .clist_set:N  = \l_randintlist_excluded_clist,
+	repeat   .bool_set:N   = \l_randintlist_repeat_bool,
+	%sep      .tl_set:N     = \l_randintlist_sep_tl,
+	sort     .tl_set:N     = \l_randintlist_sort_tl,
+	min      .initial:n    = 1,
+	max      .initial:n    = 100,
+	nb       .initial:n    = 10,
+	seed     .initial:n    = -1,
+	excluded .initial:n    = {},
+	repeat   .initial:n    = true,
+	%sep      .initial:n    = {,},
+	sort     .initial:n    = {none},
+	min      .default:n    = 1,
+	max      .default:n    = 100,
+	nb       .default:n    = 10,
+	seed     .default:n    = -1,
+	excluded .default:n    = {},
+	repeat   .default:n    = true,
+	%sep      .default:n    = {,},
+	sort     .default:n    = {none},
+}
+
+%macro
+\NewDocumentCommand\rdlgenlist { O{} D<>{,} m } %#1=keys / #2=sep / #3=macrolist
+{
+	%\group_begin:
+	% key init
+	\keys_set:nn { randomlistintegers } { #1 }
+	
+	% seed if necessary
+	\int_compare:nNnT { \l_randintlist_seed_int } > { -1 }
+	{
+		\sys_rand_seed:n { \l_randintlist_seed_int }
+	}
+	
+	% list init
+	\clist_clear:N \l_randintlist_result_clist
+	
+	% repeating or not
+	\bool_if:NTF \l_randintlist_repeat_bool
+	{% w repeating
+		\int_step_inline:nnnn { 1 } { 1 } { \l_randintlist_nb_int }
+		{
+			\bool_set_false:N \l_randintlist_keepvalue_bool
+			
+			\bool_until_do:Nn \l_randintlist_keepvalue_bool
+			{
+				\int_set:Nn \l_randintlist_random_number
+				{
+					\fp_eval:n { randint( \l_randintlist_min_int , \l_randintlist_max_int ) }
+				}
+				\tl_set:Ne \l_tmpa_tl { \int_use:N \l_randintlist_random_number }
+				
+				\clist_if_in:NeTF \l_randintlist_excluded_clist { \l_tmpa_tl }
+				{
+					\bool_set_false:N \l_randintlist_keepvalue_bool 
+				}
+				{
+					\bool_set_true:N \l_randintlist_keepvalue_bool
+					\clist_put_right:Ne \l_randintlist_result_clist { \int_use:N \l_randintlist_random_number }
+				}
+			}
+		}
+	}
+	{%w/o repetitions
+		\seq_clear_new:N \l_tmpa_seq
+		
+		\int_step_inline:nnnn { \l_randintlist_min_int } { 1 } { \l_randintlist_max_int }
+		{
+			%creation of [min,...,max] list
+			
+			\clist_if_in:NnTF \l_randintlist_excluded_clist { ##1 }
+			{
+				\bool_set_false:N \l_randintlist_keepvalue_bool 
+			}
+			{
+				\bool_set_true:N \l_randintlist_keepvalue_bool
+				\seq_put_right:Nn \l_tmpa_seq { ##1 }
+			}
+		}
+		
+		%shuffle
+		\seq_shuffle:N \l_tmpa_seq
+
+		%truncate
+		\clist_clear_new:N \l_randintlist_result_clist
+		\int_step_inline:nnnn { 1 } { 1 } { \l_randintlist_nb_int }
+		{
+			\seq_pop_left:NN \l_tmpa_seq \l_tmpa_tl
+			\clist_put_right:Ne \l_randintlist_result_clist { \l_tmpa_tl }
+		}
+	}
+	
+	%sort or not
+	\str_set:Ne \l_randintlist_sort_str { \tl_use:N \l_randintlist_sort_tl }
+	\str_case:Nn { \l_randintlist_sort_str }
+	{
+		{asc}  { \clist_sort:Nn \l_randintlist_result_clist { \int_compare:nNnTF { ##1 } > { ##2 } { \sort_return_swapped: } { \sort_return_same: } } }
+		{des}  { \clist_sort:Nn \l_randintlist_result_clist { \int_compare:nNnTF { ##1 } < { ##2 } { \sort_return_swapped: } { \sort_return_same: } } }
+	}
+	
+	%storing
+	\tl_gset:Ne #3 {
+		\clist_use:Nn \l_randintlist_result_clist { #2 }
+	}
+	%\group_end:
+}
+
+
+\NewDocumentCommand\rdlgetitem{ s m m O{\resmyelt} }{%
+	\clist_set:Ne \l_randintlist_clist {#2}
+	\IfBooleanTF{#1}
+	{
+		\clist_item:Nn \l_randintlist_clist { #3 }
+	}
+	{
+		\tl_gset:Ne #4{ \clist_item:Nn \l_randintlist_clist { #3 } }
+	}
+}
+
+\endinput

@@ -1,0 +1,642 @@
+% updatemarks.sty 
+% Copyright 2023-2025 Wenjian Chern.
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Wenjian Chern.
+%
+% This work consists of the files updatemarks.sty, updatemarks.tex and parserange.sty
+%
+\NeedsTeXFormat{LaTeX2e}
+\@ifundefined{NewDocumentCommand}{\RequirePackage{xparse}}{}
+\ProvidesExplPackage{updatemarks}{2025/05/09}{0.4a}{extract and update marks from box}
+\RequirePackage{etoolbox}
+\RequirePackage{updatemarks-nums}
+
+\seq_new:N \g__updatemarks_seq
+\box_new:N \l__updatemarks_r_box 
+\cs_new_eq:NN \l__updatemarks_s_box \l_tmpa_box % this box is used for locally split
+\tex_countdef:D \g_updatemarks_max_int 256 \exp_stop_f:
+\tl_new:N \l__updatemarks_tl
+\tl_new:N \g__updatemarks_saved_tl
+
+%% basicly copy from \__mark_extract_and_handle_marks:nn of LaTeX kernel 
+\cs_new_protected:Npn \__updatemarks_extract:nnn #1#2#3 % material, map of number, code 
+  {
+    \__updatemarks_extract:nn {#1}
+      { \__updatemarks_extract_split:nn {#2} {#3} }
+  }
+\cs_if_exist:NTF \__mark_extract_and_handle_marks:nn
+  {
+    \cs_new_protected:Npn \__updatemarks_extract:nn #1#2
+      { \__mark_extract_and_handle_marks:nn {#2} {#1} }
+  }
+  {
+    \cs_new_protected:Npn \__updatemarks_extract:nn #1#2 % material, code
+      {
+        \group_begin:
+        \dim_set_eq:NN \tex_splitmaxdepth:D \c_max_dim
+        \int_set_eq:NN \tex_vbadness:D      \c_max_int
+        \dim_set_eq:NN \tex_vfuzz:D         \c_max_dim
+        \__updatemarks_prepare_and_extract:nn {#2} {#1}
+        \group_end:
+      }
+    % old mechanism
+    \cs_new_protected:Npn \__updatemarks_prepare_and_extract:nn #1#2 % code, material
+      {
+        \vbox_set_to_ht:Nnw \l__updatemarks_r_box { -.5 \c_max_dim }
+          #2 \tex_unskip:D 
+          \box_set_to_last:N \l__updatemarks_r_box
+          \int_compare:nNnT { \tex_lastnodetype:D } < { 0 }
+            {
+              \box_if_vertical:NT \l__updatemarks_r_box
+                {
+                  \vbox_set_to_ht:Nnn \l__updatemarks_r_box { -.5 \c_max_dim }
+                    { \vbox_unpack:N \l__updatemarks_r_box \tex_kern:D \c_zero_dim }
+                  \int_compare:nNnT { \tex_badness:D } > { 0 }
+                    { \vbox_unpack:N \l__updatemarks_r_box }
+                }
+            }
+          \tex_kern:D \c_zero_dim
+        \vbox_set_end:
+        \int_compare:nNnTF { \tex_badness:D } > { 0 }
+          {
+            \vbox_set_split_to_ht:NNn \l__updatemarks_s_box \l__updatemarks_r_box \c_max_dim
+            #1
+          }
+          { \msg_error:nn { updatemarks } { infinite-shrinkage } }
+      }
+    % new mechanism, copy a LaTeX kernel command
+    \cs_if_exist:NT \__mark_prepare_and_extract:nn
+      {
+        \cs_gset_eq:NN \__updatemarks_prepare_and_extract:nn 
+          \__mark_prepare_and_extract:nn
+      }
+  }
+\cs_new_protected:Npn \__updatemarks_extract_split:nn #1#2 % map of number, code 
+  {
+    #1 
+      { 
+        \tl_set:No \l_updatemarks_last_tl { \tex_splitbotmarks:D ##1 }
+        \tl_if_empty:NTF \l_updatemarks_last_tl
+          {
+            \cs_undefine:N \l_updatemarks_first_tl
+            \cs_undefine:N \l_updatemarks_last_tl
+          }
+          { 
+            \tl_set:No \l_updatemarks_first_tl { \tex_splitfirstmarks:D ##1 } 
+            \tl_if_empty:NT \l_updatemarks_first_tl
+              { \cs_undefine:N \l_updatemarks_first_tl }
+          }
+        #2
+      }
+  }
+\cs_new_protected:Npn \__updatemarks_extract_num:n #1 % number 
+  {
+    \tl_if_exist:NT \l_updatemarks_last_tl
+      {
+        \tl_if_exist:cF { g__updatemarks_first-#1_tl }
+          { \tl_gset_eq:cN { g__updatemarks_first-#1_tl } \l_updatemarks_first_tl }
+        \tl_gset_eq:cN { g__updatemarks_last-#1_tl } \l_updatemarks_last_tl
+      }
+  }
+\cs_new_protected:Npn \__updatemarks_extract_for_reinsertion:nn #1#2 % material, map 
+  {
+    \__updatemarks_extract:nn {#1}
+      {
+        #2
+          {
+            \tl_if_empty:oF { \tex_splitbotmarks:D ##1 }
+              { 
+                \tl_if_empty:oF { \tex_splitfirstmarks:D ##1 }
+                  {
+                    \tl_gput_right:Nx \g__updatemarks_saved_tl
+                      {
+                        \tex_marks:D ##1
+                          { \exp_not:N \exp_not:n { \tex_splitfirstmarks:D ##1 } }
+                      }
+                  }
+                \tl_gput_right:Nx \g__updatemarks_saved_tl
+                  {
+                    \tex_marks:D ##1
+                      { \exp_not:N \exp_not:n { \tex_splitbotmarks:D ##1 } }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \updatemarks_extract:nN #1#2 % box material, seq 
+  {
+    \__updatemarks_extract:nnn {#1}
+      { \seq_map_inline:Nn #2 }
+      { \__updatemarks_extract_num:n {##1} }
+  }
+\cs_new_protected:Npn \updatemarks_extract_split:N #1 % seq 
+  {
+    \__updatemarks_extract_split:nn 
+      { \seq_map_inline:Nn #1 }
+      { \__updatemarks_extract_num:n {##1} }
+  }
+\cs_new_protected:Npn \updatemarks_extract:nNN #1#2#3
+  {
+    \tl_clear:N \g__updatemarks_saved_tl
+    \__updatemarks_extract_for_reinsertion:nn {#1}
+      { \seq_map_inline:Nn #2 }
+    \tl_set_eq:NN #3 \g__updatemarks_saved_tl
+  }
+\cs_new_eq:NN \__updatemarks_extract_act:n ?
+\cs_new_protected:Npn \updatemarks_extract_act:nNn #1#2#3 % material, seq, code 
+  {
+    \cs_set_protected:Npn \__updatemarks_extract_act:n ##1 {#3}
+    \__updatemarks_extract:nnn {#1} 
+      { \seq_map_inline:Nn #2 }
+      { \__updatemarks_extract_act:n {##1} }
+  }
+
+
+\bool_new:N \l_updatemarks_nonempty_bool 
+\tl_new:N \l__updatemarks_saved_tl
+\cs_new_protected:Npn \updatemarks_save:Nnn #1#2#3 % seq, pos, value 
+  { 
+    \bool_if:NTF \l_updatemarks_nonempty_bool
+      {
+        \seq_map_inline:Nn #1
+          {
+            \tl_set:No \l__updatemarks_saved_tl { #3 {##1} }
+            \tl_if_empty:NF \l__updatemarks_saved_tl
+              { \tl_gset_eq:cN { g__updatemarks_#2-##1_tl } \l__updatemarks_saved_tl }
+          }
+      }
+      {
+        \seq_map_inline:Nn #1 
+          {
+            \tl_gset:co { g__updatemarks_#2-##1_tl } { #3 {##1} } 
+          }
+      }
+  }
+\cs_new_protected:Npn \updatemarks_save_e:Nnn #1#2#3 % seq, pos, value 
+  { 
+    \bool_if:NTF \l_updatemarks_nonempty_bool
+      {
+        \seq_map_inline:Nn #1
+          {
+            \tl_set:Nx \l__updatemarks_saved_tl { #3 {##1} }
+            \tl_if_empty:NF \l__updatemarks_saved_tl
+              { \tl_gset_eq:cN { g__updatemarks_#2-##1_tl } \l__updatemarks_saved_tl }
+          }
+      }
+      {
+        \seq_map_inline:Nn #1 
+          {
+            \tl_gset:cx { g__updatemarks_#2-##1_tl } { #3 {##1} } 
+          }
+      }
+  }
+\cs_new_eq:NN \updatemarks_save_x:Nnn \updatemarks_save_e:Nnn 
+\cs_new_protected:Npn \updatemarks_alias:Nnn #1#2#3 % seq, pos1, pos2
+  {
+    \bool_if:NTF \l_updatemarks_nonempty_bool
+      {
+        \seq_map_inline:Nn #1
+          {
+            \tl_set_eq:Nc \l__updatemarks_saved_tl { g__updatemarks_#3-##1_tl }
+            \tl_if_empty:NF \l__updatemarks_saved_tl
+              { \tl_gset_eq:cN { g__updatemarks_#2-##1_tl } \l__updatemarks_saved_tl }
+          }
+      }
+      {
+        \seq_map_inline:Nn #1
+          { \tl_gset_eq:cc { g__updatemarks_#2-##1_tl } { g__updatemarks_#3-##1_tl } }
+      }
+  }
+\cs_new_protected:Npn \updatemarks_remove:Nn #1#2 % seq, pos
+  { \seq_map_inline:Nn #1 { \cs_undefine:c { g__updatemarks_#2-##1_tl } } }
+\cs_new:Npn \updatemarks_value:nn #1#2 % pos, number
+  {
+    \tl_if_exist:cTF { g__updatemarks_#1- \int_eval:n {#2} _tl }
+      { \exp_not:v { g__updatemarks_#1- \int_eval:n {#2} _tl } } { }
+  }
+
+
+\cs_new_protected:Npn \updatemarks_update:N #1 % seq 
+  {
+    \seq_if_empty:NF #1
+      {
+        \seq_map_inline:Nn #1
+          {
+            \tl_if_exist:cT { g__updatemarks_last-##1_tl }
+              {
+                \tl_if_exist:cT { g__updatemarks_first-##1_tl }
+                  { \tex_marks:D ##1 { \exp_not:v { g__updatemarks_first-##1_tl } } }
+                \tex_marks:D ##1 { \exp_not:v { g__updatemarks_last-##1_tl } } 
+              }
+            \cs_undefine:c { g__updatemarks_first-##1_tl }
+            \cs_undefine:c { g__updatemarks_last-##1_tl }
+          }
+        \if@nobreak\ifvmode\nobreak\fi\fi
+      }
+  }
+\cs_new_protected:Npn \__updatemarks_gput:Nn #1#2
+  {
+    \group_begin:
+    \cs_set_eq:NN \MarkClass \__updatemarks_class_num:n 
+    \cs_set_eq:NN \MaxClass \g_updatemarks_max_int
+    \parserange_use_delimiter:n { -> }
+    \parserange_check:
+    \parserange_set_to_int:n { \__updatemarks_maybe_class:n {##1} }
+    \parserange:nnnN { 0 } { \g_updatemarks_max_int } {#2} \g__updatemarks_seq
+    \seq_gset_eq:NN #1 \g__updatemarks_seq
+    \seq_gremove_duplicates:N #1
+    \group_end:
+  }
+\cs_new_protected:Npn \updatemarks_parse_classes:Nn { \__updatemarks_gput:Nn }
+
+\cs_new:Npn \__updatemarks_class_num:n #1 
+  { 
+    \cs_if_exist_use:cF { c__mark_class_ #1 _mark }
+      { -1 \msg_expandable_error:nnn { updatemarks } { unknown-class } {#1} }
+  }
+\cs_new:Npn \__updatemarks_maybe_class:n #1
+  { 
+    \tl_if_head_eq_meaning:nNTF {#1} [ % ]
+      { \__updatemarks_maybe_class_aux:w #1 } {#1}
+  }
+\cs_new:Npn \__updatemarks_maybe_class_aux:w [#1] { \__updatemarks_class_num:n {#1} }
+
+
+\seq_new:N \g_updatemarks_seq 
+\NewDocumentCommand \ExtractMarks { s o +m }
+  {
+    \tl_if_novalue:nTF {#2}
+      {
+        \updatemarks_extract:nN 
+          { 
+            \bool_if:nTF {#1} { #3 }
+              {
+                \if_hbox:N #3 \hbox_unpack:N #3 \scan_stop: \fi:
+                \if_vbox:N #3 \vbox_unpack:N #3 \scan_stop: \fi:
+              }
+          } 
+          \g_updatemarks_seq
+      }
+      {
+        \seq_gclear:N \g__updatemarks_seq
+        \__updatemarks_gput:Nn \g__updatemarks_seq {#2}
+        \updatemarks_extract:nN 
+          { 
+            \bool_if:nTF {#1} { #3 }
+              {
+                \if_hbox:N #3 \hbox_unpack:N #3 \scan_stop: \fi:
+                \if_vbox:N #3 \vbox_unpack:N #3 \scan_stop: \fi:
+              }
+          } 
+          \g__updatemarks_seq
+      }
+  }
+\NewDocumentCommand \ExtractMarksTo { s o +m m }
+  {
+    \tl_if_novalue:nTF {#2}
+      {
+        \updatemarks_extract:nNN
+          { 
+            \bool_if:nTF {#1} { #3 }
+              {
+                \if_hbox:N #3 \hbox_unpack:N #3 \scan_stop: \fi:
+                \if_vbox:N #3 \vbox_unpack:N #3 \scan_stop: \fi:
+              }
+          } 
+          \g_updatemarks_seq #4
+      }
+      {
+        \seq_gclear:N \g__updatemarks_seq
+        \__updatemarks_gput:Nn \g__updatemarks_seq {#2}
+        \updatemarks_extract:nNN
+          { 
+            \bool_if:nTF {#1} { #3 }
+              {
+                \if_hbox:N #3 \hbox_unpack:N #3 \scan_stop: \fi:
+                \if_vbox:N #3 \vbox_unpack:N #3 \scan_stop: \fi:
+              }
+          } 
+          \g__updatemarks_seq #4
+      }
+  }
+\NewDocumentCommand \ExtractSplitMarks { o }
+  {
+    \tl_if_novalue:nTF {#1}
+      { \updatemarks_extract_split:N \g_updatemarks_seq }
+      {
+        \seq_gclear:N \g__updatemarks_seq
+        \__updatemarks_gput:Nn \g__updatemarks_seq {#1}
+        \updatemarks_extract_split:N \g__updatemarks_seq
+      }
+  }
+\NewDocumentCommand \UpdateMarks { o }
+  {
+    \tl_if_novalue:nTF {#1}
+      { \updatemarks_update:N \g_updatemarks_seq }
+      {
+        \seq_gclear:N \g__updatemarks_seq
+        \__updatemarks_gput:Nn \g__updatemarks_seq {#1}
+        \updatemarks_update:N \g__updatemarks_seq
+      }
+  }
+\cs_new_protected:Npn \AddToUpdateMarksList 
+  { \__updatemarks_gput:Nn \g_updatemarks_seq }
+\cs_new_protected:Npn \SetUpdateMarksList 
+  { 
+    \seq_gclear:N \g_updatemarks_seq 
+    \AddToUpdateMarksList 
+  }
+\cs_new_protected:Npn \RemoveFromUpdateMarksList #1
+  {
+    \__updatemarks_gput:Nn \g__updatemarks_seq {#1}
+    % to support old expl3, do not use \seq_map_tokens:Nn
+    \seq_map_inline:Nn \g__updatemarks_seq 
+      { \seq_gremove_all:Nn \g_updatemarks_seq {##1} }
+  }
+\cs_new_protected:Npn \AddAllocatedToUpdateMarksList
+  {
+    \int_step_inline:nnn { 0 } { \g_updatemarks_max_int }
+      { \seq_gput_right:Nn \g_updatemarks_seq {##1} }
+    \seq_gremove_duplicates:N \g_updatemarks_seq
+  }
+
+\cs_new_protected:Npn \__updatemarks_get_all_classes:
+  {
+    \seq_map_inline:Nn \g__mark_classes_seq
+      { 
+        \seq_gput_right:Nx \g_updatemarks_classes_seq 
+          { \int_value:w \__updatemarks_class_num:n {##1} } 
+      }
+  }
+\seq_new:N \g_updatemarks_classes_seq
+\cs_if_exist:NTF \g__mark_classes_seq
+  { 
+    \hook_gput_code:nnn { begindocument/end } { updatemarks }
+      {
+        \__updatemarks_get_all_classes: 
+        \AddAllocatedToUpdateMarksList
+      }
+  }
+  { 
+    \AtBeginDocument { \AddAllocatedToUpdateMarksList }
+  }
+
+\msg_new:nnn { updatemarks } { unknown-class } { Unknown~mark~class~`#1'. }
+\msg_new:nnn { updatemarks } { infinite-shrinkage }
+  { Infinite~shrinkage~found~when~extracting~marks. }
+
+
+\cs_new_protected:Npn \savemarks@of #1 #2 #3
+  {
+    \bool_if:cT { l__updatemarks_#1_bool }
+      { \updatemarks_save:Nnn \g_updatemarks_seq {#2} {#3} }
+  }
+\cs_new_protected:Npn \removemarks@of #1 #2
+  {
+    \bool_if:cT { l__updatemarks_#1_bool }
+      { \updatemarks_remove:Nn \g_updatemarks_seq {#2} }
+  }
+\cs_new_protected:Npn \updatemarks@of #1
+  { 
+    \bool_if:cT { l__updatemarks_#1_bool }
+      { \updatemarks_update:N \g_updatemarks_seq }
+  }
+\cs_new_protected:Npn \extractmarks@of #1 #2
+  {
+    \bool_if:cT { l__updatemarks_#1_bool }
+      { \updatemarks_extract:nN { #2 } \g_updatemarks_seq }
+  }
+\cs_new_protected:Npn \extractsplitmarks@of #1
+  {
+    \bool_if:cT { l__updatemarks_#1_bool }
+      { \updatemarks_extract_split:N \g_updatemarks_seq }
+  }
+% \let\updatemarks@@imakebox\@imakebox
+% % savebox and makebox 
+% \cs_if_exist:NF \updatemarks@makebox@patch
+%   {
+%     \patchcmd \@imakebox { \hb@xt@ } { \extractmarks@of{makebox}\hb@xt@ }
+%       { } { \ERROR }
+%     \patchcmd \@imakebox { \@end@tempboxa } { \updatemarks@of{makebox}\@end@tempboxa }
+%       { } { \ERROR }
+%   }
+\let\updatemarks@endminipage\endminipage
+% minipage 
+\cs_if_exist_use:NF \updatemarks@minipage@patch
+  {
+    \patchcmd \endminipage 
+      { \color@endgroup\egroup } 
+      { \color@endgroup\egroup\extractmarks@of{minipage}{\unvcopy\@tempboxa} } 
+      { } { \ERROR }
+    \apptocmd \endminipage { \updatemarks@of{minipage} } { } { \ERROR }
+  }
+% tcolorbox
+\cs_if_exist:NTF \updatemarks@tcolorbox@patch { \use_none:n } 
+  { \tl_const:Nn \updatemarks@tcolorbox@patch }
+  {
+    \tcbset{updatemarks/.is~choice,
+      updatemarks/true/.code=\bool_set_true:N \l__updatemarks_tcolorbox_bool,
+      updatemarks/false/.code=\bool_set_false:N \l__updatemarks_tcolorbox_bool,
+      updatemarks/.default=true}
+    \patchcmd \tcbox@inner@hbox { \tcbdimto }
+      { \extractmarks@of{tcolorbox}{\unhcopy\tcb@upperbox}\tcbdimto }
+      { } { \ERROR }
+    \let\endtcb@lrbox=\updatemarks@endminipage
+    \patchcmd \endtcb@lrbox 
+      { \color@endgroup\egroup } 
+      { \color@endgroup\egroup\extractmarks@of{tcolorbox}{\unvcopy\@tempboxa} } 
+      { } { \ERROR }
+    \let\endtcb@savebox=\endtcb@lrbox
+    \ifdefined\tcb@drawing@env@end
+      \patchcmd \tcb@drawing@env@end { \csname }
+        { \updatemarks@of{tcolorbox}\csname } { } { \ERROR }
+    \else
+      \ifcsname environment~tcb@drawing~end~aux~ \endcsname
+        \tl_set:Nv \l_tmpa_tl { environment~tcb@drawing~end~aux~ }
+        \tl_if_in:NnF \l_tmpa_tl { \use:c } { \ERROR }
+        \tl_replace_once:Nnn \l_tmpa_tl { \use:c } { \updatemarks@of{tcolorbox}\use:c }
+        \exp_args:Nno \cs_set_nopar:cpn { environment~tcb@drawing~end~aux~ } \l_tmpa_tl
+      \else \ERROR \fi
+    \fi
+    % breakable library
+    \ifdefined \tcb@vsplit@upper 
+      \apptocmd \tcb@vsplit@upper { \extractsplitmarks@of{tcolorbox} } { } { \ERROR }
+      \apptocmd \tcb@vsplit@lower { \extractsplitmarks@of{tcolorbox} } { } { \ERROR }
+      \patchcmd \tcb@split@start { \iftcb@final@box }
+        { \iftcb@final@box 
+          \extractmarks@of{tcolorbox}{\unvcopy\tcb@upperbox\unvcopy\tcb@lowerbox} } 
+        { } { \ERROR }
+      \patchcmd \tcb@split@start 
+        { \tcb@comp@h@page\tcb@check@for@final@box\iftcb@final@box }
+        { \tcb@comp@h@page\tcb@check@for@final@box\iftcb@final@box 
+          \extractmarks@of{tcolorbox}{\unvcopy\tcb@upperbox\unvcopy\tcb@lowerbox}}
+        { } { \ERROR }
+      \patchcmd \tcb@split@USL { \iftcb@final@box }
+        { \iftcb@final@box 
+          \extractmarks@of{tcolorbox}{\unvcopy\tcb@totalupperbox 
+            \iftcb@lowerspace\unvcopy\tcb@totallowerbox\fi } 
+        } 
+        { } { \ERROR }
+      \patchcmd \tcb@split@SL@displayed { \iftcb@final@box }
+        { \iftcb@final@box 
+          \extractmarks@of{tcolorbox}{\unvcopy\tcb@totallowerbox} } 
+        { } { \ERROR }
+      \patchcmd \tcb@split@L { \iftcb@final@box }
+        { \iftcb@final@box 
+          \extractmarks@of{tcolorbox}{\unvcopy\tcb@totallowerbox} } 
+        { } { \ERROR }
+    \fi 
+  }
+% multicol
+\cs_if_exist:NTF \updatemarks@multicol@patch { \use_none:n }
+  { \tl_const:Nn \updatemarks@multicol@patch }
+  {
+    %% multicol v2.0 has built-in support for new mark mechanism
+    \cs_if_exist:NF \__mc_update_mcol_structures:
+      {
+        %% the patch is used to extract marks
+        \tl_set:No \set@keptmarks 
+          { \set@keptmarks \extractsplitmarks@of{multicol} }
+
+        %% the patch is used for boxmulticols
+        \patchcmd \endmulticols { \page@sofar }
+          { \updatemarks@of{multicol}\page@sofar }
+          { } { \ERROR }
+
+        %% the patch is used for middle page to remove unnecessary extract
+        \patchcmd \multi@column@out { \let\topmark\kept@topmark }
+          { 
+            \let\topmark\kept@topmark 
+            \removemarks@of{multicol}{first}
+            \removemarks@of{multicol}{last}
+          }
+          { } { \ERROR }
+
+        %% the patch is used for final page
+        \patchcmd \balance@columns@out { \page@sofar }
+          { \updatemarks@of{multicol}\page@sofar }
+          { } { \ERROR }
+
+        %% these patches are used to update marks after forced break 
+        \patchcmd \balance@columns@out { \unvbox\colbreak@box }
+          { \extractmarks@of{multicol}{\unvcopy\colbreak@box}\unvbox\colbreak@box }
+          { } { \ERROR }
+        \patchcmd \balance@columns@out { \unvbox\@cclv }
+          { \extractmarks@of{multicol}{\unvcopy\@cclv}\unvbox\@cclv }
+          { } { \ERROR }
+        \patchcmd \balance@columns { \get@keptmarks\mult@box }
+          { \if@boxedmulticols\get@keptmarks\mult@box\fi }
+          { } { }
+
+        % patches of new mark mechanism 
+        \updatemarks@multicolnewmark@patch
+      }
+  }
+\cs_if_exist:NTF \updatemarks@adjmulticol@patch { \use_none:n }
+  { \tl_const:Nn \updatemarks@adjmulticol@patch }
+  {
+    \patchcmd \adjmc@process@ne@column { \unvbox }
+      { \extractmarks@of{multicol}{\unvcopy\mult@box}\unvbox }
+      { } { \ERROR }
+    \updatemarks@adjmulticolnewmark@patch
+  }
+\cs_if_exist:NTF \updatemarks@paracol@patch { \use_none:n }
+  { \tl_const:Nn \updatemarks@paracol@patch }
+  {
+    \updatemarks@paracolnewmark@patch 
+  }
+
+\AtBeginDocument{
+  \@ifpackageloaded{tcolorbox}{\updatemarks@tcolorbox@patch}{}
+  \@ifpackageloaded{multicol}{\updatemarks@multicol@patch}{}
+  \@ifpackageloaded{adjmulticol}{\updatemarks@adjmulticol@patch}{}
+  \@ifpackageloaded{paracol}{\updatemarks@paracol@patch}{}
+} 
+
+
+\keys_define:nn { updatemarks }
+  {
+%    makebox .bool_set:N = \l__updatemarks_makebox_bool ,
+    minipage  .bool_set:N = \l__updatemarks_minipage_bool  ,
+    tcolorbox .bool_set:N = \l__updatemarks_tcolorbox_bool ,
+    multicol  .bool_set:N = \l__updatemarks_multicol_bool  ,
+    multicols .bool_set:N = \l__updatemarks_multicol_bool  ,
+    paracol   .bool_set:N = \l__updatemarks_paracol_bool   ,
+  }
+
+\cs_if_exist:NTF \ProcessKeyOptions
+  { \ProcessKeyOptions [ updatemarks ] }
+  {
+    \RequirePackage{l3keys2e}
+    \ProcessKeysOptions { updatemarks }
+  }
+
+\cs_if_free:NT \mark_new_class:n 
+  {
+    \providecommand \updatemarks@multicolnewmark@patch { }
+    \providecommand \updatemarks@adjmulticolnewmark@patch { }
+    \providecommand \updatemarks@paracolnewmark@patch { }
+    \endinput 
+  }
+
+\tl_const:Nn \updatemarks@multicol@firstpage
+  {
+    \bool_if:NT \l__updatemarks_multicol_bool
+      {
+        \bool_set_false:N \l_updatemarks_nonempty_bool
+        \updatemarks_save:Nnn \g_updatemarks_seq { top } { \tex_topmarks:D \use:n }
+      }
+  }
+\tl_const:Nn \updatemarks@multicol@middlepage
+  {
+    \__mark_update_structure_alias:nn { previous-page } { page }
+    \seq_map_inline:Nn \g__mark_classes_seq
+      {
+        \tl_gset_eq:cc { g__mark_page_top_#1_tl } { g__mark_page_last_#1_tl }
+
+        \tl_set:Nx \l__updatemarks_tl
+          { \updatemarks_value:nn { first } { \__updatemarks_class_num:n {#1} } }
+        \tl_if_empty:NTF \l__updatemarks_tl
+          { \tl_gset_eq:cc { g__mark_page_first_#1_tl } { g__mark_page_last_#1_tl } }
+          { \tl_gset_eq:cN { g__mark_page_first_#1_tl } \l__updatemarks_tl }
+
+        \tl_set:Nx \l__updatemarks_tl
+          { \updatemarks_value:nn { last } { \__updatemarks_class_num:n {#1} } }
+        \tl_if_empty:NF \l__updatemarks_tl
+          { \tl_gset_eq:cN { g__mark_page_last_#1_tl } \l__updatemarks_tl }
+      }
+    \updatemarks_remove:Nn \g_updatemarks_seq { top }
+    \updatemarks_remove:Nn \g_updatemarks_seq { first }
+    \updatemarks_remove:Nn \g_updatemarks_seq { last }
+  }
+
+\providecommand \updatemarks@multicolnewmark@patch
+  {
+    \patchcmd \prep@keptmarks { \fi }
+      { \updatemarks@multicol@firstpage\fi }
+      { } { \ERROR }
+    \patchcmd \multi@column@out
+      { 
+        \removemarks@of{multicol}{first}
+        \removemarks@of{multicol}{last}
+      }
+      { }
+      { } { \ERROR }
+    \patchcmd \multi@column@out { \@makecol }
+      { \@makecol\updatemarks@multicol@middlepage }
+      { } { \ERROR }
+  }
+
+\providecommand \updatemarks@adjmulticolnewmark@patch { }
+\providecommand \updatemarks@paracolnewmark@patch { }

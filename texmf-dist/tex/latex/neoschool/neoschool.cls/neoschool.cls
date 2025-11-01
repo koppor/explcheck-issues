@@ -1,0 +1,8429 @@
+% neoschool.cls
+%
+% copyright (C) 2025 Razik Ikhlef
+% razik.ikhlef@csilyon.fr
+%
+% The newest version of this documentclass should always be available
+% from the following web page: https://apps.edulatex.xyz/neoschool/
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesClass{neoschool}[2025/10/25 v1.1.0]
+
+\RequirePackage[table,svgnames,dvipsnames,x11names]{xcolor}
+
+\RequirePackage{kvoptions}
+\RequirePackage{siunitx}
+\RequirePackage{pgffor}
+
+\SetupKeyvalOptions{
+    family=neoschool,
+    prefix=neoschool@
+}
+
+% Color Themes
+\DeclareStringOption[classic]{theme}
+
+\def\neo@abyss{abyss}
+\def\neo@aether{aether}
+\def\neo@atlantic{atlantic}
+\def\neo@autumn{autumn}
+\def\neo@blossom{blossom}
+\def\neo@botanical{botanical}
+\def\neo@burgundy{burgundy}
+\def\neo@classic{classic}
+\def\neo@cyprus{cyprus}
+\def\neo@day{day}
+\def\neo@deepocean{deepocean}
+\def\neo@duo{duo}
+\def\neo@eagle{eagle}
+\def\neo@foresthues{foresthues}
+\def\neo@frost{frost}
+\def\neo@glacier{glacier}
+\def\neo@goldensummer{goldensummer}
+\def\neo@graphite{graphite}
+\def\neo@heather{heather}
+\def\neo@heritage{heritage}
+\def\neo@kassio{kassio}
+\def\neo@magma{magma}
+\def\neo@midnight{midnight}
+\def\neo@purplebliss{purplebliss}
+\def\neo@retrocafe{retrocafe}
+\def\neo@saffronsky{saffronsky}
+\def\neo@scribe{scribe}
+\def\neo@sepia{sepia}
+\def\neo@summer{summer}
+\def\neo@winkle{winkle}
+
+\ProcessKeyvalOptions*\relax
+
+\def\neo@default@globalcolor{black}
+\newif\ifneo@darktheme
+\neo@darkthemefalse
+
+% Palettes
+% Usage: {Definition} {Theorem} {Comprehension} {Method} {Exercise}
+\newcommand{\neo@set@theme@palette}[5]{%
+    \definecolor{definitionBaseColor}{HTML}{#1}%
+    \definecolor{theoremBaseColor}{HTML}{#2}%
+    \definecolor{comprehensionBaseColor}{HTML}{#3}%
+    \definecolor{methodBaseColor}{HTML}{#4}%
+    \definecolor{exerciseBaseColor}{HTML}{#5}%
+}
+
+% 1. ABYSS
+\ifx\neoschool@theme\neo@abyss
+    \neo@set@theme@palette{349A96}{0F4D4A}{2D6B8F}{5A6E7A}{7B4B8C}
+
+% 2. AETHER
+\else\ifx\neoschool@theme\neo@aether
+    \neo@set@theme@palette{778899}{5F9EA0}{F4A460}{708090}{4682B4}
+
+% 3. ATLANTIC
+\else\ifx\neoschool@theme\neo@atlantic
+    \neo@set@theme@palette{006D77}{003087}{B05A3F}{005A66}{8B1E3F}
+
+% 4. AUTUMN
+\else\ifx\neoschool@theme\neo@autumn
+    \neo@set@theme@palette{5F0F40}{9A031E}{D0700A}{0F4C5C}{B55588}
+
+% 5. BLOSSOM
+\else\ifx\neoschool@theme\neo@blossom
+    \neo@set@theme@palette{C94C4C}{8B5A2B}{D47500}{6D9F71}{AA4465}
+
+% 6. BOTANICAL
+\else\ifx\neoschool@theme\neo@botanical
+    \neo@set@theme@palette{23783F}{04471C}{A0522D}{432818}{B58523}
+
+% 7. BURGUNDY
+\else\ifx\neoschool@theme\neo@burgundy
+    \neo@set@theme@palette{B55588}{4A0D28}{8D6E63}{6D4653}{A73E5C}
+
+% 8. CLASSIC
+\else\ifx\neoschool@theme\neo@classic
+    \neo@set@theme@palette{4F7C5B}{2A4C7F}{B57F2E}{4B5563}{B85C3A}
+
+% 9. CYPRUS
+\else\ifx\neoschool@theme\neo@cyprus
+    \neo@set@theme@palette{a7601f}{557400}{B85C3A}{3f6faf}{9a456f}
+
+% 10. DAY
+\else\ifx\neoschool@theme\neo@day
+    \neo@set@theme@palette{a45a22}{B04040}{5f7200}{4B5563}{3f60af}
+
+% 11. DEEPOCEAN
+\else\ifx\neoschool@theme\neo@deepocean
+    \neo@set@theme@palette{005F73}{003049}{0A9396}{4B5563}{212529}
+
+% 12. DUO
+\else\ifx\neoschool@theme\neo@duo
+    \neo@set@theme@palette{3f70a0}{9f4a00}{4a7d00}{696969}{6052cf}
+
+% 13. EAGLE
+\else\ifx\neoschool@theme\neo@eagle
+    \neo@set@theme@palette{006e50}{304f60}{822478}{696969}{882000}
+
+% 14. FORESTHUES
+\else\ifx\neoschool@theme\neo@foresthues
+    \neo@set@theme@palette{2D6F72}{274242}{502F28}{A63B2D}{D9532D}
+
+% 15. FROST
+\else\ifx\neoschool@theme\neo@frost
+    \neo@set@theme@palette{007a85}{004fc0}{00845f}{5A6E7A}{B03060}
+
+% 16. GLACIER
+\else\ifx\neoschool@theme\neo@glacier
+    \neo@set@theme@palette{0077B6}{023E8A}{4682B4}{005F8C}{4169E1}
+
+% 17. GOLDENSUMMER
+\else\ifx\neoschool@theme\neo@goldensummer
+    \neo@set@theme@palette{A67E2D}{172940}{725324}{5A6E7A}{CD2D17}
+
+% 18. GRAPHITE
+\else\ifx\neoschool@theme\neo@graphite
+    \neo@set@theme@palette{808080}{252323}{B0B0B0}{545454}{696969}
+
+% 19. HEATHER
+\else\ifx\neoschool@theme\neo@heather
+    \neo@set@theme@palette{8E7AB5}{6B5B95}{B05A3F}{588C7E}{6D4653}
+
+% 20. HERITAGE
+\else\ifx\neoschool@theme\neo@heritage
+    \neo@set@theme@palette{003F2D}{630000}{273E47}{4A403A}{5C2A4F}
+
+% 21. KASSIO
+\else\ifx\neoschool@theme\neo@kassio
+    \neo@set@theme@palette{3060af}{a01f64}{3f6faf}{696969}{d5305f}
+
+% 22. MAGMA
+\else\ifx\neoschool@theme\neo@magma
+    \neo@set@theme@palette{0A9396}{005F73}{AE2012}{001219}{9B2226}
+
+% 23. MIDNIGHT
+\else\ifx\neoschool@theme\neo@midnight
+    \neo@darkthemetrue
+    \definecolor{neo@pagecolor}{HTML}{0B132B}
+    \pagecolor{neo@pagecolor}
+    \definecolor{neo@textcolor}{HTML}{E2E8F0}
+    \def\neo@default@globalcolor{neo@textcolor}
+    \neo@set@theme@palette{00A896}{4361EE}{F9A620}{6A7B9B}{C13B93}
+
+% 24. PURPLEBLISS
+\else\ifx\neoschool@theme\neo@purplebliss
+    \neo@set@theme@palette{8A5FB0}{2A1D42}{B58523}{4F3278}{006D77}
+
+% 25. RETROCAFE
+\else\ifx\neoschool@theme\neo@retrocafe
+    \neo@set@theme@palette{6F1D1B}{3B1F0F}{B58523}{585123}{99582A}
+
+% 26. SAFFRONSKY
+\else\ifx\neoschool@theme\neo@saffronsky
+    \neo@set@theme@palette{B34400}{2B3A67}{D48241}{0F7497}{054B5C}
+
+% 27. SCRIBE
+\else\ifx\neoschool@theme\neo@scribe
+    \neo@set@theme@palette{8B0000}{B58523}{273E47}{432818}{003087}
+
+% 28. SEPIA
+\else\ifx\neoschool@theme\neo@sepia
+    \neo@set@theme@palette{8D6E63}{4E3A2E}{BCAAA4}{6D4C41}{795548}
+
+% 29. SUMMER
+\else\ifx\neoschool@theme\neo@summer
+    \neo@set@theme@palette{008080}{4845D0}{a45f22}{1f6fbf}{B03060}
+
+% 30. WINKLE
+\else\ifx\neoschool@theme\neo@winkle
+    \neo@set@theme@palette{6A5ACD}{483D8B}{B57F2E}{696969}{4169E1}
+
+% DEFAULT (Classic)
+\else
+    \neo@set@theme@palette{4F7C5B}{2A4C7F}{B57F2E}{4B5563}{B85C3A}
+\fi % 30. winkle
+\fi % 29. summer
+\fi % 28. sepia
+\fi % 27. scribe
+\fi % 26. saffronsky
+\fi % 25. retrocafe
+\fi % 24. purplebliss
+\fi % 23. midnight
+\fi % 22. magma
+\fi % 21. kassio
+\fi % 20. heritage
+\fi % 19. heather
+\fi % 18. graphite
+\fi % 17. goldensummer
+\fi % 16. glacier
+\fi % 15. frost
+\fi % 14. foresthues
+\fi % 13. eagle
+\fi % 12. duo
+\fi % 11. deepocean
+\fi % 10. day
+\fi % 9. cyprus
+\fi % 8. classic
+\fi % 7. burgundy
+\fi % 6. botanical
+\fi % 5. blossom
+\fi % 4. autumn
+\fi % 3. atlantic
+\fi % 2. aether
+\fi % 1. abyss
+
+\colorlet{definitionBgColor}{definitionBaseColor!5!white}
+\colorlet{theoremBgColor}{theoremBaseColor!5!white}
+\colorlet{comprehensionBgColor}{comprehensionBaseColor!5!white}
+\colorlet{methodBgColor}{methodBaseColor!5!white}
+\colorlet{exerciseBgColor}{exerciseBaseColor!5!white}
+
+% 1. Fundamental Knowledge
+\colorlet{definitionColor}{definitionBaseColor}
+\colorlet{definitionBgColor}{definitionBgColor}
+
+\colorlet{theoremColor}{theoremBaseColor}
+\colorlet{theoremBgColor}{theoremBgColor}
+\colorlet{lemmaColor}{theoremBaseColor}
+\colorlet{lemmaBgColor}{theoremBgColor}
+\colorlet{corollaryColor}{theoremBaseColor}
+\colorlet{corollaryBgColor}{theoremBgColor}
+\colorlet{propositionColor}{theoremBaseColor}
+\colorlet{propositionBgColor}{theoremBgColor}
+\colorlet{propertyColor}{theoremBaseColor}
+\colorlet{propertyBgColor}{theoremBgColor}
+
+% 2. Comprehension
+\colorlet{comprehensionColor}{comprehensionBaseColor}
+
+\colorlet{exampleColor}{comprehensionBaseColor}
+\colorlet{exampleBgColor}{comprehensionBgColor}
+\colorlet{remarkColor}{comprehensionBaseColor}
+\colorlet{remarkBgColor}{comprehensionBgColor}
+\colorlet{applicationColor}{comprehensionBaseColor}
+\colorlet{applicationBgColor}{comprehensionBgColor}
+
+% 3. Know-how
+\colorlet{methodColor}{methodBaseColor}
+\colorlet{methodBgColor}{methodBgColor}
+
+% 4. Training
+\colorlet{exerciseColor}{exerciseBaseColor}
+\colorlet{exerciseBgColor}{exerciseBgColor}
+\colorlet{activityColor}{exerciseBaseColor}
+\colorlet{activityBgColor}{exerciseBgColor}
+
+% Solution boxes (using method color for neutrality)
+\colorlet{solutionColor}{methodBaseColor}
+\colorlet{solutionBgColor}{methodBgColor}
+
+% Structural Colors (titles, sections, etc.)
+\colorlet{titleColor}{theoremBaseColor}
+\colorlet{sectionColor}{theoremBaseColor}
+\colorlet{subsectionColor}{theoremBaseColor!80!black}
+\colorlet{subsubsectionColor}{methodBaseColor}
+
+% Lines, headers, footers
+\colorlet{structuralColor}{black!70}
+\ifneo@darktheme
+    \colorlet{structuralColor}{white!70}
+\fi
+
+\colorlet{alternateColor}{structuralColor}
+
+% Code/Verbatim Colors
+\colorlet{codeBackground}{methodBgColor}
+\colorlet{verbColor}{methodBaseColor}
+\colorlet{codeKeyword}{theoremBaseColor}
+\colorlet{codeString}{exerciseBaseColor}
+\colorlet{codeComment}{structuralColor!40!white}
+\colorlet{codeNumber}{comprehensionBaseColor!70!black}
+\colorlet{codeEmph}{definitionBaseColor}
+
+% Other Colors
+\colorlet{specialbgColor}{white}
+\colorlet{answerfieldbgColor}{exerciseBgColor}
+\colorlet{answerframeBgColor}{specialbgColor}
+\colorlet{answerframeFrameColor}{exerciseColor}
+\colorlet{emptyboxBgColor}{exerciseBgColor}
+\definecolor{neoCorrectColor}{HTML}{16A085}
+\definecolor{neoIncorrectColor}{HTML}{C0392B}
+\colorlet{mathColor}{definitionColor}
+\colorlet{mathHighlightColor}{comprehensionColor!25!white}
+
+% Dark theme adjustments
+\ifneo@darktheme
+    \definecolor{specialbgColor}{HTML}{3A3A3A}
+    \definecolor{answerfieldbgColor}{HTML}{3A3A3A}
+    \colorlet{answerframeBgColor}{specialbgColor}
+    \colorlet{answerframeFrameColor}{exerciseColor}
+    \colorlet{emptyboxBgColor}{exerciseBaseColor!10!black}
+    \colorlet{codeBackground}{theoremColor!15!black}
+    \colorlet{codeKeyword}{theoremBaseColor}
+    \colorlet{codeString}{exerciseBaseColor}
+    \colorlet{codeComment}{structuralColor}
+    \colorlet{codeNumber}{comprehensionBaseColor}
+    \colorlet{codeEmph}{definitionBaseColor}
+    \colorlet{verbColor}{methodBaseColor}
+\fi
+
+% Basic boolean declarations
+\newif\ifneo@unicolor
+\newif\ifneo@english
+\newif\ifneo@french
+\newif\ifneo@german
+
+% Style booleans
+\newif\ifneo@classythm
+\newif\ifneo@soberthm
+\newif\ifneo@elegantthm
+\newif\ifneo@classicthm
+\newif\ifneo@slantedthm
+\newif\ifneo@shadedthm
+\newif\ifneo@boxedthm
+\newif\ifneo@amslikethm
+
+% Title booleans
+\newif\ifneo@eval
+\newif\ifneo@evalicons
+\newif\ifneo@evalgrade
+\newif\ifneo@evaliconsgrade
+\newif\ifneo@exam
+\newif\ifneo@fancybox
+\newif\ifneo@onlytitleleft
+\newif\ifneo@onlytitle
+\newif\ifneo@onlytitleright
+\newif\ifneo@bubbles
+\newif\ifneo@topbubbles
+\newif\ifneo@shortbubbles
+\newif\ifneo@mockexam
+\newif\ifneo@shortexam
+\newif\ifneo@shorteval
+\newif\ifneo@shorttitle
+\newif\ifneo@shortlesson
+
+% Layout booleans
+\newif\ifneo@noframe
+\newif\ifneo@nocodeframe
+\newif\ifneo@noback
+
+% Font booleans
+\newif\ifneo@sfbody
+\newif\ifneo@sfall
+\newif\ifneo@mathastext
+
+% Other booleans
+\newif\ifneo@print
+\newif\ifneo@fullheader
+\newif\ifneo@headrule
+\newif\ifneo@footrule
+\newif\ifneo@headfootrule
+\newif\ifneo@shuffle
+\newif\ifneo@titlerule
+\newif\ifneo@titlemidrule
+\newif\ifneo@titlefullrule
+\newif\ifneo@titleornament
+\newif\ifneo@blocksol
+
+%% Package specific options
+\newif\ifneo@apmep
+\newif\ifneo@mathics
+\newif\ifneo@listings
+\newif\ifneo@minted
+\newif\ifneo@frenchmath
+
+%% ==============================================================================
+%% Basic Options and Setup Commands
+%% ==============================================================================
+
+\DeclareStringOption[\neo@default@globalcolor]{globalcolor}
+\DeclareStringOption[sectionColor]{headcolor}
+\DeclareStringOption[subsectionColor]{subcolor}
+\DeclareStringOption[subsubsectionColor]{subsubcolor}
+\DeclareStringOption[titleColor]{titlecolor}
+\DeclareStringOption[]{titlehexcolor}
+\DeclareStringOption[alternateColor]{headfootcolor}
+\ProcessKeyvalOptions*\relax
+
+\ifx\neoschool@titlehexcolor\@empty
+\else
+    \definecolor{titleColor}{HTML}{\neoschool@titlehexcolor}
+\fi
+
+\colorlet{subjectColor}{\neoschool@globalcolor}
+\colorlet{subtitleColor}{\neoschool@globalcolor}
+
+\newif\ifneo@palettechosen
+\neo@palettechosenfalse
+
+\newif\ifneo@unicolormode
+\neo@unicolormodefalse
+
+% unicolor - Single color throughout (minimalist style)
+\DeclareOption{unicolor}{%
+    \neo@palettechosentrue
+    \neo@unicolormodetrue
+    \def\neoschool@palette{unicolor}
+    \colorlet{definitionColor}{\neoschool@titlecolor}
+    \colorlet{theoremColor}{\neoschool@titlecolor}
+    \colorlet{lemmaColor}{\neoschool@titlecolor}
+    \colorlet{corollaryColor}{\neoschool@titlecolor}
+    \colorlet{propositionColor}{\neoschool@titlecolor}
+    \colorlet{propertyColor}{\neoschool@titlecolor}
+    \colorlet{comprehensionColor}{\neoschool@titlecolor}
+    \colorlet{activityColor}{\neoschool@titlecolor}
+    \colorlet{methodColor}{\neoschool@titlecolor}
+    \colorlet{applicationColor}{\neoschool@titlecolor}
+    \colorlet{exerciseColor}{\neoschool@titlecolor}
+    \colorlet{remarkColor}{\neoschool@titlecolor}
+    \colorlet{exampleColor}{\neoschool@titlecolor}
+    \colorlet{solutionColor}{\neoschool@titlecolor}
+    \renewcommand{\neoschool@headcolor}{\neoschool@titlecolor}
+    \renewcommand{\neoschool@subcolor}{\neoschool@titlecolor}
+    \renewcommand{\neoschool@subsubcolor}{\neoschool@titlecolor}
+    \colorlet{codebackColor}{\neoschool@titlecolor!5!white}
+    \colorlet{codeBackground}{\neoschool@titlecolor!5}
+    \colorlet{codeKeyword}{\neoschool@titlecolor}
+    \colorlet{codeString}{\neoschool@titlecolor}
+    \colorlet{codeComment}{\neoschool@titlecolor!75}
+    \colorlet{codeNumber}{\neoschool@titlecolor!75}
+    \colorlet{codeEmph}{\neoschool@titlecolor}
+    \colorlet{verbColor}{\neoschool@titlecolor}
+    \colorlet{mathColor}{\neoschool@titlecolor}
+    \colorlet{neoCorrectColor}{\neoschool@titlecolor}
+    \colorlet{neoIncorrectColor}{\neoschool@titlecolor}
+}
+
+% emphasis - Accent on theory (theorem and definition colored, rest in gray)
+\DeclareOption{emphasis}{%
+    \neo@palettechosentrue
+    \def\neoschool@palette{emphasis}
+    \colorlet{lemmaColor}{theoremColor}
+    \colorlet{corollaryColor}{theoremColor}
+    \colorlet{propertyColor}{theoremColor}
+    \colorlet{propositionColor}{theoremColor}
+    \colorlet{methodColor}{remarkColor}
+    \colorlet{applicationColor}{remarkColor}
+    \colorlet{activityColor}{remarkColor}
+    \colorlet{exerciseColor}{remarkColor}
+    \colorlet{exampleColor}{remarkColor}
+    \colorlet{solutionColor}{remarkColor}
+    \colorlet{codebackColor}{remarkColor!5}
+}
+
+% practical - Accent on practice (method, application, code colored, theory in gray)
+\DeclareOption{practical}{%
+    \neo@palettechosentrue
+    \def\neoschool@palette{practical}
+    \colorlet{activityColor}{applicationColor}
+    \colorlet{exerciseColor}{methodColor}
+    \colorlet{exampleColor}{applicationColor}
+    \colorlet{solutionColor}{methodColor}
+    \colorlet{codebackColor}{theoremColor!5}
+    \colorlet{definitionColor}{remarkColor}
+    \colorlet{theoremColor}{remarkColor}
+    \colorlet{lemmaColor}{remarkColor}
+    \colorlet{corollaryColor}{remarkColor}
+    \colorlet{propositionColor}{remarkColor}
+    \colorlet{propertyColor}{remarkColor}
+}
+
+% academic - Two families (theory in one color, practice in another, rest in gray)
+\DeclareOption{academic}{%
+    \neo@palettechosentrue
+    \def\neoschool@palette{academic}
+    \colorlet{theoremColor}{definitionColor}
+    \colorlet{lemmaColor}{definitionColor}
+    \colorlet{corollaryColor}{definitionColor}
+    \colorlet{propertyColor}{definitionColor}
+    \colorlet{propositionColor}{definitionColor}
+    \colorlet{applicationColor}{methodColor}
+    \colorlet{activityColor}{methodColor}
+    \colorlet{exerciseColor}{methodColor}
+    \colorlet{exampleColor}{methodColor}
+    \colorlet{solutionColor}{methodColor}
+    \colorlet{codebackColor}{methodColor!5}
+    \colorlet{subsectionColor}{definitionColor}
+    \colorlet{subsubsectionColor}{methodColor}
+}
+
+%% ==============================================================================
+%% Font Options
+%% ==============================================================================
+
+% Fonts
+\DeclareStringOption{mainface}
+\DeclareStringOption{mainfaceoptions}
+\DeclareStringOption{sansface}
+\DeclareStringOption{sansfaceoptions}
+\DeclareStringOption{monoface}
+\DeclareStringOption{monofaceoptions}
+\DeclareStringOption{mathface}
+\DeclareStringOption{mathfaceoptions}
+\DeclareStringOption{facefamily}
+\DeclareStringOption{facefamilyoptions}
+
+%% ==============================================================================
+%% Heading Style Options
+%% ==============================================================================
+
+% Global heading styles
+\DeclareStringOption[sffamily]{headstyle}
+\DeclareStringOption[bfseries]{headweight}
+\DeclareStringOption[scshape]{headshape}
+
+% Title-specific styles
+\DeclareStringOption[\neoschool@headstyle]{titlestyle}
+\DeclareStringOption[\neoschool@headweight]{titleweight}
+\DeclareStringOption[upshape]{titleshape}
+\DeclareStringOption[center]{titlealign}
+
+% Header and Footer styles
+\DeclareStringOption[\neoschool@titlestyle]{headfootstyle}
+
+% Section-specific styles
+\DeclareStringOption[circle]{sectionnumstyle}     % circle, box, dash, plain
+\DeclareStringOption[sc]{sectiontextstyle}        % sc, upper, lower
+\DeclareStringOption[normal]{sectionstyle}        % ornaments, underline, normal, highlighted, shadedline
+\DeclareStringOption[center]{sectionalign}
+
+%% ==============================================================================
+%% Language Support and Setup
+%% ==============================================================================
+
+% Language setup command
+\newcommand{\neo@setupLanguage}[1]{%
+    \neo@englishfalse
+    \neo@frenchfalse
+    \neo@germanfalse
+    \@nameuse{neo@#1true}
+    \renewcommand{\neo@lang}{#1}
+}
+
+% Names definition commands
+\newcommand{\neo@definenames@one}[9]{%
+    \expandafter\def\csname neo@theoremname\endcsname{#1}
+    \expandafter\def\csname neo@propositionname\endcsname{#2}
+    \expandafter\def\csname neo@propertyname\endcsname{#3}
+    \expandafter\def\csname neo@lemmaname\endcsname{#4}
+    \expandafter\def\csname neo@corollaryname\endcsname{#5}
+    \expandafter\def\csname neo@definitionname\endcsname{#6}
+    \expandafter\def\csname neo@examplename\endcsname{#7}
+    \expandafter\def\csname neo@exercisename\endcsname{#8}
+    \expandafter\def\csname neo@remarkname\endcsname{#9}
+}
+
+\newcommand{\neo@definenames@two}[9]{%
+    \expandafter\def\csname neo@problemname\endcsname{#1}
+    \expandafter\def\csname neo@conjecturename\endcsname{#2}
+    \expandafter\def\csname neo@activityname\endcsname{#3}
+    \expandafter\def\csname neo@methodname\endcsname{#4}
+    \expandafter\def\csname neo@applicationname\endcsname{#5}
+    \expandafter\def\csname neo@competencies\endcsname{#6}
+    \expandafter\def\csname neo@codename\endcsname{#7}
+    \expandafter\def\csname neo@algorithmname\endcsname{#8}
+    \expandafter\def\csname neo@pagename\endcsname{#9}
+}
+
+\newcommand{\neo@definenames@three}[1]{%
+    \expandafter\def\csname neo@solutionname\endcsname{#1}
+}
+
+\newcommand{\neo@definepath}[1]{%
+    \expandafter\def\csname neo@pathname\endcsname{#1}
+}
+
+\newcommand{\neo@defineextra}[2]{%
+    \expandafter\def\csname neo@examplesname\endcsname{#1}
+    \expandafter\def\csname neo@solutiongaptext\endcsname{#2}
+}
+
+\newcommand{\neo@defineproofnames}[1]{%
+    \expandafter\def\csname neo@proofname\endcsname{#1}
+}
+
+% Language options
+\DeclareOption{english}{%
+    \neo@setupLanguage{english}
+    \AtEndOfClass{\sisetup{locale = US,detect-all}}
+    \neo@definenames@one{Theorem}{Proposition}{Property}{Lemma}{Corollary}{Definition}{Example}{Exercise}{Remark}
+    \neo@definenames@two{Problem}{Conjecture}{Activity}{Method}{Application}{Competencies}{Listing}{Algorithm}{Page}
+    \neo@definenames@three{Solution}
+    \neo@defineextra{Examples}{of exercise }
+    \neo@definepath{Path}
+    \neo@defineproofnames{Proof}
+}
+
+\DeclareOption{french}{%
+    \neo@setupLanguage{french}
+    \AtEndOfClass{%
+        \sisetup{locale = FR,detect-all}%
+        \renewcommand*{\today}{\number\day\space\ifcase\month\or
+                janvier\or février\or mars\or avril\or mai\or juin\or
+                juillet\or août\or septembre\or octobre\or novembre\or
+                décembre\fi\space\number\year}%
+    }
+    \neo@definenames@one{Théorème}{Proposition}{Propriété}{Lemme}{Corollaire}{Définition}{Exemple}{Exercice}{Remarque}
+    \neo@definenames@two{Problème}{Conjecture}{Activité}{Méthode}{Application}{Compétences}{Programme}{Algorithme}{Page}
+    \neo@definenames@three{Corrigé}
+    \neo@defineextra{Exemples}{de l'exercice }
+    \neo@definepath{Parcours}
+    \neo@defineproofnames{Démonstration}
+}
+
+\DeclareOption{german}{%
+    \neo@setupLanguage{german}
+    \AtEndOfClass{\sisetup{locale = DE,detect-all}}
+    \neo@definenames@one{Theorem}{Proposition}{Eigenschaft}{Lemma}{Korollar}{Definition}{Beispiel}{Übung}{Bemerkung}
+    \neo@definenames@two{Problem}{Vermutung}{Aktivität}{Methode}{Anwendung}{Fähigkeiten}{Auflistung}{Algorithmus}{Seite}
+    \neo@definenames@three{Lösung}
+    \neo@defineextra{Beispiele}{von Übung }
+    \neo@definepath{Stufe}
+    \neo@defineproofnames{Beweis}
+}
+
+\DeclareOption{nofrenchlist}{\AtEndOfClass{\frenchsetup{StandardItemLabels=true}}}
+\DeclareOption{frenchlistaspar}{\AtEndOfClass{\frenchsetup{ListItemsAsPar=true}}}
+
+%% ==============================================================================
+%% Style Setup
+%% ==============================================================================
+
+% Style setup command
+\newcommand{\neo@setupstyle}[1]{%
+    \neo@classythmfalse
+    \neo@soberthmfalse
+    \neo@elegantthmfalse
+    \neo@classicthmfalse
+    \neo@slantedthmfalse
+    \neo@shadedthmfalse
+    \neo@boxedthmfalse
+    \neo@amslikethmfalse
+    \@nameuse{neo@#1true}
+    \def\neo@style{#1}
+}
+
+% Style options
+\DeclareOption{classythm}{\neo@setupstyle{classythm}}
+\DeclareOption{soberthm}{\neo@setupstyle{soberthm}}
+\DeclareOption{classicthm}{\neo@setupstyle{classicthm}}
+\DeclareOption{slantedthm}{\neo@setupstyle{slantedthm}}
+\DeclareOption{shadedthm}{\neo@setupstyle{shadedthm}}
+\DeclareOption{boxedthm}{\neo@setupstyle{boxedthm}}
+\DeclareOption{amslikethm}{\neo@setupstyle{amslikethm}}
+\DeclareOption{elegantthm}{\neo@setupstyle{elegantthm}}
+
+\DeclareOption{blocksol}{\neo@blocksoltrue}
+
+\DeclareStringOption[colorfuln]{lststyle}
+
+%% ==============================================================================
+%% Layout Settings
+%% ==============================================================================
+
+% Layout setup command
+\newcommand{\neo@setuplayout}[1]{%
+    \@nameuse{neo@#1true}
+}
+
+% Frame and background options
+\DeclareOption{noback}{\neo@setuplayout{noback}}
+\DeclareOption{noframe}{\neo@setuplayout{noframe}}
+\DeclareOption{nocodeframe}{\neo@setuplayout{nocodeframe}}
+
+\DeclareStringOption[1em]{indent}
+\DeclareBoolOption{noindent}
+
+\AtEndOfPackage{%
+    \ifneoschool@noindent
+        \AtBeginDocument{\setlength{\parindent}{0pt}}%
+    \else
+        \AtBeginDocument{\setlength{\parindent}{\neoschool@indent}}%
+    \fi
+}
+
+%% ==============================================================================
+%% Font Settings
+%% ==============================================================================
+
+% Font setup command
+\newcommand{\neo@setupfont}[1]{%
+    \@nameuse{neo@#1true}
+    \ifx#1sfall
+        \neo@sfbodytrue
+    \fi
+}
+
+% Font options
+\DeclareOption{sfbody}{\neo@setupfont{sfbody}}
+\DeclareOption{sfall}{\neo@setupfont{sfall}}
+\DeclareOption{mathastext}{\neo@setupfont{mathastext}}
+
+%% ==============================================================================
+%% Title Settings
+%% ==============================================================================
+
+% Title setup command
+\newcommand{\neo@setuptitle}[1]{%
+    \neo@evalfalse
+    \neo@evaliconsfalse
+    \neo@evalgradefalse
+    \neo@evaliconsgradefalse
+    \neo@examfalse
+    \neo@fancyboxfalse
+    \neo@onlytitleleftfalse
+    \neo@onlytitlefalse
+    \neo@onlytitlerightfalse
+    \neo@bubblesfalse
+    \neo@shortbubblesfalse
+    \neo@mockexamfalse
+    \neo@shortexamfalse
+    \@nameuse{neo@#1true}
+}
+
+% Title options
+\DeclareOption{exam}{\neo@setuptitle{exam}}
+\DeclareOption{eval}{\neo@setuptitle{eval}}
+\DeclareOption{evalicons}{\neo@setuptitle{evalicons}}
+\DeclareOption{evalgrade}{\neo@setuptitle{evalgrade}}
+\DeclareOption{evaliconsgrade}{\neo@setuptitle{evaliconsgrade}}
+\DeclareOption{fancybox}{\neo@setuptitle{fancybox}}
+\DeclareOption{onlytitleleft}{\neo@setuptitle{onlytitleleft}}
+\DeclareOption{onlytitle}{\neo@setuptitle{onlytitle}}
+\DeclareOption{onlytitleright}{\neo@setuptitle{onlytitleright}}
+\DeclareOption{bubbles}{\neo@setuptitle{bubbles}}
+\DeclareOption{topbubbles}{\neo@setuptitle{topbubbles}}
+\DeclareOption{shortbubbles}{\neo@setuptitle{shortbubbles}}
+\DeclareOption{mockexam}{\neo@setuptitle{mockexam}}
+\DeclareOption{shortexam}{\neo@setuptitle{shortexam}}
+\DeclareOption{shorteval}{\neo@setuptitle{shorteval}}
+\DeclareOption{shorttitle}{\neo@setuptitle{shorttitle}}
+\DeclareOption{shortlesson}{\neo@setuptitle{shortlesson}}
+
+%% ==============================================================================
+%% Print Mode Configuration
+%% ==============================================================================
+
+% Print mode overrides all palette options and sets everything to black/grayscale
+\newcommand{\neo@setupprint}{%
+    \neo@printtrue%
+    \neo@palettechosentrue%
+    \renewcommand{\neoschool@globalcolor}{black}%
+    \renewcommand{\neoschool@titlecolor}{black}%
+    \renewcommand{\neoschool@headcolor}{black}%
+    \renewcommand{\neoschool@subcolor}{black}%
+    \renewcommand{\neoschool@subsubcolor}{black}%
+    \renewcommand{\neoschool@headfootcolor}{black}%
+    \colorlet{titleColor}{black}%
+    \colorlet{subjectColor}{black!80}%
+    \colorlet{subtitleColor}{black!60}%
+    \colorlet{definitionColor}{black}%
+    \colorlet{theoremColor}{black}%
+    \colorlet{lemmaColor}{black}%
+    \colorlet{corollaryColor}{black}%
+    \colorlet{propertyColor}{black}%
+    \colorlet{propositionColor}{black}%
+    \colorlet{conjectureColor}{black}%
+    \colorlet{comprehensionColor}{black}%
+    \colorlet{activityColor}{black}%
+    \colorlet{methodColor}{black}%
+    \colorlet{applicationColor}{black}%
+    \colorlet{codebackColor}{black!5}%
+    \colorlet{codeKeyword}{black}%
+    \colorlet{codeComment}{black!75}%
+    \colorlet{codeString}{black}%
+    \colorlet{codeEmph}{black}%
+    \colorlet{codeNumber}{black!75}%
+    \colorlet{verbColor}{black}%
+    \colorlet{exerciseColor}{black}%
+    \colorlet{exampleColor}{black}%
+    \colorlet{remarkColor}{black}%
+    \colorlet{solutionColor}{black}%
+    \colorlet{alternateColor}{black}%
+    \colorlet{sectionColor}{black}%
+    \colorlet{subsectionColor}{black}%
+    \colorlet{subsubsectionColor}{black}%
+    \colorlet{noteColor}{black}%
+    \colorlet{infoColor}{black}%
+    \colorlet{warningColor}{black}%
+    \colorlet{importantColor}{black}%
+    \colorlet{tipColor}{black}%
+    \colorlet{reminderColor}{black}%
+    \colorlet{summaryColor}{black}%
+    \colorlet{toolboxColor}{black}%
+    \def\Hy@linkcolor{black}%
+    \def\Hy@anchorcolor{black}%
+    \def\Hy@citecolor{black}%
+    \def\Hy@filecolor{black}%
+    \def\Hy@menucolor{black}%
+    \def\Hy@runcolor{black}%
+    \def\Hy@urlcolor{black}%
+    \def\neo@keywordstyle{\color{black}\bfseries}%
+    \def\neo@commentstyle{\color{black!75}}%
+    \def\neo@stringstyle{\color{black}}%
+    \def\neo@emphstyle{\color{black}\bfseries}%
+    \colorlet{neoCorrectColor}{black}
+    \colorlet{neoIncorrectColor}{black}
+    \colorlet{mathColor}{black}%
+}
+\DeclareOption{print}{\neo@setupprint}
+
+%% ==============================================================================
+%% Header and Footer Settings
+%% ==============================================================================
+
+% Header/footer setup command
+\newcommand{\neo@setupheadfoot}[1]{%
+    \@nameuse{neo@#1true}
+}
+
+% Header/footer options
+\DeclareOption{fullheader}{\neo@setupheadfoot{fullheader}}
+\DeclareOption{headrule}{\neo@setupheadfoot{headrule}}
+\DeclareOption{footrule}{\neo@setupheadfoot{footrule}}
+\DeclareOption{headfootrule}{\neo@setupheadfoot{headfootrule}}
+
+%% ==============================================================================
+%% Title Formatting Settings
+%% ==============================================================================
+
+% Title formatting setup command
+\newcommand{\neo@setuptitleformat}[1]{%
+    \@nameuse{neo@#1true}
+}
+
+% Title formatting options
+\DeclareOption{titlerule}{\neo@setuptitleformat{titlerule}}
+\DeclareOption{titlemidrule}{\neo@setuptitleformat{titlemidrule}}
+\DeclareOption{titlefullrule}{\neo@setuptitleformat{titlefullrule}}
+\DeclareOption{titleornament}{\neo@setuptitleformat{titleornament}}
+
+%% ==============================================================================
+%% Package Specific Options
+%% ==============================================================================
+
+% Package setup command
+\newcommand{\neo@setuppackage}[1]{%
+  \@nameuse{neo@#1true}%
+}
+
+% Package options
+\DeclareOption{math}{\neo@setuppackage{math}}
+\DeclareOption{apmep}{\neo@setuppackage{apmep}}
+\DeclareOption{mathics}{\neo@setuppackage{mathics}}
+\DeclareOption{listings}{\neo@setuppackage{listings}}
+\DeclareOption{minted}{\neo@setuppackage{minted}}
+\DeclareStringOption[1]{codewidth}
+\DeclareBoolOption{centeredcode}
+
+\DeclareOption{frenchmath}{\neo@setuppackage{frenchmath}}
+
+%% ==============================================================================
+%% Abstract Name
+%% ==============================================================================
+
+\DeclareStringOption[abstractname]{abstracttitle}
+
+%% ==============================================================================
+%% Margin Options
+%% ==============================================================================
+
+\DeclareStringOption[1cm]{margin}
+\DeclareStringOption{notes}
+
+%% ==============================================================================
+%% Solution Settings
+%% ==============================================================================
+
+% Solution options
+\DeclareBoolOption{answers}
+\DeclareBoolOption{answersonly}
+\DeclareOption{shuffle}{\neo@shuffletrue}
+
+%% ==============================================================================
+%% Grading Total
+%% ==============================================================================
+
+\DeclareStringOption[20]{totalpoints}
+
+%% ==============================================================================
+%% Box Settings
+%% ==============================================================================
+
+% Box options
+\DeclareStringOption{boxtitle}
+\DeclareStringOption[2mm]{boxarc}
+\DeclareStringOption[2pt]{pseudoboxarc}
+
+\DeclareBoolOption{inlinecodebox}
+
+% Box setup command
+\newcommand{\neo@setupbox}[2]{%
+    \expandafter\def\csname neo@box@#1\endcsname{#2}
+}
+
+%% ==============================================================================
+%% Theorem Settings
+%% ==============================================================================
+
+\DeclareBoolOption{sectionthmcounter}
+\DeclareBoolOption{sharedthmcounter}
+\DeclareBoolOption{thmgroupcounter}
+
+\newif\ifneoschool@sharedexcounter
+\DeclareOption{sharedexcounter}{%
+    \neoschool@sharedexcountertrue
+    \neoschool@sharedthmcountertrue
+}
+
+%% ==============================================================================
+%% Exercices With Icons
+%% ==============================================================================
+
+\newif\ifneo@exerciseicons
+\DeclareOption{exerciseicons}{\neo@exerciseiconstrue}
+
+%% ==============================================================================
+%% Font Scaling Options
+%% ==============================================================================
+
+\newif\ifneo@scale
+\DeclareBoolOption{scale}
+
+%% ==============================================================================
+%% Graphics Mode
+%% ==============================================================================
+
+\DeclareBoolOption{graphics}
+
+%% ==============================================================================
+%% Extended Math Mode
+%% ==============================================================================
+
+\DeclareBoolOption{math}
+
+%% ==============================================================================
+%% Draft Mode
+%% ==============================================================================
+
+\DeclareBoolOption{faketext}
+
+%% ==============================================================================
+%% Compact Option
+%% ==============================================================================
+
+\newif\ifneo@compact
+\DeclareOption{compact}{\neo@compacttrue}
+
+%% ==============================================================================
+%% TOC Options
+%% ==============================================================================
+
+\newif\ifneo@compacttoc
+\DeclareOption{compacttoc}{\neo@compacttoctrue}
+
+\newif\ifneo@monotoc
+\DeclareOption{monotoc}{\neo@monotoctrue}
+
+\newif\ifneo@twocolumntoc
+\DeclareOption{twocolumntoc}{\neo@twocolumntoctrue}
+
+%% ==============================================================================
+%% Inline Admonitions
+%% ==============================================================================
+
+\DeclareBoolOption{inlineadmonition}
+
+%% ==============================================================================
+%% Output Options
+%% ==============================================================================
+
+\newif\ifneo@twoupafourmode
+\newif\ifneo@twoupathreemode
+\newif\ifneo@fourupathreemode
+\newif\ifneo@simpletwoupmode
+\newif\ifneo@bookletafourmode
+\newif\ifneo@bookletathreemode
+
+\DeclareOption{2a5toa4}{\neo@twoupafourmodetrue}
+\DeclareOption{2a4toa3}{\neo@twoupathreemodetrue}
+\DeclareOption{4a5toa3}{\neo@fourupathreemodetrue}
+\DeclareOption{2toa3}{\neo@simpletwoupmodetrue}
+\DeclareOption{bookleta5}{\neo@bookletafourmodetrue}
+\DeclareOption{bookleta4}{\neo@bookletathreemodetrue}
+
+\ifneo@twoupafourmode
+    \PassOptionsToClass{a5paper}{scrartcl}
+    \AtEndPreamble{
+        \KOMAoptions{paper=a5}
+        \neo@setupmargins{last}
+        \areaset{12cm}{19cm}
+    }
+\fi
+
+\ifneo@twoupathreemode
+    \PassOptionsToClass{a4paper}{scrartcl}
+\fi
+
+\ifneo@fourupathreemode
+    \PassOptionsToClass{a5paper}{scrartcl}
+    \AtEndPreamble{
+        \KOMAoptions{paper=a5}
+        \neo@setupmargins{last}
+        \areaset{12cm}{19cm}
+    }
+\fi
+
+\ifneo@simpletwoupmode
+    \PassOptionsToClass{a4paper}{scrartcl}
+    \AtEndPreamble{
+        \KOMAoptions{paper=a4}
+        \neo@setupmargins{30}
+        \areaset{19cm}{29cm}
+    }
+\fi
+
+\ifneo@bookletafourmode
+    \PassOptionsToClass{a5paper}{scrartcl}
+    \AtEndPreamble{
+        \KOMAoptions{paper=a5}
+        \neo@setupmargins{last}
+        \areaset{12cm}{19cm}
+    }
+\fi
+
+\ifneo@bookletathreemode
+    \PassOptionsToClass{a4paper}{scrartcl}
+\fi
+
+%% ==============================================================================
+%% Final Class Setup
+%% ==============================================================================
+
+% Define default language and style
+\def\neo@lang{english}
+\def\neo@style{classic}
+
+% Pass unknown options to scrartcl
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{scrartcl}}
+
+% Process keyval options
+\ProcessKeyvalOptions*\relax
+
+% Default options
+\ExecuteOptions{%
+    english,               % Default language
+    amslikethm,            % Default theorem style
+}
+
+% Process remaining options
+\ProcessOptions\relax
+
+\ifneo@minted\else
+  \ifneo@listings\else
+    \neo@listingstrue
+  \fi
+\fi
+
+% Load base class
+\LoadClass{scrartcl}
+
+\KOMAoptions{%
+    DIV=last,
+    parskip=half
+}
+
+\let\@unusedoptionlist\@empty
+
+%% ==============================================================================
+%% Page Layout Configuration
+%% ==============================================================================
+
+\newcommand{\neo@setupmargins}[1]{%
+    \ifdim\paperwidth>\paperheight
+        \KOMAoptions{%
+            DIV=calc,
+            DIV=14,
+            BCOR=0pt,
+            headinclude=true,
+            footinclude=true
+        }%
+        \areaset{27cm}{20.5cm}
+    \else
+        \KOMAoptions{%
+            DIV=calc,
+            DIV=#1,
+            BCOR=0pt,
+            headinclude=true,
+            footinclude=true
+        }%
+        \areaset{19cm}{29.25cm}
+    \fi
+}
+
+% Intentionally small margins for teaching materials - ignore typearea warning
+\neo@setupmargins{last}
+\setlength{\headheight}{27pt}
+\setlength{\footskip}{27pt}
+
+\widowpenalty=10000
+\clubpenalty=10000
+
+\displaywidowpenalty=10000
+\predisplaypenalty=10000
+\postdisplaypenalty=10000
+\interlinepenalty=10000
+
+\raggedbottom
+
+%% ==============================================================================
+%% Output Options
+%% ==============================================================================
+
+\AtEndPreamble{
+    \ifneo@twoupafourmode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{repeated 2-up}[a4paper,landscape]
+        \pgfpagesphysicalpage{2}{}
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{2}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+    \fi
+
+    \ifneo@twoupathreemode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{repeated 2-up}[a3paper,landscape]
+        \areaset{19cm}{29cm}
+        \pgfpagesphysicalpage{2}{}
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+    \fi
+
+    \ifneo@fourupathreemode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{repeated 4-up}[a3paper]
+        \pgfpagesphysicalpage{4}{}
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }
+    \fi
+
+    \ifneo@simpletwoupmode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{2 on 1}[a3paper,landscape]
+        \pgfpagesphysicalpage{2}{}
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{2}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.5\pgfphysicalheight}
+        }
+    \fi
+
+    \ifneo@bookletafourmode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{4 on 2, book format}[a4paper,landscape]
+        \pgfpagesphysicalpage{4}{}
+        \pgfpageslogicalpageoptions{4}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{2}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{3}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }    \fi
+
+    \ifneo@bookletathreemode
+        \usepackage{pgfmorepages}
+        \pgfmorepagesloadextralayouts
+        \pgfpagesuselayout{4 on 2, book format}[a3paper,landscape]
+        \areaset{19cm}{29.25cm}
+        \setlength{\headheight}{27pt}
+        \setlength{\footskip}{27pt}
+        \pgfpagesphysicalpage{4}{}
+        \pgfpageslogicalpageoptions{4}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{1}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.25\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{2}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.25\pgfphysicalheight}
+        }
+        \pgfpageslogicalpageoptions{3}{
+            resized width=.9\pgfphysicalwidth,
+            resized height=\pgfphysicalheight,
+            center=\pgfpoint{.75\pgfphysicalwidth}{.75\pgfphysicalheight}
+        }
+    \fi
+}
+
+%% ==============================================================================
+%% Box and Frame Conditions Setup
+%% ==============================================================================
+
+% Basic color definitions for tcolorbox
+\ifneo@darktheme
+    \definecolor{darkthemegray}{HTML}{1E293B}
+    \newcommand{\neo@tcbcolback}{darkthemegray}
+\else
+  \newcommand{\neo@tcbcolback}{tcbcolframe!5}
+\fi
+
+\newcommand{\neo@tcbcolbacklower}{white}
+\newcommand{\neo@tcbcolupper}{black}
+\newcommand{\neo@tcbcoltitle}{white}
+
+% Frame options definitions
+\newcommand{\neo@framehidden}{}
+\newcommand{\neo@thmborder}{1pt}
+\newcommand{\neo@leftpadding}{1ex}
+\newcommand{\neo@rightpadding}{1ex}
+\newcommand{\neo@toppadding}{1ex}
+\newcommand{\neo@bottompadding}{1ex}
+\newcommand{\neo@titleleftpadding}{0.5em}
+\newcommand{\neo@titlerightpadding}{0.5em}
+\newcommand{\neo@titletoppadding}{3pt}
+\newcommand{\neo@titlebottompadding}{3pt}
+\newcommand{\neo@beforeskip}{\baselineskip}
+\newcommand{\neo@afterskip}{\baselineskip}
+\newcommand{\neo@box@beforeskip}{\baselineskip}
+\newcommand{\neo@box@afterskip}{\baselineskip}
+
+% Handle noback option:
+\ifneo@noback
+    \ifneo@darktheme
+        \definecolor{nobackgroundcolor}{HTML}{0F172A}
+        \definecolor{nobacklowercolor}{gray}{0.15}
+        \renewcommand{\neo@tcbcolbacklower}{nobacklowercolor}
+
+    \else
+        \definecolor{nobackgroundcolor}{HTML}{FFFFFF}
+        \renewcommand{\neo@tcbcolbacklower}{tcbcolframe!5}
+    \fi
+
+    \renewcommand{\neo@tcbcolback}{nobackgroundcolor}
+    \colorlet{codebackColor}{nobackgroundcolor}
+\fi
+
+% Handle noframe option:
+% Hides frames and adjusts title color
+\ifneo@noframe
+    \renewcommand{\neo@framehidden}{frame hidden}
+    \renewcommand{\neo@thmborder}{0pt}
+    \renewcommand{\neo@tcbcoltitle}{tcbcolframe}
+    \ifneo@noback
+        \renewcommand{\neo@leftpadding}{-3pt}
+        \renewcommand{\neo@rightpadding}{-2pt}
+        \renewcommand{\neo@toppadding}{-1pt}
+        \renewcommand{\neo@bottompadding}{-1pt}
+        \renewcommand{\neo@titleleftpadding}{-2.5pt}
+        \renewcommand{\neo@titlerightpadding}{-2.5pt}
+        \renewcommand{\neo@titletoppadding}{-2pt}
+        \renewcommand{\neo@titlebottompadding}{-2pt}
+        \renewcommand{\neo@beforeskip}{\baselineskip}
+        \renewcommand{\neo@afterskip}{\baselineskip}        \renewcommand{\neo@box@beforeskip}{-7pt}
+        \renewcommand{\neo@box@afterskip}{-7pt}
+    \fi
+\fi
+
+% Adjust spacing for two-column mode
+\if@twocolumn
+    \setlength{\columnsep}{2em}
+\fi
+
+%% ==============================================================================
+%% Required Packages Setup
+%% ==============================================================================
+
+%% Core packages
+\RequirePackage{iftex}                    % Engine detection
+\RequirePackage{xkeyval}                  % Extended key-value support
+\RequirePackage{xstring}                  % String manipulation
+\RequirePackage{calc}                     % Length calculations
+\RequirePackage{ifthen}                   % Boolean expression
+\RequirePackage{pdftexcmds}               % Conditionals
+\RequirePackage{environ}                  % New Environments
+
+% Hide Some Warnings
+\RequirePackage{silence}
+\WarningFilter{latexfont}{Font shape}
+\renewcommand{\@font@warning}[1]{}
+\WarningFilter{mismath}{}
+\WarningFilter{multicol}{}
+
+%% Language support
+\ifLuaTeX
+    \RequirePackage{fontspec}
+\fi
+
+\ifneo@french
+    \RequirePackage[main=french,shorthands=off]{babel}
+\else\ifneo@german
+        \RequirePackage[main=german]{babel}
+    \else
+        \RequirePackage[main=english]{babel}
+    \fi
+\fi
+
+\RequirePackage{scrlayer-scrpage}        % Headers and footers
+\RequirePackage{setspace}                % Line spacing
+
+\RequirePackage{multicol}                % Multiple columns
+\RequirePackage{changepage}              % Dynamic page dimensions
+\RequirePackage{needspace}               % Control page breaks
+
+%% Graphics and colors
+\RequirePackage[most]{tcolorbox}         % Colored boxes and frames
+\RequirePackage{tikz}                    % Drawing tools
+\RequirePackage{pgfplots}                % Plotting tools
+\pgfplotsset{compat=1.8}                 % Set pgfplots version
+
+%% TikZ libraries
+\usetikzlibrary{%
+    backgrounds,
+    calc,
+    decorations.shapes,
+    positioning,
+    shadows,
+    shapes.arrows,
+    shapes.geometric,
+    shapes.misc
+}
+
+\ifneoschool@faketext
+  \RequirePackage{blindtext}              % Fake Text in English and German
+  \RequirePackage{lipsum}                 % Fake Text in Latin
+\fi
+
+\ifneoschool@graphics
+  \RequirePackage{wrapfig}                 % Wrapped figures
+  \RequirePackage{graphicx}                % Images
+\fi
+
+%% Additional TikZ-related packages
+\RequirePackage{tikzsymbols}             % Additional symbols
+\RequirePackage{tikzpagenodes}           % Page coordinate system
+\RequirePackage{forest}                  % Tree diagrams
+\useforestlibrary{linguistics}
+
+%% LuaTeX specific packages
+\ifLuaTeX
+    \usetikzlibrary{graphs,graphdrawing,quotes}
+    \usegdlibrary{circular,force,layered,routing,trees}
+    \RequirePackage{luacolor}            % Color support for LuaTeX
+    \RequirePackage{lua-ul}              % Underlining for LuaTeX
+    \RequirePackage{luacas}              % Computer algebra for LuaTeX
+\fi
+
+%% Tables and arrays
+\RequirePackage{tabularray}              % Advanced tables
+\UseTblrLibrary{%
+    amsmath,
+    booktabs,
+    diagbox,
+    functional,
+    varwidth,
+    siunitx
+}
+
+\RequirePackage{adjustbox}               % Adjusting box dimensions
+
+%% Extended Math packages
+\ifneoschool@math
+  \RequirePackage[suite,taupe]{tdsfrmath}  % French Math macros
+  \let\mathscr\relax
+\fi
+
+\RequirePackage{mismath}                 % Miscellaneous math macros (includes mathtools)
+
+\ifneoschool@math
+  \RequirePackage{ncccomma}                % Math Comma
+\fi
+
+%% APMEP Compatibility Mode - Option 'apmep'
+
+\ifneo@apmep
+    %% APMEP required packages
+    \RequirePackage{textcomp}               % Text companion fonts
+    \RequirePackage{esvect}                 % Vector arrows
+    \RequirePackage{fourier-orns}           % Ornaments
+    \RequirePackage{tabularx}               % Extended tables
+    \RequirePackage[np]{numprint}           % Number printing
+    \RequirePackage{tkz-tab}                % Variation Tables
+    \RequirePackage{enumitem}               % Custom Lists
+    \RequirePackage{fancyvrb}               % Custom Verbatim
+
+    %% PSTricks suite for APMEP
+    \RequirePackage{pstricks}               % Base PSTricks
+    \RequirePackage{pst-plot}               % Plotting
+    \RequirePackage{pst-tree}               % Trees
+    \RequirePackage{pst-node}               % Nodes
+    \RequirePackage{pst-text}               % Text effects
+    \RequirePackage{pst-eucl}               % Euclidean geometry
+    \RequirePackage{pst-3dplot}             % 3D plotting
+    \undef\pscalculate
+    \RequirePackage{pst-bezier}             % Bezier curves
+    \RequirePackage{pst-all}                % Loads most PSTricks packages
+    \RequirePackage{pstricks-add}           % Additional features
+
+    %% APMEP specific commands
+    \newcommand{\euro}{\eurologo{}}
+    \newcommand{\cg}{\texttt{]}}            % Left bracket
+    \newcommand{\cd}{\texttt{[}}            % Right bracket
+    \newcommand{\pg}{\geqslant}             % Greater than or equal
+    \newcommand{\pp}{\leqslant}             % Less than or equal
+    \newcommand{\vectt}[1]{\overrightarrow{\,\mathstrut\text{#1}\,}}
+    \newcommand{\barre}[1]{\overline{\,\mathstrut#1\,}}
+    \renewcommand{\d}{\,\text{d}}           % Differential d
+    \renewcommand{\i}{\,\text{i}\,}         % Complex i
+
+    %% APMEP enumeration style
+    \renewcommand{\theenumi}{\textbf{\arabic{enumi}}}
+    \renewcommand{\labelenumi}{\textbf{\theenumi.}}
+    \renewcommand{\theenumii}{\textbf{\alph{enumii}}}
+    \renewcommand{\labelenumii}{\textbf{\theenumii.}}
+
+    %% APMEP coordinate systems
+    \def\Oij{$\left(\text{O}~;~\vect{\imath},~\vect{\jmath}\right)$}
+    \def\Oijk{$\left(\text{O}~;~\vect{\imath},~\vect{\jmath},~\vect{k}\right)$}
+    \def\Ouv{$\left(\text{O}~;~\vect{u},~\vect{v}\right)$}
+
+    %% APMEP font declaration
+    \DeclareOldFontCommand{\rm}{\normalfont\rmfamily}{\mathrm}
+    \DeclareOldFontCommand{\sf}{\normalfont\sffamily}{\mathsf}
+    \DeclareOldFontCommand{\tt}{\normalfont\ttfamily}{\mathtt}
+    \DeclareOldFontCommand{\bf}{\normalfont\bfseries}{\mathbf}
+    \DeclareOldFontCommand{\it}{\normalfont\itshape}{\mathit}
+\fi
+
+%% Computer algebra system support
+\ifneo@mathics
+    \RequirePackage[mathics]{latexalpha2}
+    \RequirePackage{asymptote}
+\fi
+
+%% Lists and enumerations
+\RequirePackage{tasks}                     % Horizontal lists
+
+%% Utilities and tools
+\RequirePackage{cuted}                     % Abstract settings
+\RequirePackage{qrcode}                    % QR code generation
+\RequirePackage{xhfill}                    % Extended filling
+\RequirePackage{fontawesome5}              % Icons
+\RequirePackage{pifont}                    % Symbols
+\RequirePackage{adforn}                    % Ornaments
+\ifx\neoschool@notes\@empty\else
+    \RequirePackage[%
+        \neo@lang,
+        textsize=scriptsize
+    ]{todonotes}                           % Todo notes
+\fi
+\RequirePackage{marginnote}                % Margin notes
+\RequirePackage{algpseudocode}             % Algorithms
+\RequirePackage{textcase}                  % Text case changing
+\RequirePackage[use-files,clear-aux]{xsim} % Exercise sheets
+\RequirePackage[normalem]{ulem}            % Underlining
+
+%% Microtype
+\AtEndOfClass{\RequirePackage{microtype}}
+
+%% Hyperref setup
+\newcommand{\neo@setuphyperrefcolors}{%
+    \ifneo@print
+        \definecolor{neo@linkcolor}{gray}{0}%
+        \definecolor{neo@urlcolor}{gray}{0}%
+        \definecolor{neo@citecolor}{gray}{0}%
+        \definecolor{neo@filecolor}{gray}{0}%
+    \else
+        \ifneo@unicolormode
+            \colorlet{neo@linkcolor}{\neoschool@titlecolor}%
+            \colorlet{neo@urlcolor}{\neoschool@titlecolor!85!black}%
+            \colorlet{neo@citecolor}{\neoschool@titlecolor!70!black}%
+            \colorlet{neo@filecolor}{\neoschool@titlecolor!80!black}%
+        \else
+            \colorlet{neo@linkcolor}{\neoschool@titlecolor}%
+            \colorlet{neo@urlcolor}{comprehensionBaseColor}%
+            \colorlet{neo@citecolor}{definitionBaseColor}%
+            \colorlet{neo@filecolor}{methodBaseColor}%
+        \fi
+    \fi
+}
+
+\neo@setuphyperrefcolors
+
+\RequirePackage{bookmark}
+\RequirePackage{lastpage}
+
+\hypersetup{%
+    colorlinks=true,
+    linkcolor=neo@linkcolor,
+    urlcolor=neo@urlcolor,
+    citecolor=neo@citecolor,
+    filecolor=neo@filecolor,
+    menucolor=neo@linkcolor,
+    runcolor=neo@filecolor,
+    bookmarksnumbered=true,
+    bookmarksopen=true,
+    bookmarksopenlevel=2,
+    pdfstartview={FitH},
+    pdfdisplaydoctitle=true,
+    pdfpagemode=UseOutlines,
+    pdfpagelayout=OneColumn,
+    pdfborder={0 0 0},
+    breaklinks=true,
+    hypertexnames=false,
+}%
+
+%% ==============================================================================
+%% Font Settings
+%% ==============================================================================
+
+% Font variable definitions
+\edef\mainface{\expandonce{\neoschool@mainface}}
+\edef\sansface{\expandonce{\neoschool@sansface}}
+\edef\monoface{\expandonce{\neoschool@monoface}}
+\edef\mathface{\expandonce{\neoschool@mathface}}
+\edef\facefamily{\expandonce{\neoschool@facefamily}}
+
+\ifPDFTeX
+% PdfLaTeX configuration
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+
+\expandafter\ifblank\expandafter{\facefamily}{%
+    \expandafter\ifblank\expandafter{\mathface}{\ifneo@mathastext
+    \RequirePackage[italic,eulergreek]{mathastext}\else\RequirePackage{newpxmath}\fi}{\RequirePackage[\neoschool@mathfaceoptions]{\neoschool@mathface}}
+
+    \expandafter\ifblank\expandafter{\mainface}{\RequirePackage{newpxtext}}{\RequirePackage[\neoschool@mainfaceoptions]{\neoschool@mainface}}
+    \expandafter\ifblank\expandafter{\sansface}{}{\RequirePackage[\neoschool@sansfaceoptions]{\neoschool@sansface}}
+    \expandafter\ifblank\expandafter{\monoface}{}{\RequirePackage[\neoschool@monofaceoptions]{\neoschool@monoface}}
+}{
+    \RequirePackage[\neoschool@facefamilyoptions]{\neoschool@facefamily}
+}
+% \else\ifXeTeX
+% % XeLaTeX configuration
+% \RequirePackage{fontspec}
+% \RequirePackage{amssymb}
+
+% \ifneo@scale
+%   \defaultfontfeatures[\rmfamily]{Scale=1}
+%   \defaultfontfeatures{Scale=MatchLowercase}
+% \fi
+
+% \defaultfontfeatures{Ligatures=TeX}
+
+% \expandafter\ifblank\expandafter{\mathface}{%
+%     \ifneo@mathastext
+%         \RequirePackage[italic,eulergreek]{mathastext}
+%     \fi
+% }{%
+%     \RequirePackage{\mathface}
+% }
+
+% \expandafter\ifblank\expandafter{\mainface}{%
+% }{%
+%     \setmainfont[\neoschool@mainfaceoptions]{\neoschool@mainface}
+% }
+
+% \expandafter\ifblank\expandafter{\sansface}{%
+% }{%
+%     \setsansfont[\neoschool@sansfaceoptions]{\neoschool@sansface}
+% }
+
+% \expandafter\ifblank\expandafter{\monoface}{%
+% }{%
+%     \setmonofont[\neoschool@monofaceoptions]{\neoschool@monoface}
+% }
+
+\else\ifXeTeX
+% XeLaTeX configuration
+\RequirePackage{fontspec}
+
+\ifneo@scale
+  \defaultfontfeatures[\rmfamily]{Scale=1}
+  \defaultfontfeatures{Scale=MatchLowercase}
+\fi
+
+\defaultfontfeatures{Ligatures=TeX}
+
+\expandafter\ifblank\expandafter{\mathface}{%
+    \ifneo@mathastext
+        \RequirePackage[italic,eulergreek]{mathastext}
+    \else
+        \IfFileExists{texgyrepagella-math.otf}{%
+            \setmathfont{texgyrepagella-math.otf}
+        }{%
+            \RequirePackage{newpxmath}
+        }
+    \fi
+}{%
+    \RequirePackage{unicode-math}
+    \setmathfont{\mathface}
+}
+
+\expandafter\ifblank\expandafter{\mainface}{%
+    \IfFileExists{texgyrepagella-regular.otf}{%
+        \setmainfont{texgyrepagella-regular.otf}[BoldFont=texgyrepagella-bold.otf,
+                                                 ItalicFont=texgyrepagella-italic.otf,
+                                                 BoldItalicFont=texgyrepagella-bolditalic.otf]
+    }{%
+        \RequirePackage{newpxtext}
+    }
+}{%
+    \setmainfont[\neoschool@mainfaceoptions]{\neoschool@mainface}
+}
+
+\expandafter\ifblank\expandafter{\sansface}{%
+    \IfFileExists{texgyreheros-regular.otf}{%
+        \setsansfont{texgyreheros-regular.otf}[BoldFont=texgyreheros-bold.otf,
+                                               ItalicFont=texgyreheros-italic.otf,
+                                               BoldItalicFont=texgyreheros-bolditalic.otf]
+    }{%
+        \setsansfont[Scale=0.92]{Helvetica}
+    }
+}{%
+    \setsansfont[\neoschool@sansfaceoptions]{\neoschool@sansface}
+}
+
+\expandafter\ifblank\expandafter{\monoface}{%
+    \IfFileExists{texgyrecursor-regular.otf}{%
+        \setmonofont{texgyrecursor-regular.otf}[BoldFont=texgyrecursor-bold.otf,
+                                               ItalicFont=texgyrecursor-italic.otf,
+                                               BoldItalicFont=texgyrecursor-bolditalic.otf]
+    }{%
+        \RequirePackage{newpxtext}
+    }
+}{%
+    \setmonofont[\neoschool@monofaceoptions]{\neoschool@monoface}
+}
+
+\else\ifLuaTeX
+% LuaLaTeX configuration
+\RequirePackage{fontspec}
+
+\ifneo@scale
+  \defaultfontfeatures[\rmfamily]{Scale=1}
+  \defaultfontfeatures{Scale=MatchLowercase}
+\fi
+
+\defaultfontfeatures{Ligatures=TeX,Renderer=HarfBuzz}
+
+\expandafter\ifblank\expandafter{\mathface}{%
+    \ifneo@mathastext
+    \RequirePackage[italic,eulergreeks]{mathastext}
+    \else
+    \RequirePackage{newpxmath}
+    \fi
+  }{%
+      \RequirePackage{unicode-math}
+      \setmathfont{\mathface}
+  }
+
+\expandafter\ifblank\expandafter{\mainface}{%
+    \setmainfont{TeX Gyre Pagella}
+  }{%
+    \setmainfont[\neoschool@mainfaceoptions]{\neoschool@mainface}
+  }
+
+\expandafter\ifblank\expandafter{\sansface}{%
+    \setsansfont[Scale=0.94]{TeX Gyre Heros}
+  }{%
+    \setsansfont[\neoschool@sansfaceoptions]{\neoschool@sansface}
+  }
+
+\expandafter\ifblank\expandafter{\monoface}{%
+    \setmonofont[Scale=1.05]{Latin Modern Mono}
+  }{%
+    \setmonofont[\neoschool@monofaceoptions]{\neoschool@monoface}
+  }
+
+\fi\fi\fi
+
+\RequirePackage{bm}
+
+% SemiBold Weight
+
+\AtEndPreamble{%
+  \ifx\neoschool@mainface\@empty\else
+    \def\neo@main@semibold{\neoschool@mainface SemiBold}%
+    \def\neo@main@semibolditalic{\neoschool@mainface SemiBold Italic}%
+    \let\neo@main@extra\@empty
+    \IfFontExistsTF{\neo@main@semibold}{%
+      \edef\neo@main@extra{FontFace={sb}{n}{* SemiBold}}%
+    }{}%
+    \IfFontExistsTF{\neo@main@semibolditalic}{%
+      \ifx\neo@main@extra\@empty\else \appto\neo@main@extra{,}\fi
+      \appto\neo@main@extra{FontFace={sb}{it}{* SemiBold Italic}}%
+    }{}%
+    \ifx\neo@main@extra\@empty\else
+      \setmainfont{\neoschool@mainface}[%
+        \neoschool@mainfaceoptions ,%
+        \neo@main@extra
+      ]%
+    \fi
+  \fi
+  \ifx\neoschool@sansface\@empty\else
+    \def\neo@sans@semibold{\neoschool@sansface SemiBold}%
+    \def\neo@sans@semibolditalic{\neoschool@sansface SemiBold Italic}%
+    \let\neo@sans@extra\@empty
+    \IfFontExistsTF{\neo@sans@semibold}{%
+      \edef\neo@sans@extra{FontFace={sb}{n}{* SemiBold}}%
+    }{}%
+    \IfFontExistsTF{\neo@sans@semibolditalic}{%
+      \ifx\neo@sans@extra\@empty\else \appto\neo@sans@extra{,}\fi
+      \appto\neo@sans@extra{FontFace={sb}{it}{* SemiBold Italic}}%
+    }{}%
+    \ifx\neo@sans@extra\@empty\else
+      \setsansfont{\neoschool@sansface}[%
+        \neoschool@sansfaceoptions ,%
+        \neo@sans@extra
+      ]%
+    \fi
+  \fi
+  \ifx\neoschool@monoface\@empty\else
+    \def\neo@mono@semibold{\neoschool@monoface SemiBold}%
+    \def\neo@mono@semibolditalic{\neoschool@monoface SemiBold Italic}%
+    \let\neo@mono@extra\@empty
+    \IfFontExistsTF{\neo@mono@semibold}{%
+      \edef\neo@mono@extra{FontFace={sb}{n}{* SemiBold}}%
+    }{}%
+    \IfFontExistsTF{\neo@mono@semibolditalic}{%
+      \ifx\neo@mono@extra\@empty\else \appto\neo@mono@extra{,}\fi
+      \appto\neo@mono@extra{FontFace={sb}{it}{* SemiBold Italic}}%
+    }{}%
+    \ifx\neo@mono@extra\@empty\else
+      \setmonofont{\neoschool@monoface}[%
+        \neoschool@monofaceoptions ,%
+        \neo@mono@extra
+      ]%
+    \fi
+  \fi
+}
+
+\def\sb@code{sb}
+
+\DeclareRobustCommand\sbseries{%
+  \not@math@alphabet\sbseries\relax
+  \begingroup
+    \def\@font@warning##1{}%
+    \fontseries{sb}\selectfont
+    \xdef\temp{\f@series}%
+  \endgroup
+  \ifx\temp\sb@code
+    \fontseries{sb}\selectfont
+  \fi
+}
+
+\DeclareTextFontCommand{\textsb}{\sbseries}
+
+% Common configuration
+\ifneo@sfbody
+    \renewcommand{\familydefault}{\sfdefault}
+\fi
+
+% Advances Math Packages
+\ifneoschool@math
+  \RequirePackage{mathrsfs}                % Mathematical script font
+  \RequirePackage{annotate-equations}      % Equation annotations
+  \RequirePackage{witharrows}              % Step-by-step solutions
+  \RequirePackage[np]{numprint}            % Number printing
+  \RequirePackage{xlop}                    % Arithmetic operations
+  \RequirePackage{breqn}                   % Multiline Equations
+  \RequirePackage{tkz-euclide}             % Euclidean geometry
+  \RequirePackage{cancel}                  % Cancel an expression
+\fi
+
+\AtBeginDocument{
+    \mathcode`\;="303B
+}
+
+% Upright Capital and Greek Letters
+\ifneo@frenchmath
+    \DeclareMathSymbol{A}{\mathalpha}{operators}{65}
+    \DeclareMathSymbol{B}{\mathalpha}{operators}{66}
+    \DeclareMathSymbol{C}{\mathalpha}{operators}{67}
+    \DeclareMathSymbol{D}{\mathalpha}{operators}{68}
+    \DeclareMathSymbol{E}{\mathalpha}{operators}{69}
+    \DeclareMathSymbol{F}{\mathalpha}{operators}{70}
+    \DeclareMathSymbol{G}{\mathalpha}{operators}{71}
+    \DeclareMathSymbol{H}{\mathalpha}{operators}{72}
+    \DeclareMathSymbol{I}{\mathalpha}{operators}{73}
+    \DeclareMathSymbol{J}{\mathalpha}{operators}{74}
+    \DeclareMathSymbol{K}{\mathalpha}{operators}{75}
+    \DeclareMathSymbol{L}{\mathalpha}{operators}{76}
+    \DeclareMathSymbol{M}{\mathalpha}{operators}{77}
+    \DeclareMathSymbol{N}{\mathalpha}{operators}{78}
+    \DeclareMathSymbol{O}{\mathalpha}{operators}{79}
+    \DeclareMathSymbol{P}{\mathalpha}{operators}{80}
+    \DeclareMathSymbol{Q}{\mathalpha}{operators}{81}
+    \DeclareMathSymbol{R}{\mathalpha}{operators}{82}
+    \DeclareMathSymbol{S}{\mathalpha}{operators}{83}
+    \DeclareMathSymbol{T}{\mathalpha}{operators}{84}
+    \DeclareMathSymbol{U}{\mathalpha}{operators}{85}
+    \DeclareMathSymbol{V}{\mathalpha}{operators}{86}
+    \DeclareMathSymbol{W}{\mathalpha}{operators}{87}
+    \DeclareMathSymbol{X}{\mathalpha}{operators}{88}
+    \DeclareMathSymbol{Y}{\mathalpha}{operators}{89}
+    \DeclareMathSymbol{Z}{\mathalpha}{operators}{90}
+
+    \let\alpha\alphaup
+    \let\beta\betaup
+    \let\gamma\gammaup
+    \let\delta\deltaup
+    \let\epsilon\epsilonup
+    \let\zeta\zetaup
+    \let\eta\etaup
+    \let\theta\thetaup
+    \let\iota\iotaup
+    \let\kappa\kappaup
+    \let\lambda\lambdaup
+    \let\mu\muup
+    \let\nu\nuup
+    \let\xi\xiup
+    \let\pi\piup
+    \let\rho\rhoup
+    \let\sigma\sigmaup
+    \let\tau\tauup
+    \let\upsilon\upsilonup
+    \let\phi\phiup
+    \let\chi\chiup
+    \let\psi\psiup
+    \let\omega\omegaup
+\fi
+
+%% ==============================================================================
+%% Monospace Text
+%% ==============================================================================
+
+\newcommand{\neo@ifmathmode}[2]{%
+    \relax\ifmmode #1\else #2\fi
+}
+
+\AtEndOfClass{%
+    \let\neo@originaltexttt\texttt
+    \ifneoschool@inlinecodebox
+        \ifneo@darktheme
+            \colorlet{inlineCodeBg}{verbColor!20!white!10!black}
+            \colorlet{inlineCodeFrame}{verbColor!50!white}
+        \else
+            \colorlet{inlineCodeBg}{verbColor!6!white}
+            \colorlet{inlineCodeFrame}{verbColor!30!white}
+        \fi
+        \tcbset{
+          neoinlinecodestyle/.style={
+            enhanced,
+            arc=2pt,
+            boxsep=0pt,
+            top=2pt,
+            bottom=2.5pt,
+            left=3pt,
+            right=3pt,
+            colback=inlineCodeBg,
+            colframe=inlineCodeFrame,
+            boxrule=0.5pt,
+            nobeforeafter,
+            tcbox raise base,
+          }
+        }
+        \renewrobustcmd{\texttt}[1]{%
+          \neo@ifmathmode{%
+            \mathtt{#1}%
+          }{%
+            \tcbox[neoinlinecodestyle]{%
+              \ttfamily
+              \hyphenchar\font=`\-%
+              \color{verbColor}\scalebox{0.92}{#1}%
+            }%
+          }%
+        }%
+    \else
+        \renewrobustcmd{\texttt}[1]{%
+          \neo@ifmathmode{%
+            \mathtt{#1}%
+          }{%
+            \begingroup
+            \ttfamily
+            \hyphenchar\font=`\-%
+            \color{verbColor}#1%
+            \endgroup
+          }%
+        }%
+      \fi
+}
+
+%% ==============================================================================
+%% KOMA-Script Typography
+%% ==============================================================================
+
+\newcommand{\LARGEplus}{\fontsize{15.5}{18.6}\selectfont}
+\newcommand{\LARGEhuge}{\fontsize{16.74}{20.09}\selectfont}
+\newcommand{\hugeminus}{\fontsize{18.5}{22.2}\selectfont}
+
+\setkomafont{disposition}{\mdseries}
+
+% Header style configuration
+\setkomafont{title}{\csname\neoschool@titlestyle\endcsname\csname\neoschool@titleweight\endcsname\color{\neoschool@titlecolor}\hugeminus}
+\setkomafont{subtitle}{\csname\neoschool@headstyle\endcsname\csname\neoschool@headshape\endcsname\color{subtitleColor}}
+\setkomafont{subject}{\color{subjectColor}\large}
+\setkomafont{author}{\large}
+\setkomafont{date}{\large}
+\setkomafont{subsection}{\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\color{\neoschool@subcolor}\large}
+\setkomafont{subsubsection}{\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\color{\neoschool@subsubcolor}}
+\setkomafont{pagenumber}{\csname\neoschool@headstyle\endcsname\color{\neoschool@headfootcolor}}
+\setkomafont{descriptionlabel}{\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname}
+
+% Page number format
+\renewcommand*\pagemark{%
+    {\usekomafont{pagenumber}
+            \color{\neoschool@headfootcolor}
+            \csname neo@pagename\endcsname\nobreakspace\thepage\nobreakspace/\nobreakspace
+            {\hypersetup{linkcolor=\neoschool@headfootcolor}\pageref{LastPage}}
+        }
+}
+
+\newpairofpagestyles{firstpage}{%
+    \ihead{}\chead{}\ohead{}%
+    \ifoot{\@date}\cfoot{}\ofoot{\pagemark}%
+    \KOMAoptions{headsepline=0pt}
+}{%
+    \ihead{}\chead{}\ohead{}%
+    \ifoot{\@date}\cfoot{}\ofoot{\pagemark}%
+    \KOMAoptions{headsepline=0pt}
+}
+
+% Short title support
+\newcommand{\shorttitle}[1]{\gdef\@shorttitle{#1}}
+\let\@shorttitle\@empty
+
+\newcommand{\neo@displaytitle}{%
+    \ifx\@shorttitle\@empty
+        \StrLen{\@title}[\titlelength]%
+        \ifnum\titlelength>85
+            \StrMid{\@title}{1}{85}[\truncatedtitle]%
+            \truncatedtitle\ldots
+        \else
+            \@title
+        \fi
+    \else
+        \@shorttitle
+    \fi
+}
+
+\newpairofpagestyles{followingpages}{%
+    \ihead{}\chead{}\ohead{}%
+    \ifoot{\neo@displaytitle}\cfoot{}\ofoot{\pagemark}%
+}{%
+    \ihead{}\chead{}\ohead{}%
+    \ifoot{\neo@displaytitle}\cfoot{}\ofoot{\pagemark}%
+}
+
+\newpairofpagestyles{pagenum}{%
+    \ihead{}\chead{}\ohead{}
+    \ifoot{}\cfoot{\pagemark}\ofoot{}
+    \KOMAoptions{headsepline=0pt,footsepline=0pt}
+}
+
+% Header font configuration
+\renewcommand*{\headfont}{%
+    \small
+    \csname\neoschool@headfootstyle\endcsname
+    \color{\neoschool@headfootcolor}
+}
+
+%% ==============================================================================
+%% Title Styles and Setting
+%% ==============================================================================
+
+% Core definitions and lengths
+\def\neo@left{left}
+\def\neo@right{right}
+\def\neo@center{center}
+\newlength{\varspace}
+\newlength{\titlespacing}
+\setlength{\titlespacing}{\baselineskip}
+\newcommand\myscaleratio{0.5}
+
+% Define tight spacing commands
+\newcommand{\neo@tightspacing}{%
+    \setlength\topsep{0pt}
+    \setlength\parskip{0pt}
+}
+
+% Redefine center, flushright, and flushleft environments with tight spacing
+\let\oldcenter\center
+\let\oldendcenter\endcenter
+\renewenvironment{center}{%
+    \neo@tightspacing
+    \oldcenter
+}{%
+    \oldendcenter
+}
+
+\let\oldflushright\flushright
+\let\oldendflushright\endflushright
+\renewenvironment{flushright}{%
+    \neo@tightspacing
+    \oldflushright
+}{%
+    \oldendflushright
+}
+
+\let\oldflushleft\flushleft
+\let\oldendflushleft\endflushleft
+\renewenvironment{flushleft}{%
+    \neo@tightspacing
+    \oldflushleft
+}{%
+    \oldendflushleft
+}
+
+% Title decoration handler
+\newcommand{\neo@titledecoration}{%
+    \ifneo@titlerule
+        \vspace{1.25\titlespacing}%
+        {\color{\neoschool@titlecolor}\rule{5em}{0.4pt}}
+    \else
+        \ifneo@titlemidrule
+            \vspace{1.25\titlespacing}%
+            {\color{\neoschool@titlecolor}\rule{0.5\linewidth}{0.4pt}}
+        \else
+            \ifneo@titlefullrule
+                \vspace{1.25\titlespacing}%
+                {\color{\neoschool@titlecolor}\rule{\linewidth}{0.4pt}}%
+                \vspace{-0.75\titlespacing}%
+            \else
+                \ifneo@titleornament
+                    \vspace{1.25\titlespacing}%
+                    {\color{\neoschool@titlecolor}\scalebox{2}[1.5]{\adforn{21}\,\adforn{11}\,\adforn{49}}}
+                \fi
+            \fi
+        \fi
+    \fi
+    \vspace*{.15\baselineskip}
+}
+
+% Full title creation with all elements
+\newcommand{\createfulltitle}{%
+% Subject
+\ifx\@subject\@empty\else
+    {\usekomafont{subject}{\@subject\par}}
+    \vspace{\titlespacing}
+\fi
+
+% Main title
+{\noindent\usekomafont{title}{\@title\par}}
+
+% Subtitle
+\ifx\@subtitle\@empty\else
+    \vspace{\titlespacing}
+    {\noindent\usekomafont{subtitle}{\@subtitle\par}}
+\fi
+
+% Author
+\ifx\@author\@empty\else
+    \vspace{1.5\titlespacing}
+    {\noindent\usekomafont{author}{\@author\par}}
+\fi
+
+% Decorative elements
+\neo@titledecoration
+\if@twocolumn\vspace{2\titlespacing}\else\vspace{\titlespacing}\fi
+}
+
+% Only title creation (no author, subject, etc.)
+\newcommand{\createonlytitle}{%
+    {\noindent\usekomafont{title}{\@title\par}}
+    \neo@titledecoration%
+}
+
+\renewcommand\maketitle{%
+    \thispagestyle{firstpage}
+    \bgroup
+    \setlength{\varspace}{\dimexpr\titlespacing+\myscaleratio\oddsidemargin}
+    \if@twocolumn
+        \twocolumn[{%
+                    \ifx\neoschool@titlealign\neo@left
+                        \begin{flushleft}
+                            \createfulltitle
+                        \end{flushleft}
+                    \else
+                        \ifx\neoschool@titlealign\neo@right
+                            \begin{flushright}
+                                \createfulltitle
+                            \end{flushright}
+                        \else
+                            \begin{center}
+                                \createfulltitle
+                            \end{center}
+                        \fi
+                    \fi
+                }]
+    \else
+        \ifx\neoschool@titlealign\neo@left
+            \begin{flushleft}
+                \createfulltitle
+            \end{flushleft}
+        \else
+            \ifx\neoschool@titlealign\neo@right
+                \begin{flushright}
+                    \createfulltitle
+                \end{flushright}
+            \else
+                \begin{center}
+                    \createfulltitle
+                \end{center}
+            \fi
+        \fi
+    \fi
+    \egroup
+}
+
+% Enhanced fancy title box with rotation
+\ifneo@fancybox
+    \newcommand{\neo@fancycolor}{exerciseColor!5!white}
+    \AtBeginDocument{%
+        \begin{tikzpicture}[remember picture,overlay]
+            % Rotated background box
+            \fill[\neo@fancycolor,rotate=-15]
+            ($(current page.north west) +(0,-1in)$)
+            rectangle ($(current page.north west) +(2.25in,2.0in)$);
+
+            % Title node with improved positioning
+            \node[anchor=west] (title) at
+            ($([xshift=-1ex,yshift=2ex]current page text area.north west)$)
+            {\LARGE\csname\neoschool@titlestyle\endcsname
+                \csname\neoschool@titleweight\endcsname
+                \csname\neoschool@titleshape\endcsname
+                \color{\neoschool@titlecolor}\@title};
+        \end{tikzpicture}
+        \vspace*{\dimexpr1.25in+\oddsidemargin\relax}\par
+        \let\maketitle\relax
+        \thispagestyle{firstpage}
+    }
+\fi
+
+% Unified handling of single-column and two-column title layouts with only title
+\newcommand{\neo@handleonlytitle}[2]{%
+    \if@twocolumn
+        \AfterEndPreamble{%
+            \twocolumn[{#1\vspace*{.5in}\par}]
+        }
+    \else
+        \AtBeginDocument{%
+            #2\vspace*{0.25in}\par
+        }
+    \fi
+    \let\maketitle\relax
+    \thispagestyle{firstpage}
+}
+
+% Left-aligned title implementation
+\ifneo@onlytitleleft
+    \neo@handleonlytitle
+    {\begin{flushleft}\createonlytitle\end{flushleft}}
+    {\begin{flushleft}\createonlytitle\end{flushleft}}
+\fi
+
+% Centered title implementation
+\ifneo@onlytitle
+    \neo@handleonlytitle
+    {\begin{center}\createonlytitle\end{center}}
+    {\begin{center}\createonlytitle\end{center}}
+\fi
+
+% Right-aligned title implementation
+\ifneo@onlytitleright
+    \neo@handleonlytitle
+    {\begin{flushright}\createonlytitle\end{flushright}}
+    {\begin{flushright}\createonlytitle\end{flushright}}
+\fi
+
+%% ==============================================================================
+%% Table of Contents
+%% ==============================================================================
+
+\addto\captionsfrench{\renewcommand{\contentsname}{Sommaire}}
+
+\ifneo@monotoc
+    \colorlet{tocTitleColor}{\neoschool@globalcolor}
+    \colorlet{tocSectionColor}{\neoschool@globalcolor}
+    \colorlet{tocSubsectionColor}{\neoschool@globalcolor}
+    \colorlet{tocSubsubsectionColor}{\neoschool@globalcolor}
+\else
+    \colorlet{tocTitleColor}{\neoschool@titlecolor}
+    \colorlet{tocSectionColor}{sectionColor}
+    \colorlet{tocSubsectionColor}{subsectionColor}
+    \colorlet{tocSubsubsectionColor}{subsubsectionColor}
+\fi
+
+\AtBeginDocument{
+  \addtocontents{toc}{%
+    \protect\hypersetup{%
+      linktoc=all,%
+      hidelinks%
+    }%
+    \ifneo@compacttoc
+      \protect\setlength{\protect\itemsep}{0pt}%
+      \protect\setlength{\protect\parskip}{1pt}%
+    \fi
+  }
+}
+
+\DeclareTOCStyleEntry[
+    entryformat={\sffamily\bfseries\color{tocSectionColor}},
+    pagenumberformat={\sffamily\bfseries\color{tocSectionColor}},
+    indent=0em,
+    numwidth=2em
+]{tocline}{section}
+
+\DeclareTOCStyleEntry[
+    entryformat={\sffamily\color{tocSubsectionColor}},
+    pagenumberformat={\sffamily\color{tocSubsectionColor}},
+    indent=2em,
+    numwidth=2.5em
+]{tocline}{subsection}
+
+\DeclareTOCStyleEntry[
+    entryformat={\sffamily\small\color{tocSubsubsectionColor}},
+    pagenumberformat={\sffamily\small\color{tocSubsubsectionColor}},
+    indent=4em,
+    numwidth=3em
+]{tocline}{subsubsection}
+
+\RedeclareSectionCommand[
+    tocindent=0em,
+    tocnumwidth=2em
+]{section}
+
+\RedeclareSectionCommand[
+    tocindent=2em,
+    tocnumwidth=2.5em
+]{subsection}
+
+\RedeclareSectionCommand[
+    tocindent=4em,
+    tocnumwidth=3em
+]{subsubsection}
+
+\ifx\neoschool@titlealign\neo@left
+    \renewcommand*\tableofcontents{%
+        \section*{\raggedright\contentsname}
+        \@starttoc{toc}%
+    }
+\else\ifx\neoschool@titlealign\neo@right
+        \renewcommand*\tableofcontents{%
+            \section*{\raggedleft\contentsname}
+            \@starttoc{toc}%
+        }
+    \else
+        \renewcommand*\tableofcontents{%
+            \section*{\centering\contentsname}
+            \@starttoc{toc}%
+        }
+    \fi
+\fi
+
+\ifneo@twocolumntoc
+\renewcommand*\tableofcontents{%
+    \ifx\neoschool@titlealign\neo@left
+        \section*{\raggedright\contentsname}
+    \else\ifx\neoschool@titlealign\neo@right
+        \section*{\raggedleft\contentsname}
+    \else
+        \section*{\centering\contentsname}
+    \fi\fi
+
+    \begin{multicols}{2}
+        \@starttoc{toc}%
+    \end{multicols}
+}
+\fi
+
+%% ==============================================================================
+%% Abstract formatting
+%% ==============================================================================
+
+\if@twocolumn
+    \renewenvironment{abstract}{%
+        \begin{strip}
+            \ifx\neoschool@abstracttitle\@empty
+                \vspace{-4em}
+                \quotation
+            \else
+                \vspace{-5em}
+                \section*{\csname\neoschool@abstracttitle\endcsname}%
+                \quotation
+            \fi}
+            {\endquotation\end{strip}}
+\else
+    \renewenvironment{abstract}{%
+        \ifx\neoschool@abstracttitle\@empty
+            \vspace{-1.25em}
+            \quotation
+        \else
+            \vspace{-2em}
+            \section*{\csname\neoschool@abstracttitle\endcsname}%
+            \quotation
+        \fi}
+    {\endquotation}
+\fi
+
+%% ==============================================================================
+%% Section formatting utilities
+%% ==============================================================================
+
+% Style definitions
+\def\neo@align@right{right}
+\def\neo@align@left{left}
+\def\neo@align@center{center}
+
+\def\neo@numstyle@circle{circle}
+\def\neo@numstyle@box{box}
+\def\neo@numstyle@dash{dash}
+\def\neo@numstyle@plain{plain}
+
+\def\neo@textstyle@sc{sc}
+\def\neo@textstyle@upper{upper}
+\def\neo@textstyle@lower{lower}
+
+\def\neo@style@ornaments{ornaments}
+\def\neo@style@underline{underline}
+\def\neo@style@normal{normal}
+\def\neo@style@highlighted{highlighted}
+\def\neo@style@shadedline{shadedline}
+
+% Utility command for circular number style
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{%
+        \node[shape=circle,draw,inner sep=2pt,line width=1.5pt,baseline=-1.25mm] (char) {#1};}
+    \vspace{-2pt}
+}
+
+% Check for small caps availability
+\newcommand*{\IfSCAvailableTF}{%
+    \ifcsname\f@encoding/\f@family/\f@series/sc\endcsname
+        \expandafter\@firstoftwo
+    \else
+        \expandafter\@secondoftwo
+    \fi
+}
+
+% Apply text style based on options
+\newcommand{\applytextstyle}[1]{%
+    \ifx\neoschool@sectiontextstyle\neo@textstyle@sc
+        \IfSCAvailableTF{\scshape\Large\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname #1}{\MakeUppercase{\large \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname #1}}%
+    \else
+        \ifx\neoschool@sectiontextstyle\neo@textstyle@upper
+            \MakeUppercase{\large \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname #1}%
+        \else
+            \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\Large #1%
+        \fi
+    \fi
+}
+
+% Section number formatting based on style option
+\renewcommand{\sectionformat}{%
+    \ifx\neoschool@sectionnumstyle\neo@numstyle@circle
+        \circled{{\large\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\thesection}}\enskip%
+    \else
+        \ifx\neoschool@sectionnumstyle\neo@numstyle@box
+            \raisebox{0ex}{%
+                \setlength{\fboxrule}{1.5pt}%
+                \fcolorbox{\neoschool@headcolor}{white}{%
+                    \color{\neoschool@headcolor}%
+                    \csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    % \csname\neoschool@headshape\endcsname
+                    \large\thesection%
+                }%
+            }\enskip%
+        \else
+            \ifx\neoschool@sectionnumstyle\neo@numstyle@dash
+                \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\thesection\enskip\textendash\enskip
+            \else
+                \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\thesection\autodot\enskip
+            \fi
+        \fi
+    \fi
+}
+
+% Set section alignment
+\newcommand{\setsectionraggedstyle}{%
+    \ifx\neoschool@sectionalign\neo@align@right
+        \renewcommand*{\raggedsection}{\raggedleft}%
+    \else
+        \ifx\neoschool@sectionalign\neo@align@left
+            \renewcommand*{\raggedsection}{\raggedright}%
+        \else
+            \renewcommand*{\raggedsection}{\centering}%
+        \fi
+    \fi
+}
+
+% Main section format handler
+\renewcommand{\sectionlinesformat}[4]{%
+    \Ifstr{#1}{section}{%
+        % \vspace*{0.5em}%
+        \ifx\neoschool@sectionstyle\neo@style@ornaments
+            \sectionformat@ornaments{#3}{#4}%
+        \else
+            \ifx\neoschool@sectionstyle\neo@style@highlighted
+                \sectionformat@highlighted{#3}{#4}%
+            \else
+                \ifx\neoschool@sectionstyle\neo@style@shadedline
+                    \sectionformat@shadedline{#3}{#4}%
+                \else
+                    \ifx\neoschool@sectionstyle\neo@style@normal
+                        \sectionformat@normal{#2}{#3}{#4}%
+                    \else
+                        \sectionformat@other{#3}{#4}%
+                    \fi
+                \fi
+            \fi
+        \fi
+        % \vspace*{-0.15em}%
+    }{%
+        \@hangfrom{\hskip #2#3}{#4}%
+    }%
+}
+
+% Individual style implementations
+\newcommand{\sectionformat@normal}[3]{%
+    \setsectionraggedstyle
+    \parbox[t]{\linewidth}{%
+        \raggedsection
+        \@hangfrom{\color{\neoschool@headcolor}#2}{%
+            \color{\neoschool@headcolor}%
+            \applytextstyle{#3}%
+        }%
+    }%
+    \par\nobreak
+}
+
+\newcommand{\sectionformat@ornaments}[2]{%
+    \renewcommand*{\raggedsection}{\centering}%
+    \raggedsection
+    \vspace*{0.5em}%
+    \adforn{36}\enskip
+    {\color{\neoschool@headcolor}\applytextstyle{#1#2}}%
+    \enskip\adforn{36}%
+    \par\nobreak
+    \vspace*{0.2em}%
+}
+
+% Helper commands for TikZ styles
+\newcommand{\setsectiontikzalign}{%
+    \ifx\neoschool@sectionalign\neo@align@left
+        left%
+    \else
+        \ifx\neoschool@sectionalign\neo@align@right
+            right%
+        \else
+            center%
+        \fi
+    \fi
+}
+
+\newcommand{\setsectiontikzcolor}[1]{%
+    \ifx\neoschool@sectionalign\neo@align@left
+        \ifnum\pdf@strcmp{#1}{left}=0
+            \neoschool@headcolor!120
+        \else
+            \neoschool@headcolor!20
+        \fi
+    \else
+        \ifx\neoschool@sectionalign\neo@align@right
+            \ifnum\pdf@strcmp{#1}{right}=0
+                \neoschool@headcolor!120
+            \else
+                \neoschool@headcolor!20
+            \fi
+        \else
+            \neoschool@headcolor!25
+        \fi
+    \fi
+}
+
+\newcommand{\setsectiontikzmiddle}{%
+    \ifx\neoschool@sectionalign\neo@align@left
+        \neoschool@headcolor!90
+    \else
+        \ifx\neoschool@sectionalign\neo@align@right
+            \neoschool@headcolor!90
+        \else
+            \neoschool@headcolor!120
+        \fi
+    \fi
+}
+
+\newcommand{\sectionformat@highlighted}[2]{%
+    \noindent\begin{tikzpicture}[baseline]
+        \node[
+            anchor=base,
+            inner sep=3pt,
+            outer sep=0pt,
+            align=\setsectiontikzalign,
+            text width=.985\linewidth,
+            text=white,
+            line width=0.5pt,
+            left color={\setsectiontikzcolor{left}},
+            right color={\setsectiontikzcolor{right}},
+            middle color={\setsectiontikzmiddle},
+            rounded corners=0pt,
+        ] (title) {%
+            \vspace{-1pt}\hspace*{0.25em}\applytextstyle{#1#2}\hspace*{0.25em}%
+            \vspace{3pt}
+        };
+    \end{tikzpicture}%
+    \par\vspace{0.4em}%
+}
+
+\newcommand{\sectionformat@shadedline}[2]{%
+    \noindent
+    \begin{tikzpicture}[baseline]
+        \node[
+            text=\neoschool@headcolor,
+            anchor=base,
+            inner sep=0pt,
+            outer sep=0pt,
+            align=\setsectiontikzalign,
+            text width=\linewidth
+        ] (title) {%
+            \color{\neoschool@headcolor}%
+            \applytextstyle{#1#2}%
+        };
+
+        \ifx\neoschool@sectionalign\neo@align@center
+            \fill[
+                left color=\neoschool@headcolor!20,
+                right color=\neoschool@headcolor
+            ] ([yshift=-0.5em]title.south west) rectangle ++(.33\linewidth,-0.1em);
+            \fill[
+                left color=\neoschool@headcolor,
+                middle color=\neoschool@headcolor!120,
+                right color=\neoschool@headcolor
+            ] ([yshift=-0.5em]title.south west) ++(.33\linewidth,0) rectangle ([yshift=-0.6em]title.south east) ++(-0.33\linewidth,0);
+            \fill[
+                left color=\neoschool@headcolor,
+                right color=\neoschool@headcolor!20
+            ] ([yshift=-0.5em]title.south east) ++(-0.33\linewidth,0) rectangle ([yshift=-0.6em]title.south east);%
+        \else
+            \ifx\neoschool@sectionalign\neo@align@left
+                \fill[%
+                    left color=\neoschool@headcolor,
+                    right color=\neoschool@headcolor!20
+                ] ([yshift=-0.5em]title.south west) rectangle ([yshift=-0.6em]title.south east);%
+            \else
+                \fill[%
+                    left color=\neoschool@headcolor!20,
+                    right color=\neoschool@headcolor
+                ] ([yshift=-0.5em]title.south west) rectangle ([yshift=-0.6em]title.south east);%
+            \fi
+        \fi
+    \end{tikzpicture}%
+    \par\vspace{0.7em}%
+}
+
+\newcommand{\sectionformat@other}[2]{%
+    \setsectionraggedstyle
+    \ifx\neoschool@sectionstyle\neo@style@underline
+        \sectionformat@underline{#1}{#2}%
+    \else
+        \sectionformat@default{#1}{#2}%
+    \fi
+}
+
+\newcommand{\sectionformat@underline}[2]{%
+    \parbox[t]{\linewidth}{%
+        \raggedsection
+        {\color{\neoschool@headcolor}\applytextstyle{#1#2}}%
+        \par\nobreak
+        \kern-.75\ht\strutbox\color{\neoschool@headcolor!30}\rule{\linewidth}{1pt}%
+    }%
+}
+
+\newcommand{\sectionformat@default}[2]{%
+    \raggedsection
+    {\color{\neoschool@headcolor}\applytextstyle{#1#2}}%
+    \par\nobreak
+}
+
+%% ==============================================================================
+%% Header and Footer Styles and Setting
+%% ==============================================================================
+
+\def\neo@header@type{}
+\def\neo@header@school{}
+\def\neo@header@academy{}
+\def\neo@header@level{}
+\def\neo@header@duration{}
+\def\neo@header@calculator{}
+\def\neo@header@leftcontent{}
+\def\neo@header@rightcontent{}
+\def\neo@header@leftcontentfill{}
+\def\neo@header@rightcontentfill{}
+
+\define@key[neo]{header}{type}{\def\neo@header@type{#1}}
+\define@key[neo]{header}{school}{\def\neo@header@school{#1}}
+\define@key[neo]{header}{academy}{\def\neo@header@academy{#1}}
+\define@key[neo]{header}{level}{\def\neo@header@level{#1}}
+\define@key[neo]{header}{duration}{\def\neo@header@duration{#1}}
+\define@key[neo]{header}{calculator}{%
+    \def\@tempa{#1}%
+    \def\@tempb{true}\def\@tempc{false}\def\@tempd{exam}%
+    \ifx\@tempa\@tempb
+        \def\neo@header@calculator{true}%
+    \else
+        \ifx\@tempa\@tempc
+            \def\neo@header@calculator{false}%
+        \else
+            \ifx\@tempa\@tempd
+                \def\neo@header@calculator{exam}%
+            \else
+                \PackageError{neoschool}{Invalid calculator value: #1}%
+                {Use 'true', 'false' or 'exam'}%
+            \fi
+        \fi
+    \fi
+}
+\define@key[neo]{header}{leftcontent}{\def\neo@header@leftcontent{#1}}
+\define@key[neo]{header}{rightcontent}{\def\neo@header@rightcontent{#1}}
+\define@key[neo]{header}{leftcontentfill}{\def\neo@header@leftcontentfill{#1}}
+\define@key[neo]{header}{rightcontentfill}{\def\neo@header@rightcontentfill{#1}}
+
+\presetkeys[neo]{header}{%
+    type={Évaluation},%
+    school={CSI Lyon},%
+    academy={Lyon},%
+    level={Terminale},%
+    duration={1 heure},%
+    calculator=true,%
+    leftcontent={\faBookOpen},%
+    rightcontent={\faSchool},%
+    leftcontentfill=true,%
+    rightcontentfill=true%
+}{}
+
+\newcommand{\neoheader}[1]{%
+    \setkeys[neo]{header}{#1}%
+}
+
+\newif\ifneoheaderused
+\neoheaderusedfalse
+
+\let\neo@original@header\neoheader
+\renewcommand{\neoheader}[1]{%
+    \neoheaderusedtrue
+    \neo@original@header{#1}%
+}
+
+\AtEndPreamble{%
+    \ifneoheaderused\else
+        \setkeys[neo]{header}{}%
+    \fi
+}
+
+% Full header configuration
+\ifneo@fullheader
+    \ihead{\neo@header@type}
+    \chead{\@title}
+    \ohead{\neo@header@level}
+    \ifoot{\@date}
+    \cfoot{\neo@header@school}
+    \ofoot{\pagemark}
+    \pagestyle{scrheadings}
+    \thispagestyle{firstpage}
+\else
+    \pagestyle{followingpages}
+    \thispagestyle{firstpage}
+\fi
+
+\ifneo@headrule
+    \KOMAoptions{headsepline=.4pt}
+\fi
+\ifneo@footrule
+    \KOMAoptions{footsepline=.4pt}
+\fi
+\ifneo@headfootrule
+    \KOMAoptions{headsepline=.4pt, footsepline=.4pt}
+\fi
+
+%% ==============================================================================
+%% Evaluation Headers and Special Styles
+%% ==============================================================================
+
+%% Dimensions and Basic Configuration
+%% ----------------------------------
+\newlength{\neo@headerheight}
+\setlength{\neo@headerheight}{35mm}
+
+\newlength{\neo@iconsize}
+\setlength{\neo@iconsize}{1.5cm}
+
+%% Colors Setup
+%% ----------------------------------
+\newcommand{\neo@setupevalcolors}{%
+    \def\neo@evalrulecolor{\neoschool@headfootcolor!25!white}%
+}
+
+%% Basic Title Components
+%% ----------------------------------
+\newcommand{\neo@completetitle}[1][]{%
+	% Main title
+	\node[
+		align=center,
+		anchor=center,
+		text width=0.75\textwidth,
+		#1
+	] (title) at ([yshift=-20mm]current page.north) {%
+		\baselineskip=30pt
+		\Large
+		\csname\neoschool@titlestyle\endcsname
+		\csname\neoschool@titleweight\endcsname
+		\csname\neoschool@titleshape\endcsname
+		\color{\neoschool@titlecolor}\@title
+	};
+
+	% Subject (if provided)
+	\ifx\@subject\empty\else
+		\node[
+			above=1.5mm of title.north,
+			anchor=south,
+			text width=0.85\textwidth,
+			align=center,
+			font=\normalsize
+		] {%
+			\usekomafont{subject}{\@subject}
+		};
+	\fi
+
+	% Subtitle (if provided)
+	\ifx\@subtitle\empty\else
+		\node[
+			below=1.5mm of title.south,
+			anchor=north,
+			text width=0.85\textwidth,
+			align=center,
+			font=\normalsize
+		] {%
+			\usekomafont{subtitle}{\@subtitle}
+		};
+	\fi
+}
+
+\newcommand{\neo@completegradetitle}[1][]{%
+	% Main title
+	\node[
+		align=center,
+		anchor=center,
+		text width=0.85\textwidth,
+		#1
+	] (title) at ([yshift=-24mm]current page.north) {%
+		\baselineskip=30pt
+		\Large
+		\csname\neoschool@titlestyle\endcsname
+		\csname\neoschool@titleweight\endcsname
+		\csname\neoschool@titleshape\endcsname
+		\color{\neoschool@titlecolor}\@title
+	};
+	% Subject (if provided)
+	\ifx\@subject\empty\else
+		\node[
+			above=1.5mm of title.north,
+			anchor=south,
+			text width=0.85\textwidth,
+			align=center,
+			font=\normalsize
+		] {%
+			\usekomafont{subject}{\@subject}
+		};
+	\fi
+	% Subtitle (if provided)
+	\ifx\@subtitle\empty\else
+		\node[
+			below=1.5mm of title.south,
+			anchor=north,
+			text width=0.85\textwidth,
+			align=center,
+			font=\normalsize
+		] {%
+			\usekomafont{subtitle}{\@subtitle}
+		};
+	\fi
+	% Duration
+	\node[
+		below=10mm of title.south,
+		anchor=north,
+		align=center,
+		font=\small\sffamily
+	] {%
+		Durée : \neo@header@duration\quad\textbullet\quad\neo@calculator
+	};
+	% Name field
+	\node[
+		below=17.5mm of title.south,
+		anchor=north,
+		align=center,
+		font=\small\sffamily
+	] {%
+		\color{\neoschool@globalcolor}Nom : \vardots[4cm]
+	};
+}
+
+%% ==============================================================================
+%% Enhanced Header without Icons
+%% ==============================================================================
+
+%% Configuration for Simple Header
+%% ----------------------------------
+\newcommand{\neo@setupheaderconfig}{%
+	\def\neo@cornershift{5mm}%
+	\def\neo@topyshift{8mm}%
+	\def\neo@topyshiftgrade{8mm}%
+	\def\neo@bottomyshift{40mm}%
+}
+
+%% Corner Text Nodes
+%% ----------------------------------
+\newcommand{\neo@cornernode}[4]{%
+	\node[
+		anchor=#1,
+		font={\color{\neoschool@headfootcolor}\small\sffamily}
+	] at ([xshift=#2,yshift=-#3]current page.north #1) {%
+		\begingroup
+		#4%
+		\endgroup
+	};
+}
+
+%% ==============================================================================
+%% Header with Icons
+%% ==============================================================================
+
+%% Icon Node Definition
+%% ----------------------------------
+\newcommand{\neo@iconnode}[5]{%
+	% Icon node with color inversion
+	\node[
+		rectangle,
+		minimum height=\neo@iconsize,
+		minimum width=\neo@iconsize,
+		fill=white,
+		text=\neoschool@titlecolor,
+		draw=\neoschool@titlecolor,
+		line width=0.5pt,
+		anchor=center,
+		font=\normalsize,
+		rounded corners=2pt
+	] (#1) at #2 {#3};
+
+	% Top text
+	\node[
+		above=2mm of #1,
+		anchor=south,
+		font={\color{\neoschool@headfootcolor}\small\sffamily}
+	] (#1-top) {%
+		\begingroup
+		#4%
+		\endgroup
+	};
+
+	% Bottom text
+	\node[
+		below=2mm of #1,
+		anchor=north,
+		font={\color{\neoschool@headfootcolor}\small\sffamily}
+	] (#1-bottom) {%
+		\begingroup
+		#5%
+		\endgroup
+	};
+}
+
+%% ==============================================================================
+%% Header Type Selection and Setup
+%% ==============================================================================
+
+\newcommand{\neo@basetitlecontent}{%
+	\begin{tikzpicture}[remember picture,overlay]
+		\neo@completetitle
+	\end{tikzpicture}%
+}
+
+%% Header without Icons
+\ifneo@eval
+    \newcommand{\neo@evaltitlecontent}{%
+        \neo@setupevalcolors
+        \neo@setupheaderconfig
+
+        \ifx\@subject\empty
+            \def\neo@adjustedbottomyshift{\neo@bottomyshift}
+            \def\neo@adjustedruleposition{-1.3\neo@headerheight}
+            \def\neo@adjustedvspaceone{0.85\neo@headerheight}
+            \def\neo@adjustedvspacetwo{1.15\neo@headerheight}
+        \else
+            \def\neo@adjustedbottomyshift{35mm}
+            \def\neo@adjustedruleposition{-1.2\neo@headerheight}
+            \def\neo@adjustedvspaceone{0.65\neo@headerheight}
+            \def\neo@adjustedvspacetwo{0.95\neo@headerheight}
+        \fi
+
+        \begin{tikzpicture}[remember picture,overlay]
+            \draw[\neo@evalrulecolor,line width=0.4pt]
+            ([yshift=\neo@adjustedruleposition]current page.north west) --
+            ([yshift=\neo@adjustedruleposition]current page.north east);
+            \neo@completetitle
+            \neo@cornernode{west}{\neo@cornershift}{\neo@topyshift}{\neo@header@type}
+            \neo@cornernode{east}{-\neo@cornershift}{\neo@topyshift}{\neo@header@school}
+            \neo@cornernode{west}{\neo@cornershift}{\neo@adjustedbottomyshift}{\neo@header@level}
+            \neo@cornernode{east}{-\neo@cornershift}{\neo@adjustedbottomyshift}{\@date}
+        \end{tikzpicture}%
+        \if@twocolumn\vspace{\neo@adjustedvspacetwo}\else\vspace{\neo@adjustedvspaceone}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@evaltitlecontent]%
+            \else
+                \neo@evaltitlecontent
+            \fi
+            \thispagestyle{pagenum}%
+        }%
+    }
+\fi
+
+
+%% Header with Icons
+\ifneo@evalicons
+	\newcommand{\neo@evaliconscontent}{%
+		\neo@setupevalcolors
+		\begin{tikzpicture}[remember picture,overlay]
+			\draw[\neo@evalrulecolor,line width=0.4pt]
+			([yshift=-1.125\neo@headerheight]current page.north west) --
+			([yshift=-1.125\neo@headerheight]current page.north east);
+			\neo@completetitle
+			\neo@iconnode{typeicon}
+			{([xshift=30mm,yshift=-0.575\neo@headerheight]current page.north west)}
+			{\neo@header@leftcontent}
+			{\neo@header@type}
+			{\neo@header@level}
+			\neo@iconnode{schoolicon}
+			{([xshift=-30mm,yshift=-0.575\neo@headerheight]current page.north east)}
+			{\neo@header@rightcontent}
+			{\neo@header@school}
+			{\@date}
+		\end{tikzpicture}%
+		\if@twocolumn\vspace{0.85\neo@headerheight}\else\vspace{0.5\neo@headerheight}\fi%
+	}
+
+	\AtBeginDocument{%
+		\let\neo@oldmaketitle\maketitle
+		\renewcommand{\maketitle}{%
+			\if@twocolumn
+				\twocolumn[\neo@evaliconscontent]%
+			\else
+				\neo@evaliconscontent
+			\fi
+			\thispagestyle{pagenum}%
+		}%
+	}
+\fi
+
+%% Header with grading strip without Icons
+\ifneo@evalgrade
+	\newcommand{\neo@evalgradecontent}{%
+		\neo@setupevalcolors
+		\neo@setupheaderconfig
+		\begin{tikzpicture}[remember picture,overlay]
+			\neo@completegradetitle
+			% Top elements
+			\neo@cornernode{west}{\neo@cornershift}{\neo@topyshiftgrade}{\neo@header@type}
+			\neo@cornernode{east}{-\neo@cornershift}{\neo@topyshiftgrade}{\neo@header@level}
+
+			% Bottom elements
+			\node[
+				anchor=west,
+				font={\small\sffamily}
+			] at ([xshift=5mm,yshift=9mm]current page.south west) {%
+				\color{\neoschool@headfootcolor}\@date%
+			};
+
+			\node[
+				anchor=east,
+				font={\small\sffamily}
+			] at ([xshift=-5mm,yshift=9mm]current page.south east) {%
+				\color{\neoschool@headfootcolor}\neo@header@school%
+			};
+
+			% Page number in the center bottom
+			\node[
+				font=\small\sffamily,
+				inner sep=3mm
+			] at ([yshift=9mm]current page.south) {%
+				\color{\neoschool@headfootcolor}\thepage
+			};
+		\end{tikzpicture}%
+
+		\if@twocolumn\vspace{\neo@headerheight}\else\vspace{0.95\neo@headerheight}\fi%
+
+        \ifx\neoschool@totalpoints\@empty\gradingstrip\else\gradingstrip[\neoschool@totalpoints]\fi
+
+        \if@twocolumn\vspace{1.5em}\else\vspace{.5em}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@evalgradecontent]%
+            \else
+                \neo@evalgradecontent
+            \fi
+            \thispagestyle{empty}%
+        }%
+    }
+\fi
+
+%% Header with grading strip with Icons
+\ifneo@evaliconsgrade
+	\newcommand{\neo@evaliconsgradecontent}{%
+		\begin{tikzpicture}[remember picture,overlay]
+			\neo@completegradetitle
+			\neo@iconnode{typeicon}
+			{([xshift=30mm,yshift=-0.575\neo@headerheight]current page.north west)}
+			{\neo@header@leftcontent}
+			{\neo@header@type}
+			{\neo@header@level}
+			\neo@iconnode{schoolicon}
+			{([xshift=-30mm,yshift=-0.575\neo@headerheight]current page.north east)}
+			{\neo@header@rightcontent}
+			{\neo@header@school}
+			{\@date}
+		\end{tikzpicture}%
+
+		\if@twocolumn\vspace{\neo@headerheight}\else\vspace{0.95\neo@headerheight}\fi%
+
+		\ifx\neoschool@totalpoints\@empty\gradingstrip\else\gradingstrip[\neoschool@totalpoints]\fi
+		\if@twocolumn\vspace{1em}\else\vspace{.25em}\fi%
+	}
+
+	\AtBeginDocument{%
+		\let\neo@oldmaketitle\maketitle
+		\renewcommand{\maketitle}{%
+			\if@twocolumn
+				\twocolumn[\neo@evaliconsgradecontent]%
+			\else
+				\neo@evaliconsgradecontent
+			\fi
+			\thispagestyle{pagenum}%
+		}%
+	}
+\fi
+
+%% Calculator Notice
+%% ----------------------------------
+\newcommand{\neo@calculator}{%
+	\small L'usage de la calculatrice%
+	\def\@tempa{true}%
+	\def\@tempb{exam}%
+	\ifx\neo@header@calculator\@tempa
+		~est autorisé.%
+	\else
+		\ifx\neo@header@calculator\@tempb
+			~est autorisé uniquement en mode examen.%
+		\else
+			~n'est pas autorisé.%
+		\fi
+	\fi
+	\par
+}
+
+%% Exam Header
+%% ----------------------------------
+%% Exam style helper commands and setup
+\newcommand{\neo@gettext}[1]{%
+	\ifneo@french
+		\ifcase#1\or Établissement\or Nom\or Classe\or Durée\or Date\or Note\or Appréciation\fi
+	\else\ifneo@german
+			\ifcase#1\or Einrichtung\or Name\or Klasse\or Dauer\or Datum\or Note\or Bewertung\fi
+		\else
+			\ifcase#1\or Institution\or Name\or Class\or Duration\or Date\or Mark\or Appreciation\fi
+		\fi\fi
+}
+
+\newcommand{\examfield}[2]{%
+	\textbf{#1}\hspace{0.5em}#2%
+}
+
+%% Exam title style
+\ifneo@exam
+    \newcommand{\neo@examcontent}{%
+        \vspace*{-2cm}%
+        \begin{tcolorbox}[%
+                enhanced,
+                frame hidden,
+                colback=white,
+                top=\baselineskip,
+                bottom=\baselineskip,
+                left=0pt,
+                right=0pt,
+                width=\textwidth,
+                after skip=0pt,
+            ]
+            {\renewcommand\arraystretch{1.25}%
+                \begin{tblr}{X[4,l]X[2,c]X[3,r]}
+                    \examfield{\neo@gettext{1} :}{\neo@header@school} &  &
+                    \examfield{\neo@gettext{5} :}{\@date}                      \\
+                    \examfield{\neo@gettext{2} :}{\vardots[4cm]}               &  &
+                    \examfield{\neo@gettext{3} :}{\neo@header@level}
+                \end{tblr}
+            }
+
+            \vspace{\baselineskip}
+            \centering
+
+            \begin{minipage}[c]{\linewidth}
+                \centering
+                \neo@header@type
+            \end{minipage}\vspace{.85\baselineskip}
+
+            \LARGE\csname\neoschool@titlestyle\endcsname
+            \csname\neoschool@titleweight\endcsname
+            \csname\neoschool@titleshape\endcsname
+            \color{\neoschool@titlecolor}
+            \@title\vspace{.75\baselineskip}
+
+            \normalsize\normalfont\color{black}
+            \begin{minipage}[c]{\linewidth}
+                \centering
+                \examfield{\neo@gettext{4} :}{\neo@header@duration}\vspace{\baselineskip}
+
+                \neo@calculator
+            \end{minipage}
+        \end{tcolorbox}
+
+        \ifx\neoschool@totalpoints\@empty\gradingstrip\else\gradingstrip[\neoschool@totalpoints]\fi
+        \if@twocolumn\vspace{2em}\else\vspace{1em}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@examcontent]%
+            \else
+                \neo@examcontent
+            \fi
+            \thispagestyle{pagenum}%
+        }%
+    }
+\fi
+
+%% French Exam Headers
+%% ----------------------------------
+% Common exam title commands
+\NewDocumentCommand{\neo@examtitle}{m}{%
+	{\color{\neoschool@titlecolor}
+			\csname\neoschool@titlestyle\endcsname
+			\csname\neoschool@titleweight\endcsname
+			\csname\neoschool@titleshape\endcsname
+			\LARGE\MakeUppercase{#1}\par}
+}
+
+\NewDocumentCommand{\neo@examsubtitle}{m}{%
+	{\color{\neoschool@titlecolor!85!black}
+			\csname\neoschool@titlestyle\endcsname
+			\Large #1\par}
+}
+
+\NewDocumentCommand{\neo@examinfo}{m}{%
+	{\color{\neoschool@titlecolor!75!black}
+			\csname\neoschool@titlestyle\endcsname
+			\large #1\par}
+}
+
+%% Mock exam style
+\ifneo@mockexam
+	\newcounter{mockexampages}
+	\AtEndDocument{%
+		\immediate\write\@auxout{%
+			\string\setcounter{mockexampages}{\thepage}%
+		}%
+	}
+	\newcommand{\neo@mockexamcontent}{%
+		\vspace*{1cm}%
+		\begin{center}
+			% Institution info
+			{\textsc{\neo@examinfo{\neo@header@school}}}
+			\vspace*{1cm}%
+			{\textsc{\neo@examinfo{Académie de \neo@header@academy}}}
+			\vspace*{\stretch{2.5}}%
+
+			% Title and session
+			{\LARGE\bfseries\csname\neoschool@headstyle\endcsname
+				\csname\neoschool@headweight\endcsname
+				\csname\neoschool@headshape\endcsname
+				\neo@examtitle{\neo@header@type}}
+			\vspace*{0.8cm}%
+			{\color{\neoschool@titlecolor!75!black}\itshape Session \@date}
+			\vspace*{1.5cm}%
+
+			% Subject and level
+			{\Large\csname\neoschool@headstyle\endcsname
+				\csname\neoschool@headweight\endcsname
+				\csname\neoschool@headshape\endcsname
+				\neo@examsubtitle{ÉPREUVE DE \MakeUppercase{\@subject}}}
+			\vspace*{1cm}%
+			{\neo@examinfo{\neo@header@level}}
+			\vspace*{\stretch{2}}%
+
+			% Duration
+			{\textit{Durée : \neo@header@duration}}
+			\vspace*{1.2cm}%
+
+			% Instructions
+			\begin{minipage}{0.8\textwidth}
+				\begin{center}
+					\setlength{\baselineskip}{1.6\baselineskip}%
+					\neo@calculator
+					\vspace*{0.8cm}%
+					La qualité de la rédaction et la rigueur des raisonnements
+					seront prises en compte dans l'évaluation des copies.
+					\vspace*{0.8cm}
+
+					Toute tentative, même partielle ou inachevée, sera valorisée.
+				\end{center}
+			\end{minipage}
+			\vspace*{\stretch{1.5}}%
+
+			% Page count
+			{\color{\neoschool@titlecolor!65!black}%
+				Ce document comporte \arabic{mockexampages}~pages numérotées de 1/\arabic{mockexampages}  à \arabic{mockexampages}/\arabic{mockexampages}.}
+			\vspace*{1.5cm}%
+		\end{center}
+		\thispagestyle{pagenum}%
+		\clearpage\newpage
+	}
+	\AtBeginDocument{%
+		\let\neo@oldmaketitle\maketitle
+		\renewcommand{\maketitle}{%
+			\if@twocolumn
+				\onecolumn
+				\neo@mockexamcontent
+				\twocolumn
+			\else
+				\neo@mockexamcontent
+			\fi
+		}%
+	}
+\fi
+
+\ifneo@shortexam
+    \newcommand{\neo@shortexamcontent}{%
+        \vspace*{-0.5cm}
+        \begin{center}
+            {\Large \csname\neoschool@headstyle\endcsname
+                \csname\neoschool@headweight\endcsname
+                \csname\neoschool@headshape\endcsname
+                \neo@examtitle{\neo@header@type}}
+
+            \vspace{3mm}
+            {\small \textit{Session \@date}}
+
+            \vspace{5mm}
+            {\large \csname\neoschool@headstyle\endcsname
+                \csname\neoschool@headweight\endcsname
+                \csname\neoschool@headshape\endcsname
+                \neo@examsubtitle{ÉPREUVE DE \MakeUppercase{\@subject}}}
+
+            \vspace{3mm}
+            {\small \neo@examinfo{\neo@header@level}}
+
+            \vspace{5mm}
+            {\small \textit{Durée : \neo@header@duration}}
+
+            \vspace{5mm}
+            \neo@calculator
+
+            \vspace{15mm}
+            {\color{\neoschool@headfootcolor}%
+                \rule{\linewidth}{0.5pt}}
+        \end{center}
+        \if@twocolumn\vspace{16mm}\else\vspace{8mm}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@shortexamcontent]%
+            \else
+                \neo@shortexamcontent
+            \fi
+            \thispagestyle{pagenum}%
+        }%
+    }
+\fi
+
+%% Short Eval Header Style
+%% ----------------------------------
+\newlength{\sideWidth}
+\setlength{\sideWidth}{4.5cm}
+
+\ifneo@shorteval
+    \newcommand{\neo@shortevalcontent}{%
+        \begin{tikzpicture}[remember picture,overlay]
+            \draw[line width=0.4pt, \neoschool@headfootcolor!50!white]
+            ([yshift=-21mm]current page.north west) --
+            ([yshift=-21mm]current page.north east);
+            \path let \p1=(current page.east) in node[
+                    anchor=west,
+                    align=left,
+                    text width=\sideWidth,
+                    font=\small\sffamily,
+                    text=\neoschool@headfootcolor
+                ] at ([xshift=0.75cm,yshift=-11mm]current page.north west)
+            {Nom :\\[1mm]
+                    \neo@header@type};
+            \path let \p1=(current page.east) in node[
+                    anchor=center,
+                    align=center,
+                    text width={\dimexpr\paperwidth-2\sideWidth-0.25cm},
+                    font=\Large
+                ] at ([yshift=-11mm]current page.north)
+            {\color{\neoschool@titlecolor}%
+                    \csname\neoschool@titlestyle\endcsname%
+                    \csname\neoschool@titleweight\endcsname%
+                    \csname\neoschool@titleshape\endcsname%
+                    \@title};
+            \path let \p1=(current page.east) in node[
+                    anchor=east,
+                    align=right,
+                    text width=\sideWidth,
+                    font=\small\sffamily,
+                    text=\neoschool@headfootcolor
+                ] at ([xshift=-0.75cm,yshift=-11mm]current page.north east)
+            {\neo@header@school\\[1mm]
+                    \neo@header@level};
+        \end{tikzpicture}%
+        \if@twocolumn\vspace{3.5em}\else\vspace{1em}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@shortevalcontent]%
+            \else
+                \neo@shortevalcontent
+            \fi
+            \thispagestyle{pagenum}%
+        }%
+    }
+\fi
+
+
+%% Short Title Header Style
+%% ----------------------------------
+\ifneo@shorttitle
+    \newcommand{\neo@shorttitlecontent}{%
+        \begin{tikzpicture}[remember picture,overlay]
+            \draw[line width=0.4pt, \neoschool@headfootcolor!50!white]
+            ([yshift=-21mm]current page.north west) --
+            ([yshift=-21mm]current page.north east);
+            \path let \p1=(current page.east) in node[
+                    anchor=center,
+                    align=center,
+                    text width={\dimexpr\paperwidth-2cm},
+                    font=\Large
+                ] at ([yshift=-11mm]current page.north)
+            {\color{\neoschool@titlecolor}%
+                    \csname\neoschool@titlestyle\endcsname%
+                    \csname\neoschool@titleweight\endcsname%
+                    \csname\neoschool@titleshape\endcsname%
+                    \@title};
+        \end{tikzpicture}%
+        \if@twocolumn\vspace{3.5em}\else\vspace{1em}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+            \renewcommand{\maketitle}{%
+              \if@twocolumn
+
+             \twocolumn[\neo@shorttitlecontent]%
+              \else
+                \neo@shorttitlecontent
+              \fi
+              \thispagestyle{pagenum}%
+        }%
+    }
+\fi
+
+%% Short Lesson Header Style
+%% ----------------------------------
+\ifneo@shortlesson
+    \newcommand{\neo@shortlessoncontent}{%
+        \begin{tikzpicture}[remember picture,overlay]
+            % Line under the header
+            \draw[line width=0.4pt, \neoschool@headfootcolor!50!white]
+            ([yshift=-21mm]current page.north west) --
+            ([yshift=-21mm]current page.north east);
+
+            % Left side - Type
+            \path let \p1=(current page.east) in node[
+                    anchor=west,
+                    align=left,
+                    text width=\sideWidth,
+                    font=\small\sffamily,
+                    text=\neoschool@headfootcolor
+                ] at ([xshift=0.75cm,yshift=-11mm]current page.north west)
+            {\neo@header@type};
+
+            % Center - Title with dynamic width
+            \path let \p1=(current page.east) in node[
+                    anchor=center,
+                    align=center,
+                    text width={\dimexpr\paperwidth-2\sideWidth-0.25cm},
+                    font=\Large
+                ] at ([yshift=-11mm]current page.north)
+            {\color{\neoschool@titlecolor}%
+                    \csname\neoschool@titlestyle\endcsname%
+                    \csname\neoschool@titleweight\endcsname%
+                    \csname\neoschool@titleshape\endcsname%
+                    \@title};
+
+            % Right side - Level
+            \path let \p1=(current page.east) in node[
+                    anchor=east,
+                    align=right,
+                    text width=\sideWidth,
+                    font=\small\sffamily,
+                    text=\neoschool@headfootcolor
+                ] at ([xshift=-0.75cm,yshift=-11mm]current page.north east)
+            {\neo@header@level};
+        \end{tikzpicture}%
+        \if@twocolumn\vspace{3.5em}\else\vspace{1em}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@shortlessoncontent]%
+            \else
+                \neo@shortlessoncontent
+            \fi
+            \thispagestyle{firstpage}%
+        }%
+    }
+\fi
+
+%% Bubbles Header
+%% ----------------------------------
+\ifneo@bubbles
+  \def\neo@bubbles@colbubbles{\neoschool@titlecolor}
+  \define@key[neo]{bubbles}{colbubbles}{\def\neo@bubbles@colbubbles{#1}}
+  \newcommand{\neo@bubbles@setkeys}{\setkeys[neo]{bubbles}}
+
+  \neo@bubbles@setkeys{%
+    colbubbles=\neoschool@titlecolor,
+  }
+
+    \newcommand{\neo@drawbubble}[5]{%
+        \pgfmathsetmacro{\opacityValue}{#1}
+        \ifneo@unicolor
+            \colorlet{currentcolor}{\neo@bubbles@colbubbles}
+        \else
+            \ifcase#2
+                \colorlet{currentcolor}{\neoschool@titlecolor}
+            \or
+                \colorlet{currentcolor}{\neoschool@headcolor}
+            \or
+                \colorlet{currentcolor}{theoremColor}
+            \or
+                \colorlet{currentcolor}{definitionColor}
+            \or
+                \colorlet{currentcolor}{methodColor}
+            \or
+                \colorlet{currentcolor}{applicationColor}
+            \fi
+        \fi
+        \colorlet{drawcolor}{currentcolor!75}
+        \fill[
+            color=currentcolor!#3!white,
+            draw=drawcolor,
+            line width=0.7pt,
+            opacity=#4
+        ] #5;
+    }
+
+    \newcommand{\neo@bubblescontent}{%
+    \tikzfading[name=fading box, inner color=transparent!5, outer color=transparent!100]
+    \begin{tikzpicture}[remember picture,overlay]
+    \def\ellipseWidth{20cm}
+    \def\ellipseHeight{6cm}
+    \def\numBubbles{600}
+    \coordinate (ellipseCenter) at ([yshift=-4.5cm]current page.north);
+
+    \foreach \i in {1,...,\numBubbles} {%
+      \pgfmathsetmacro{\angle}{random()*360}
+      \pgfmathsetmacro{\rawradius}{rand}
+      \pgfmathsetmacro{\radius}{pow(\rawradius, 2)}
+      \pgfmathsetmacro{\x}{\radius*\ellipseWidth/2.25*cos(\angle)}
+      \pgfmathsetmacro{\y}{\radius*\ellipseHeight/2.25*sin(\angle)}
+
+      \pgfmathrandominteger{\sizeGroup}{1}{3}
+      \ifnum\sizeGroup=1
+        \pgfmathsetmacro{\bubbleRadius}{rand*12 + 5}
+      \else\ifnum\sizeGroup=2
+          \pgfmathsetmacro{\bubbleRadius}{rand*8 + 3}
+        \else
+          \pgfmathsetmacro{\bubbleRadius}{rand*4 + 1}
+        \fi\fi
+
+      \pgfmathsetmacro{\op}{0.4 + 0.2*rand}
+
+      \pgfmathrandominteger{\col}{0}{4}
+      \pgfmathrandominteger{\p}{50}{90}
+      % \neo@drawbubble{\op}{\col}{\p}{\op}
+      \neo@drawbubble{\op}{\col}{\p}{\op}
+      {([xshift=\x, yshift=\y]ellipseCenter) circle (\bubbleRadius pt)}
+    }
+
+    \node[
+    anchor=center,
+    inner xsep=50mm,
+    inner ysep=30mm,
+    fill=white,
+    fill opacity=.85,
+    text opacity=1,
+    path fading=fading box,
+    ] at ([yshift=-1mm]ellipseCenter) (titleNode)
+    {
+      \begin{varwidth}{0.75\linewidth}
+        \centering \csname\neoschool@titlestyle\endcsname\csname\neoschool@titleweight\endcsname\csname\neoschool@titleshape\endcsname
+        \color{\neo@bubbles@colbubbles}\huge \@title
+        \ifx\@subtitle\empty\else
+          \par\vspace{-2mm}
+          {\normalsize\usekomafont{subtitle}{\@subtitle}}
+        \fi
+      \end{varwidth}
+    };
+
+  \end{tikzpicture}%
+  \if@twocolumn\vspace{7cm}\else\vspace{5.5cm}\fi%
+}
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@bubblescontent]%
+            \else
+                \neo@bubblescontent
+            \fi
+            \thispagestyle{firstpage}%
+        }%
+    }
+\fi
+
+%% Top Bubbles Header
+%% ----------------------------------
+\ifneo@topbubbles
+  \def\neo@bubbles@colbubbles{\neoschool@titlecolor}
+  \define@key[neo]{bubbles}{colbubbles}{\def\neo@bubbles@colbubbles{#1}}
+  \newcommand{\neo@bubbles@setkeys}{\setkeys[neo]{bubbles}}
+
+  \neo@bubbles@setkeys{%
+    colbubbles=\neoschool@titlecolor,
+  }
+
+    \newcommand{\neo@drawbubble}[5]{%
+        \pgfmathsetmacro{\opacityValue}{#1}
+        \ifneo@unicolor
+            \colorlet{currentcolor}{\neo@bubbles@colbubbles}
+        \else
+            \ifcase#2
+                \colorlet{currentcolor}{\neoschool@titlecolor}
+            \or
+                \colorlet{currentcolor}{\neoschool@headcolor}
+            \or
+                \colorlet{currentcolor}{theoremColor}
+            \or
+                \colorlet{currentcolor}{definitionColor}
+            \or
+                \colorlet{currentcolor}{methodColor}
+            \or
+                \colorlet{currentcolor}{applicationColor}
+            \fi
+        \fi
+        \colorlet{drawcolor}{currentcolor!75}
+        \fill[
+            color=currentcolor!#3!white,
+            draw=drawcolor,
+            line width=0.7pt,
+            opacity=#4
+        ] #5;
+    }
+
+    \newcommand{\neo@bubblescontent}{%
+      \begin{tikzpicture}[remember picture,overlay]
+        \def\ellipseWidth{20cm}
+        \def\ellipseHeight{5cm}
+        \def\numBubbles{500}
+        \coordinate (ellipseCenter) at ([yshift=-4cm]current page.north);
+
+        \foreach \i in {1,...,\numBubbles} {%
+          \pgfmathsetmacro{\angle}{random()*360}
+          \pgfmathsetmacro{\rawradius}{rand}
+          \pgfmathsetmacro{\radius}{pow(\rawradius, 2)}
+          \pgfmathsetmacro{\x}{\radius*\ellipseWidth/2.25*cos(\angle)}
+          \pgfmathsetmacro{\y}{\radius*\ellipseHeight/2.25*sin(\angle)}
+
+          \pgfmathrandominteger{\sizeGroup}{1}{3}
+          \ifnum\sizeGroup=1
+            \pgfmathsetmacro{\bubbleRadius}{rand*12 + 5}
+          \else\ifnum\sizeGroup=2
+              \pgfmathsetmacro{\bubbleRadius}{rand*8 + 3}
+            \else
+              \pgfmathsetmacro{\bubbleRadius}{rand*4 + 1}
+            \fi\fi
+
+          \pgfmathsetmacro{\op}{0.4 + 0.2*rand}
+
+          \pgfmathrandominteger{\col}{0}{4}
+          \pgfmathrandominteger{\p}{50}{90}
+          \neo@drawbubble{\op}{\col}{\p}{\op}
+          {([xshift=\x, yshift=\y]ellipseCenter) circle (\bubbleRadius pt)}
+        }
+
+    \node[
+      anchor=center,
+      align=center,
+      text width=0.75\linewidth,
+    ] at ([yshift=-3.85cm]ellipseCenter) (titleNode)
+    {\csname\neoschool@titlestyle\endcsname\csname\neoschool@titleweight\endcsname\csname\neoschool@titleshape\endcsname
+      \color{\neo@bubbles@colbubbles}\huge \bfseries \@title};
+
+    \ifx\@subtitle\empty\else
+      \node[
+        below=2mm of titleNode,
+        align=center,
+        text width=0.6\linewidth,
+      ]
+      {\usekomafont{subtitle}{\@subtitle}};
+    \fi
+      \end{tikzpicture}%
+      \if@twocolumn\vspace{8.75cm}\else\vspace{7.5cm}\fi%
+    }
+
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@bubblescontent]%
+            \else
+                \neo@bubblescontent
+            \fi
+            \thispagestyle{firstpage}%
+        }%
+    }
+\fi
+
+%% Short Bubbles Header
+%% ----------------------------------
+\ifneo@shortbubbles
+  \def\neo@bubbles@colbubbles{\neoschool@titlecolor}
+  \define@key[neo]{bubbles}{colbubbles}{\def\neo@bubbles@colbubbles{#1}}
+  \newcommand{\neo@bubbles@setkeys}{\setkeys[neo]{bubbles}}
+  \neo@bubbles@setkeys{%
+    colbubbles=\neoschool@titlecolor,
+  }
+  \newcommand{\neo@drawbubble}[5]{%
+    \pgfmathsetmacro{\opacityValue}{#1}
+    \ifneo@unicolor
+        \colorlet{currentcolor}{\neo@bubbles@colbubbles}
+    \else
+        \ifcase#2
+            \colorlet{currentcolor}{\neoschool@titlecolor}
+        \or
+            \colorlet{currentcolor}{\neoschool@headcolor}
+        \or
+            \colorlet{currentcolor}{theoremColor}
+        \or
+            \colorlet{currentcolor}{definitionColor}
+        \or
+            \colorlet{currentcolor}{methodColor}
+        \or
+            \colorlet{currentcolor}{applicationColor}
+        \fi
+    \fi
+    \colorlet{drawcolor}{currentcolor!75}
+    \fill[
+        color=currentcolor!#3!white,
+        draw=drawcolor,
+        line width=0.7pt,
+        opacity=#4
+    ] #5;
+  }
+
+    \newcommand{\neo@shortbubblescontent}{%
+        \ifx\@subtitle\empty
+            \setlength{\neo@headerheight}{12em}
+        \else
+            \setlength{\neo@headerheight}{13em}
+        \fi
+        \begin{tikzpicture}[remember picture,overlay]
+            \def\myheight{4em}
+            % Set dimensions of the ellipse
+            \def\ellipseWidth{12cm}
+            \def\ellipseHeight{3cm}
+            \def\numBubbles{500}
+            \coordinate (ellipseCenter) at ([yshift=-.9\neo@headerheight]current page text area.north);
+            \foreach \i in {1,...,\numBubbles} {%
+                \pgfmathsetmacro{\angle}{random()*360}
+                \pgfmathsetmacro{\rawradius}{abs(rand)}
+                \pgfmathsetmacro{\radius}{pow(\rawradius, 2)}
+                \pgfmathsetmacro{\x}{\radius * \ellipseWidth/2 * cos(\angle)}
+                \pgfmathsetmacro{\y}{\radius * \ellipseHeight/2 * sin(\angle)}
+                \pgfmathrandominteger{\sizeGroup}{1}{4}
+                \ifnum\sizeGroup=1
+                    \pgfmathsetmacro{\bubbleRadius}{rand*9 + 3.5}
+                \else\ifnum\sizeGroup=2
+                    \pgfmathsetmacro{\bubbleRadius}{rand*5.5 + 2}
+                \else\ifnum\sizeGroup=3
+                    \pgfmathsetmacro{\bubbleRadius}{rand*3.5 + 1.2}
+                \else
+                    \pgfmathsetmacro{\bubbleRadius}{rand*2 + 0.6}
+                \fi\fi\fi
+                \pgfmathsetmacro{\op}{0.35 + 0.4*rand}
+                \pgfmathrandominteger{\col}{0}{5}
+                \pgfmathrandominteger{\p}{48}{92}
+                \neo@drawbubble{\op}{\col}{\p}{\op}
+                {([xshift=\x, yshift=\y]ellipseCenter) circle (\bubbleRadius pt)}
+            }
+            \node[\neoschool@titlecolor,
+                text width=0.95\textwidth,
+                align=center,
+                inner sep=0pt] at
+            ([yshift={-0.65*\myheight}]current page text area.north) (title) {%
+                \LARGE\csname\neoschool@titlestyle\endcsname
+                \csname\neoschool@titleweight\endcsname
+                \csname\neoschool@titleshape\endcsname
+                \@title
+            };
+            \ifx\@subtitle\empty\else
+                \node[subtitleColor,
+                    below=0.3em of title,
+                    text width=0.8\textwidth,
+                    align=center,
+                    inner sep=0pt] {%
+                    \large\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\@subtitle
+                };
+            \fi
+        \end{tikzpicture}%
+        \if@twocolumn
+            \vspace{1.5\neo@headerheight}%
+        \else
+            \vspace{1.25\neo@headerheight}%
+        \fi
+      }
+    \AtBeginDocument{%
+        \let\neo@oldmaketitle\maketitle
+        \renewcommand{\maketitle}{%
+            \if@twocolumn
+                \twocolumn[\neo@shortbubblescontent]%
+            \else
+                \neo@shortbubblescontent
+            \fi
+            \thispagestyle{firstpage}%
+        }%
+    }
+\fi
+
+%% ==============================================================================
+%% Box Styles and Environment
+%% ==============================================================================
+
+%% Common Style Parameters
+%% ----------------------------------
+
+%% Mathematical Boxes
+%% ----------------------------------
+% Standard math box with configurable colors%
+\NewDocumentCommand\mathbox{D<>{white}O{definitionColor}}{%
+\tcboxmath[%
+    colback=#1,
+    colframe=#2,
+    size=fbox,
+    arc=3pt,
+    boxrule=0.8pt
+]
+}
+
+% Math highlighting with size adaptation
+\newcommand{\mhl}[2][mathHighlightColor]{%
+    \mathchoice
+    {\colorbox{#1}{$\displaystyle#2$}}
+    {\colorbox{#1}{$\textstyle#2$}}
+    {\colorbox{#1}{$\scriptstyle#2$}}
+    {\colorbox{#1}{$\scriptscriptstyle#2$}}
+}
+
+%% Answer Fields
+%% ----------------------------------
+% Empty box for answers
+\newcommand{\emptybox}[2]{%
+    \begin{tcolorbox}[%
+            enhanced,
+            boxrule=1pt,
+            arc=5pt,
+            boxsep=0pt,
+            width=#1,
+            height=#2,
+            colback=emptyboxBgColor,
+            frame hidden,
+            sharp corners,
+            before skip=.5\baselineskip,
+            after skip=.5\baselineskip
+        ]
+        \null
+    \end{tcolorbox}
+}
+
+\newlength{\neo@common@vsep}
+\setlength{\neo@common@vsep}{0.5\baselineskip}
+
+% Answer field
+\newlength{\neo@answerbaselineskip}
+\setlength{\neo@answerbaselineskip}{1.35\baselineskip}
+
+\newcommand{\answerfield}[2][\linewidth]{%
+    \par\noindent
+    \colorbox{answerfieldbgColor}{%
+        \parbox{\dimexpr #1 - 2\fboxsep\relax}{%
+            \phantom{\rule{1pt}{#2\neo@answerbaselineskip}}%
+        }%
+    }\par\vspace{\neo@common@vsep}%
+}
+
+% Answer field with frame and white background
+\NewDocumentCommand{\answerframe}{O{\linewidth} m O{}}{%
+    \begin{tcolorbox}[%
+            enhanced,
+            boxrule=0.8pt,
+            colframe=answerframeFrameColor,
+            colback=specialbgColor,
+            width=#1,
+            height=#2\neo@answerbaselineskip,
+            arc=0pt,
+            boxsep=0pt,
+            left=2pt,
+            right=2pt,
+            top=2pt,
+            bottom=2pt,
+            before skip=\neo@common@vsep,
+            after skip=2\neo@common@vsep,
+            #3,
+        ]
+        \phantom{\rule{1pt}{#2\neo@answerbaselineskip}}
+      \end{tcolorbox}
+      \par
+}
+
+% Colored box
+\newcommand{\neocolorbox}[2][applicationColor]{%
+    \begin{tcolorbox}[%
+            enhanced,
+            fontupper=\color{\neoschool@globalcolor},
+            boxrule=1pt,
+            sharpish corners,
+            width=\linewidth,
+            colback=#1!5!white,
+            frame hidden,
+            before skip=12pt plus 2pt,
+            after skip=18pt plus 2pt
+        ]
+        #2
+    \end{tcolorbox}
+}
+
+%% Inline Boxes
+%% ----------------------------------
+\NewDocumentCommand{\inlinebox}{ O{definitionColor} O{white} O{definitionColor} m }{%
+    \tcbox[%
+        enhanced,
+        nobeforeafter,
+        tcbox raise base,
+        boxrule=0.4pt,
+        top=0mm,
+        bottom=0mm,
+        right=0mm,
+        left=0mm,
+        arc=1pt,
+        boxsep=2pt,
+        colback=#1,
+        colupper=#2,
+        colframe=#3
+    ]{#4}%
+}
+
+%% General Purpose Box Environment
+%% ----------------------------------
+\NewDocumentEnvironment{neobox}{ s O{} }{%
+    \begin{tcolorbox}[%
+            \IfBooleanTF{#1}{frame hidden}{},
+            colframe=\neoschool@headcolor,
+            colback=\neo@tcbcolback,
+            enhanced,
+            breakable,
+            boxrule=1pt,
+            arc=4pt,
+            sharp corners,
+            left=0.65em,
+            right=0.65em,
+            #2
+        ]
+        }{%
+    \end{tcolorbox}
+}
+
+% Define starred version
+\ExplSyntaxOn
+\cs_new:cpn {neobox*} {\neobox*}
+\cs_new_eq:cN {endneobox*} \endneobox
+\ExplSyntaxOff
+
+%% Side-by-Side Box Environment
+%% ----------------------------------
+% Base colors for example boxes
+
+\ifneo@darktheme
+    \newcommand{\neo@sidebysidetop}[1]{#1!20!darkthemegray}
+    \newcommand{\neo@sidebysidebottom}[1]{#1!0!darkthemegray}
+\else
+    \newcommand{\neo@sidebysidetop}[1]{#1!10}
+    \newcommand{\neo@sidebysidebottom}[1]{#1!0}
+\fi
+
+\colorlet{neo@examplecomp}{-exampleColor}
+\colorlet{neo@exampledark}{neo@examplecomp!50!black}
+
+% Environment definition
+\newtcolorbox{sidebyside}[1][]{%
+    sidebyside,
+    enhanced,
+    bicolor,
+    sharp corners,
+    arc=1pt,
+    colback=\neo@sidebysidetop{exampleColor},
+    colbacklower=\neo@sidebysidebottom{exampleColor},
+    colframe=exampleColor,
+    colupper=\neoschool@globalcolor,
+    collower=\neoschool@globalcolor,
+    boxsep=15pt,
+    left=0pt,
+    right=0pt,
+    top=-8pt,
+    bottom=-8pt,
+    boxrule=1pt,
+    fonttitle=\sffamily\bfseries,
+    lefttitle=-6pt,
+    toptitle=-11pt,
+    bottomtitle=-11pt,
+    before skip=\baselineskip,
+    after skip=\baselineskip,
+    #1
+}
+
+%% ==============================================================================
+%% Listings Styles and Setting
+%% ==============================================================================
+
+\ifneoschool@centeredcode
+    \def\neo@codecenter{center}
+\else
+    \def\neo@codecenter{}
+\fi
+
+%% TColorBox Styles
+%% ----------------------------------
+
+%% Base Box Parameters
+%% ----------------------------------
+\tcbset{%
+    neo@commonbox/.style={%
+            enhanced,
+            boxrule=\neo@thmborder,
+            top=0pt,
+            bottom=0pt,
+            left=2mm,
+            right=2mm,
+            fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname,
+            coltitle=\neo@tcbcolback,
+            before skip=\baselineskip,
+            after skip=\baselineskip
+        }
+}
+
+%% Box Styles
+%% ----------------------------------
+\def\neo@notitle{notitle}
+
+\tcbset{%
+    box-bottomtitle/.style={%
+            neo@commonbox,
+            enhanced,
+            frame hidden,
+            colback=specialbgColor,
+            colbacktitle=specialbgColor,
+            coltitle=black,
+            fonttitle=\small\sffamily,
+            attach boxed title to bottom center,
+            bottom=0pt,
+            boxed title style={%
+                    frame hidden,
+                    colframe=white,
+                    top=0pt,
+                }
+        },
+    box-bottomtitlef/.style={
+            neo@commonbox,
+            enhanced,
+            colframe=theoremColor,
+            frame style={opacity=0.5},
+            boxrule=0.5pt,
+            colback=specialbgColor,
+            colbacktitle=specialbgColor,
+            coltitle=black,
+            fonttitle=\small\sffamily,
+            sharp corners,
+            attach boxed title to bottom center,
+            top=0pt,
+            bottom=0pt,
+            boxed title style={%
+                    frame hidden,
+                    colframe=white,
+                    top=5pt
+                }
+        },
+    box-fancy/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            arc=\neoschool@boxarc,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            colbacktitle=theoremColor,
+            drop fuzzy shadow
+        },
+    box-minimal/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=specialbgColor,
+            colframe=theoremColor,
+            toptitle=2pt,
+            bottomtitle=2pt,
+            arc=0pt,
+            colbacktitle=specialbgColor,
+            coltitle=theoremColor
+        },
+    box-elegant/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            sharp corners=all,
+            drop fuzzy shadow
+        },
+    box-diagonal/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            arc=\neoschool@boxarc,
+            sharp corners=southwest,
+            sharp corners=northeast
+        },
+    box-bevel/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            arc=\neoschool@boxarc,
+            sharp corners=southeast,
+            sharp corners=northwest
+        },
+    box-corner/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            sharp corners=downhill,
+            rounded corners=northeast,
+            rounded corners=northwest,
+            arc=\neoschool@boxarc
+        },
+    box-rounded/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            rounded corners,
+            toptitle=1pt,
+            bottomtitle=2pt,
+            arc=\neoschool@boxarc,
+        },
+    box-downhill/.style={%
+            neo@commonbox,
+            \neo@getcodeframestyle,
+            colback=codebackColor,
+            colframe=theoremColor,
+            sharp corners=downhill,
+            arc=\neoschool@boxarc,
+            top=0mm,
+            bottom=0mm,
+            fontupper=\color{\neoschool@globalcolor},
+            attach boxed title to top right={yshift=-\tcboxedtitleheight},
+            boxed title style={%
+                    colback=theoremColor,
+                    colframe=theoremColor,
+                    sharp corners=downhill,
+                    arc=.2cm,
+                    top=1pt,
+                    bottom=1pt,
+                    left=2pt,
+                    right=2pt
+                },
+        }
+}
+
+\ifneo@unicolor
+    \def\neo@keywordstyle{\color{\neoschool@headcolor}\bfseries}
+    \def\neo@commentstyle{\color{alternateColor}}
+    \def\neo@stringstyle{\color{\neoschool@headcolor!85}}
+    \def\neo@emphstyle{\color{\neoschool@headcolor}\bfseries}
+\else
+    \def\neo@keywordstyle{\color{codeKeyword}\bfseries}
+    \def\neo@commentstyle{\color{codeComment}}
+    \def\neo@stringstyle{\color{codeString}}
+    \def\neo@emphstyle{\color{codeEmph}\bfseries}
+\fi
+
+\ifneo@listings
+
+    %% Base Listing Style
+    %% ----------------------------------
+    \lstdefinestyle{neo@lst@base}{%
+        basicstyle=\ttfamily\small\color{\neoschool@globalcolor},
+        columns=fullflexible,
+        breaklines=true,
+        keepspaces=true,
+        showstringspaces=false,
+        tabsize=4,
+        inputencoding=utf8,
+        extendedchars=true,
+        escapeinside={(*@}{@*)},
+        aboveskip=.25\baselineskip,
+        belowskip=.25\baselineskip,
+        frame=none,
+        literate={%
+                á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+        {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1
+        {à}{{\`a}}1 {è}{{\`e}}1 {ì}{{\`i}}1 {ò}{{\`o}}1 {ù}{{\`u}}1
+        {À}{{\`A}}1 {È}{{\`E}}1 {Ì}{{\`I}}1 {Ò}{{\`O}}1 {Ù}{{\`U}}1
+        {ä}{{\"a}}1 {ë}{{\"e}}1 {ï}{{\"i}}1 {ö}{{\"o}}1 {ü}{{\"u}}1
+        {Ä}{{\"A}}1 {Ë}{{\"E}}1 {Ï}{{\"I}}1 {Ö}{{\"O}}1 {Ü}{{\"U}}1
+        {â}{{\^a}}1 {ê}{{\^e}}1 {î}{{\^i}}1 {ô}{{\^o}}1 {û}{{\^u}}1
+        {Â}{{\^A}}1 {Ê}{{\^E}}1 {Î}{{\^I}}1 {Ô}{{\^O}}1 {Û}{{\^U}}1
+        {œ}{{\oe}}1 {Œ}{{\OE}}1 {æ}{{\ae}}1 {Æ}{{\AE}}1 {ß}{{\ss}}1
+        {ẞ}{{\SS}}1 {ç}{{\c{c}}}1 {Ç}{{\c{C}}}1 {ø}{{\o}}1 {Ø}{{\O}}1
+        {å}{{\aa}}1 {Å}{{\AA}}1 {ã}{{\~a}}1 {õ}{{\~o}}1 {Ã}{{\~A}}1
+        {Õ}{{\~O}}1 {ñ}{{\~n}}1 {Ñ}{{\~N}}1 {¿}{{?`}}1 {¡}{{!`}}1
+        {°}{{\textdegree}}1 {º}{{\textordmasculine}}1 {ª}{{\textordfeminine}}1
+        {€}{{\euro}}1 {£}{{\pounds}}1 {©}{{\copyright}}1 {®}{{\textregistered}}1
+        {«}{{\guillemotleft}}1 {»}{{\guillemotright}}1 {Ð}{{\DH}}1 {ð}{{\dh}}1
+        {Ý}{{\'Y}}1 {ý}{{\'y}}1 {Þ}{{\TH}}1 {þ}{{\th}}1 {Ă}{{\u{A}}}1
+        {ă}{{\u{a}}}1 {Ą}{{\k{A}}}1 {ą}{{\k{a}}}1 {Ć}{{\'C}}1 {ć}{{\'c}}1
+        {Č}{{\v{C}}}1 {č}{{\v{c}}}1 {Ď}{{\v{D}}}1 {ď}{{\v{d}}}1 {Đ}{{\DJ}}1
+        {đ}{{\dj}}1 {Ė}{{\.{E}}}1 {ė}{{\.{e}}}1 {Ę}{{\k{E}}}1 {ę}{{\k{e}}}1
+        {Ě}{{\v{E}}}1 {ě}{{\v{e}}}1 {Ğ}{{\u{G}}}1 {ğ}{{\u{g}}}1 {Ĩ}{{\~I}}1
+        {ĩ}{{\~\i}}1 {Į}{{\k{I}}}1 {į}{{\k{i}}}1 {İ}{{\.{I}}}1 {ı}{{\i}}1
+        {Ĺ}{{\'L}}1 {ĺ}{{\'l}}1 {Ľ}{{\v{L}}}1 {ľ}{{\v{l}}}1 {Ł}{{\L{}}}1
+        {ł}{{\l{}}}1 {Ń}{{\'N}}1 {ń}{{\'n}}1 {Ň}{{\v{N}}}1 {ň}{{\v{n}}}1
+        {Ő}{{\H{O}}}1 {ő}{{\H{o}}}1 {Ŕ}{{\'{R}}}1 {ŕ}{{\'{r}}}1 {Ř}{{\v{R}}}1
+        {ř}{{\v{r}}}1 {Ś}{{\'S}}1 {ś}{{\'s}}1 {Ş}{{\c{S}}}1 {ş}{{\c{s}}}1
+        {Š}{{\v{S}}}1 {š}{{\v{s}}}1 {Ť}{{\v{T}}}1 {ť}{{\v{t}}}1 {Ũ}{{\~U}}1
+    }
+
+    \renewcommand*{\lstlistingname}{\neo@codename}
+
+    %% Common Style Elements
+    %% ----------------------------------
+
+    %% ==============================================================================
+    %% Listings Styles and Settings - Part 2
+    %% Defines specific listing styles and environments
+    %% ==============================================================================
+
+    %% Specific Listing Styles
+    %% ----------------------------------
+    % Style Colorful and variants
+    \lstdefinestyle{neo@lst@colorful}{%
+        style=neo@lst@base,
+        keywordstyle=\neo@keywordstyle,
+        commentstyle=\neo@commentstyle,
+        stringstyle=\neo@stringstyle,
+        emphstyle=\neo@emphstyle,
+        numbers=none,
+        numberstyle=\tiny\sffamily\color{gray},
+        frame=none
+    }
+
+    % Variants with background color
+    \lstdefinestyle{neo@lst@colorfulb}{%
+        style=neo@lst@colorful,
+        backgroundcolor=\color{codebackColor}
+    }
+
+    % Variants with line numbers
+    \lstdefinestyle{neo@lst@colorfuln}{%
+        style=neo@lst@colorful,
+        numbers=left,
+        numbersep=14pt
+    }
+
+    % Variants with line numbers and background
+    \lstdefinestyle{neo@lst@colorfulbn}{%
+        style=neo@lst@colorfulb,
+        numbers=left,
+        numbersep=14pt
+    }
+
+    % Variants with frame
+    \lstdefinestyle{neo@lst@colorfulf}{%
+        style=neo@lst@colorful,
+        frame=single,
+    }
+
+    % Variants with frame and background
+    \lstdefinestyle{neo@lst@colorfulbf}{%
+        style=neo@lst@colorfulb,
+        frame=single,
+    }
+
+    % Variants with frame and numbers
+    \lstdefinestyle{neo@lst@colorfulfn}{%
+        style=neo@lst@colorfuln,
+        frame=single,
+    }
+
+    % Variants with all options
+    \lstdefinestyle{neo@lst@colorfulbfn}{%
+        style=neo@lst@colorfulbn,
+        frame=single,
+    }
+
+    %% Minimal Style and Variants
+    %% ----------------------------------
+    \lstdefinestyle{neo@lst@minimal}{%
+        style=neo@lst@base,
+        keywordstyle=\ifneo@unicolor\color{\neoschool@headcolor}\fi\bfseries,
+        commentstyle=\ifneo@unicolor\color{\neoschool@headcolor}\fi,
+        stringstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\ttfamily\fi,
+        emphstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\bfseries\fi,
+        numbers=none,
+        numberstyle=\tiny\sffamily\color{gray},
+        frame=none,
+    }
+
+    % Define all variants using the same pattern as colorful styles
+    \lstdefinestyle{neo@lst@minimalb}{style=neo@lst@minimal,backgroundcolor=\color{codebackColor}}
+    \lstdefinestyle{neo@lst@minimaln}{style=neo@lst@minimal,numbers=left,numbersep=14pt}
+    \lstdefinestyle{neo@lst@minimalbn}{style=neo@lst@minimalb,numbers=left,numbersep=14pt}
+    \lstdefinestyle{neo@lst@minimalf}{style=neo@lst@minimal,frame=single}
+    \lstdefinestyle{neo@lst@minimalbf}{style=neo@lst@minimalb,frame=single}
+    \lstdefinestyle{neo@lst@minimalfn}{style=neo@lst@minimaln,frame=single}
+    \lstdefinestyle{neo@lst@minimalbfn}{style=neo@lst@minimalbn,frame=single}
+
+    %% Academic and Modern Styles
+    %% ----------------------------------
+    \lstdefinestyle{neo@lst@academic}{%
+        style=neo@lst@base,
+        keywordstyle=\ifneo@unicolor\color{\neoschool@headcolor}\fi\bfseries,
+        commentstyle=\ifneo@unicolor\color{\neoschool@headcolor}\fi,
+        stringstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\ttfamily\fi,
+        numbers=left,
+        numberstyle=\tiny,
+        numbersep=14pt,
+        frame=leftline,
+        framesep=3pt,
+        framexleftmargin=3pt,
+        xleftmargin=15pt
+    }
+
+    \lstdefinestyle{neo@lst@modern}{%
+        style=neo@lst@base,
+        keywordstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\color{codeKeyword}\fi\bfseries,
+        commentstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\color{codeComment}\fi,
+        stringstyle=\ifneo@unicolor\color{\neoschool@headcolor}\else\color{codeString}\fi,
+        numbers=none,
+          frame=single,
+        framerule=1pt,
+        framesep=3pt,
+        rulecolor=\ifneo@unicolor\color{\neoschool@headcolor}\else\color{codeKeyword}\fi,
+        backgroundcolor=\ifneo@unicolor\color{codebackColor}\else\color{codeKeyword!5}\fi,
+        framesep=7pt,
+        xleftmargin=1em,
+        linewidth={\dimexpr \linewidth-10pt},
+    }
+
+    %% Language-Specific Definitions
+    %% ----------------------------------
+    % JSON
+    \lstdefinelanguage{json}{%
+    keywords={true,false,null},
+    sensitive=false,
+    morestring=[b]",
+    morecomment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    literate=
+    *{0}{{{\color{codeComment}0}}}{1}
+    {1}{{{\color{codeComment}1}}}{1}
+    {2}{{{\color{codeComment}2}}}{1}
+    {3}{{{\color{codeComment}3}}}{1}
+    {4}{{{\color{codeComment}4}}}{1}
+    {5}{{{\color{codeComment}5}}}{1}
+    {6}{{{\color{codeComment}6}}}{1}
+    {7}{{{\color{codeComment}7}}}{1}
+    {8}{{{\color{codeComment}8}}}{1}
+    {9}{{{\color{codeComment}9}}}{1}
+    {:}{{{\color{codeKeyword}{:}}}}{1}
+    {,}{{{\color{codeKeyword}{,}}}}{1}
+    {\{}{{{\color{codeKeyword}{\{}}}}{1}
+    {\}}{{{\color{codeKeyword}{\}}}}}{1}
+    {[}{{{\color{codeKeyword}{[}}}}{1}
+    {]}{{{\color{codeKeyword}{]}}}}{1},
+    }
+
+    % YAML
+    \lstdefinelanguage{yaml}{%
+        keywords={true,false,null,yes,no,on,off},
+        sensitive=false,
+        morestring=[b]",
+        morestring=[b]',
+        morecomment=[l]{\#},
+        literate=
+            *{:}{{{\color{codeKeyword}{:}}}}{1}
+            {-}{{{\color{codeKeyword}{-}}}}{1}
+            {>}{{{\color{codeKeyword}{>}}}}{1}
+            {|}{{{\color{codeKeyword}{|}}}}{1},
+    }
+
+    % TOML
+    \lstdefinelanguage{toml}{%
+    keywords={true,false},
+    sensitive=false,
+    morestring=[b]",
+    morestring=[b]',
+    morecomment=[l]{\#},
+    literate=
+    *{=}{{{\color{codeKeyword}{=}}}}{1}
+    {[}{{{\color{codeKeyword}{[}}}}{1}
+    {]}{{{\color{codeKeyword}{]}}}}{1}
+    {.}{{{\color{codeKeyword}{.}}}}{1},
+    }
+
+    % CSV
+    \lstdefinelanguage{csv}{%
+        sensitive=false,
+        morestring=[b]",
+        morecomment=[l]{\#},
+        literate=
+            *{,}{{{\color{codeKeyword}{,}}}}{1}
+            {;}{{{\color{codeKeyword}{;}}}}{1},
+    }
+
+    % Markdown
+    \lstdefinelanguage{markdown}{%
+    sensitive=false,
+    morecomment=[l]{\%},
+    literate=
+    *{\#}{{{\color{codeKeyword}{\#}}}}{1}
+    {-}{{{\color{codeKeyword}{-}}}}{1}
+    {*}{{{\color{codeKeyword}{*}}}}{1}
+    {>}{{{\color{codeKeyword}{>}}}}{1}
+    {`}{{{\color{codeKeyword}{`}}}}{1}
+    {|}{{{\color{codeKeyword}{|}}}}{1}
+    {[}{{{\color{codeKeyword}{[}}}}{1}
+    {]}{{{\color{codeKeyword}{]}}}}{1}
+    {(}{{{\color{codeKeyword}{(}}}}{1}
+    {)}{{{\color{codeKeyword}{)}}}}{1},
+    }
+
+    %% Language-Specific Styles
+    %% ----------------------------------
+    \lstdefinestyle{python}{%
+        language=Python,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                @property,@classmethod,@staticmethod,
+            },
+        emph={%
+                range,int,str,list,dict,set,bool,float,
+                tuple,super,type,print,len,sum,min,max,
+                enumerate,zip,map,filter,any,all,as,assert,
+                nonlocal,with,yield,self,True,False,None,
+                lambda,raise,await,async,
+            },
+        morestring=[b]""",
+    }
+
+    \lstdefinestyle{java}{%
+        language=Java,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                @Override,@Deprecated,@SuppressWarnings,
+                @FunctionalInterface,@SafeVarargs,
+                var,record,sealed,permits,
+                public,private,protected,static,final,
+                abstract,interface,extends,implements
+            },
+        morecomment=[s]{/*}{*/},
+        morecomment=[l]//,
+        morestring=[b]",
+    }
+
+    \lstdefinestyle{cpp}{%
+        language=C++,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                nullptr,constexpr,override,final,
+                template,typename,concept,requires,
+                auto,decltype,noexcept,static_assert,
+                thread_local,alignas,alignof
+            },
+        morecomment=[s]{/*}{*/},
+        morecomment=[l]//,
+        morestring=[b]",
+    }
+
+    \lstdefinestyle{javascript}{%
+        language=JavaScript,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                let,const,var,function,class,extends,
+                static,get,set,new,this,super,
+                import,export,default,from,as,
+                async,await,yield,return,
+                undefined,null,true,false
+            },
+        morecomment=[s]{/*}{*/},
+        morecomment=[l]//,
+        morestring=[b]",
+        morestring=[b]',
+        morestring=[b]`,
+    }
+
+    \lstdefinestyle{sql}{%
+        language=SQL,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                CREATE,TABLE,INSERT,INTO,VALUES,
+                SELECT,FROM,WHERE,GROUP,BY,HAVING,
+                ORDER,LIMIT,JOIN,LEFT,RIGHT,INNER,
+                UPDATE,SET,DELETE,ALTER,DROP,
+                CONSTRAINT,PRIMARY,KEY,FOREIGN,
+                REFERENCES,CASCADE,INDEX,
+                TEXT, REAL, OFFSET, WITH
+            },
+        sensitive=false,
+    }
+
+    \lstdefinestyle{latex}{%
+        language=[latex]TeX,
+        style=neo@lst@\neoschool@lststyle,
+        texcsstyle=*\bfseries\color{codeKeyword},
+        moretexcs = {tableofcontents,index,footnote,sout,part,chapter,subsection,subsubsection,paragraph,maketitle,leqslant,geqslant,varnothing,includegraphics,draw,node,theoremstyle,newtcolorbox,tcbuselibrary,newtcbtheorem,SI,ang,ce,chemfig,norm,abs,deriv,R,N,Z,ProvidesPackage,color,ps,montitre,lstset,lstinline,lstinputlisting,definecolor,textcolor,colorlet,setlength,colorbox,fcolorbox,addplot,pgfplotsset,opadd,opsub,opmul,opdiv,opgcd,metre,second,squared,kelvin,coulomb,volt,per,opprint,legend,tkzDefPoint,tkzInterLL,tkzGetPoint,tkzDrawPolygon,tkzDrawSegments,tkzMarkRightAngles,tkzMarkSegments,tkzLabelPoints,boxed,boldsymbol,boldmath,multirow,addbibresource,printbibliography,bm,dfrac,meter,thead,makecell,euro,cellcolor,rowcolor,columncolor,base,repere,rog,ron,rond,derpart,drv,integrer,nuplet,anuplet,ensemble,E,V,suite,suitar,suitgeo,vect,norme,tr,rank,adj,sgn,im,di,intabfx,integrale,e,moinsinf,plusinf,sisetup,restoregeometry,newgeometry,lefttitle,righttitle,colbacklower,neoheader,neograph,textwithimage,withqrcode,positionobject,splitcontent,grid,customgrid,frenchgrid,notebook,nbminorgrid,nbmajorgrid,xsimsetup,correct,choice,checkbox,tcblower,usetheme,usecolortheme,institute,frame,alert,twocolumntoc,codeinline,codeinput,tdnote,tdmark,boxnote,barre,cg,pp,pg,cd,ds,Oij,Oijk,Ouv,neoline,neocol,vectt,mhl,competencies,vardots,answerframe,answerfield,mrk,mrks,gradingstrip},
+        % emph={width,axis~lines,xlabel,ylabel,xmin,ymin,domain,samples,displayshiftintermediary,colback,colframe,colbacktitle,coltitle,enhanced,,fonttitle,margin,leftmargin,publisher,year,carrysub,lastcarry,locale,xmax,ymax,coordinates,mark,style,hmargin,vmargin,top,bottom,left,right,showframe,includeheadfoot,opacity,fill,above,title,colbacklower},
+        morecomment=[l]{\%},
+        morestring=[b]",
+        sensitive=true
+    }
+
+    \lstdefinestyle{bash}{%
+        language=bash,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                source, alias, bg, bind, break, builtin, cd, command, compgen,
+                complete, continue, declare, dirs, disown, echo, enable, eval,
+                exec, exit, export, fc, fg, getopts, hash, help, history, jobs,
+                kill, let, local, logout, mapfile, popd, printf, pushd, pwd,
+                read, readarray, readonly, return, set, shift, shopt, suspend,
+                test, times, trap, type, typeset, ulimit, umask, unalias,
+                unset, wait
+            },
+        morestring=[b]",
+        morestring=[b]',
+        morestring=[b]\`,
+        morecomment=[l]{\#},
+        literate=
+            *{\$}{{{\color{codeKeyword}{\$}}}}{1}
+            {|}{{{\color{codeKeyword}{|}}}}{1}
+            {>}{{{\color{codeKeyword}{>}}}}{1}
+            {<}{{{\color{codeKeyword}{<}}}}{1}
+            {&}{{{\color{codeKeyword}{\&}}}}{1},
+    }
+
+    \lstdefinestyle{assembly}{%
+    language=[x86]Assembler,
+    style=neo@lst@\neoschool@lststyle,
+    morekeywords={%
+            section, global, extern
+        },
+    morecomment=[l]{;},
+    morecomment=[l]{\#},
+    literate=
+    *{,}{{{\color{codeKeyword}{,}}}}{1}
+    {:}{{{\color{codeKeyword}{:}}}}{1}
+    {[}{{{\color{codeKeyword}{[}}}}{1}
+    {]}{{{\color{codeKeyword}{]}}}}{1}
+    {\$}{{{\color{codeKeyword}{\$}}}}{1}
+    {\%}{{{\color{codeKeyword}{\%}}}}{1},
+    }
+
+    \lstdefinestyle{lisp}{%
+        language=Lisp,
+        style=neo@lst@\neoschool@lststyle,
+        morekeywords={%
+                setq, setf, loop, do, progn, when, unless
+            },
+        literate=
+            *{(}{{{\color{codeKeyword}{(}}}}{1}
+            {)}{{{\color{codeKeyword}{)}}}}{1}
+            {'}{{{\color{codeKeyword}{'}}}}{1}
+            {`}{{{\color{codeKeyword}{`}}}}{1}
+            {,}{{{\color{codeKeyword}{,}}}}{1},
+    }
+
+    \lstdefinestyle{json}{%
+        style=neo@lst@\neoschool@lststyle,
+        language=json,
+    }
+
+    \lstdefinestyle{yaml}{%
+        style=neo@lst@\neoschool@lststyle,
+        language=yaml,
+    }
+
+    \lstdefinestyle{toml}{%
+        style=neo@lst@\neoschool@lststyle,
+        language=toml,
+    }
+
+    \lstdefinestyle{csv}{%
+        style=neo@lst@\neoschool@lststyle,
+        language=csv,
+    }
+
+    \lstdefinestyle{markdown}{%
+        style=neo@lst@\neoschool@lststyle,
+        language=markdown,
+    }
+
+    %% Environment Definitions
+    %% ----------------------------------
+    % Counter for code listings
+    \newcounter{lstcode}
+
+	% Code listing environment
+	\NewTCBListing[use counter=lstcode]{code}{ O{} m !O{} !O{} !O{\neoschool@codewidth} }{%
+	listing only,
+	enhanced,
+	breakable,
+    fontupper=\color{\neoschool@globalcolor},
+	width=#5\linewidth,
+	before skip=1.5\baselineskip,
+	after skip=1.5\baselineskip,
+	listing options={%
+        style=#2,
+        #1
+      },
+	code={%
+			\ifx\relax#3\relax
+				\ifx\relax#4\relax
+					\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}%
+				\fi
+			\fi
+			\IfEqCase{#4}{%
+				{}{\tcbset{%
+							standard jigsaw,
+							opacityback=0,
+							opacityframe=0,
+							frame hidden,
+							boxrule=0pt,
+							left=0pt,
+							right=0pt,
+							top=0pt,
+							bottom=0pt,
+							coltitle=\neoschool@titlecolor,
+							fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+						}}
+					{box-minimal}{\tcbset{box-minimal}}
+					{box-fancy}{\tcbset{box-fancy}}
+					{box-elegant}{\tcbset{box-elegant}}
+					{box-diagonal}{\tcbset{box-diagonal}}
+					{box-bevel}{\tcbset{box-bevel}}
+					{box-corner}{\tcbset{box-corner}}
+					{box-rounded}{\tcbset{box-rounded}}
+					{box-downhill}{\tcbset{box-downhill}}
+					{box-bottomtitle}{\tcbset{box-bottomtitle}}
+					{box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+			}[\PackageError{code}{Style not found: #4}{}]
+			\ifx\relax#3\relax\else
+				\tcbset{title={\lstlistingname~\thelstcode~~\textemdash{}~~#3},\neoschool@boxtitle}
+			\fi
+		},
+	\neo@codecenter
+	}
+
+	\NewTCBListing{codenonum}{ O{} m !O{} !O{} !O{\neoschool@codewidth} }{%
+	listing only,
+	enhanced,
+    breakable,
+    fontupper=\color{\neoschool@globalcolor},
+    width=#5\linewidth,
+	before skip=1.5\baselineskip,
+    after skip=1.5\baselineskip,
+	listing options={
+      style=#2,
+      #1
+    },
+	code={
+			\ifx\relax#3\relax\ifx\relax#4\relax
+					\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}
+				\fi\fi
+			\IfEqCase{#4}{
+				{}{\tcbset{ standard jigsaw, opacityback=0, opacityframe=0, frame hidden,
+							boxrule=0pt, left=0pt, right=0pt, top=0pt, bottom=0pt,
+							coltitle=\neoschool@titlecolor,
+							fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+						}}
+					{box-minimal}{\tcbset{box-minimal}}
+					{box-fancy}{\tcbset{box-fancy}}
+					{box-elegant}{\tcbset{box-elegant}}
+					{box-diagonal}{\tcbset{box-diagonal}}
+					{box-bevel}{\tcbset{box-bevel}}
+					{box-corner}{\tcbset{box-corner}}
+					{box-rounded}{\tcbset{box-rounded}}
+					{box-downhill}{\tcbset{box-downhill}}
+					{box-bottomtitle}{\tcbset{box-bottomtitle}}
+					{box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+			}[\PackageError{code}{Style not found: #4}{}]
+			\ifx\relax#3\relax\else
+				\tcbset{title={#3}, \neoschool@boxtitle}
+			\fi
+		},
+	\neo@codecenter
+	}
+
+	\expandafter\let\csname code*\endcsname\codenonum
+	\expandafter\let\csname endcode*\endcsname\endcodenonum
+
+	% Style selector command
+	\newcommand{\setcodestyle}[1]{%
+		\renewcommand{\neoschool@lststyle}{#1}%
+		\ifneo@listings
+          \lstset{style=neo@lst@#1}%
+        \fi
+	}
+
+	% Default style
+	\AtBeginDocument{%
+		\ifneo@listings
+			\lstset{style=neo@lst@\neoschool@lststyle}
+		\else
+			\PackageWarning{neoschool}{The 'listings' package is not enabled, lststyle option will be ignored.}
+		\fi
+	}
+
+	% Inline code
+	\newcommand{\codeinline}[2][]{%
+		\lstinline[style=#1]{#2}
+	}
+
+	% Language detection
+	\newcommand{\DetectLanguage}[1]{%
+		\filename@parse{#1}
+		\ifthenelse{\equal{\filename@ext}{py}}{python}{%
+			\ifthenelse{\equal{\filename@ext}{java}}{java}{%
+				\ifthenelse{\equal{\filename@ext}{tex}}{latex}{text}
+			}
+		}
+	}
+
+	% Code input
+	\NewTCBInputListing{\codeinputnum}{ O{} m m !O{} !O{} !O{\neoschool@codewidth} }{%
+	listing only,
+	boxrule=0pt,
+	enhanced,
+	breakable,
+    fontupper=\color{\neoschool@globalcolor},
+	width=#6\linewidth,
+	before skip=1.5\baselineskip,
+	after skip=1.5\baselineskip,
+	listing file={#3},
+	listing options={%
+			style={#2},
+			#1
+		},
+	frame hidden,
+	colback=codebackColor,
+	boxrule=0pt,
+	left=0pt,
+	right=0pt,
+	top=0pt,
+	bottom=0pt,
+	code={%
+			\ifx\relax#4\relax%
+				\ifx\relax#5\relax%
+					\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}%
+				\fi
+			\fi
+			\IfEqCase{#5}{%
+				{}{\tcbset{%
+							standard jigsaw,
+							opacityback=0,
+							opacityframe=0,
+							frame hidden,
+							boxrule=0pt,
+							left=0pt,
+							right=0pt,
+							top=0pt,
+							bottom=0pt,
+							coltitle=\neoschool@titlecolor,
+							fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+						}}
+					{box-minimal}{\tcbset{box-minimal}}
+					{box-fancy}{\tcbset{box-fancy}}
+					{box-elegant}{\tcbset{box-elegant}}
+					{box-diagonal}{\tcbset{box-diagonal}}
+					{box-bevel}{\tcbset{box-bevel}}
+					{box-corner}{\tcbset{box-corner}}
+					{box-rounded}{\tcbset{box-rounded}}
+					{box-downhill}{\tcbset{box-downhill}}
+					{box-bottomtitle}{\tcbset{box-bottomtitle}}
+					{box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+			}[\PackageError{code}{Style not found: #5}{}]
+			\ifx\relax#4\relax\else
+				\tcbset{title={\neo@codename~\thelstcode~~\textemdash{}~~#4},\neoschool@boxtitle}
+			\fi
+		},
+	\neo@codecenter
+	}
+
+	\NewTCBInputListing{\codeinputnonum}{ O{} m m !O{} !O{} !O{\neoschool@codewidth} }{
+      listing only,
+      boxrule=0pt,
+      enhanced,
+      breakable,
+      fontupper=\color{\neoschool@globalcolor},
+      width=#6\linewidth,
+      before skip=1.5\baselineskip,
+      after skip=1.5\baselineskip,
+      listing file={#3},
+      listing options={
+        style={#2},
+        #1
+      },
+      frame hidden, colback=codebackColor,
+      code={
+			\ifx\relax#4\relax\ifx\relax#5\relax
+					\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}
+				\fi\fi
+			\IfEqCase{#5}{
+				{}{\tcbset{standard jigsaw, opacityback=0, opacityframe=0, frame hidden, boxrule=0pt, left=0pt, right=0pt, top=0pt, bottom=0pt, coltitle=\neoschool@titlecolor, fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname}}
+					{box-minimal}{\tcbset{box-minimal}} {box-fancy}{\tcbset{box-fancy}} {box-elegant}{\tcbset{box-elegant}} {box-diagonal}{\tcbset{box-diagonal}}
+					{box-bevel}{\tcbset{box-bevel}} {box-corner}{\tcbset{box-corner}} {box-rounded}{\tcbset{box-rounded}} {box-downhill}{\tcbset{box-downhill}}
+					{box-bottomtitle}{\tcbset{box-bottomtitle}} {box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+			}[\PackageError{code}{Style not found: #5}{}]
+			\ifx\relax#4\relax\else
+				\tcbset{title={#4}, \neoschool@boxtitle}
+			\fi
+		},
+	\neo@codecenter
+	}
+
+    \DeclareRobustCommand{\codeinput}{%
+      \@ifstar
+        {\codeinputnonum}%
+        {\codeinputnum}%
+    }
+
+	%% Side-by-Side Code Environment
+	%% ----------------------------------
+
+    \ifneo@darktheme
+      \colorlet{codebackColor}{theoremColor!15!darkthemegray}
+    \else
+      \colorlet{codebackColor}{theoremColor!5}
+    \fi
+
+	\newtcblisting{codeside}[2][]{%
+		standard jigsaw,
+		listing only,
+		enhanced,
+		breakable,
+        fontupper=\color{\neoschool@globalcolor},
+		opacityback=0,
+		opacityframe=0,
+		fonttitle=\sffamily\bfseries,
+		arc=1pt,
+		colback=codebackColor,
+		colframe=theoremColor,
+        boxsep=0pt,
+		left=10pt,
+		right=0pt,
+        top=-4pt,
+        bottom=-4pt,
+		lefttitle=1.7mm,
+		width=\linewidth,
+		listing options={%
+				style=#2,
+				#1
+			}
+	}
+
+\else\ifneo@minted
+
+		%% Environment Definitions
+		%% ----------------------------------
+		\newcounter{mintcode}
+
+		\ifneo@print
+			\setminted{
+				style=bw,
+				fontsize=\small,
+				breaklines=true,
+				autogobble,
+				frame=none,
+				linenos=true,
+				tabsize=4,
+			}
+		\else
+			\setminted{
+				style=vs,
+				fontsize=\small,
+				breaklines=true,
+				autogobble,
+				frame=none,
+				linenos=true,
+				tabsize=4,
+			}
+		\fi
+
+		% Code listing environment
+		\NewTCBListing[use counter=mintcode]{code}{ O{} m !O{} !O{} !O{\neoschool@codewidth} }{%
+		listing engine=minted,
+		minted language=#2,
+		listing only,
+		enhanced,
+		breakable,
+        fontupper=\color{\neoschool@globalcolor},
+		width=#5\linewidth,
+		before skip=1.5\baselineskip,
+		after skip=1.5\baselineskip,
+		minted options={#1},
+		code={%
+				\ifx\relax#3\relax%
+					\ifx\relax#4\relax%
+						\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}%
+					\fi
+				\fi
+				\IfEqCase{#4}{%
+					{}{\tcbset{%
+								standard jigsaw,
+								opacityback=0,
+								opacityframe=0,
+								frame hidden,
+								boxrule=0pt,
+								left=0pt,
+								right=0pt,
+								top=0pt,
+								bottom=0pt,
+								coltitle=\neoschool@titlecolor,
+								fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+							}}
+						{box-minimal}{\tcbset{box-minimal}}
+						{box-fancy}{\tcbset{box-fancy}}
+						{box-elegant}{\tcbset{box-elegant}}
+						{box-diagonal}{\tcbset{box-diagonal}}
+						{box-bevel}{\tcbset{box-bevel}}
+						{box-corner}{\tcbset{box-corner}}
+						{box-rounded}{\tcbset{box-rounded}}
+						{box-downhill}{\tcbset{box-downhill}}
+						{box-bottomtitle}{\tcbset{box-bottomtitle}}
+						{box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+				}[\PackageError{code}{Style not found: #4}{}]
+				\ifx\relax#3\relax\else
+					\tcbset{title={\neo@codename~\themintcode~~\textemdash{}~~#3},\neoschool@boxtitle}
+				\fi
+			},
+		\neo@codecenter
+		}
+
+		\NewTCBListing{codenonum}{ O{} m !O{} !O{} !O{\neoschool@codewidth} }{
+          listing engine=minted,
+          minted language=#2,
+          listing only,
+          enhanced,
+          breakable,
+          fontupper=\color{\neoschool@globalcolor},
+          width=#5\linewidth,
+          before skip=1.5\baselineskip,
+          after skip=1.5\baselineskip,
+          minted options={#1},
+          code={
+				\ifx\relax#3\relax\ifx\relax#4\relax
+						\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}
+					\fi\fi
+				\IfEqCase{#4}{
+					{}{\tcbset{standard jigsaw, opacityback=0, opacityframe=0, frame hidden, boxrule=0pt, left=0pt, right=0pt, top=0pt, bottom=0pt, coltitle=\neoschool@titlecolor, fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname}}
+						{box-minimal}{\tcbset{box-minimal}} {box-fancy}{\tcbset{box-fancy}} {box-elegant}{\tcbset{box-elegant}} {box-diagonal}{\tcbset{box-diagonal}}
+						{box-bevel}{\tcbset{box-bevel}} {box-corner}{\tcbset{box-corner}} {box-rounded}{\tcbset{box-rounded}} {box-downhill}{\tcbset{box-downhill}}
+						{box-bottomtitle}{\tcbset{box-bottomtitle}} {box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+				}[\PackageError{code}{Style not found: #4}{}]
+				\ifx\relax#3\relax\else
+					\tcbset{title={#3}, \neoschool@boxtitle}
+				\fi
+			},
+		\neo@codecenter
+		}
+
+		\expandafter\let\csname code*\endcsname\codenonum
+		\expandafter\let\csname endcode*\endcsname\endcodenonum
+
+		% Inline code command
+		\newcommand{\codeinline}[2][text]{%
+			\mintinline[style=vs,fontsize=\small,breaklines,autogobble]{#1}{#2}
+		}
+
+		% Code input from file
+		\NewTCBInputListing{\codeinputnum}{ O{} m m !O{} !O{} !O{\neoschool@codewidth} }{%
+		listing engine=minted,
+		minted language={#2},
+		enhanced,
+		breakable,
+        fontupper=\color{\neoschool@globalcolor},
+		width=#6\linewidth,
+		before skip=1.5\baselineskip,
+		after skip=1.5\baselineskip,
+		listing file={#3},
+		listing only,
+		minted options={#1},
+		frame hidden,
+		colback=codebackColor,
+		boxrule=0pt,
+		code={%
+				\ifx\relax#4\relax%
+					\ifx\relax#5\relax%
+						\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}%
+					\fi
+				\fi
+				\IfEqCase{#5}{%
+					{}{\tcbset{%
+								standard jigsaw,
+								opacityback=0,
+								opacityframe=0,
+								frame hidden,
+								boxrule=0pt,
+								left=0pt,
+								right=0pt,
+								top=0pt,
+								bottom=0pt,
+								coltitle=\neoschool@titlecolor,
+								fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+							}}
+						{box-minimal}{\tcbset{box-minimal}}
+						{box-fancy}{\tcbset{box-fancy}}
+						{box-elegant}{\tcbset{box-elegant}}
+						{box-diagonal}{\tcbset{box-diagonal}}
+						{box-bevel}{\tcbset{box-bevel}}
+						{box-corner}{\tcbset{box-corner}}
+						{box-rounded}{\tcbset{box-rounded}}
+						{box-downhill}{\tcbset{box-downhill}}
+						{box-bottomtitle}{\tcbset{box-bottomtitle}}
+						{box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+				}[\PackageError{code}{Style not found: #5}{}]
+				\ifx\relax#4\relax\else
+					\tcbset{title={\neo@codename~\themintcode~~\textemdash{}~~#4},\neoschool@boxtitle}
+				\fi
+			},
+		\neo@codecenter
+		}
+
+		\NewTCBInputListing{\codeinputnonum}{ O{} m m !O{} !O{} !O{\neoschool@codewidth} }{
+          listing engine=minted,
+          minted language={#2},
+          enhanced,
+          breakable,
+          fontupper=\color{\neoschool@globalcolor},
+          width=#5\linewidth,
+          before skip=1.5\baselineskip,
+          after skip=1.5\baselineskip,
+          listing file={#3},
+          listing only,
+          minted options={#1},
+          frame hidden,
+          colback=codebackColor,
+          boxrule=0pt,
+          code={
+				\ifx\relax#4\relax\ifx\relax#5\relax
+						\tcbset{before skip=0.5\baselineskip, after skip=\baselineskip}
+					\fi\fi
+				\IfEqCase{#5}{
+					{}{\tcbset{standard jigsaw, opacityback=0, opacityframe=0, frame hidden, boxrule=0pt, left=0pt, right=0pt, top=0pt, bottom=0pt, coltitle=\neoschool@titlecolor, fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname}}
+						{box-minimal}{\tcbset{box-minimal}} {box-fancy}{\tcbset{box-fancy}} {box-elegant}{\tcbset{box-elegant}} {box-diagonal}{\tcbset{box-diagonal}}
+						{box-bevel}{\tcbset{box-bevel}} {box-corner}{\tcbset{box-corner}} {box-rounded}{\tcbset{box-rounded}} {box-downhill}{\tcbset{box-downhill}}
+						{box-bottomtitle}{\tcbset{box-bottomtitle}} {box-bottomtitlef}{\tcbset{box-bottomtitlef}}
+				}[\PackageError{code}{Style not found: #5}{}]
+				\ifx\relax#4\relax\else
+					\tcbset{title={#4}, \neoschool@boxtitle}
+				\fi
+			},
+		\neo@codecenter
+		}
+
+        \DeclareRobustCommand{\codeinput}{%
+          \@ifstar
+            {\codeinputnonum}%
+            {\codeinputnum}%
+        }
+
+		% Side-by-Side Code Environment
+
+        \ifneo@darktheme
+          \colorlet{codebackColor}{theoremColor!15!darkthemegray}
+        \else
+          \colorlet{codebackColor}{theoremColor!5}
+        \fi
+
+		\newtcblisting{codeside}[2][]{%
+			standard jigsaw,
+			listing engine=minted,
+            listing only,
+			enhanced,
+			breakable,
+            fontupper=\color{\neoschool@globalcolor},
+			opacityback=0,
+			opacityframe=0,
+			fonttitle=\sffamily\bfseries,
+			minted language=#2,
+			arc=1pt,
+			colback=codebackColor,
+			colframe=theoremColor,
+            boxsep=0pt,
+            left=10pt,
+            right=0pt,
+            top=0pt,
+            bottom=0pt,
+			lefttitle=1.7mm,
+			width=\linewidth,
+			minted options={#1}
+          }
+
+	\fi
+\fi
+
+%% ==============================================================================
+%% Algorithm and Pseudocode Environments
+%% ==============================================================================
+
+%% Algorithm Keywords Translation
+%% ----------------------------------
+\algrenewcommand\algorithmicwhile{\textbf{tant que}}
+\algrenewcommand\algorithmicdo{\textbf{faire}}
+\algrenewcommand\algorithmicfor{\textbf{pour}}
+\algrenewcommand\algorithmicif{\textbf{si}}
+\algrenewcommand\algorithmicthen{\textbf{alors}}
+\algrenewcommand\algorithmicelse{\textbf{sinon}}
+\algrenewcommand\algorithmicend{\textbf{fin}}
+\algrenewcommand\algorithmicreturn{\textbf{retourner}}
+\algrenewcommand\algorithmicfunction{\textbf{fonction}}
+\algrenewcommand\algorithmicrequire{\textbf{entrée}}
+\algrenewcommand\algorithmicensure{\textbf{sortie}}
+\algrenewcommand\algorithmicprocedure{\textbf{procédure}}
+
+%% Additional Algorithm Commands
+%% ----------------------------------
+\newcommand{\To}{\textbf{ à }}
+\newcommand{\Gets}{\ensuremath{\leftarrow}}
+
+%% Pseudocode Box Style
+%% ----------------------------------
+\tcbset{%
+    pseudocode/.style={%
+            enhanced,
+            breakable,
+            colback=white,
+            colframe=\ifneo@unicolor\neoschool@headcolor\else\neoschool@headcolor!50\fi,
+            boxrule=0.5pt,
+            arc=0pt,
+            top=3mm,
+            bottom=3mm,
+            left=3mm,
+            right=3mm,
+            colbacktitle=white,
+            coltitle=black,
+            fonttitle=\sffamily\bfseries,
+            before upper={\begin{algorithmic}},
+                        after upper={\end{algorithmic}},
+            breakable
+        }
+}
+
+%% Pseudocode Environment
+%% ----------------------------------
+\newtcolorbox[use counter=lstcode]{pseudocode}[2][]{%
+    pseudocode,
+    title={\csname neo@algorithmname\endcsname~\thelstcode~~\textemdash{}~~#2},
+    #1
+}
+
+%% ==============================================================================
+%% Base Definitions and Styles for Theorems and Exercises
+%% ==============================================================================
+
+% Common Styles
+\tcbset{
+    common@base/.style={
+            enhanced,
+            breakable,
+            separator sign={},
+            before skip=\baselineskip,
+            after skip=\baselineskip,
+            colupper=\neo@tcbcolupper,
+            colframe=\neoschool@headcolor,
+            colbacklower=\neo@tcbcolbacklower
+        },
+    common@title@base/.style={
+            fonttitle={\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname},
+        },
+}
+
+%% ==============================================================================
+%% Shared Box Styles for Theorems and Exercises
+%% ==============================================================================
+\ExplSyntaxOn
+\tl_new:N \l__custom_tcb_title_tl
+\tl_new:N \l__custom_tcb_label_tl
+\tl_new:N \l__custom_tcb_options_tl
+
+\newcommand{\getCustomSlantedTitle}{%
+    \tl_if_empty:NTF \l__custom_tcb_title_tl
+    {\,}
+    {\tl_use:N \enskip(\l__custom_tcb_title_tl)\;}
+}
+
+\newcommand{\getCustomBoxedTitle}{%
+    \tl_if_empty:NTF \l__custom_tcb_title_tl
+    {}
+    {\tl_use:N \,(\l__custom_tcb_title_tl)\,}
+}
+\ExplSyntaxOff
+
+\def\neo@getbackcolor{%
+    \neo@tcbcolback%
+}
+
+\def\neo@getcodeframestyle{%
+    \ifneo@nocodeframe
+        frame hidden%
+    \else\fi
+}
+
+\def\neo@getframestyle{%
+    \ifneo@noframe
+        frame hidden%
+    \else\fi
+}
+
+\tcbset{
+    neo@shared@base/.style args={#1}{%
+            common@base,
+            colframe=#1,
+            colback=\neo@getbackcolor,
+            colupper=\neoschool@globalcolor,
+            boxrule=\neo@thmborder,
+            \neo@getframestyle
+        },
+    neo@shared@elegant/.style args={#1}{%
+            neo@shared@base={#1},
+            common@title@base,
+            skin=bicolor,
+            sharp corners,
+            detach title,
+            left=1em,
+            right=1em,
+            top=\neo@toppadding,
+            bottom=\neo@bottompadding,
+            borderline west={4pt}{0pt}{#1},
+            before upper={\tcbtitle\enskip}
+        },
+    neo@shared@shaded/.style 2 args={%
+            neo@shared@base={#1},
+            common@title@base,
+            left=\neo@leftpadding,
+            right=\neo@rightpadding,
+            after skip=\neo@afterskip,
+            before skip=\neo@beforeskip,
+            attach boxed title to top left,
+            boxed title style={
+                    empty,
+                    top=\neo@titletoppadding,
+                    left=\neo@titleleftpadding,
+                    right=\neo@titlerightpadding,
+                    bottom=\neo@titlebottompadding,
+                },
+            detach title,
+            underlay boxed title={%
+                    \path[draw=\csname neo@titledrawcolor@#2\endcsname,line width=1pt,
+                        rounded corners, fill=\neo@tcbcolback]
+                    ([xshift=.17mm]frame.west) |- ([xshift=-2.5mm]title.north east)
+                    to[out=0, in=180] ([xshift=7.5mm, yshift=-.18mm]title.south east);
+                }
+        },
+    neo@shared@slanted/.style args={#1}{%
+            neo@shared@base={#1},
+            common@title@base,
+            skin=bicolor,
+            separator sign={},
+            coltitle=white,
+            left=\neo@leftpadding,
+            right=\neo@rightpadding,
+            after skip=\neo@afterskip,
+            before skip=\neo@beforeskip,
+            detach title
+        },
+    neo@shared@sober/.style args={#1}{%
+            neo@shared@base={#1},
+            common@title@base,
+            skin=bicolor,
+            detach title,
+            left=1ex,
+            right=1ex,
+            separator sign={},
+            terminator sign=,
+        },
+    neo@shared@classic/.style args={#1}{%
+            neo@shared@base={#1},
+            common@title@base,
+            skin=bicolor,
+            coltitle=white,
+            colbacktitle=tcbcolframe,
+            boxrule=1pt,
+            toptitle=1mm,
+            bottomtitle=1mm,
+            left=1ex,
+            right=1ex,
+        },
+    neo@shared@classy/.style args={#1}{%
+            neo@shared@base={#1},
+            common@title@base,
+            skin=bicolor,
+            left=1ex,
+            right=1ex,
+            attach boxed title to top left={
+                    yshift*=-\tcboxedtitleheight
+                },
+            boxed title style={
+                    sharp corners,
+                    rounded corners=northwest,
+                    colback=tcbcolframe,
+                    boxrule=0pt
+                },
+            underlay boxed title={
+                    \path[fill=tcbcolframe]
+                    (title.south west)--(title.south east)
+                    to[out=0, in=180] ([xshift=5mm]title.east)--
+                    (title.center-|frame.east)
+                    [rounded corners=\kvtcb@arc] |-
+                    (frame.north) -| cycle;
+                }
+        },
+    neo@shared@boxed/.style 2 args={%
+            neo@box@base,
+            sharp corners,
+            \neo@framehidden,
+            coltitle=white,
+            colframe=#1,
+            colback=\neo@tcbcolback,
+            left=\neo@leftpadding,
+            right=\neo@rightpadding,
+            after skip=\neo@afterskip,
+            before skip=\neo@beforeskip,
+            detach title,
+            before upper*={%
+                    \tcbox[enhanced,
+                        colupper=white,
+                        colback=#1,                        fontupper=\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname,
+                        size=small,
+                        baseline=3pt,
+                        top=0pt,
+                        bottom=0pt,
+                        left=0pt,
+                        right=0pt,
+                        nobeforeafter,
+                        frame code={%
+                                \path[fill=tcbcolback]
+                                (frame.north west) --
+                                (frame.north east) {[rounded corners=5pt]--
+                                    (frame.south east)} --
+                                (frame.south west) --
+                                cycle;
+                            }]%
+                    {#2~\thetcbcounter}%
+                }
+                {\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\color{#1}\getCustomBoxedTitle}
+        }
+}
+
+%% ==============================================================================
+%% Custom Newtcbtheorem Implementation
+%% ==============================================================================
+
+\ExplSyntaxOn
+\NewDocumentCommand{\mynewtcbtheorem}{O{}mmmm}{%
+    \newtcbtheorem[#1]{#2inner}{#3}{#4}{#5}
+    \NewDocumentEnvironment{#2}{O{}}{%
+        \keys_set:nn { custom/tcb } { ##1 }
+        \tl_if_empty:NTF \l__custom_tcb_options_tl {%
+            \use:x {
+                \exp_not:N \begin{#2inner}
+                {\tl_if_empty:NTF \l__custom_tcb_title_tl
+                    { }
+                    { (\exp_not:V \l__custom_tcb_title_tl) }
+                }
+                {\exp_not:V \l__custom_tcb_label_tl}
+            }
+        }{%
+            \use:x {
+                \exp_not:N \begin{#2inner}
+                [\exp_not:V \l__custom_tcb_options_tl]
+                {\tl_if_empty:NTF \l__custom_tcb_title_tl
+                    { }
+                    { (\exp_not:V \l__custom_tcb_title_tl) }
+                }
+                {\exp_not:V \l__custom_tcb_label_tl}
+            }
+        }
+    }{%
+        \end{#2inner}
+    }
+
+    \NewDocumentEnvironment{#2*}{O{}}{%
+        \keys_set:nn { custom/tcb } { ##1 }
+        \tl_if_empty:NTF \l__custom_tcb_options_tl {%
+            \use:x {
+                \exp_not:N \begin{#2inner*}
+                {\tl_if_empty:NTF \l__custom_tcb_title_tl
+                    { }
+                    { (\exp_not:V \l__custom_tcb_title_tl) }
+                }
+                {}
+            }
+        }{%
+            \use:x {
+                \exp_not:N \begin{#2inner*}
+                [\exp_not:V \l__custom_tcb_options_tl]
+                {\tl_if_empty:NTF \l__custom_tcb_title_tl
+                    { }
+                    { (\exp_not:V \l__custom_tcb_title_tl) }
+                }
+                {}
+            }
+        }
+    }{%
+        \end{#2inner*}
+    }
+    \cs_if_exist:cF { c@#5} { \newcounter{#5} }
+}
+
+\keys_define:nn { custom/tcb } {
+    title .tl_set:N = \l__custom_tcb_title_tl,
+    label .tl_set:N = \l__custom_tcb_label_tl,
+    colback .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { colback=#1, },
+    colframe .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { colframe=#1, },
+    coltitle .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { coltitle=#1, },
+    fonttitle .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { fonttitle=#1, },
+    line~width .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { line~width=#1, },
+    frame~style .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { frame~style=#1, },
+    arc .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { arc=#1, },
+    frame~hidden .code:n = \tl_put_right:Nn \l__custom_tcb_options_tl { frame~hidden, },
+    sharp~corners .code:n = \tl_put_right:Nn \l__custom_tcb_options_tl { sharp~corners, },
+    rounded~corners .code:n = \tl_put_right:Nn \l__custom_tcb_options_tl { rounded~corners, },
+    unknown .code:n = \tl_put_right:Nx \l__custom_tcb_options_tl { #1, },
+}
+\ExplSyntaxOff
+
+% Title Content Formatter
+\NewDocumentCommand{\neo@theorem@title}{mm}{%
+    \csname\neoschool@headstyle\endcsname
+    \csname\neoschool@headweight\endcsname
+    \color{#1}#2~\thetcbcounter
+}
+
+%% ==============================================================================
+%% Theorem Types Implementation
+%% ==============================================================================
+
+\NewDocumentCommand{\neweleganttheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@elegant={#4},
+    coltitle=#4,
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newslantedtheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@slanted={#4},
+    before upper*={%
+            \hspace*{-1.5mm}
+            \tcbox[enhanced,
+                colupper=white,
+                colback=#4,
+                fontupper=\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname,
+                size=small,
+                baseline=3pt,
+                left=0pt,
+                right=0pt,
+                bottom=0pt,
+                nobeforeafter,
+                frame code={%
+                        \path[fill=tcbcolback] (frame.north west)
+                        -- ([xshift=2mm]frame.north east)
+                        -- (frame.south east)
+                        -- (frame.south west)
+                        -- (frame.north west)
+                        [sharp corners]-- cycle;
+                    }]
+            {#3~\thetcbcounter}
+            {\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\color{#4}\getCustomSlantedTitle}
+        },
+    fontupper={#7},
+    before lower={#6},
+    #8,
+}{#5}
+}
+
+\NewDocumentCommand{\newshadedtheorem}{O{}mmmmmmO{}}{%
+\expandafter\def\csname neo@titledrawcolor@#2\endcsname{#4}
+\ifneo@noframe\expandafter\def\csname neo@titledrawcolor@#2\endcsname{white}\fi
+\mynewtcbtheorem[#1]{#2}{\vspace*{0.35em}#3}{%
+    neo@shared@shaded={#4}{#2},
+    coltitle=#4,
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newsobertheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@sober={#4},
+    before upper={\tcbtitle\enskip},
+    coltitle=#4,
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newclassictheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@classic={#4},
+    title={#3},
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newclassytheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@classy={#4},
+    title={#3},
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newboxedtheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    neo@shared@boxed={#4}{#3},
+    fontupper={#7},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newamstheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    enhanced,
+    breakable,
+    frame hidden,
+    opacityback=0,
+    coltitle={#4},
+    left=0pt, right=0pt,
+    top=0pt, bottom=0pt,
+    boxsep=0pt,
+    detach title,
+    separator sign={},
+    before upper={\tcbtitle\enskip},
+    before skip={\ifneo@compact 3pt plus 1pt\else\baselineskip\fi},
+    after skip={\ifneo@compact 3pt plus 1pt\else\baselineskip\fi},
+    fontupper={#7},
+    fonttitle={\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newamsremarktheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    enhanced,
+    breakable,
+    frame hidden,
+    opacityback=0,
+    colupper=\neoschool@globalcolor,
+    coltitle={#4},
+    left=0pt, right=0pt,
+    top=0pt, bottom=0pt,
+    boxsep=0pt,
+    detach title,
+    before upper={{\color{remarkColor}\csname\neoschool@headweight\endcsname\itshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headshape\endcsname #3\enskip\textemdash}\enskip},
+    before skip=.5\baselineskip,
+    after skip=.5\baselineskip,
+    fontupper={#7},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newamsremarkstheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    enhanced,
+    breakable,
+    frame hidden,
+    opacityback=0,
+    colupper=\neoschool@globalcolor,
+    coltitle={#4},
+    left=0pt, right=0pt,
+    top=0pt, bottom=0pt,
+    boxsep=0pt,
+    detach title,
+    before upper={{\color{remarkColor}\csname\neoschool@headweight\endcsname\itshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headshape\endcsname #3}\enskip},
+    before skip=.5\baselineskip,
+    after skip=.5\baselineskip,
+    fontupper={#7},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newamsexampletheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    enhanced,
+    breakable,
+    frame hidden,
+    opacityback=0,
+    colupper=\neoschool@globalcolor,
+    coltitle={#4},
+    left=0pt, right=0pt,
+    top=0pt, bottom=0pt,
+    boxsep=0pt,
+    detach title,
+    separator sign={},
+    before upper={\tcbtitle\enskip},
+    before skip=.5\baselineskip,
+    after skip=.5\baselineskip,
+    fontupper={#7},
+    fonttitle={\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname},
+    before lower={#6},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\newamsexamplestheorem}{O{}mmmmmmO{}}{%
+\mynewtcbtheorem[#1]{#2}{#3}{%
+    enhanced,
+    breakable,
+    frame hidden,
+    opacityback=0,
+    colupper=\neoschool@globalcolor,
+    coltitle={#4},
+    left=0pt, right=0pt,
+    top=0pt, bottom=0pt,
+    boxsep=0pt,
+    detach title,
+    before upper={{\color{exampleColor}\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname #3}\enskip},
+    before skip=.5\baselineskip,
+    after skip=.5\baselineskip,
+    fontupper={#7},
+    #8
+}{#5}
+}
+
+\NewDocumentCommand{\neo@declarespecialtheorem}{m m}{%
+    \ifstrequal{#1}{remark}{%
+        \newamsremarktheorem{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+    }{%
+        \ifstrequal{#1}{remarks}{%
+            \newamsremarkstheorem{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+        }{%
+            \ifstrequal{#1}{examples}{%
+                \newamsexamplestheorem{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+            }{%
+                \ifneoschool@sectionthmcounter
+                    \ifneoschool@sharedthmcounter
+                        \newamsexampletheorem[number within=section, use counter = thmcounter]{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+                    \else
+                        \newamsexampletheorem[number within=section]{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+                    \fi
+                \else
+                    \ifneoschool@sharedthmcounter
+                        \newamsexampletheorem[use counter = thmcounter]{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+                    \else
+                        \newamsexampletheorem{#1}{\csname neo@#1name\endcsname}{#2}{#1}{}{\normalfont}
+                    \fi
+                \fi
+            }%
+        }%
+    }%
+}
+
+\neo@declarespecialtheorem{remark}{remarkColor}
+\neo@declarespecialtheorem{remarks}{remarkColor}
+\neo@declarespecialtheorem{example}{exampleColor}
+\neo@declarespecialtheorem{examples}{exampleColor}
+
+%% ==============================================================================
+%% Theorem Declaration Command
+%% ==============================================================================
+
+\NewDocumentCommand{\neo@declaretheorem}{O{}mmmmmmO{}}{%
+% #1 = additional options
+% #2 = environment name (theorem, definition, etc.)
+% #3 = title (\neo@theoremname, etc.)
+% #4 = color
+% #5 = reference name (thm, def, etc.)
+% #6 = text before proof
+% #7 = text style (\itshape or not)
+% #8 = additional options
+
+% Handle options
+\def\neo@thmoptions{#1}
+
+% Section numbering
+\ifneoschool@sectionthmcounter
+    \edef\neo@thmoptions{number within=section,\neo@thmoptions}
+\fi
+
+% Counter handling
+\ifneoschool@sharedthmcounter
+    \edef\neo@thmoptions{use counter=thmcounter,\neo@thmoptions}
+\else
+    \ifneoschool@thmgroupcounter
+        \ifboolexpr{
+            test {\ifstrequal{#2}{theorem}} or
+            test {\ifstrequal{#2}{lemma}} or
+            test {\ifstrequal{#2}{proposition}} or
+            test {\ifstrequal{#2}{corollary}} or
+            test {\ifstrequal{#2}{property}}
+        }{%
+            \edef\neo@thmoptions{use counter=thmcounter,\neo@thmoptions}
+        }{%
+            \edef\neo@thmoptions{\neo@thmoptions}
+        }
+    \else
+        \edef\neo@thmoptions{\neo@thmoptions}
+    \fi
+\fi
+
+% Style selection based on class options
+\ifneo@slantedthm
+    \expandafter\newslantedtheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+\else
+    \ifneo@soberthm
+        \expandafter\newsobertheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+    \else
+        \ifneo@elegantthm
+            \expandafter\neweleganttheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+        \else
+            \ifneo@shadedthm
+                \expandafter\newshadedtheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+            \else
+                \ifneo@classicthm
+                    \expandafter\newclassictheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+                \else
+                    \ifneo@classythm
+                        \expandafter\newclassytheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+                    \else
+                        \ifneo@boxedthm
+                            \expandafter\newboxedtheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+                        \else
+                            \ifneo@amslikethm
+                                \expandafter\newamstheorem\expandafter[\neo@thmoptions]{#2}{#3}{#4}{#5}{#6}{#7}[#8]%
+                            \fi
+                        \fi
+                    \fi
+                \fi
+            \fi
+        \fi
+    \fi
+\fi
+}
+
+%% ==============================================================================
+%% Theorem Environment Declarations
+%% ==============================================================================
+
+\newcounter{thmcounter}
+
+% Standard theorems
+\neo@declaretheorem{theorem}{\neo@theoremname}{theoremColor}{thm}{}{\itshape\color{\neoschool@globalcolor}}
+\neo@declaretheorem{definition}{\neo@definitionname}{definitionColor}{def}{}{\color{\neoschool@globalcolor}}
+\neo@declaretheorem{lemma}{\neo@lemmaname}{lemmaColor}{lem}{}{\itshape\color{\neoschool@globalcolor}}
+\neo@declaretheorem{proposition}{\neo@propositionname}{propositionColor}{propo}{}{\itshape\color{\neoschool@globalcolor}}
+\neo@declaretheorem{corollary}{\neo@corollaryname}{corollaryColor}{cor}{}{\itshape\color{\neoschool@globalcolor}}
+\neo@declaretheorem{conjecture}{\neo@conjecturename}{remarkColor}{conj}{}{\itshape\color{\neoschool@globalcolor}}
+\neo@declaretheorem{property}{\neo@propertyname}{propertyColor}{prop}{}{\itshape\color{\neoschool@globalcolor}}
+
+% Activity-related theorems
+\neo@declaretheorem{activity}{\neo@activityname}{activityColor}{act}{}{\color{\neoschool@globalcolor}}
+\neo@declaretheorem{method}{\neo@methodname}{methodColor}{meth}{}{\color{\neoschool@globalcolor}}
+\neo@declaretheorem{application}{\neo@applicationname}{applicationColor}{appl}{}{\color{\neoschool@globalcolor}}
+
+% Proof Environment
+\ifneo@amslikethm
+    \newenvironment{proof}[1][\neo@proofname]{%
+        \par\noindent{\itshape #1.}\enskip%
+    }{%
+        \unskip\nobreak\hfill\makebox[0pt][l]{\hspace{0.5em}$\square$}\par\vspace{0.25\baselineskip plus 1pt}%
+    }
+\else
+    \newenvironment{proof}[1][\neo@proofname]{%
+        \par\noindent{\itshape\color{\neoschool@headcolor}\bfseries #1.}\enskip%
+    }{%
+        \unskip\nobreak\hfill\makebox[0pt][l]{{\hspace{0.5em}\color{\neoschool@headcolor}$\blacksquare$}}\par\vspace{0.5\baselineskip}%
+    }
+\fi
+
+%% ==============================================================================
+%% Exercise Common Elements
+%% ==============================================================================
+
+% QCM Environment Setup
+\DeclareExerciseEnvironmentTemplate{item}
+{\trivlist\item[\GetExerciseProperty{counter}.]}
+{\endtrivlist}
+
+% Multiple Choice Elements
+\DeclareRobustCommand{\neocolorcirc}[2]{%
+    \begin{tikzpicture}[baseline=-1.25mm]
+        \draw[#1,fill=#2] (0.5,0) circle (.75ex);
+    \end{tikzpicture}
+}
+
+\newcommand{\neocheckbox}{$\square$}
+\newcommand{\neochecksol}{$\blacksquare$}
+\newcommand{\neocheckcirc}{\neocolorcirc{black}{white}}
+
+% Task Environments
+\NewTasksEnvironment[%
+    label = \neocheckcirc,
+    label-width = 12pt,
+    item-indent = 3.5em,
+    after-skip = 0pt,
+]{choices}[\choice]
+
+\NewTasksEnvironment[%
+    label = \neocheckbox,
+    label-width = 12pt,
+    item-indent = 3.5em,
+    after-skip = 0pt,
+]{checkboxes}[\checkbox]
+
+% Shuffle Implementation for Tasks
+\ifneo@shuffle
+    \ExplSyntaxOn
+    \cs_set_protected:Npn \tasks_environment:nnnn #1#2#3#4
+    {
+        \bool_if:NT \l__tasks_debug_bool { \dim_set:Nn \fboxsep {0pt} }
+        \seq_set_split:Nnn \l__tasks_seq {#3} {#4}
+        \seq_pop_left:NN \l__tasks_seq \l__tasks_tmpa_tl
+        \seq_shuffle:N \l__tasks_seq
+        \tl_if_blank:VF \l__tasks_tmpa_tl
+        { \msg_warning:nnVn {tasks}{no-item} \l__tasks_tmpa_tl {#3} }
+        \int_gset:Nn \g__tasks_total_items_int
+        { \seq_count:N \l__tasks_seq }
+        \UseInstance {tasks} {#1}
+        { \g__tasks_total_items_int }
+        {#2}
+        { }
+        \seq_clear:N \l__tasks_seq
+    }
+    \ExplSyntaxOff
+\fi
+
+% Correct Answer Command
+\NewDocumentCommand{\correct}{s}{%
+    \IfBooleanTF#1
+    {% \correct*
+        \ifneoschool@answers
+            \neochecksol
+        \else
+            \ifneoschool@answersonly
+                \neochecksol
+            \else
+                \neocheckbox
+            \fi
+        \fi
+    }
+    {% \correct
+        \ifneoschool@answers
+            \neocolorcirc{black}{black}
+        \else
+            \ifneoschool@answersonly
+                \neocolorcirc{black}{black}
+            \else
+                \neocheckcirc
+            \fi
+        \fi
+    }%
+}
+
+%% ==============================================================================
+%% Exercise Base Box Styles
+%% ==============================================================================
+
+\NewDocumentCommand{\neo@exercise@title}{}{%
+    \sffamily\GetExerciseName~\GetExerciseProperty{counter}%
+    \IfExercisePropertySetT{level}{%
+        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+    }%
+    \IfExercisePropertySetT{subtitle}{\enskip\GetExerciseProperty{subtitle}}%
+    \IfExercisePropertySetT{points}{%
+        \enskip(\GetExerciseProperty{points}%
+        \IfExerciseGoalSingularTF{points}{\XSIMtranslate{point}}{\XSIMtranslate{points}})%
+    }%
+}
+
+\AtBeginDocument{%
+    \ifneo@french
+        \DeclareExerciseTranslation{french}{point}{point}
+        \DeclareExerciseTranslation{french}{points}{points}
+        \DeclareExerciseTranslation{french}{point-short}{pt}
+        \DeclareExerciseTranslation{french}{points-short}{pts}
+    \else\ifneo@german
+            \DeclareExerciseTranslation{german}{point}{Punkt}
+            \DeclareExerciseTranslation{german}{points}{Punkte}
+            \DeclareExerciseTranslation{german}{point-short}{Pkt}
+            \DeclareExerciseTranslation{german}{points-short}{Pkt}
+        \else
+            \DeclareExerciseTranslation{english}{point}{point}
+            \DeclareExerciseTranslation{english}{points}{points}
+            \DeclareExerciseTranslation{english}{point-short}{pt}
+            \DeclareExerciseTranslation{english}{points-short}{pts}
+        \fi
+    \fi
+}
+
+% Base box style
+\tcbset{%
+    neo@base/.style={%
+            enhanced,
+            breakable,
+            fontupper=\color{\neoschool@globalcolor},
+            before skip=\baselineskip,
+            after skip=\baselineskip,
+            colupper=\neo@tcbcolupper,
+            colframe=\neoschool@headcolor,
+            colbacklower=\neo@tcbcolbacklower
+        },
+    % Title base style
+    neo@title@base/.style={%
+            title={\sffamily\GetExerciseName~\GetExerciseProperty{counter}
+                    \IfExercisePropertySetT{level}
+                    {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}
+                    \IfExercisePropertySetT{subtitle}{ \GetExerciseProperty{subtitle}}
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(%
+                        \GetExerciseProperty{points}
+                        \IfExerciseGoalSingularTF{points}
+                        {~\XSIMtranslate{point}}
+                        {~\XSIMtranslate{points}}
+                        )
+                    }
+                }
+        }
+}
+
+%% Box Appearance Styles
+\tcbset{%
+    % Basic box style
+    neo@box@base/.style={%
+            enhanced,
+            breakable,
+            fontupper=\color{\neoschool@globalcolor},
+            colupper=\neo@tcbcolupper,
+            colframe=\neoschool@headcolor,
+            colbacklower=\neo@tcbcolbacklower,
+            before skip=\baselineskip,
+            after skip=\baselineskip,
+            left=1mm,
+            right=1mm
+        },
+    % Basic title style
+    neo@title@basic/.style={%
+            title={\neo@boxtitle@content},
+            fonttitle=\bfseries\sffamily
+        },
+    % Colored title style
+    neo@title@colored/.style={%
+            neo@title@basic,
+            coltitle=white,
+            colbacktitle=tcbcolframe
+        },
+    % Basic frame style
+    neo@frame@basic/.style={%
+            colframe=exerciseColor,
+            colback=\neo@tcbcolback
+        },
+    % Hidden frame style
+    neo@frame@hidden/.style={%
+            frame hidden,
+            colframe=exerciseColor!12,
+            colback=white
+        }
+}
+
+%% Corner Styles
+\tcbset{%
+    % Sharp corners
+    neo@corners@sharp/.style={%
+            sharp corners
+        },
+    % Rounded corners
+    neo@corners@rounded/.style={%
+            rounded corners,
+            arc=\neoschool@boxarc
+        }
+}
+
+%% Background Styles
+\tcbset{%
+    % Light background
+    neo@bg@light/.style={%
+            colback=white,
+            colbacktitle=exerciseColor!12
+        },
+    % Shaded background
+    neo@bg@shaded/.style={%
+            colback=exerciseColor!5!white,
+            colbacktitle=exerciseColor!12
+        },
+    % Gradient background
+    neo@bg@gradient/.style={%
+            interior style={%
+                    top color=white,
+                    bottom color=exerciseColor!5!white
+                }
+        }
+}
+
+%% Title Position Styles
+\tcbset{%
+    % Attached title
+    neo@title@attached/.style={%
+            attach boxed title to top left={
+                    yshift*=-\tcboxedtitleheight
+                },
+            boxed title style={%
+                    sharp corners,
+                    rounded corners=northwest,
+                    colback=tcbcolframe,
+                    boxrule=0pt
+                }
+        },
+    % Detached title
+    neo@title@detached/.style={%
+            detach title,
+            before upper={\tcbtitle\enskip}
+        }
+}
+
+%% Special Elements
+\tcbset{%
+    % Left rule
+    neo@rule@left/.style={%
+            leftrule=3mm
+        },
+    % Basic border
+    neo@border@basic/.style={%
+            boxrule=0.5pt
+        },
+    % Colored border
+    neo@border@colored/.style 2 args={%
+            borderline west={#1}{#2}{tcbcolframe}
+        },
+    % Shadow effect
+    neo@effect@shadow/.style={%
+            drop fuzzy shadow
+        }
+}
+
+%% Color Schemes
+\tcbset{%
+    % Standard color scheme
+    neo@colors@standard/.style={%
+            colframe=exerciseColor,
+            colback=white,
+            colbacktitle=exerciseColor
+        }
+}
+
+%% Solution Style Setup
+\NewDocumentCommand\neo@box@solution{}{%
+    {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{tcbcolframe}\neo@solutionname~\neo@solutiongaptext}\enskip
+}
+
+\tcbset{%
+    neo@solution@basic/.style={%
+            before lower={\neo@box@solution}
+        }
+}
+
+%% Box Title Content
+\newcommand{\neo@boxtitle@content}{%
+    \sffamily\GetExerciseName~\GetExerciseProperty{counter}
+    \IfExercisePropertySetT{level}{%
+        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]
+    }
+    \IfExercisePropertySetT{subtitle}{ \GetExerciseProperty{subtitle}}\enskip
+    \IfExercisePropertySetT{points}{%
+        (\GetExerciseProperty{points}
+        \IfExerciseGoalSingularTF{points}
+        {~\XSIMtranslate{point}}
+        {~\XSIMtranslate{points}})
+    }
+}
+
+%% Exercise Properties and Tagging
+\ExplSyntaxOn
+\newcommand*\neo@replicate{\prg_replicate:nn}
+\ExplSyntaxOff
+
+\DeclareExerciseTagging{level}
+\DeclareExerciseTagging{grade}
+\DeclareExerciseTagging{topic}
+\DeclareExerciseTagging{subject}
+
+%% ==============================================================================
+%% Basic Exercise Box Templates
+%% ==============================================================================
+
+\DeclareExerciseProperty{icon}
+
+\newcommand{\neo@exerciseicon}{%
+    \ifneo@exerciseicons
+        \IfExercisePropertySetTF{icon}{%
+            \faIcon{\GetExerciseProperty{icon}}\hspace{5pt}%
+        }{%
+            \faIcon{book}\hspace{5pt}%
+        }%
+    \fi
+}
+
+% Elegant Box Template
+\DeclareExerciseEnvironmentTemplate{elegant-box}{%
+    \begin{tcolorbox}[
+            neo@shared@elegant={exerciseColor},
+            title={%
+                    \csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    \color{exerciseColor}
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+                    }%
+                }
+        ]
+        }{\end{tcolorbox}}
+
+% Shaded Box Template
+\DeclareExerciseEnvironmentTemplate{shaded-box}{%
+    \expandafter\def\csname neo@titledrawcolor@exercise\endcsname{exerciseColor}
+    \ifneo@noframe
+        \expandafter\def\csname neo@titledrawcolor@exercise\endcsname{white}
+    \fi
+    \begin{tcolorbox}[
+            neo@shared@shaded={exerciseColor}{exercise},
+            left=0.65em,
+            right=0.65em,
+            coltitle=exerciseColor,
+            title={%
+                    \vspace*{0.35em}%
+                    \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\color{exerciseColor}%
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+                    }%
+                }
+        ]
+        }{\end{tcolorbox}}
+
+% Slanted Box Template
+\DeclareExerciseEnvironmentTemplate{slanted-box}{%
+    \begin{tcolorbox}[
+        neo@shared@slanted={exerciseColor},
+        before upper*={%
+                \hspace*{-1.5mm}
+                \tcbox[enhanced,
+                    colupper=white,
+                    colback=exerciseColor,
+                    fontupper=\upshape\bfseries,
+                    size=small,
+                    baseline=3pt,
+                    after skip=1em,
+                    top=0pt,
+                    left=0pt,
+                    right=0pt,
+                    bottom=0pt,
+                    nobeforeafter,
+                    frame code={%
+                            \path[fill=tcbcolback] (frame.north west)
+                            -- ([xshift=2mm]frame.north east)
+                            -- (frame.south east)
+                            -- (frame.south west)
+                            -- (frame.north west)
+                            [sharp corners]-- cycle;
+                        }
+                ]{\csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    \csname\neoschool@headshape\endcsname
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                }
+            }
+        ]
+        {\csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        \color{exerciseColor}
+        \IfExercisePropertySetT{level}{%
+        \;[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+        }%
+        \IfExercisePropertySetT{subtitle}{{\enskip\GetExerciseProperty{subtitle}}}%
+        \IfExercisePropertySetT{points}{%
+            \,(\GetExerciseProperty{points}%
+            \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+        }%
+        }\;%
+        }{\end{tcolorbox}}
+
+% Sober Box Template
+\DeclareExerciseEnvironmentTemplate{sober-box}{%
+    \begin{tcolorbox}[
+            neo@shared@sober={exerciseColor},
+            before upper={\tcbtitle\enskip},
+            coltitle=exerciseColor,
+            title={%
+                    \csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+                    }%
+                }
+        ]
+        }{\end{tcolorbox}}
+
+% Classic Box Template
+\DeclareExerciseEnvironmentTemplate{classic-box}{%
+    \begin{tcolorbox}[
+            neo@shared@classic={exerciseColor},
+            title={%
+                    \csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    \color{white}
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+                    }%
+                }
+        ]
+        }{\end{tcolorbox}}
+
+% Classy Box Template
+\DeclareExerciseEnvironmentTemplate{classy-box}{%
+    \begin{tcolorbox}[
+            neo@shared@classy={exerciseColor},
+            title={%
+                    \csname\neoschool@headstyle\endcsname
+                    \csname\neoschool@headweight\endcsname
+                    \color{white}
+                    {\small\neo@exerciseicon}%
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~\XSIMtranslate{point}}{~\XSIMtranslate{points}})%
+                    }%
+                }
+        ]
+        }{\end{tcolorbox}}
+
+% Rect and Num box Templates
+\DeclareExerciseEnvironmentTemplate{rect-box}{%
+  \begin{tcolorbox}[
+    enhanced,
+    skin=bicolor,
+    sharp corners,
+    \neo@framehidden,
+    coltitle=white,
+    colframe=exerciseColor,
+    colback=\neo@tcbcolback,
+    colupper=\neoschool@globalcolor,
+    fonttitle=\csname\neoschool@headweight\endcsname,
+    fontupper=\color{\neoschool@globalcolor},
+    left=\neo@leftpadding,
+    right=\neo@rightpadding,
+    before skip=\neo@beforeskip,
+    after skip=\neo@afterskip,
+    top=-2pt,
+    bottom=-2pt,
+    before upper*={%
+      \hspace*{-4pt}
+      \tcbox[enhanced,
+      colupper=white,
+      colback=exerciseColor,
+      fontupper=\csname\neoschool@headweight\endcsname,
+      size=small,
+      baseline=4pt,
+      top=0pt,
+      bottom=0pt,
+      left=0pt,
+      right=0pt,
+      nobeforeafter,
+      frame code={%
+        \path[fill=tcbcolback]
+        (frame.north west) --
+        (frame.north east) {[rounded corners=5pt]--
+          (frame.south east)} --
+        (frame.south west) --
+        cycle;
+      }]%
+      {%
+        \csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+      }%
+    }
+    ]%
+    {
+      \csname\neoschool@headstyle\endcsname
+      \csname\neoschool@headweight\endcsname
+      \csname\neoschool@headshape\endcsname
+      \color{exerciseColor}
+      \IfExercisePropertySetT{level}
+      {\;[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+      \IfExercisePropertySetT{subtitle}{{\enskip\GetExerciseProperty{subtitle}}\enskip}%
+      \IfExercisePropertySetT{points}{%
+        (\GetExerciseProperty{points}%
+        \IfExerciseGoalSingularTF{points}{\,point}{\,points})\;%
+      }%
+    }
+  }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{rect-box-out}{%
+  \begin{tcolorbox}[
+    enhanced,
+    skin=bicolor,
+    sharp corners,
+    \neo@framehidden,
+    coltitle=exerciseColor,
+    colframe=exerciseColor,
+    colback=\neo@tcbcolback,
+    colupper=\neoschool@globalcolor,
+    fonttitle=\csname\neoschool@headweight\endcsname,
+    fontupper=\color{\neoschool@globalcolor},
+    left=\neo@leftpadding,
+    right=\neo@rightpadding,
+    before skip=\neo@beforeskip,
+    after skip=\neo@afterskip,
+    top=-2pt,
+    bottom=-2pt,
+    before upper*={%
+      \hspace*{-3pt}
+      \tcbox[enhanced,
+      colupper=exerciseColor,
+      colback=specialbgColor,
+      opacityback=0,
+      fontupper=\csname\neoschool@headweight\endcsname,
+      size=small,
+      baseline=4pt,
+      top=0pt,
+      bottom=0pt,
+      left=0pt,
+      right=0pt,
+      nobeforeafter,
+      frame code={%
+        \path[line width=1.4pt,draw=exerciseColor,fill=tcbcolback]
+        (frame.north west) --
+        (frame.north east) {[rounded corners=7pt]--
+          (frame.south east)} --
+        (frame.south west) --
+        cycle;
+      }]%
+      {%
+        \csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+      }%
+    }
+    ]%
+    {
+      \csname\neoschool@headstyle\endcsname
+      \csname\neoschool@headweight\endcsname
+      \csname\neoschool@headshape\endcsname
+      \color{exerciseColor}
+      \IfExercisePropertySetT{level}
+      {\;[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+      \IfExercisePropertySetT{subtitle}{{\enskip\GetExerciseProperty{subtitle}}\enskip}%
+      \IfExercisePropertySetT{points}{%
+        (\GetExerciseProperty{points}%
+        \IfExerciseGoalSingularTF{points}{\,point}{\,points})\;%
+      }%
+    }
+  }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{num-box}{%
+    \begin{tcolorbox}[
+            enhanced,
+            skin=bicolor,
+            sharp corners,
+            before skip=\neo@beforeskip,
+            after skip=\neo@afterskip,
+            frame hidden,
+            top=-2pt,
+            bottom=-2pt,
+            colframe=exerciseColor,
+            colback=specialbgColor,
+            colupper=\neoschool@globalcolor,
+            fontupper=\color{\neoschool@globalcolor},
+            enlarge left by=-.5\leftmargin,
+            enlarge right by=-.5\rightmargin,
+            width=\textwidth+\leftmargin+\rightmargin,
+            before upper*={%
+                    \hspace*{-4pt}
+                    \tcbox[enhanced,
+                        colupper=white,
+                        colback=exerciseColor,
+                        fontupper=\csname\neoschool@headweight\endcsname,
+                        size=small,
+                        baseline=5pt,
+                        top=1pt,
+                        bottom=1pt,
+                        left=1pt,
+                        right=1pt,
+                        nobeforeafter,
+                        frame code={%
+                                \path[line width=2pt,fill=tcbcolback] (frame.north west) -- (frame.north east)
+                                -- (frame.south east) -- (frame.south west) -- cycle;
+                            }]%
+                    {%
+                        \csname\neoschool@headstyle\endcsname
+                        \csname\neoschool@headweight\endcsname
+                        {\small\neo@exerciseicon}%
+                        \GetExerciseProperty{counter}%
+                    }%
+                }
+        ]%
+        {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{exerciseColor}
+            \IfExercisePropertySetT{level}
+            {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+            \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+            \IfExercisePropertySetT{points}{%
+                \;(\GetExerciseProperty{points}%
+                \IfExerciseGoalSingularTF{points}{\,\XSIMtranslate{point-short}}{\,\XSIMtranslate{points-short}})%
+            }%
+        }%
+        \enskip
+        }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{num-box-out}{%
+    \begin{tcolorbox}[
+            enhanced,
+            skin=bicolor,
+            sharp corners,
+            before skip=\neo@beforeskip,
+            after skip=\neo@afterskip,
+            frame hidden,
+            top=-2pt,
+            bottom=-2pt,
+            colback=specialbgColor,
+            colupper=\neoschool@globalcolor,
+            fontupper=\color{\neoschool@globalcolor},
+            enlarge left by=-.5\leftmargin,
+            enlarge right by=-.5\rightmargin,
+            width=\textwidth+\leftmargin+\rightmargin,
+            before upper*={%
+                    \hspace*{-3.5pt}
+                    \tcbox[enhanced,
+                        colupper=exerciseColor,
+                        colback=specialbgColor,
+                        fontupper=\csname\neoschool@headweight\endcsname,
+                        size=small,
+                        baseline=5pt,
+                        top=1pt,
+                        bottom=1pt,
+                        left=1pt,
+                        right=1pt,
+                        nobeforeafter,
+                        frame code={%
+                                \path[line width=1.4pt,draw=exerciseColor,fill=tcbcolback] (frame.north west) -- (frame.north east)
+                                -- (frame.south east) -- (frame.south west) -- cycle;
+                            }]%
+                    {%
+                        \csname\neoschool@headstyle\endcsname
+                        \csname\neoschool@headweight\endcsname
+                        {\small\neo@exerciseicon}%
+                        \GetExerciseProperty{counter}%
+                    }%
+                }
+        ]%
+        {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{exerciseColor}
+            \IfExercisePropertySetT{level}
+            {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+            \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+            \IfExercisePropertySetT{points}{%
+                \;(\GetExerciseProperty{points}%
+                \IfExerciseGoalSingularTF{points}{\,\XSIMtranslate{point-short}}{\,\XSIMtranslate{points-short}})%
+            }%
+        }%
+        \enskip
+        }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{ex-num-box}{%
+    \begin{tcolorbox}[
+            enhanced,
+            sharp corners,
+            before skip=\neo@beforeskip,
+            after skip=\neo@afterskip,
+            frame hidden,
+            top=-2pt,
+            bottom=-2pt,
+            colframe=exerciseColor,
+            colback=specialbgColor,
+            colupper=\neoschool@globalcolor,
+            fontupper=\color{\neoschool@globalcolor},
+            enlarge left by=-.5\leftmargin,
+            enlarge right by=-.5\rightmargin,
+            width=\textwidth+\leftmargin+\rightmargin,
+            before upper*={%
+                    \tcbox[enhanced,
+                        colupper=specialbgColor,
+                        colback=exerciseColor,
+                        fontupper=\csname\neoschool@headweight\endcsname,
+                        size=small,
+                        baseline=4pt,
+                        top=0pt,
+                        bottom=0pt,
+                        left=0pt,
+                        right=0pt,
+                        nobeforeafter,
+                        frame code={%
+                                \path[line width=2pt, draw=exerciseColor, fill=tcbcolback] (frame.north west) -- (frame.north east)
+                                -- (frame.south east) -- (frame.south west) -- cycle;
+                            }]%
+                    {%
+                        \csname\neoschool@headstyle\endcsname
+                        \csname\neoschool@headweight\endcsname
+                        {\small\neo@exerciseicon}%
+                        Ex.~\GetExerciseProperty{counter}%
+                    }%
+                }
+        ]%
+        {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{exerciseColor}
+            \IfExercisePropertySetT{level}
+            {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+            \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+            \IfExercisePropertySetT{points}{%
+                \;(\GetExerciseProperty{points}%
+                \IfExerciseGoalSingularTF{points}{\,\XSIMtranslate{point-short}}{\,\XSIMtranslate{points-short}})%
+            }%
+        }%
+        \enskip
+        }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{ex-num-box-out}{%
+    \begin{tcolorbox}[
+            enhanced,
+            sharp corners,
+            before skip=\neo@beforeskip,
+            after skip=\neo@afterskip,
+            frame hidden,
+            top=-2pt,
+            bottom=-2pt,
+            colframe=exerciseColor,
+            colback=specialbgColor,
+            colupper=\neoschool@globalcolor,
+            fontupper=\color{\neoschool@globalcolor},
+            enlarge left by=-.5\leftmargin,
+            enlarge right by=-.5\rightmargin,
+            width=\textwidth+\leftmargin+\rightmargin,
+            before upper*={%
+                    \hspace*{-4pt}
+                    \tcbox[enhanced,
+                        colupper=exerciseColor,
+                        colback=specialbgColor,
+                        colframe=exerciseColor,
+                        fontupper=\csname\neoschool@headweight\endcsname,
+                        size=small,
+                        sharp corners,
+                        boxrule=1.4pt,
+                        baseline=4pt,
+                        top=0pt,
+                        bottom=0pt,
+                        left=0pt,
+                        right=0pt,
+                        nobeforeafter,
+                    ]%
+                    {%
+                        \csname\neoschool@headstyle\endcsname
+                        \csname\neoschool@headweight\endcsname
+                        {\small\neo@exerciseicon}%
+                        Ex.~\GetExerciseProperty{counter}%
+                    }%
+                }
+        ]%
+        {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{exerciseColor}
+            \IfExercisePropertySetT{level}
+            {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+            \IfExercisePropertySetT{subtitle}{{\itshape\enskip\GetExerciseProperty{subtitle}}}%
+            \IfExercisePropertySetT{points}{%
+                \;(\GetExerciseProperty{points}%
+                \IfExerciseGoalSingularTF{points}{\,\XSIMtranslate{point-short}}{\,\XSIMtranslate{points-short}})%
+            }%
+        }%
+        \enskip
+        }{\end{tcolorbox}}
+
+%%% Chevrons for Rules
+
+\newcommand{\lchevrons}{%
+    \begin{tikzpicture}[scale=0.1, baseline=0.2mm, line width=1.2pt]
+        \draw (0,0) -- (-1,1.25) -- (0,2.5);
+        \draw (2,0) -- (1,1.25) -- (2,2.5);
+        \draw (4,0) -- (3,1.25) -- (4,2.5);
+    \end{tikzpicture}%
+}
+
+\newcommand{\lcircle}{%
+    \begin{tikzpicture}[scale=1, baseline=-1mm, line width=1.2pt]
+        \draw (0,0) circle (3pt);
+    \end{tikzpicture}%
+}
+
+%%% Horizontal Rule with Boxed Title
+
+\DeclareExerciseEnvironmentTemplate{box-hrule}{%
+    \par\vspace{2ex plus 1ex minus .2ex}
+    \noindent
+    {\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \tcbox[on line,boxsep=-2pt,boxrule=0.4pt,left=7pt,right=7pt,colframe=exerciseColor,colback=exerciseColor,sharp corners, rounded corners = southeast]{\color{white}{\small\neo@exerciseicon}\XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}}%
+        \color{exerciseColor}
+        \IfExercisePropertySetT{level}
+        {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+        \IfInsideSolutionF{%
+            \GetExercisePropertyT{subtitle}{{\itshape\enskip{\PropertyValue}\enskip}}%
+        }%
+        \hspace*{-1pt}\xrfill[.085cm]{1.2pt}[exerciseColor]\hspace*{-1pt}%
+        {\color{exerciseColor}\footnotesize\lchevrons}%
+        {%
+            \IfExercisePropertySetT{points}{\bfseries\color{exerciseColor}\enskip%
+                \GetExerciseProperty{points}
+                \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}%
+                \IfExerciseGoalSingularTF{points}
+                {\XSIMtranslate{point}}
+                {\XSIMtranslate{points}}%
+            }%
+        }%
+    }%
+    {\parfillskip0pt\par}
+    \@afterindentfalse\@afterheading
+}{\par\vspace{2ex plus .2ex}}
+
+%%% Horizontal Rule with Boxed Title - Outlined
+
+\DeclareExerciseEnvironmentTemplate{box-hrule-out}{%
+    \par\vspace{2ex plus 1ex minus .2ex}
+    \noindent
+    {\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\tcbox[on line,boxsep=-2pt,boxrule=1.2pt,left=7pt,right=7pt,colframe=exerciseColor,colback=white,sharp corners,
+            rounded corners = east,arc=5pt
+        ]{\color{exerciseColor}{\small\neo@exerciseicon}\XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}}%
+        \color{exerciseColor}%
+        \IfExercisePropertySetT{level}
+        {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+        \IfInsideSolutionF{%
+            \GetExercisePropertyT{subtitle}{{\itshape\enskip{\PropertyValue}\enskip}}%
+        }%
+        \hspace*{-1pt}\xrfill[.085cm]{1.2pt}[exerciseColor]\hspace*{-1pt}%
+        % \!\!{\color{exerciseColor}\small\lcircle}%
+        {\color{exerciseColor}\footnotesize\lchevrons}%
+        {\bfseries\color{exerciseColor}%
+            \IfExercisePropertySetT{points}{\enskip%
+                \GetExerciseProperty{points}
+                \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}%
+                \IfExerciseGoalSingularTF{points}
+                {\XSIMtranslate{point}}
+                {\XSIMtranslate{points}}%
+            }%
+        }%
+    }%
+    {\parfillskip0pt\par}
+    \@afterindentfalse\@afterheading
+}{\par\vspace{2ex plus .2ex}}
+
+\DeclareExerciseEnvironmentTemplate{box-hrule-in}{%
+    \par\vspace{2ex plus 1ex minus .2ex}
+    \noindent
+    {\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\color{exerciseColor}%
+        \tcbox[on line,boxsep=-2pt,boxrule=1.2pt,left=7pt,right=7pt,colframe=exerciseColor,colback=white,sharp corners,
+            rounded corners = west,arc=5pt
+        ]{\color{exerciseColor}{\small\neo@exerciseicon}\XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}}%
+        \color{exerciseColor}
+        \IfExercisePropertySetT{level}
+        {\enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+        \IfInsideSolutionF{%
+            \GetExercisePropertyT{subtitle}{{\itshape\enskip{\PropertyValue}}}%
+        }%
+        \hspace{-1pt}\xrfill[.085cm]{1.2pt}[exerciseColor]\hspace{-1pt}%
+        {\color{exerciseColor}\small\lcircle}%
+        {\bfseries\color{exerciseColor}%
+            \IfExercisePropertySetT{points}{\enskip%
+                \GetExerciseProperty{points}
+                \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}%
+                \IfExerciseGoalSingularTF{points}
+                {\XSIMtranslate{point}}
+                {\XSIMtranslate{points}}%
+              }}}%
+    {\parfillskip0pt\par}
+    \@afterindentfalse\@afterheading
+}{\par\vspace{1.5ex plus .2ex}}
+
+%%% Boxed Title
+
+\DeclareExerciseEnvironmentTemplate{boxed}{%
+    \par\vspace{2ex plus .5ex minus .1ex}%
+    \noindent
+    {\csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        \tcbox[
+            on line,
+            boxsep=-3pt,
+            left=7pt,
+            right=7pt,
+            colframe=exerciseColor,
+            colback=exerciseColor,
+            sharp corners,
+            rounded corners = southeast,
+        ]{%
+            \color{white}{\small\neo@exerciseicon}%
+            \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        }%
+    }%
+    {%
+        \csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        \color{exerciseColor}
+        \IfExercisePropertySetT{level}
+        {\hspace{5pt}[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+        \IfExercisePropertySetT{subtitle}{{\enskip\GetExerciseProperty{subtitle}}}%
+        \IfExercisePropertySetT{points}{%
+            \enskip(\GetExerciseProperty{points}%
+            \IfExerciseGoalSingularTF{points}{\,point}{\,points})%
+        }%
+    }%
+    \hspace{2pt}
+}{}
+
+%%% Boxed Title - Outlined
+
+\DeclareExerciseEnvironmentTemplate{boxed-out}{%
+    \par\vspace{2ex plus .5ex minus .1ex}%
+    \noindent
+    {\csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        \tcbox[
+            on line,
+            boxrule=0.8pt,
+            boxsep=-3pt,
+            left=7pt,
+            right=7pt,
+            colframe=exerciseColor,
+            colback=white,
+            sharp corners,
+            rounded corners = southeast,
+        ]{%
+            \color{exerciseColor}{\small\neo@exerciseicon}%
+            \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        }%
+    }%
+    {%
+        \csname\neoschool@headstyle\endcsname
+        \csname\neoschool@headweight\endcsname
+        \csname\neoschool@headshape\endcsname
+        \color{exerciseColor}
+        \IfExercisePropertySetT{level}
+        {\hspace{5pt}[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]}%
+        \IfExercisePropertySetT{subtitle}{{\enskip\GetExerciseProperty{subtitle}}}%
+        \IfExercisePropertySetT{points}{%
+            \enskip(\GetExerciseProperty{points}%
+            \IfExerciseGoalSingularTF{points}{\,point}{\,points})%
+        }%
+    }%
+    \hspace{2pt}
+}{}
+
+
+%% ==============================================================================
+%% Simple Style Templates
+%% ==============================================================================
+
+%% Common Style Settings
+\newcommand{\neo@startsection}[1]{%
+    \@startsection{paragraph}{4}{\z@}{0.25\baselineskip}{-1em}
+    {\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname\color{#1}}
+}
+
+%% Inline Style
+%% ----------------------------------
+\DeclareExerciseEnvironmentTemplate{inline}{%
+    \neo@startsection{exerciseColor}
+    {%
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        \IfExercisePropertySetT{level}{\enskip%
+            [\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]
+        }%
+        \GetExercisePropertyT{subtitle}{{\enskip\normalfont\rmfamily\itshape\csname\neoschool@headweight\endcsname\PropertyValue}}%
+        \IfExercisePropertySetT{points}{\enskip(%
+            \GetExerciseProperty{points}%
+            \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]}%
+            \IfExerciseGoalSingularTF{points}
+            {\;\XSIMtranslate{point})\!}
+        {\;\XSIMtranslate{points})\!}
+    }
+}
+\color{\neoschool@globalcolor}\nobreak\hspace{-1em}
+}{\par\vspace{0.5\baselineskip}}
+
+
+%% Section Style
+%% ----------------------------------
+\DeclareExerciseEnvironmentTemplate{section}{%
+    \section*{%
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        \IfExercisePropertySetT{level}{\enskip%
+            [\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]
+        }%
+        \GetExercisePropertyT{subtitle}{{\:\itshape\PropertyValue}}%
+        \IfExercisePropertySetT{points}{\enskip(%
+            \GetExerciseProperty{points}%
+            \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]}%
+            \IfExerciseGoalSingularTF{points}
+            {\;\XSIMtranslate{point})\!}
+            {\;\XSIMtranslate{points})\!}
+        }%
+    }%
+    \color{\neoschool@globalcolor}%
+}{\par\vspace{0.5\baselineskip}}
+
+%% Terminal Style
+\DeclareExerciseEnvironmentTemplate{terminal}{%
+    \neo@startsection{exerciseColor}
+    {%
+    {\small\neo@exerciseicon}%
+    \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}
+    \IfExercisePropertySetT{level}{%
+      \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]\enskip
+    } \GetExercisePropertyT{subtitle}{{\normalfont\csname\neoschool@headweight\endcsname\itshape\PropertyValue}}
+    \IfExercisePropertySetT{points}{\enskip(%
+      \GetExerciseProperty{points}
+      \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}
+      \IfExerciseGoalSingularTF{points}
+      {\XSIMtranslate{point})}
+      {\XSIMtranslate{points})}
+    }
+    {\small\faTerminal}
+  }
+  \color{\neoschool@globalcolor}\nobreak\hspace{-1ex}
+}{\par}
+
+\DeclareExerciseEnvironmentTemplate{block}{%
+  \subsection*{%
+    \begingroup
+    \color{exerciseColor}
+    {\small\neo@exerciseicon}%
+    \XSIMmixedcase{\GetExerciseName}\nobreakspace
+    \GetExerciseProperty{counter}\enskip
+    \IfExercisePropertySetT{level}{%
+      [\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]\enskip
+    }%
+    \IfInsideSolutionF{%
+      \GetExercisePropertyT{subtitle}
+      {{\normalfont\csname\neoschool@headweight\endcsname\itshape\PropertyValue}\enskip}
+      \IfExercisePropertySetT{points}{%
+        \hfill
+        (\GetExerciseProperty{points}%
+        \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}%
+        \IfExerciseGoalSingularTF{points}
+        {~\XSIMtranslate{point}}%
+        {~\XSIMtranslate{points}}%
+        )%
+      }%
+    }%
+    \endgroup
+  }%
+  \vspace{-0.5em}
+}{%
+  \vspace{-1em}
+}
+
+%% ==============================================================================
+%% Horizontal Rule Style
+%% ==============================================================================
+
+\ifneo@amslikethm
+    \DeclareExerciseEnvironmentTemplate{hrule}{%
+        \par\vspace{2ex plus 0.5ex minus .1ex}
+        \Needspace*{3\baselineskip}
+        \noindent
+        \begingroup
+        \color{exerciseColor}        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}\enskip
+        \IfExercisePropertySetT{level}{%
+            [\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]\enskip
+        }
+        \IfInsideSolutionF{%
+            \GetExercisePropertyT{subtitle}{{{\normalfont\csname\neoschool@headweight\endcsname\itshape\PropertyValue}\enskip}}
+        }
+        \xrfill[.075cm]{0.4pt}[exerciseColor]
+        {\color{exerciseColor}
+            \IfExercisePropertySetT{points}{\enskip
+                \GetExerciseProperty{points}
+                \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}
+                \IfExerciseGoalSingularTF{points}
+                {~\XSIMtranslate{point}}
+                {~\XSIMtranslate{points}}
+            }
+          }
+        \endgroup
+        \par\vspace{1ex plus .1ex}
+        \@afterindentfalse\@afterheading
+    }{\par}
+\else
+    \DeclareExerciseEnvironmentTemplate{hrule}{%
+        \par\vspace{2ex plus 0.5ex minus .1ex}
+        \Needspace*{3\baselineskip}
+        \noindent
+        \begingroup
+        \color{exerciseColor} \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        {\small\neo@exerciseicon}%
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}\enskip
+        \IfExercisePropertySetT{level}{%
+            [\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]\enskip
+        }
+        \IfInsideSolutionF{%
+            \GetExercisePropertyT{subtitle}{{({\normalfont\csname\neoschool@headweight\endcsname\itshape\PropertyValue})\enskip}}
+        }
+        \xrfill[.075cm]{1.2pt}[exerciseColor]
+        {\IfExercisePropertySetT{points}{\enskip
+            \GetExerciseProperty{points}
+            \GetExercisePropertyT{bonus-points}{[+\printgoal{\PropertyValue}]\;}
+            \IfExerciseGoalSingularTF{points}
+            {~\XSIMtranslate{point}}
+            {~\XSIMtranslate{points}}
+          }
+        }
+        \endgroup
+        \par\vspace{1ex plus .1ex}
+        \@afterindentfalse\@afterheading
+    }{\par}
+\fi
+
+%% ==============================================================================
+%% Solution Configuration
+%% ==============================================================================
+
+% Solution templates
+\DeclareExerciseEnvironmentTemplate{sol-dotted}{%
+    \needspace{4\baselineskip}%
+    \par\noindent
+    {\color{solutionColor}
+        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \XSIMmixedcase{\GetExerciseName}
+        \csname neo@solutiongaptext\endcsname
+        \GetExerciseProperty{counter}
+    }%
+    \enskip{\color{solutionColor}{\dotfill}}%
+    \par\vspace{0.25\baselineskip}
+  }{%
+    \nopagebreak%
+    \par\vspace{0.25\baselineskip}%
+    \noindent{\color{solutionColor}\dotfill}%
+    \par\vspace{0.25\baselineskip}
+}
+
+\DeclareExerciseEnvironmentTemplate{sol-block}{%
+    \needspace{4\baselineskip}%
+    \par\noindent
+    \makebox[\linewidth]{%
+        \color{solutionColor}%
+        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \neo@solutionname~\csname neo@solutiongaptext\endcsname\GetExerciseProperty{counter}%
+        \hspace{.75em}%
+        \xrfill[0ex]{0.4pt}[solutionColor]%
+    }%
+    \par\vspace{0.5\baselineskip}%
+  }{%
+    \nopagebreak%
+    \par\vspace{0.25\baselineskip}%
+    \noindent\color{solutionColor}\rule{\linewidth}{0.4pt}%
+    \par\vspace{0.25\baselineskip}%
+}
+
+\DeclareExerciseEnvironmentTemplate{sol-inline}{%
+    \par\noindent
+    {\color{solutionColor}
+        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \XSIMmixedcase{\GetExerciseName}
+        \csname neo@solutiongaptext\endcsname
+        \GetExerciseProperty{counter}\hspace{.5em}
+    }%
+}{\par\vspace{0.25\baselineskip}}
+
+%% ==============================================================================
+%% Smart Boxes
+%% ==============================================================================
+\DeclareExerciseProperty{answer-type}
+
+\DeclareExerciseEnvironmentTemplate{smart-box}{%
+    \begin{tcolorbox}[%
+            neo@box@base,
+            neo@frame@basic,
+            neo@title@colored,
+            title={%
+                    \raisebox{0pt}{\textcolor{white}{\small\neo@exerciseicon}}%
+                    \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+                    \XSIMmixedcase{\GetExerciseName}~\GetExerciseProperty{counter}%
+                    \IfExercisePropertySetT{level}{%
+                        \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+                    }%
+                    \IfExercisePropertySetT{subtitle}{\enskip\GetExerciseProperty{subtitle}}%
+                    \IfExercisePropertySetT{points}{%
+                        \enskip(\GetExerciseProperty{points}%
+                        \IfExerciseGoalSingularTF{points}{~point}{~points})%
+                    }%
+                }%
+        ]%
+        }{\end{tcolorbox}}
+
+\DeclareExerciseEnvironmentTemplate{minimal-ams}{%
+    \par\vspace{2ex plus 0.5ex minus .1ex}
+    \Needspace*{3\baselineskip}
+    \noindent
+    {%
+        {\small\neo@exerciseicon}
+        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        \IfExercisePropertySetT{level}{%
+            \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+        }%
+        \IfExercisePropertySetT{subtitle}{%
+            \enskip{\itshape\GetExerciseProperty{subtitle}}%
+        }%
+        \IfExercisePropertySetT{points}{%
+            \enskip(%
+            \GetExerciseProperty{points}%
+            \IfExerciseGoalSingularTF{points}%
+            {~point}%
+            {~points}%
+            )%
+        }%
+        \enskip
+    }%
+}{\par\vspace{1ex plus .5ex}}
+
+\DeclareExerciseEnvironmentTemplate{rule-ams}{%
+    \par\vspace{2ex plus 0.5ex minus .1ex}
+    \Needspace*{3\baselineskip}
+    \noindent
+    {%
+        {\small\neo@exerciseicon}
+        \csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname
+        \XSIMmixedcase{\GetExerciseName}\nobreakspace\GetExerciseProperty{counter}%
+        \IfExercisePropertySetT{level}{%
+            \enskip[\raisebox{0.5pt}{$\neo@replicate{\GetExerciseProperty{level}}{{\star}}$}]%
+        }%
+        \IfExercisePropertySetT{subtitle}{%
+            \enskip{\itshape\GetExerciseProperty{subtitle}}%
+        }%
+        \IfExercisePropertySetT{points}{%
+            \enskip(%
+            \GetExerciseProperty{points}%
+            \IfExerciseGoalSingularTF{points}%
+            {~point}%
+            {~points}%
+            )%
+        }%
+        \enskip
+    }%
+    \par\nobreak\vspace{.4ex}%
+    \noindent\hspace*{2em}%
+    \tikz[baseline]{\draw[line width=0.4pt, exerciseColor!20] (0,0) -- (\linewidth-4em,0);}%
+    \par\vspace{.8ex}%
+    \@afterindentfalse\@afterheading
+}{\par\vspace{1ex plus .5ex}}
+
+%% ==============================================================================
+%% Exercise Configuration
+%% ==============================================================================
+
+% Enable solutions if answers option is active
+\ifneoschool@answers
+    \xsimsetup{%
+        solution/print=true
+    }
+\fi
+
+\ifneoschool@answersonly
+    \xsimsetup{%
+        exercise/print=false,
+        solution/print=true
+    }
+\fi
+
+% Base exercise setup
+\ifneoschool@sectionthmcounter
+    \ifneoschool@sharedexcounter
+        \xsimsetup{%
+            exercise/within = section,
+            exercise/name = {\neo@exercisename},
+            solution/name = {\neo@solutionname},
+            solution/template = sol-inline
+        }
+        \renewcommand*{\theexercise}{\thesection.\arabic{thmcounter}}
+        \AtBeginEnvironment{exercise}{\stepcounter{thmcounter}\addtocounter{exercise}{-1}}
+    \else
+        \xsimsetup{%
+            exercise/within = section,
+            exercise/name = {\neo@exercisename},
+            solution/name = {\neo@solutionname},
+            solution/template = sol-inline
+        }
+    \fi
+\else
+    \ifneoschool@sharedexcounter
+        \xsimsetup{%
+            exercise/name = {\neo@exercisename},
+            solution/name = {\neo@solutionname},
+            solution/template = sol-inline
+        }
+        \renewcommand*{\theexercise}{\arabic{thmcounter}}
+        \AtBeginEnvironment{exercise}{\stepcounter{thmcounter}\addtocounter{exercise}{-1}}
+    \else
+        \xsimsetup{%
+            exercise/name = {\neo@exercisename},
+            solution/name = {\neo@solutionname},
+            solution/template = sol-inline
+        }
+    \fi
+\fi
+
+%% Style selection based on class options
+\ifneo@amslikethm
+    \xsimsetup{exercise/template=inline}
+\fi
+
+\ifneo@classythm
+    \xsimsetup{exercise/template=classy-box}
+\fi
+
+\ifneo@classicthm
+    \xsimsetup{exercise/template=classic-box}
+\fi
+
+\ifneo@soberthm
+    \xsimsetup{exercise/template=sober-box}
+\fi
+
+\ifneo@elegantthm
+    \xsimsetup{exercise/template=elegant-box}
+\fi
+
+\ifneo@shadedthm
+    \xsimsetup{exercise/template=shaded-box}
+\fi
+
+\ifneo@slantedthm
+    \xsimsetup{exercise/template=slanted-box}
+\fi
+
+\ifneo@boxedthm
+    \xsimsetup{exercise/template=rect-box}
+\fi
+
+\ifneo@blocksol
+    \xsimsetup{solution/template=sol-block}
+\fi
+
+%% ==============================================================================
+%% Referencing an exercise
+%% ==============================================================================
+
+\ExplSyntaxOn
+\NewDocumentCommand \exercisenumber {m}
+  {
+    \xsim_get_property:nxn
+      {exercise}
+      { \xsim_get_id_for_property:nn {ID} {#1} }
+      {counter}
+  }
+\cs_generate_variant:Nn \xsim_get_property:nnn {nx}
+\ExplSyntaxOff
+
+%% ==============================================================================
+%% Utility Commands for Exercises
+%% ==============================================================================
+
+% Print exercises by level
+\NewDocumentCommand\printlevelexid{m}{%
+    \noindent {\bfseries \csname neo@pathname\endcsname\space#1 :}
+    \ForEachUsedExerciseByType{%
+        \def\ExerciseType{##1}
+        \def\ExerciseID{##2}
+        \IfExercisePropertySetT{level}{%
+            \ifnum\GetExerciseProperty{level}=#1
+                \fbox{\GetExerciseProperty{id}}\hspace*{2mm}
+            \else
+                \hspace*{5mm}
+            \fi
+        }
+    }
+}
+
+%% ==============================================================================
+%% Final Configuration Commands
+%% ==============================================================================
+
+% Dynamic grid fill command
+\newlength{\neo@gridwidth}
+\NewDocumentCommand\gridfill{s O{\neoschool@titlecolor} O{5mm} O{5mm}}{%
+  \pgfmathsetmacro{\neo@gridwidth}{floor(\linewidth/1cm)}
+  \edef\neo@gridwidth{\neo@gridwidth cm}
+  \dimen0=\dimexpr\textheight-\pagetotal-2\baselineskip\relax
+  \pgfmathsetmacro{\neo@heightcm}{floor((\the\dimen0/28.453)/0.5)*0.5}%
+  \vspace*{\fill}%
+  \IfBooleanTF{#1}
+    {{\noindent\centering
+      \frenchgrid[#2]{\neo@gridwidth}{\neo@heightcm cm}}}
+    {{\noindent\centering
+      \customgrid[#2][#3][#4]{\neo@gridwidth}{\neo@heightcm cm}}}%
+}
+
+% Solution text formatting
+\NewDocumentCommand\neo@solution@text{}{%
+    {\csname\neoschool@headstyle\endcsname
+            \csname\neoschool@headweight\endcsname
+            \color{tcbcolframe}
+            \ifx\neo@solutiongaptext\empty
+                \neo@solutionname
+            \else
+                \neo@solutionname~\neo@solutiongaptext
+            \fi
+        }
+}
+
+%% ==============================================================================
+%% Utilities
+%% ==============================================================================
+
+%% Core Document Settings
+%% ----------------------------------
+% Table styling
+\setlength{\arrayrulewidth}{0.5pt}
+% \arrayrulecolor{\neoschool@titlecolor}
+\renewcommand{\arraystretch}{1.15}
+
+% Document color management
+\newcommand{\documentcolor}[1]{%
+    \color{#1}\global\let\default@color\current@color
+}
+
+% Initialize document settings
+\AtBeginDocument{%
+    \documentcolor{\neoschool@globalcolor}
+    \DeclareGraphicsExtensions{.pdf,.PDF,.eps,.EPS,.png,.PNG,.tif,.TIF,.jpg,.JPG,.jpeg,.JPEG}
+}
+
+%% Font Settings
+%% ----------------------------------
+\ifneo@sfall
+    \renewcommand{\neoschool@headstyle}{sffamily}
+    \renewcommand{\neoschool@titlestyle}{sffamily}
+    \renewcommand{\familydefault}{\sfdefault}
+\fi
+
+\ifneo@sfbody
+    \renewcommand{\familydefault}{\sfdefault}
+\fi
+
+%% Graphics Rules
+%% ----------------------------------
+\ifpdf
+    \DeclareGraphicsRule{*}{mps}{*}{}
+\fi
+
+%% Layout and Drawing Tools
+%% ----------------------------------
+% Absolute positioning on page
+\newcommand{\positionobject}[4]{%
+    \begin{tikzpicture}[remember picture, overlay]
+        \node[inner sep=0pt, outer sep=0pt] at ($([xshift=#1,yshift=-#2]current page.north west)$) {%
+            \adjustbox{scale=#3}{#4}
+        };
+    \end{tikzpicture}
+}
+
+% Advanced customizable grid
+\NewDocumentCommand{\customgrid}{ O{\neoschool@titlecolor} O{5mm} O{5mm} m m }{%
+    \tikzset{%
+        gridlines/.style={%
+                draw=#1,
+                opacity=0.5
+            },
+        majorgrid/.style={%
+                gridlines,
+                line width=0.35pt
+            },
+        minorgrid/.style={%
+                gridlines,
+                line width=0.35pt
+            }
+    }
+    \medskip\noindent\begin{tikzpicture}[inner sep=0, outer sep=0]
+        % Calculate dimensions
+        \pgfmathsetmacro\mywidth{#4}
+        \pgfmathsetmacro\myheight{#5}
+        \pgfmathsetmacro\incx{#2}
+        \pgfmathsetmacro\incy{#3}
+
+        % Vertical grid lines
+        \pgfmathsetmacro\numx{int(\mywidth/\incx)}
+        \foreach \x in {0,...,\numx}{%
+                \pgfmathparse{mod(\x,5)==0 ? "majorgrid" : "minorgrid"}
+                \edef\gridstyle{\pgfmathresult}
+                \draw[\gridstyle]
+                (\x * \incx pt, 0) -- (\x * \incx pt, \myheight pt);
+            }
+
+        % Horizontal grid lines
+        \pgfmathsetmacro\numy{int(\myheight/\incy)}
+        \foreach \y in {0,...,\numy}{%
+                \pgfmathparse{mod(\y,5)==0 ? "majorgrid" : "minorgrid"}
+                \edef\gridstyle{\pgfmathresult}
+                \draw[\gridstyle]
+                (0, \y * \incy pt) -- (\mywidth pt, \y * \incy pt);
+            }
+    \end{tikzpicture}
+    \ignorespaces
+    \par\vspace{7pt}
+}
+
+% Legacy grid command for backwards compatibility
+\NewDocumentCommand{\grid}{ O{\neoschool@titlecolor} m m }{%
+    \customgrid[#1][5mm][5mm]{#2}{#3}
+}
+
+\NewDocumentCommand{\frenchgrid}{ s O{\neoschool@titlecolor!75} O{\neoschool@titlecolor!50} m m }{%
+    \tikzset{%
+        fine lines/.style={draw={#3},very thin},
+        thick lines/.style={draw={#2}},
+    }
+    \IfBooleanTF{#1}{%
+        \noindent\centering
+    }{%
+        \noindent
+    }%
+    \begin{tikzpicture}[inner sep=0,outer sep=0]
+        \pgfmathsetmacro\mywidth{#4}
+        \pgfmathsetmacro\myheight{#5}
+        \pgfmathsetmacro\incx{8mm}
+        \pgfmathsetmacro\incypetits{2mm}
+        \pgfmathsetmacro\incygrands{8mm}
+
+        \pgfmathsetmacro\numx{floor(\mywidth/\incx)}
+        \pgfmathsetmacro\adjwidth{\numx * \incx}
+
+        \pgfmathsetmacro\numypetits{floor(\myheight/\incypetits)}
+        \pgfmathsetmacro\numygrands{floor(\myheight/\incygrands)}
+        \pgfmathsetmacro\adjheight{\numypetits * \incypetits}
+
+        \foreach \x in {0,...,\numx}{%
+            \draw[fine lines] (\x * \incx pt,0) -- (\x * \incx pt,\adjheight pt);
+        }
+        \foreach \y in {0,...,\numypetits}{%
+            \draw[fine lines] (0,\y * \incypetits pt) -- (\adjwidth pt,\y * \incypetits pt);
+        }
+        \foreach \y in {0,...,\numygrands}{%
+            \draw[thick lines] (0,\y * \incygrands pt) -- (\adjwidth pt,\y * \incygrands pt);
+        }
+    \end{tikzpicture}%
+}
+
+%% Notebook-Style Pages
+%% ----------------------------------
+% Simple lined notebook page
+\newcommand{\notebook}{%
+    \begin{tikzpicture}[remember picture,overlay]
+        \foreach \i in {3,...,27}{%
+                \draw[teal] ($(current page.north west)+(0,-\i)$) --
+                ($(current page.north east)+(0,-\i)$);
+            }
+        \draw [thick,red] ($(current page.north west)+(4,0)$) --
+        ($(current page.south west)+(4,0)$);
+    \end{tikzpicture}
+}
+
+% Minor grid notebook page
+\newcommand{\nbminorgrid}{%
+    \begin{tikzpicture}[remember picture,overlay]
+        \foreach \i in {0.5,1,...,30}{%
+                \draw[teal!50] ($(current page.north west)+(0,-\i)$) --
+                ($(current page.north east)+(0,-\i)$);
+            }
+        \foreach \i in {0.5,1,...,21}{%
+                \draw [thick,teal!50] ($(current page.north west)+(\i,0)$) --
+                ($(current page.south west)+(\i,0)$);
+            }
+    \end{tikzpicture}
+}
+
+% Major grid notebook page
+\newcommand{\nbmajorgrid}{%
+    \begin{tikzpicture}[remember picture,overlay]
+        \foreach \i in {2,2.8,...,30}{%
+                \draw[teal!50] ($(current page.north west)+(0,-\i)$) --
+                ($(current page.north east)+(0,-\i)$);
+            }
+        \foreach \i in {2,2.2,...,30}{%
+                \draw[teal!25] ($(current page.north west)+(0,-\i)$) --
+                ($(current page.north east)+(0,-\i)$);
+            }
+        \foreach \i in {4.0,4.8,...,21}{%
+                \draw [thick,teal!50] ($(current page.north west)+(\i,0)$) --
+                ($(current page.south west)+(\i,0)$);
+            }
+        \draw [thick,red] ($(current page.north west)+(4,0)$) --
+        ($(current page.south west)+(4,0)$);
+    \end{tikzpicture}
+}
+
+%% Horizontally Split Content
+%% ----------------------------------
+\NewDocumentCommand{\splitcontent}{ O{0.5} O{0.02} m m }{%
+    % #1 : Width of the first section (default: 50%)
+    % #2 : Horizontal gap between sections (default: 2%)
+    % #3 : Content of the first section
+    % #4 : Content of the second section
+    \noindent
+    \begin{minipage}{#1\linewidth}
+        #3
+    \end{minipage}%
+    \hspace*{#2\linewidth}
+    \begin{minipage}{\dimexpr\linewidth-#1\linewidth-#2\linewidth\relax}
+        #4
+    \end{minipage}%
+}
+
+%% Text With Image Layout
+%% ----------------------------------
+\NewDocumentCommand{\textwithimage}{s m m m m}{%
+    \noindent
+    \IfBooleanTF{#1}{%
+        \par\begin{minipage}{#2\linewidth}
+            \centering\includegraphics[width=#3\linewidth]{#5}
+        \end{minipage}
+        \hfill
+        \begin{minipage}{\dimexpr\linewidth-#2\linewidth-1em\relax}
+            #4
+        \end{minipage}
+    }{%
+        \par\begin{minipage}{\dimexpr\linewidth-#2\linewidth-1em\relax}
+            #4
+        \end{minipage}%
+        \hfill%
+        \begin{minipage}{#2\linewidth}
+            \begin{center}
+                \centering\includegraphics[width=#3\linewidth]{#5}
+            \end{center}
+        \end{minipage}
+    }
+}
+
+%% QR Code Integration
+%% ----------------------------------
+\NewDocumentCommand{\withqrcode}{ s O{2cm} m m }{%
+    \qrset{hyperlink,height=#2}%
+    \noindent%
+    \IfBooleanTF{#1}{%
+        \par\begin{tblr}{%
+            width={\linewidth},
+            colspec={X[j,m]Q[c,m]Q[c,m]}
+            }
+            {{{#4}}} &  & \centering\qrcode{#3}
+        \end{tblr}%
+    }{%
+        \par\begin{tblr}{%
+            width={\linewidth},
+            colspec={Q[c,m]Q[c,m]X[j,m]}
+            }
+            \centering\qrcode{#3} &  & {{{#4}}}
+        \end{tblr}%
+    }%
+}
+
+%% Assessment Tools
+%% ----------------------------------
+% Point markers
+
+\NewDocumentCommand{\mrks}{s O{} m}{%
+    \IfBooleanTF{#1}
+        {\reversemarginpar}
+        {\normalmarginpar}%
+    \ifx\empty#2\empty
+        \marginnote{\small (#3 pts)}[0em]%
+    \else
+        \marginnote{%
+            \small
+            \parbox[c]{\marginparwidth}{%
+                \begin{spacing}{0.8}
+                    \IfBooleanTF{#1}
+                        {\raggedleft}
+                        {\raggedright}
+                    (#3 pts) \footnotesize #2%
+                \end{spacing}
+            }%
+        }[0em]%
+    \fi
+    \ignorespaces
+}
+
+\NewDocumentCommand{\mrk}{s O{} m}{%
+    \IfBooleanTF{#1}
+        {\reversemarginpar}
+        {\normalmarginpar}%
+    \ifx\empty#2\empty
+        \marginnote{\small (#3 pt)}[0em]%
+    \else
+        \marginnote{%
+            \small
+            \parbox[c]{\marginparwidth}{%
+                \begin{spacing}{0.8}
+                    \IfBooleanTF{#1}
+                        {\raggedleft}
+                        {\raggedright}
+                    (#3 pt) \footnotesize #2%
+                \end{spacing}
+            }%
+        }[0em]%
+    \fi
+    \ignorespaces
+}
+
+% Answer lines
+\NewDocumentCommand{\lines}{ O{.} O{1.65em} m }{%
+    \par
+    \vspace*{0.5\baselineskip}
+    \foreach \n in {1,...,#3}{%
+            \noindent\parbox[t][#2][t]{\linewidth}{%
+                \ifstrequal{#1}{.}{%
+                    \dotfill
+                }{%
+                    \ifstrequal{#1}{-}{%
+                        \hrulefill
+                    }{%
+                        \leaders\hbox{#1}\hfill\kern0pt
+                    }
+                }
+            }
+            \par
+        }
+}
+
+% Dotted line with variable length
+\newcommand\vardots[1][\linewidth]{%
+    \noindent\begin{tikzpicture}
+        \draw[densely dotted, semithick, line cap=round] (0,0) -- ({#1},0);
+    \end{tikzpicture}
+}
+
+%% Task Lists
+%% ----------------------------------
+\newcommand{\cmark}{%
+    \ifneo@unicolor
+        {\color{\neoschool@headcolor}\ding{51}}%
+    \else
+        \ifneo@print
+            \ding{51}%
+        \else
+            {\color{neoCorrectColor}\ding{51}}%
+        \fi
+    \fi
+}
+
+\newcommand{\xmark}{%
+    \ifneo@unicolor
+        {\color{\neoschool@headcolor}\ding{55}}%
+    \else
+        \ifneo@print
+            \ding{55}%
+        \else
+            {\color{neoIncorrectColor}\ding{55}}%
+        \fi
+    \fi
+}
+
+\newcommand{\unchecked}{%
+    \item[\rlap{$\square$}\hspace{.7em}]%
+}
+
+\newcommand{\done}{%
+    \item[\rlap{$\square$}{%
+                    \raisebox{1pt}{\large\hspace{1pt}\cmark}\hspace{-2.5pt}}]%
+}
+
+\newcommand{\wontfix}{%
+    \item[\rlap{$\square$}{\large\hspace{1pt}\xmark}]%
+}
+
+%% ==============================================================================
+%% Margin and Notes Management
+%% ==============================================================================
+
+\newif\ifneo@hasmarginoption
+\neo@hasmarginoptionfalse
+
+\newif\ifneo@hasnoteoption
+\neo@hasnoteoptionfalse
+
+\newif\ifmarginnotesactive
+\marginnotesactivefalse
+
+\newlength{\neo@usermargin}
+\setlength{\neo@usermargin}{0pt}
+
+\newlength{\neo@usernotes}
+\setlength{\neo@usernotes}{0pt}
+
+\ifx\neoschool@margin\@empty
+\else
+    \neo@hasmarginoptiontrue
+    \setlength{\neo@usermargin}{\neoschool@margin}
+\fi
+
+\ifx\neoschool@notes\@empty
+\else
+    \marginnotesactivetrue
+    \neo@hasnoteoptiontrue
+    \setlength{\neo@usernotes}{\neoschool@notes}
+\fi
+
+\AtEndPreamble{%
+    \ifneo@hasmarginoption
+        \newlength{\neo@basewidth}
+        \newlength{\neo@baseheight}
+
+        \ifdim\paperwidth>\paperheight
+            % Landscape Mode
+            \setlength{\neo@basewidth}{27cm}
+            \setlength{\neo@baseheight}{20.5cm}
+        \else
+            % Portrait Mode
+            \setlength{\neo@basewidth}{19cm}
+            \setlength{\neo@baseheight}{29.25cm}
+        \fi
+
+        \ifneo@hasnoteoption
+            \setlength{\marginparwidth}{\dimexpr\neo@usernotes-0.5cm\relax}
+            \setlength{\marginparsep}{0.5cm}
+            \addtolength{\oddsidemargin}{\neo@usermargin}
+            \addtolength{\evensidemargin}{\neo@usermargin}
+            \areaset{\dimexpr\neo@basewidth-\neo@usermargin-\neo@usernotes\relax}{\dimexpr\neo@baseheight-\neo@usermargin\relax}
+        \else
+            \setlength{\marginparwidth}{\dimexpr\neo@usermargin-0.5cm\relax}
+            \setlength{\marginparsep}{0.5cm}
+            \addtolength{\oddsidemargin}{\neo@usermargin}
+            \addtolength{\evensidemargin}{\neo@usermargin}
+            \areaset{\dimexpr\neo@basewidth-\neo@usermargin\relax}{\dimexpr\neo@baseheight-\neo@usermargin\relax}
+        \fi
+    \else
+        \ifneo@hasnoteoption
+            \newlength{\neo@basewidth}
+            \setlength{\neo@basewidth}{19cm}
+            \setlength{\marginparwidth}{\dimexpr\neo@usernotes-0.5cm\relax}
+            \setlength{\marginparsep}{0.5cm}
+            \addtolength{\oddsidemargin}{\neo@usernotes}
+            \addtolength{\evensidemargin}{\neo@usernotes}
+            \areaset{\dimexpr\neo@basewidth-\neo@usernotes\relax}{29cm}
+        \fi
+    \fi
+}
+
+%% Margin Notes Commands
+%% ----------------------------------
+
+\newtoggle{lmargin}
+
+\newcommand{\alternatingtodo}[2][]{%
+    \iftoggle{lmargin}
+    {\normalmarginpar \todo[#1]{#2} \togglefalse{lmargin}}
+    {\reversemarginpar \todo[#1]{#2} \toggletrue{lmargin}}
+    \ignorespaces
+}
+
+\newcommand{\tdnote}[2][]{%
+    \ifmarginnotesactive
+        \alternatingtodo[%
+            bordercolor=\ifneo@unicolor\neoschool@headcolor\else ForestGreen\fi,
+            linecolor=\ifneo@unicolor\neoschool@headcolor\else ForestGreen\fi,
+            backgroundcolor=\ifneo@unicolor\neoschool@headcolor!10\else Gold\fi,
+            #1%
+        ]{#2}%
+    \fi
+}
+
+\newsavebox{\todobox}
+\newcounter{tdnotecounter}
+
+\newcommand{\boxnote}[2][inNote]{%
+    \stepcounter{tdnotecounter}
+    \iftoggle{lmargin}%
+    {%
+        \normalmarginpar
+        \marginpar{%
+            \savebox\todobox{\tdnote[inline]{#2}}%
+            \begin{tikzpicture}[remember picture, overlay]
+                \coordinate (#1-\thetdnotecounter) at (0pt,0.5\ht\todobox);
+            \end{tikzpicture}%
+            \usebox\todobox%
+        }%
+        \togglefalse{lmargin}
+    }%
+    {%
+        \reversemarginpar
+        \marginpar{%
+            \savebox\todobox{\tdnote[inline]{#2}}%
+            \begin{tikzpicture}[remember picture, overlay]
+                \coordinate (#1-\thetdnotecounter) at (\marginparwidth,0.5\ht\todobox);
+            \end{tikzpicture}%
+            \usebox\todobox%
+        }%
+        \toggletrue{lmargin}
+    }%
+}
+
+\newcommand{\tdmark}[1][inNote]{%
+    \ifmarginnotesactive
+        \tikz[remember picture, overlay]{%
+            \iftoggle{lmargin}{%
+                \draw[thick,color=\ifneo@unicolor\neoschool@headcolor\else ForestGreen\fi]
+                (#1-\thetdnotecounter) -- ++(0.25cm,0) |- (0pt,\lineskip-\dp\strutbox)%
+            }{%
+                \draw[thick,color=\ifneo@unicolor\neoschool@headcolor\else ForestGreen\fi]
+                (#1-\thetdnotecounter) -- ++(-0.25cm,0) |- (0pt,\lineskip-\dp\strutbox)%
+            }
+        }%
+    \fi
+}
+
+%% Exam-style grading strip
+%% ----------------------------------
+\newcommand{\neo@mark@text}{%
+    \ifneo@french
+        Note%
+    \else\ifneo@german
+            Note%
+        \else
+            Mark%
+        \fi\fi
+}
+
+\newcommand{\neo@appreciation@text}{%
+    \ifneo@french
+        Appréciation%
+    \else\ifneo@german
+            Bewertung%
+        \else
+            Comments%
+        \fi\fi
+}
+
+\newcommand{\smallstrut}{\rule[-0.5ex]{0pt}{1.8ex}}
+
+\NewDocumentCommand{\gradingstrip}{ O{} }{%
+    \vspace*{1em}
+    \noindent
+    \begin{minipage}[t]{0.2\textwidth}
+        \begin{tcolorbox}[%
+                enhanced,
+                colback=white,
+                colbacktitle=white,
+                colframe=\neoschool@globalcolor,
+                sharp corners,
+                boxrule=0.5pt,
+                height=2.5cm,
+                title={\smallstrut\textmd{\color{\neoschool@globalcolor}\neo@mark@text}},
+                center title,
+                overlay={%
+                    \ifblank{#1}{}{%
+                        \coordinate (start) at ([xshift=-0.1mm,yshift=-0.575cm]frame.north east);
+                        \coordinate (end) at ([xshift=0.1mm,yshift=0.1mm]frame.south west);
+                        \draw[line width=0.4pt] (start) -- (end);
+                        \node[anchor=south east]
+                            at ([xshift=-0.4cm,yshift=0.4cm]end -| start) {#1};
+                    }%
+                }
+        ]
+            \ifblank{#1}{%
+                \vspace{2\baselineskip}
+            }{}
+        \end{tcolorbox}
+    \end{minipage}%
+    \hspace{.1cm}%
+    \begin{minipage}[t]{0.79\textwidth}
+        \begin{tcolorbox}[%
+                enhanced,
+                colback=white,
+                colbacktitle=white,
+                colframe=\neoschool@globalcolor,
+                sharp corners,
+                boxrule=0.5pt,
+                height=2.5cm,
+                title={\smallstrut\textmd{\color{\neoschool@globalcolor}\neo@appreciation@text}},
+                center title
+            ]
+            \vspace{2\baselineskip}
+        \end{tcolorbox}
+    \end{minipage}
+    \vspace*{1em}
+}
+
+%% Skill Assessment Table
+%% ----------------------------------
+\newcommand{\competencies}[1]{%
+    \bigskip
+    % \colorlet{tempcolor}{\neoschool@titlecolor}
+    \colorlet{tempcolor}{\neoschool@globalcolor}
+    \ifneo@unicolor
+        \def\iconcolorA{\neoschool@titlecolor!5}%
+        \def\iconcolorB{\neoschool@titlecolor!5}%
+        \def\iconcolorC{\neoschool@titlecolor!5}%
+        \def\iconcolorD{\neoschool@titlecolor!5}%
+    \else
+        \def\iconcolorA{Tomato}%
+        \def\iconcolorB{orange}%
+        \def\iconcolorC{yellow}%
+        \def\iconcolorD{green}%
+    \fi
+    \begin{center}
+        \begin{tblr}{%
+            colspec={|[0.5pt,tempcolor]t{.5\linewidth}|[0.5pt,tempcolor]
+            Q[c,b]|[0.5pt,tempcolor]Q[c,b]|[0.5pt,tempcolor]
+            Q[c,b]|[0.5pt,tempcolor]Q[c,b]|[0.5pt,tempcolor]},
+            hlines = {0.5pt, tempcolor},
+            row{1} = {abovesep=5pt},
+            }
+            \SetCell{cmd=\bfseries} \raisebox{0.25em}{\neo@competencies} &
+            \dSadey[1.5][\iconcolorA]                                    & \dNeutrey[1.5][\iconcolorB]    &
+            \dSmiley[1.5][\iconcolorC]                                   & \dChangey[1.5][\iconcolorD]{2}   \\
+            #1                                                                                              \\
+        \end{tblr}
+    \end{center}
+    \medskip
+}
+
+%% Tree and Graph Structure Support
+%% ----------------------------------
+% Forest settings for trees
+\forestset{
+    w/.style = {
+            edge label={
+                    node[midway, fill=white, text=black] {$#1$}
+                }
+        }
+}
+
+\environbodyname\neotreebody
+\bracketset{action character=@}
+\NewEnviron{neotree}[1][]{%
+	\forest
+	for tree={%
+		grow'=0,
+		l=2.5cm,
+		s sep=1.5cm,
+		anchor=parent,
+		math content,
+		#1
+	},
+	[@\neotreebody]
+	\endforest
+}
+
+% Graph settings (LuaTeX only)
+\ifLuaTeX
+    \tikzset{%
+        graphs/simpleer/.style={%
+                nodes={%
+                        draw,
+                        circle,
+                        fill=white,
+                        text=black,
+                        inner sep=1pt,
+                        minimum size=2em
+                    },
+                node distance=2.5cm
+            }
+    }
+
+    \newcommand{\neograph}[2][]{%
+        \tikz \graph[%
+            simpleer,
+            simple necklace layout,
+            edge quotes mid,
+            edges={%
+                    rounded corners,
+                    nodes={%
+                            font=\scriptsize,
+                            fill=white,
+                            #1,
+                            inner sep=1pt,
+                            align=center
+                        }
+                },
+            nodes={circle,draw}
+        ]{#2};
+    }
+\fi
+
+% Math Grid Environment
+\newcounter{neomathline}
+\newcounter{neomathcol}[neomathline]
+
+\newenvironment{mathgrid}[1]
+{%
+    \def\mcols{#1}%
+    \setcounter{neomathline}{0}%
+    \par\noindent%
+}
+{\bigskip}
+
+\newcommand{\neoline}{%
+    \ifnum\value{neomathcol}>0\\\fi%
+    \stepcounter{neomathline}%
+    \setcounter{neomathcol}{0}%
+}
+
+\newcommand{\neocol}[2][1]{%
+    \stepcounter{neomathcol}%
+    \ifnum\value{neomathcol}>1\quad\fi%
+    \begin{minipage}[t]{\dimexpr\linewidth * #1 / \mcols - 2\columnsep}
+        \setlength{\abovedisplayskip}{5pt}%
+        \setlength{\belowdisplayskip}{5pt}%
+        \begin{align*}
+            #2
+        \end{align*}
+    \end{minipage}%
+    \ignorespaces%
+}
+
+% Math color
+
+\newcommand*{\mc}[2][mathColor]{{\color{#1}#2}}
+
+%% ==============================================================================
+%% Admonition Boxes - Color Definitions
+%% ==============================================================================
+
+\ifneo@print
+    \colorlet{noteColor}{black}
+    \colorlet{infoColor}{black}
+    \colorlet{warningColor}{black}
+    \colorlet{importantColor}{black}
+    \colorlet{tipColor}{black}
+    \colorlet{reminderColor}{black}
+    \colorlet{summaryColor}{black}
+    \colorlet{toolboxColor}{black}
+\else
+    \ifneo@unicolormode
+        \colorlet{noteColor}{\neoschool@headcolor}
+        \colorlet{infoColor}{\neoschool@headcolor}
+        \colorlet{warningColor}{\neoschool@headcolor}
+        \colorlet{importantColor}{\neoschool@headcolor}
+        \colorlet{tipColor}{\neoschool@headcolor}
+        \colorlet{reminderColor}{\neoschool@headcolor}
+        \colorlet{summaryColor}{\neoschool@headcolor}
+        \colorlet{toolboxColor}{\neoschool@headcolor}
+    \else
+        \colorlet{tipColor}{methodColor}
+        \colorlet{toolboxColor}{methodColor}
+        \colorlet{infoColor}{comprehensionColor}
+        \colorlet{noteColor}{comprehensionColor}
+        \colorlet{summaryColor}{alternateColor}
+        \ifneo@darktheme
+            \definecolor{warningColor}{HTML}{FBBF24}
+            \definecolor{importantColor}{HTML}{FB7185}
+            \definecolor{reminderColor}{HTML}{60A5FA}
+        \else
+            \definecolor{warningColor}{HTML}{F59E0B}
+            \colorlet{importantColor}{theoremColor}
+            \colorlet{reminderColor}{definitionColor}
+        \fi
+    \fi
+\fi
+
+%% Multilingual Support
+\newcommand{\neo@admonition@note}{%
+    \ifneo@french
+        Note%
+    \else\ifneo@german
+            Notiz%
+        \else
+            Note%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@info}{%
+    \ifneo@french
+        Information%
+    \else\ifneo@german
+            Information%
+        \else
+            Information%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@warning}{%
+    \ifneo@french
+        Attention%
+    \else\ifneo@german
+            Achtung%
+        \else
+            Warning%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@important}{%
+    \ifneo@french
+        Important%
+    \else\ifneo@german
+            Wichtig%
+        \else
+            Important%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@tip}{%
+    \ifneo@french
+        Conseil%
+    \else\ifneo@german
+            Tipp%
+        \else
+            Tip%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@reminder}{%
+    \ifneo@french
+        À retenir%
+    \else\ifneo@german
+            Merken%
+        \else
+            Remember%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@summary}{%
+    \ifneo@french
+        Résumé%
+    \else\ifneo@german
+            Zusammenfassung%
+        \else
+            Summary%
+        \fi\fi
+}
+
+\newcommand{\neo@admonition@toolbox}{%
+    \ifneo@french
+        Boîte à outils%
+    \else\ifneo@german
+            Werkzeugkasten%
+        \else
+            Toolbox%
+        \fi\fi
+}
+
+%% Base Style Configuration
+
+\tcbset{
+    neoschool-admonition-layout/.style={
+        code={
+            \ifneoschool@inlineadmonition
+                \tcbset{
+                    after title={~\;},
+                }
+            \else
+                \tcbset{
+                    after title={\par\vspace{0.5em}},
+                }
+            \fi
+        }
+    }
+}
+
+\ifneo@darktheme
+    \newcommand{\neo@admonitionback}[1]{#1!15!darkthemegray}
+\else
+    \newcommand{\neo@admonitionback}[1]{#1!5}
+\fi
+
+\newtcolorbox{admonitionbase}[4][]{%
+    enhanced,
+    before skip={\ifneo@compact 3pt plus 1pt\else\baselineskip\fi},
+    after skip={\ifneo@compact 3pt plus 1pt\else\baselineskip\fi},
+    colback=\neo@admonitionback{#2},
+    colframe=#2,
+    colupper=\neoschool@globalcolor,
+    boxrule=1pt,
+    frame style={opacity=0.5},
+    \neo@framehidden,
+    arc=2pt,
+    left=20pt,
+    right=5pt,
+    top=3pt,
+    bottom=3pt,
+    breakable,
+    fonttitle=\sffamily\bfseries,
+    title={%
+        \hspace*{-5.35mm}%
+        \raisebox{-2pt}{\textcolor{#2}{\Large#3}}%
+        \hspace{5pt}%
+        \textcolor{#2}{\textbf{#4}}%
+    },
+    attach title to upper,
+    neoschool-admonition-layout,
+    #1
+}
+
+% Note Box
+\NewDocumentEnvironment{note}{O{\neo@admonition@note} O{\faEdit} +b}{%
+    \begin{admonitionbase}{noteColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Info Box
+\NewDocumentEnvironment{info}{O{\neo@admonition@info} O{\faInfoCircle} +b}{%
+    \begin{admonitionbase}{infoColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Warning Box
+\let\warning\relax
+\let\endwarning\relax
+\NewDocumentEnvironment{warning}{O{\neo@admonition@warning} O{\faExclamationTriangle} +b}{%
+        \begin{admonitionbase}{warningColor}{#2}{#1}%
+            #3%
+        \end{admonitionbase}%
+}{}
+
+% Important Box
+\NewDocumentEnvironment{important}{O{\neo@admonition@important} O{\faExclamationCircle} +b}{%
+    \begin{admonitionbase}{importantColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Tip Box
+\NewDocumentEnvironment{tip}{O{\neo@admonition@tip} O{\faLightbulb} +b}{%
+    \begin{admonitionbase}{tipColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Reminder Box
+\NewDocumentEnvironment{reminder}{O{\neo@admonition@reminder} O{\faBookmark} +b}{%
+    \begin{admonitionbase}{reminderColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Summary Box
+\NewDocumentEnvironment{summary}{O{\neo@admonition@summary} O{\faClipboardList} +b}{%
+    \begin{admonitionbase}{summaryColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+% Toolbox Box
+\NewDocumentEnvironment{toolbox}{O{\neo@admonition@toolbox} O{\faTools} +b}{%
+    \begin{admonitionbase}{toolboxColor}{#2}{#1}%
+        #3%
+    \end{admonitionbase}%
+}{}
+
+%% ==============================================================================
+%% Compact Mode
+%% ==============================================================================
+
+\ifneo@compact
+
+\singlespacing
+
+\ifneo@hasmarginoption
+    \relax
+\else
+    \AtEndPreamble{%
+        \ifdim\paperwidth>\paperheight
+            % Landscape
+            \KOMAoptions{DIV=15}
+            \areaset{28cm}{21cm}
+        \else
+            % Portrait
+            \KOMAoptions{DIV=15}
+            \areaset{19.5cm}{29.5cm}
+        \fi
+        \setlength{\headheight}{18pt}
+        \setlength{\footskip}{18pt}
+    }
+\fi
+
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0pt plus 0.1pt}
+
+\RequirePackage{enumitem}
+\setlist{nosep}
+
+\AtBeginDocument{
+	\setlength{\abovedisplayskip}{3pt plus 1pt minus 1pt}
+	\setlength{\belowdisplayskip}{\abovedisplayskip}
+	\setlength{\abovedisplayshortskip}{0pt plus 1pt}
+	\setlength{\belowdisplayshortskip}{2pt plus 1pt minus 1pt}
+}
+
+\setlength{\floatsep}{3pt plus 1pt minus 1pt}
+\setlength{\textfloatsep}{5pt plus 1pt minus 1pt}
+\setlength{\intextsep}{3pt plus 1pt minus 1pt}
+
+\RedeclareSectionCommand[beforeskip=-0.4ex plus -0.1ex, afterskip=0.5ex plus 0.1ex]{section}
+\RedeclareSectionCommand[beforeskip=0.8ex plus 0.1ex, afterskip=0.4ex plus 0.1ex]{subsection}
+\RedeclareSectionCommand[beforeskip=0.8ex plus 0.1ex, afterskip=0.4ex plus 0.1ex]{subsubsection}
+
+\neo@compacttoctrue
+\neo@twocolumntoctrue
+
+\renewcommand{\arraystretch}{1.0}
+
+\addtokomafont{subject}{\normalsize}
+\addtokomafont{author}{\normalsize}
+
+\def\neo@compact@skipamount{3pt plus 1pt minus 1pt}
+
+\tcbset{
+	common@base/.style={
+		enhanced, breakable, separator sign={},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		colupper=\neo@tcbcolupper, colframe=\neoschool@headcolor,
+		colbacklower=\neo@tcbcolbacklower,
+		top=2pt, bottom=2pt, left=4pt, right=4pt, boxsep=1pt,
+	},
+	neo@commonbox/.style={
+		enhanced, breakable, boxrule=\neo@thmborder,
+		top=2pt, bottom=2pt, left=1.5mm, right=1.5mm, boxsep=1pt,
+		fonttitle=\small\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname,
+		coltitle=\neo@tcbcolback,
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+	}
+}
+
+\renewenvironment{proof}[1][\neo@proofname]{%
+	\par\noindent{\itshape #1.}\enskip%
+	}{%
+	\unskip\nobreak\hfill\makebox[0pt][l]{\hspace{0.5em}$\square$}\par%
+}
+
+\RenewDocumentCommand{\newamstheorem}{O{}mmmmmmO{}}{%
+	\mynewtcbtheorem[#1]{#2}{#3}{
+		enhanced, breakable, frame hidden, opacityback=0, coltitle={#4},
+		left=0pt, right=0pt, top=0pt, bottom=0pt, boxsep=0pt,
+		detach title, separator sign={}, before upper={\tcbtitle\enskip},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		fontupper={#7}, fonttitle={\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname},
+		before lower={#6}, #8
+		}{#5}
+}
+\RenewDocumentCommand{\newamsremarktheorem}{O{}mmmmmmO{}}{%
+	\mynewtcbtheorem[#1]{#2}{#3}{
+		enhanced, breakable, frame hidden, opacityback=0, colupper=\neoschool@globalcolor,
+		coltitle={#4}, left=0pt, right=0pt, top=0pt, bottom=0pt, boxsep=0pt,
+		detach title, before upper={{\color{remarkColor}\csname\neoschool@headweight\endcsname\itshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headshape\endcsname #3\enskip\textemdash}\enskip},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		fontupper={#7}, #8
+		}{#5}
+}
+\RenewDocumentCommand{\newamsremarkstheorem}{O{}mmmmmmO{}}{%
+	\mynewtcbtheorem[#1]{#2}{#3}{
+		enhanced, breakable, frame hidden, opacityback=0, colupper=\neoschool@globalcolor,
+		coltitle={#4}, left=0pt, right=0pt, top=0pt, bottom=0pt, boxsep=0pt,
+		detach title, before upper={{\color{remarkColor}\csname\neoschool@headweight\endcsname\itshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headshape\endcsname #3}\enskip},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		fontupper={#7}, #8
+		}{#5}
+}
+\RenewDocumentCommand{\newamsexampletheorem}{O{}mmmmmmO{}}{%
+	\mynewtcbtheorem[#1]{#2}{#3}{
+		enhanced, breakable, frame hidden, opacityback=0, colupper=\neoschool@globalcolor,
+		coltitle={#4}, left=0pt, right=0pt, top=0pt, bottom=0pt, boxsep=0pt,
+		detach title, separator sign={}, before upper={\tcbtitle\enskip},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		fontupper={#7}, fonttitle={\normalshape\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname},
+		before lower={#6}, #8
+		}{#5}
+}
+\RenewDocumentCommand{\newamsexamplestheorem}{O{}mmmmmmO{}}{%
+	\mynewtcbtheorem[#1]{#2}{#3}{
+		enhanced, breakable, frame hidden, opacityback=0, colupper=\neoschool@globalcolor,
+		coltitle={#4}, left=0pt, right=0pt, top=0pt, bottom=0pt, boxsep=0pt,
+		detach title, before upper={{\color{exampleColor}\csname\neoschool@headstyle\endcsname\csname\neoschool@headweight\endcsname\csname\neoschool@headshape\endcsname #3}\enskip},
+		before skip=\neo@compact@skipamount, after skip=\neo@compact@skipamount,
+		fontupper={#7}, #8
+		}{#5}
+}
+
+\setlength{\titlespacing}{0.6\baselineskip}
+\renewcommand{\createfulltitle}{%
+	\ifx\@subject\@empty\else{\usekomafont{subject}{\@subject\par}}\vspace{0.3\titlespacing}\fi
+	{\noindent\usekomafont{title}{\@title\par}}
+	\ifx\@subtitle\empty\else\vspace{0.3\titlespacing}{\noindent\usekomafont{subtitle}{\@subtitle\par}}\fi
+	\ifx\@author\@empty\else\vspace{0.6\titlespacing}{\noindent\usekomafont{author}{\@author\par}}\fi
+	\neo@titledecoration
+	\if@twocolumn\vspace{0.7\titlespacing}\else\vspace{0.3\titlespacing}\fi}
+\renewcommand{\neo@titledecoration}{%
+	\ifneo@titlerule\vspace{0.6\titlespacing}{\color{\neoschool@titlecolor}\rule{4em}{0.4pt}}
+	\else\ifneo@titlemidrule\vspace{0.6\titlespacing}{\color{\neoschool@titlecolor}\rule{0.4\linewidth}{0.4pt}}
+	\else\ifneo@titlefullrule\vspace{0.6\titlespacing}{\color{\neoschool@titlecolor}\rule{\linewidth}{0.4pt}}\vspace{-0.3\titlespacing}
+	\else\ifneo@titleornament\vspace{0.6\titlespacing}{\color{\neoschool@titlecolor}\scalebox{1.5}[1.2]{\adforn{21}\,\adforn{11}\,\adforn{49}}}\fi\fi\fi\fi
+	\vspace*{0.05\baselineskip}}
+\renewenvironment{abstract}{%
+	\if@twocolumn\strip\fi\small
+	\list{}{\labelwidth\z@ \leftmargin 2em \rightmargin\leftmargin \listparindent\parindent \itemindent\z@ \parsep\z@}%
+	\item\relax
+	\ifx\neoschool@abstracttitle\@empty\else\textbf{\csname\neoschool@abstracttitle\endcsname.}\hspace{0.5em}\fi
+	\ignorespaces
+	}{\endlist\if@twocolumn\endstrip\fi}
+
+\fi
+
+%% ==============================================================================
+%% End of Class
+%% ==============================================================================
