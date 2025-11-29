@@ -1,0 +1,658 @@
+%%% ----------------------------------------------------------------------------
+%%% joinbox: Join figures to same height or width with LaTeX3
+%%% Author    : Nan Geng <nangeng@nwafu.edu.cn>
+%%% Repository: https://gitee.com/nwafu_nan/joinfigs
+%%% License   : The LaTeX Project Public License 1.3c
+%%% ----------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}
+\RequirePackage{expl3}
+\ProvidesExplPackage{joinbox}{2024-09-09}{v1.0.3}
+  {Join figures to same height or width with LaTeX3}
+
+\RequirePackage{xparse}
+\RequirePackage{graphicx}
+
+%% \tl_if_eq:NnTF 与texlive 2020的兼容性设置
+\cs_if_exist:NF \tl_if_eq:NnTF
+  {
+    \tl_new:N \l__tblr_backport_b_tl
+    \prg_new_protected_conditional:Npnn \tl_if_eq:Nn #1 #2 { T, F, TF }
+      {
+        \group_begin:
+          \tl_set:Nn \l__tblr_backport_b_tl {#2}
+          \exp_after:wN
+        \group_end:
+        \if_meaning:w #1 \l__tblr_backport_b_tl
+          \prg_return_true:
+        \else:
+          \prg_return_false:
+        \fi:
+      }
+    \prg_generate_conditional_variant:Nnn \tl_if_eq:Nn { c } { TF, T, F }
+  }
+
+\cs_if_exist:NF \seq_map_indexed_function:NN
+  {
+    \cs_set_eq:NN \seq_map_indexed_function:NN \seq_indexed_map_function:NN
+  }
+
+\cs_new:Npn \__joinbox_error:n { \msg_error:nn { joinbox } }
+
+% 函数变体
+\cs_generate_variant:Nn \hcoffin_set:Nn { Nx }
+
+% 定义变量
+\bool_new:N   \l__joinbox_vertical_bool
+\bool_new:N   \l__joinbox_out_scale_bool
+\bool_new:N   \l__joinbox_only_first_bool
+\bool_new:N   \l__joinbox_only_second_bool
+
+\int_new:N    \l__joinbox_baseline_int
+
+\clist_new:N  \l__joinbox_name_clist
+\clist_new:N  \l__joinbox_contents_clist
+
+\coffin_new:N \l__joinbox_out_coffin
+\coffin_new:N \l__joinbox_tmpa_coffin
+\coffin_new:N \l__joinbox_tmpb_coffin
+
+\dim_new:N \l__joinbox_out_length_dim
+\dim_new:N \l__joinbox_sep_dim
+\dim_new:N \l__joinbox_min_width_dim
+\dim_new:N \l__joinbox_min_height_dim
+
+\dim_new:N \l__joinbox_tmpa_dim
+\dim_new:N \l__joinbox_tmpb_dim
+
+\bool_set_false:N \l__joinbox_only_first_bool
+\bool_set_false:N \l__joinbox_only_second_bool
+
+%% 选项设计
+\keys_define:nn { joinbox }
+  {
+    % 输出结果基线位置
+    baseline .choice:,
+    baseline .value_required:n = true,
+    baseline .choices:nn = { t, vc, H, b }
+                           {
+                             \int_set_eq:NN \l__joinbox_baseline_int
+                                            \l_keys_choice_int
+                           },
+    baseline .default:n = vc,
+    baseline .initial:n = b,
+
+    % 输出尺寸(垂直拼接：宽度，水平拼接：高度)
+    outlen   .code:n = { \dim_compare:nNnTF { \dim_eval:n{ #1 } } < \c_zero_dim
+                           {
+                             \bool_set_false:N \l__joinbox_out_scale_bool
+                           }{
+                             \dim_compare:nNnTF { \dim_eval:n{ #1 } } = \c_zero_dim
+                               {
+                                 \bool_set_false:N \l__joinbox_out_scale_bool
+                               }{
+                                 \bool_set_true:N \l__joinbox_out_scale_bool
+                                 \dim_set:Nn \l__joinbox_out_length_dim
+                                     { \dim_eval:n{ #1 } }
+                               }
+                           }
+                       },
+    outlen   .default:n = 0pt,
+    outlen   .initial:n = 0pt,
+
+    % 拼接间距
+    sep      .dim_set:N  = \l__joinbox_sep_dim,
+    sep      .default:n = 0pt,
+    sep      .initial:n = 0pt,
+
+    unknown .code:n = \__joinbox_unknown_key:V \l_keys_key_str,
+  }
+
+\cs_new_protected:Npn \__joinbox_unknown_key:n #1
+  {
+    \str_case:nnF { #1 }
+      {
+          { t  } { \int_set:Nn \l__joinbox_baseline_int { 1 } }
+          { vc } { \int_set:Nn \l__joinbox_baseline_int { 2 } }
+          { H  } { \int_set:Nn \l__joinbox_baseline_int { 3 } }
+          { b  } { \int_set:Nn \l__joinbox_baseline_int { 4 } }
+      }{
+        % 转换为token
+        \tl_set_rescan:Nnn \l_tmpa_tl {} {#1}
+        % 计算尺寸
+        \dim_set:Nn \l_tmpa_dim { \dim_eval:n { \l_tmpa_tl } }
+        \dim_compare:nNnTF \l_tmpa_dim < \c_zero_dim
+          {
+            \bool_set_false:N \l__joinbox_out_scale_bool
+          }{
+            \dim_compare:nNnTF \l_tmpa_dim = \c_zero_dim
+              {
+                \bool_set_false:N \l__joinbox_out_scale_bool
+              }{
+                \bool_set_true:N \l__joinbox_out_scale_bool
+                \dim_set_eq:NN \l__joinbox_out_length_dim \l_tmpa_dim
+              }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__joinbox_unknown_key:n { V }
+
+%% 参数设置用户接口
+\NewDocumentCommand \joinset { m }
+  { \keys_set:nn { joinbox } {#1} }
+
+% 计算box盒子的总高度
+% #1---盒子变量
+\cs_if_free:NT \box_ht_plus_dp:N
+  {
+    \cs_new_protected:Npn \box_ht_plus_dp:N #1
+      { \tex_dimexpr:D \box_ht:N #1 + \box_dp:N #1 \scan_stop: }
+  }
+
+% 计算coffin盒子的总高度
+% #1---盒子变量
+\cs_new_nopar:Npn \__joinbox_coffin_ht_plus_dp:N #1
+  {
+    \coffin_ht:N #1 + \coffin_dp:N #1
+  }
+
+% 计算两个盒子的最小宽度和最小高度
+% (最小宽度和最小宽度不一定属于同一个盒子)
+\cs_new:Npn \__joinbox_calc_min_size:nn #1#2
+  {
+    % 最小值清0
+    \dim_zero:N \l__joinbox_min_width_dim
+    \dim_zero:N \l__joinbox_min_height_dim
+
+    % 取得第1个盒子的宽度和高度
+    \hbox_set:Nn \l_tmpa_box
+      {
+        #1
+      }
+
+    \dim_set:Nn \l_tmpa_dim
+      {
+        \box_wd:N \l_tmpa_box
+      }
+    \dim_set_eq:NN \l__joinbox_min_width_dim \l_tmpa_dim
+
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \box_ht_plus_dp:N \l_tmpa_box
+      }
+    \dim_set_eq:NN \l__joinbox_min_height_dim \l_tmpb_dim
+
+    % 取得第2个盒子的宽度和高度，并与第1个盒子比较
+    \hbox_set:Nn \l_tmpa_box
+      {
+        #2
+      }
+
+    \dim_set:Nn \l_tmpa_dim
+      {
+        \box_wd:N \l_tmpa_box
+      }
+
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \box_ht_plus_dp:N \l_tmpa_box
+      }
+
+    \bool_if:NT \l__joinbox_only_second_bool
+      {
+        \dim_set_eq:NN \l__joinbox_min_width_dim \l_tmpa_dim
+        \dim_set_eq:NN \l__joinbox_min_height_dim \l_tmpb_dim
+      }
+
+    \bool_if:nT { !(\l__joinbox_only_first_bool) &&
+                  !(\l__joinbox_only_second_bool) }
+      {
+        % 比较并记录最小宽度
+        \dim_set:Nn \l__joinbox_min_width_dim
+          { \dim_min:nn { \l__joinbox_min_width_dim }{ \l_tmpa_dim } }
+
+        % 比较并记录最小总高度(高度+深度)
+        \dim_set:Nn \l__joinbox_min_height_dim
+          { \dim_min:nn { \l__joinbox_min_height_dim }{ \l_tmpb_dim } }
+      }
+  }
+
+% 输出盒子
+\cs_new:Npn \__joinbox_typeout_coffin:N #1
+  {
+    % 输出拼接后的盒子
+    \int_case:nn { \l__joinbox_baseline_int }
+       {
+         { 1 }{%
+           \coffin_typeset:Nnnnn #1
+             { l } { t } { 0pt } { 0pt }
+         }
+         { 2 }{%
+           \coffin_typeset:Nnnnn #1
+             { l } { vc } { 0pt } { 0pt }
+         }
+         { 3 }{%
+           \coffin_typeset:Nnnnn #1
+             { l } { H } { 0pt } { 0pt }
+         }
+         { 4 }{%
+           \coffin_typeset:Nnnnn #1
+             { l } { b } { 0pt } { 0pt }
+         }
+       }
+  }
+
+% 两个盒子拼接内部函数
+% 将指定文件名列表中的图像拼接成一个盒子
+% #1---第1个盒子的内容
+% #2---第2个盒子的内容
+\cs_new:Npn \__joinbox_handle:nn #1#2
+  {
+    \group_begin:
+
+      % 设置第1个盒子
+      \coffin_clear:N \l__joinbox_out_coffin
+      \hcoffin_set:Nn \l__joinbox_out_coffin
+        {
+          #1
+        }
+
+      % 设置第2个盒子
+      \coffin_clear:N \l__joinbox_tmpa_coffin
+      \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+        {
+          #2
+        }
+
+      \bool_if:NTF \l__joinbox_vertical_bool
+        {
+          % 按最小宽度缩放第1个盒子
+          \bool_if:NF \l__joinbox_only_second_bool
+            {
+              \coffin_scale:Nnn \l__joinbox_out_coffin
+                {
+                  \dim_ratio:nn { \l__joinbox_min_width_dim }
+                      { \coffin_wd:N \l__joinbox_out_coffin }
+                }
+                {
+                  \dim_ratio:nn { \l__joinbox_min_width_dim }
+                      { \coffin_wd:N \l__joinbox_out_coffin }
+                }
+            }
+
+          % 按最小宽度缩放第2个盒子
+          \bool_if:NF \l__joinbox_only_first_bool
+            {
+              \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+                {
+                  \dim_ratio:nn { \l__joinbox_min_width_dim }
+                      { \coffin_wd:N \l__joinbox_tmpa_coffin }
+                }
+                {
+                  \dim_ratio:nn { \l__joinbox_min_width_dim }
+                      { \coffin_wd:N \l__joinbox_tmpa_coffin }
+                }
+            }
+
+            \bool_if:NT \l__joinbox_only_second_bool
+            {
+              \coffin_set_eq:NN \l__joinbox_out_coffin \l__joinbox_tmpa_coffin
+            }
+
+          \bool_if:nT { !(\l__joinbox_only_first_bool) &&
+                        !(\l__joinbox_only_second_bool) }
+            {
+              % 将第2个盒子拼接到第一个盒子
+              \coffin_join:NnnNnnnn \l__joinbox_out_coffin
+                { hc } { b } \l__joinbox_tmpa_coffin { hc } { t }
+                { 0pt } { -\l__joinbox_sep_dim }
+            }
+
+          % 按指定输出宽度缩放输出盒子
+          \bool_if:NT \l__joinbox_out_scale_bool
+          {
+            \coffin_scale:Nnn \l__joinbox_out_coffin
+              {
+                \dim_ratio:nn { \l__joinbox_out_length_dim }
+                    { \l__joinbox_min_width_dim }
+              }
+              {
+                \dim_ratio:nn { \l__joinbox_out_length_dim }
+                    { \l__joinbox_min_width_dim }
+              }
+          }
+
+          \hcoffin_set:Nn \l__joinbox_out_coffin
+            {
+              \coffin_typeset:Nnnnn \l__joinbox_out_coffin
+                { l }{ b }{ 0pt }{ 0pt }
+            }\hcoffin_set_end:
+
+          % 输出拼接后的盒子
+          \__joinbox_typeout_coffin:N \l__joinbox_out_coffin
+        }{
+          % 按最小高度缩放第1个盒子
+          \coffin_scale:Nnn \l__joinbox_out_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_min_height_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_out_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_min_height_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_out_coffin }
+            }
+
+          % 处理第2个盒子
+          \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+            {
+              #2
+            }
+
+          % 按最小高度缩放第2个盒子
+          \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_min_height_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_min_height_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+
+          % 将第2个盒子拼接到第1个盒子
+          \coffin_join:NnnNnnnn \l__joinbox_out_coffin
+            { vc } { r } \l__joinbox_tmpa_coffin { vc } { l }
+            { \l__joinbox_sep_dim } { 0pt }
+
+          % 按指定输出高度缩放输出盒子
+          \bool_if:NT \l__joinbox_out_scale_bool
+          {
+            \coffin_scale:Nnn \l__joinbox_out_coffin
+              {
+                \dim_ratio:nn { \l__joinbox_out_length_dim }
+                    { \l__joinbox_min_height_dim }
+              }
+              {
+                \dim_ratio:nn { \l__joinbox_out_length_dim }
+                    { \l__joinbox_min_height_dim }
+              }
+          }
+
+          \hcoffin_set:Nn \l__joinbox_out_coffin
+            {
+              \coffin_typeset:Nnnnn \l__joinbox_out_coffin
+                { l }{ b }{ 0pt }{ 0pt }
+            }\hcoffin_set_end:
+
+          % 输出拼接后的盒子
+          \__joinbox_typeout_coffin:N \l__joinbox_out_coffin
+        }
+    \group_end:
+  }
+
+% 多个盒子拼接内部函数
+\cs_new:Npn \__joinbox_boxes:
+  {
+    % 设置第1个盒子内容
+    \clist_pop:NN \l__joinbox_contents_clist \l_tmpa_tl
+    \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+      {
+        \l_tmpa_tl
+      }
+
+    % 循环处理其它盒子内容
+    \clist_map_inline:Nn \l__joinbox_contents_clist
+      {
+        \hcoffin_set:Nn \l__joinbox_tmpb_coffin
+          {
+            ##1
+          }
+
+        \__joinbox_calc_min_size:nn
+          {
+            \__joinbox_typeout_coffin:N \l__joinbox_tmpa_coffin
+          }
+          {
+            \__joinbox_typeout_coffin:N \l__joinbox_tmpb_coffin
+          }
+
+        \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+          {
+            \__joinbox_handle:nn
+              {
+                \coffin_typeset:Nnnnn \l__joinbox_tmpa_coffin
+                  { l } { b } { 0pt } { 0pt }
+              }
+              {
+                \coffin_typeset:Nnnnn \l__joinbox_tmpb_coffin
+                  { l } { b } { 0pt } { 0pt }
+              }
+          }
+      }
+
+    % 按指定输出高度缩放输出盒子
+    \bool_if:nT { \l__joinbox_out_scale_bool && \l__joinbox_only_first_bool }
+    {
+      \bool_if:NTF \l__joinbox_vertical_bool
+        {
+          \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \coffin_wd:N \l__joinbox_tmpa_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \coffin_wd:N \l__joinbox_tmpa_coffin }
+            }
+        }
+        {
+          \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+        }
+    }
+
+    \__joinbox_typeout_coffin:N \l__joinbox_tmpa_coffin
+  }
+
+\cs_new:Npn \__joinbox_figs:
+  {
+    % 设置第1个图像
+    \clist_pop:NN \l__joinbox_name_clist \l_tmpa_tl
+    \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+      {
+        \includegraphics{ \l_tmpa_tl }
+      }
+
+    % 循环处理其它图像
+    \clist_map_inline:Nn \l__joinbox_name_clist
+      {
+        \hcoffin_set:Nn \l__joinbox_tmpb_coffin
+          {
+            \includegraphics{ ##1 }
+          }
+
+        \__joinbox_calc_min_size:nn
+          {
+            \__joinbox_typeout_coffin:N \l__joinbox_tmpa_coffin
+          }
+          {
+            \__joinbox_typeout_coffin:N \l__joinbox_tmpb_coffin
+          }
+
+        \hcoffin_set:Nn \l__joinbox_tmpa_coffin
+          {
+            \__joinbox_handle:nn
+              {
+                \coffin_typeset:Nnnnn \l__joinbox_tmpa_coffin
+                  { l } { b } { 0pt } { 0pt }
+              }
+              {
+                \coffin_typeset:Nnnnn \l__joinbox_tmpb_coffin
+                  { l } { b } { 0pt } { 0pt }
+              }
+          }
+      }
+
+    % 按指定输出高度缩放输出盒子
+    \bool_if:nT { \l__joinbox_out_scale_bool && \l__joinbox_only_first_bool }
+    {
+      \bool_if:NTF \l__joinbox_vertical_bool
+        {
+          \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \coffin_wd:N \l__joinbox_tmpa_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \coffin_wd:N \l__joinbox_tmpa_coffin }
+            }
+        }
+        {
+          \coffin_scale:Nnn \l__joinbox_tmpa_coffin
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+            {
+              \dim_ratio:nn { \l__joinbox_out_length_dim }
+                  { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmpa_coffin }
+            }
+        }
+    }
+
+    \__joinbox_typeout_coffin:N \l__joinbox_tmpa_coffin
+  }
+
+% 盒子拼接用户接口
+% 将两个盒子按指定方式拼接成一个盒子并将基线调整为中心线后输出
+% #1---是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2---可选参数，用key-value选项指定拼接参数
+% #3---第1个盒子的内容
+% #4---第2个盒子的内容
+\NewDocumentCommand{\joinbox}{ s O{} +m +m}
+  {
+    \IfBooleanTF{#1}
+      {
+        \bool_set_false:N \l__joinbox_vertical_bool
+      }{
+        \bool_set_true:N \l__joinbox_vertical_bool
+      }
+
+
+    \group_begin:
+      % 设置拼接参数
+      \keys_set:nn { joinbox } { #2 }
+
+      % 判断第1个拼接对象是否为空
+      \tl_set:Nn \l_tmpa_tl { #3 }
+      \tl_if_empty:VT \l_tmpa_tl
+        {
+          \bool_set_true:N \l__joinbox_only_second_bool
+        }
+      % 判断第2个拼接对象是否为空
+      \tl_set:Nn \l_tmpa_tl { #4 }
+      \tl_if_empty:VT \l_tmpa_tl
+        {
+          \bool_set_true:N \l__joinbox_only_first_bool
+        }
+      % 两个拼接对象同时为空，无需拼接
+      \bool_if:nT { \l__joinbox_only_first_bool && \l__joinbox_only_second_bool }
+        {
+          \__joinbox_error:n { empty-objs }
+        }
+      % 计算最小宽度和高度
+      \__joinbox_calc_min_size:nn { #3 } { #4 }
+      % 拼接输出
+      \__joinbox_handle:nn { #3 }{ #4 }
+    \group_end:
+  }
+
+% 两个以上盒子拼接用户接口
+% 将逗号分隔的内容构成的各个盒子拼接成一个盒子
+% #1---是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2---可选参数，用key-value选项指定拼接参数
+% #3---必选参数，用逗号分隔的，需要拼接内容（各个内容应该置于大括号内）
+\NewDocumentCommand{\joinboxes}{ s O{} +m}
+  {
+    \IfBooleanTF{#1}
+      {
+        \bool_set_false:N \l__joinbox_vertical_bool
+      }{
+        \bool_set_true:N \l__joinbox_vertical_bool
+      }
+
+    \group_begin:
+      % 设置拼接参数
+      \keys_set:nn { joinbox } { #2 }
+      % 设置内容列表
+      \clist_set:Nn \l__joinbox_contents_clist { #3 }
+      % 判断是否为空
+      \clist_if_empty:NT \l__joinbox_contents_clist
+        {
+          \__joinbox_error:n { empty-contents }
+        }
+      % 判断是否只有1个图像名称
+      \int_compare:nNnT { \clist_count:N \l__joinbox_contents_clist } = { 1 }
+        {
+          \bool_set_true:N \l__joinbox_only_first_bool
+        }
+      % 拼接盒子
+      \__joinbox_boxes:
+    \group_end:
+  }
+
+% 空图像文件名列表出错信息
+\msg_new:nnn { joinbox } { empty-contents }
+  { The~contents~list~is~empty. }
+
+% 被拼接对象同时为空，无需拼接
+\msg_new:nnn { joinbox } { empty-objs }
+  { The~two~objects~which~were~joined~are~empty. }
+
+% 图像拼接用户接口
+% 将指定文件名列表中的图像拼接成一个盒子
+% #1---是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2---可选参数，用key-value选项指定拼接参数
+% #3---必选参数，用逗号分隔的，需要拼接的图像文件名称（可以带有路径）
+\NewDocumentCommand{\joinfigs}{ s O{} m}
+  {
+    \IfBooleanTF{#1}
+      {
+        \bool_set_false:N \l__joinbox_vertical_bool
+      }{
+        \bool_set_true:N \l__joinbox_vertical_bool
+      }
+
+    \group_begin:
+      % 设置拼接参数
+      \keys_set:nn { joinbox } { #2 }
+      % 设置文件名列表
+      \clist_set:Nn \l__joinbox_name_clist { #3 }
+      % 判断是否为空
+      \clist_if_empty:NT \l__joinbox_name_clist
+        {
+          \__joinbox_error:n { empty-fignames }
+        }
+      % 判断是否只有1个图像名称
+      \int_compare:nNnT { \clist_count:N \l__joinbox_name_clist } = { 1 }
+        {
+          \bool_set_true:N \l__joinbox_only_first_bool
+        }
+      % 拼接图像
+      \__joinbox_figs:
+    \group_end:
+  }
+
+% 空图像文件名列表出错信息
+\msg_new:nnn { joinbox } { empty-fignames }
+  { The~figure~namelist~is~empty. }
+
+\endinput

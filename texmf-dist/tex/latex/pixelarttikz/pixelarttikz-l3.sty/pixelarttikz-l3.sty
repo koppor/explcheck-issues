@@ -1,0 +1,459 @@
+% Author.........: C. Pierquet
+% licence........: Released under the LaTeX Project Public License v1.3c or later, see http://www.latex-project.org/lppl.txt
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage{pixelarttikz-l3}{2025-10-20}{0.1.9}{PixelArts with LaTeX3 and TikZ}
+% 0.1.9  l3 version (simple usage)
+
+%------Package(s)
+\RequirePackage{l3keys2e}
+\RequirePackage{tikz}
+
+%-----Option(s)
+\bool_new:N \g_pixelarttikz_legacy_bool
+\keys_define:nn { pixelarttikz }
+  {
+    legacy .bool_set:N = \g_pixelarttikz_legacy_bool,
+    legacy .default:n   = true,
+    legacy .initial:n   = false
+  }
+
+% Traiter les options du package
+\ProcessKeysOptions { pixelarttikz }
+
+% Charger le package si nécessaire
+\bool_if:NT \g_pixelarttikz_legacy_bool
+  {
+    \RequirePackage{PixelArtTikz}
+  }
+
+%------Styles
+\tikzset{pixlartcut/.style={very~thick,purple}}
+\tikzset{pixlartborder/.style={ultra~thin}}
+
+% variables
+\prop_new:N  \g_pixelart_color_prop
+\int_new:N   \l_pixelart_row_int
+\int_new:N   \l_pixelart_col_int
+\ior_new:N   \g_pixelart_file_ior
+\tl_new:N    \l_pixelart_line_tl
+\tl_new:N    \g_pixlarttikz_unit_tl
+\tl_new:N    \g_pixlarttikz_font_tl
+\int_new:N   \g_pixelart_nblig_int
+\int_new:N   \g_pixelart_nbcol_int
+\tl_new:N    \g_pixlarttikz_decoup_tl
+\bool_new:N  \g_pixlarttikz_borders_bool
+\bool_new:N  \g_pixlarttikz_correction_bool
+\bool_new:N  \g_pixlarttikz_symbols_bool
+\bool_new:N  \g_pixlarttikz_codes_bool
+\fp_new:N    \g_pixlarttikz_font_scale
+\clist_new:N \g_pixelart_clist_prop
+
+\keys_define:nn { pixlarttikz }
+{
+  unit        .tl_set:N   = \g_pixlarttikz_unit_tl,
+  unit        .initial:n  = {1.0},
+  borders     .bool_set:N = \g_pixlarttikz_borders_bool,
+  borders     .initial:n  = {true},
+  correction  .bool_set:N = \g_pixlarttikz_correction_bool,
+  correction  .initial:n  = {false},
+  symbols     .bool_set:N = \g_pixlarttikz_symbols_bool,
+  symbols     .initial:n  = {false},
+  codes       .bool_set:N = \g_pixlarttikz_codes_bool,
+  codes       .initial:n  = {true},
+  font        .tl_set:N   = \g_pixlarttikz_font_tl,
+  font        .initial:n  = {\sffamily},
+  cut         .tl_set:N   = \g_pixlarttikz_decoup_tl,
+  cut         .initial:n  = {},
+  text~size   .fp_set:N   = \g_pixlarttikz_font_scale,
+  text~size   .initial:n  = 0.55,
+}
+
+% element (list) manipulating
+\NewDocumentCommand\displistsymbolspixlarttikz{ m }{%
+  \pixelart_traite_liste:n { #1 }
+}
+
+\cs_new_protected:Npn \pixelart_traite_liste:n #1
+  {
+
+    \str_if_in:nnTF { #1 } { § }
+      {
+        % cut list with §
+        \seq_set_split:Nne \l_tmpa_seq { § } { #1 }
+        % randint
+        \int_set:Nn \l_tmpa_int { \seq_count:N \l_tmpa_seq }
+        \int_set:Nn \l_tmpb_int { \int_rand:nn { 1 } { \l_tmpa_int } }
+        % get random element
+        \seq_item:Nn \l_tmpa_seq { \l_tmpb_int }
+      }
+      {
+        % no §, raw argument
+        #1
+      }
+  }
+
+% exanding variant
+\cs_generate_variant:Nn \pixelart_traite_liste:n { V }
+
+% main macro
+\NewDocumentCommand{\pixlarttikz}{ O{} D<>{} m m }
+{
+  % 1 = keys
+  % 2 = tikzpicture options
+  % 3 = map codes/colors/symbols
+  % 4 = file
+  % keys
+  \group_begin:
+  \keys_set:nn { pixlarttikz } { unit = 1 , codes = true , borders = true , correction = false , symbols = false , font = \sffamily , cut = {} }
+  \keys_set:nn { pixlarttikz } { #1 }
+  % booleans gestion
+  \bool_if:NT \g_pixlarttikz_correction_bool { \keys_set:nn { pixlarttikz } { codes = false } }
+  \bool_if:NT \g_pixlarttikz_symbols_bool    { \keys_set:nn { pixlarttikz } { codes = false } }
+  % init prop
+  \prop_clear:N \g_pixelart_color_prop
+  % parser letter = color
+  \clist_set:Ne \g_pixelart_clist_prop { #3 }
+  \clist_map_inline:Nn { \g_pixelart_clist_prop }
+  {
+    \__pixelart_parse_assignment:n { ##1 }
+  }
+  % draw pixlart
+  \__pixelart_draw:nn { #4 } { #2 }
+  \group_end:
+}
+
+% internal parser letter = color
+\cs_new_protected:Nn \__pixelart_parse_assignment:n
+{
+  \seq_set_split:Nnn \l_tmpa_seq { = } { #1 }
+  \tl_set:Ne \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+  \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \l_tmpa_seq { 2 } }
+  \tl_trim_spaces:N \l_tmpa_tl
+  \tl_trim_spaces:N \l_tmpb_tl
+  \prop_gput:NVV \g_pixelart_color_prop \l_tmpa_tl \l_tmpb_tl
+}
+
+% generate necessary variants
+\cs_generate_variant:Nn \prop_gput:Nnn { NVV }
+\cs_generate_variant:Nn \prop_get:NnN { NV }
+
+% cutting function
+\cs_new_protected:Nn \__pixelart_draw_decoup:
+{
+  \tl_if_empty:NF \g_pixlarttikz_decoup_tl
+  {
+    \tl_if_in:NnTF \g_pixlarttikz_decoup_tl { x }
+    {
+      % Format: numrowblock x numcolblock
+      \seq_set_split:NnV \l_tmpa_seq { x } \g_pixlarttikz_decoup_tl
+      \int_set:Nn \l_tmpa_int { \seq_item:Nn \l_tmpa_seq { 1 } }
+      \int_set:Nn \l_tmpb_int { \seq_item:Nn \l_tmpa_seq { 2 } }
+      % hrules
+      \int_step_inline:nnn { 0 } { \g_pixelart_nblig_int }
+      {
+        \int_compare:nNnT { \int_mod:nn { ##1 } { \l_tmpa_int } } = { 0 }
+        {
+          \draw[pixlartcut] ({-0.5-0.33}, {-##1+0.5}) -- ({\int_use:N \g_pixelart_nbcol_int-0.5+0.33}, {-##1+0.5});
+        }
+      }
+      % vrules
+      \int_step_inline:nnn { 0 } { \g_pixelart_nbcol_int }
+      {
+        \int_compare:nNnT { \int_mod:nn { ##1 } { \l_tmpb_int } } = { 0 }
+        {
+          \draw[pixlartcut] ({##1-0.5}, {0.5+0.33}) -- ({##1-0.5}, {-\int_use:N \g_pixelart_nblig_int+0.5-0.33});
+        }
+      }
+    }
+    {
+      \tl_if_in:NnT \g_pixlarttikz_decoup_tl { + }
+      {
+        % Format: numrowblock + numcolblock
+        \seq_set_split:NnV \l_tmpa_seq { + } \g_pixlarttikz_decoup_tl
+        \int_set:Nn \l_tmpa_int { \seq_item:Nn \l_tmpa_seq { 1 } }
+        \int_set:Nn \l_tmpb_int { \seq_item:Nn \l_tmpa_seq { 2 } }
+        % block size
+        \fp_set:Nn \l_tmpa_fp { \g_pixelart_nblig_int / \l_tmpa_int }
+        \fp_set:Nn \l_tmpb_fp { \g_pixelart_nbcol_int / \l_tmpb_int }
+        % hrules
+        \int_step_inline:nn { \l_tmpa_int + 1 }
+        {
+          \draw[pixlartcut] ({-0.5-0.33}, {-(##1-1)*\fp_use:N \l_tmpa_fp+0.5}) -- ({\int_use:N \g_pixelart_nbcol_int-0.5+0.33}, {-(##1-1)*\fp_use:N \l_tmpa_fp+0.5});
+        }
+        % vrules
+        \int_step_inline:nn { \l_tmpb_int + 1 }
+        {
+          \draw[pixlartcut] ({(##1-1)*\fp_use:N \l_tmpb_fp-0.5}, {0.5+0.33}) -- ({(##1-1)*\fp_use:N \l_tmpb_fp-0.5}, {-\int_use:N \g_pixelart_nblig_int+0.5-0.33});
+        }
+      }
+    }
+  }
+}
+
+\cs_generate_variant:Nn \seq_set_split:Nnn { NnV }
+
+% internal drawer pixlart from csv
+\cs_new_protected:Nn \__pixelart_draw:nn
+{
+  \begin{tikzpicture}[x=\fp_eval:n \g_pixlarttikz_unit_tl cm,y=\fp_eval:n \g_pixlarttikz_unit_tl cm,#2]
+    \int_set:Nn \l_pixelart_row_int { 0 }
+    % open csv file
+    \ior_open:Nn \g_pixelart_file_ior { #1 }
+    % read line by line
+    \ior_map_inline:Nn \g_pixelart_file_ior
+    {
+      \int_set:Nn \l_pixelart_col_int { 0 }
+      % parse line with sep ,
+      \clist_map_inline:nn { ##1 }
+      {
+        \tl_set:Nn \l_tmpa_tl { ####1 }
+        \tl_trim_spaces:N \l_tmpa_tl
+        % get color from prop
+        \prop_get:NVNTF \g_pixelart_color_prop \l_tmpa_tl \l_tmpb_tl
+        {
+          \bool_if:NT \g_pixlarttikz_correction_bool
+          {
+            % draw cell with or without border
+            \bool_if:NTF \g_pixlarttikz_borders_bool
+            {
+              \draw[fill=\l_tmpb_tl] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1,-1) ;
+            }
+            {
+              \filldraw[pixlartborder,\l_tmpb_tl] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1);
+            }
+          }
+          \bool_if:NT \g_pixlarttikz_codes_bool
+          {
+            \draw[] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1) node[inner~sep=0pt,midway,font=\tl_use:N \g_pixlarttikz_font_tl,text~depth=0pt] {\resizebox*{!}{\fp_eval:n {\g_pixlarttikz_font_scale * \g_pixlarttikz_unit_tl} cm}{\vphantom{AZERTYUIOPQSDFGHJKLMWXCVBN0123456789azertyuiopqsdfghjklmwxcvbn}\tl_use:N \l_tmpa_tl}} ;
+          }
+          \bool_if:NT \g_pixlarttikz_symbols_bool
+          {
+            \draw[] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1) node[inner~sep=0pt,midway,font=\tl_use:N \g_pixlarttikz_font_tl,text~depth=0pt] {\resizebox*{!}{\fp_eval:n {\g_pixlarttikz_font_scale * \g_pixlarttikz_unit_tl} cm}{\vphantom{AZERTYUIOPQSDFGHJKLMWXCVBN0123456789azertyuiopqsdfghjklmwxcvbn}\pixelart_traite_liste:V \l_tmpb_tl}} ;
+          }
+        }
+        {
+          % default color if not found
+          \bool_if:NT \g_pixlarttikz_borders_bool
+          {
+            \draw[black,fill=white] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1);
+          }
+        }
+        \int_incr:N \l_pixelart_col_int
+      }
+      % columns count
+      \int_gset:Nn \g_pixelart_nbcol_int { \int_max:nn { \g_pixelart_nbcol_int } { \l_pixelart_col_int } }
+      \int_incr:N \l_pixelart_row_int
+    }
+    \int_gset:Nn \g_pixelart_nblig_int { \l_pixelart_row_int }
+    % close file
+    \ior_close:N \g_pixelart_file_ior
+    % cutting
+    \__pixelart_draw_decoup:
+  \end{tikzpicture}
+}
+
+\cs_new_protected:Nn \__pixelart_getdim:n
+{
+  \int_set:Nn \l_pixelart_row_int { 0 }
+  % open csv file
+  \ior_open:Nn \g_pixelart_file_ior { #1 }
+  % read line by line
+  \ior_map_inline:Nn \g_pixelart_file_ior
+    {
+      \int_set:Nn \l_pixelart_col_int { 0 }
+      \clist_map_inline:nn { ##1 }
+      {
+        \tl_set:Nn \l_tmpa_tl { ####1 }
+        \tl_trim_spaces:N \l_tmpa_tl
+        \int_incr:N \l_pixelart_col_int
+      }
+      % Stocker le max de colonnes
+      \int_gset:Nn \g_pixelart_nbcol_int { \int_max:nn { \g_pixelart_nbcol_int } { \l_pixelart_col_int } }
+      \int_incr:N \l_pixelart_row_int
+    }
+  \int_gset:Nn \g_pixelart_nblig_int { \l_pixelart_row_int }
+  % close file
+  \ior_close:N \g_pixelart_file_ior
+}
+
+\tl_new:N  \g_pixlarttikz_blocknumber_tl
+\int_new:N \l_pixelart_block_nbrows_int
+\int_new:N \l_pixelart_block_nbcols_int
+\int_new:N \l_pixelart_block_rmin_int
+\int_new:N \l_pixelart_block_rmax_int
+\int_new:N \l_pixelart_block_cmin_int
+\int_new:N \l_pixelart_block_cmax_int
+\int_new:N \l_pixelart_block_rownb_int
+\int_new:N \l_pixelart_block_colnb_int
+
+% internal drawer pixlart from csv
+\cs_new_protected:Nn \__pixelart_draw_block:nnn
+{
+  % 1 = file
+  % 2 = options tikz
+  % 3 = block number
+  \begin{tikzpicture}[x=\fp_eval:n \g_pixlarttikz_unit_tl cm,y=\fp_eval:n \g_pixlarttikz_unit_tl cm]
+    % calcs
+    \tl_set:Nx \g_pixlarttikz_blocknumber_tl { #3 }
+    \seq_set_split:NnV \l_tmpa_seq { / } \g_pixlarttikz_blocknumber_tl
+    \int_set:Nn \l_pixelart_block_rownb_int { \seq_item:Nn \l_tmpa_seq { 1 } }
+    \int_set:Nn \l_pixelart_block_colnb_int { \seq_item:Nn \l_tmpa_seq { 2 } }
+    \tl_if_in:NnTF \g_pixlarttikz_decoup_tl { x }
+    {
+      % Format: numrowblock x numcolblock
+      \seq_set_split:NnV \l_tmpa_seq { x } \g_pixlarttikz_decoup_tl
+      \int_set:Nn \l_pixelart_block_nbrows_int { \seq_item:Nn \l_tmpa_seq { 1 } }
+      \int_set:Nn \l_pixelart_block_nbcols_int { \seq_item:Nn \l_tmpa_seq { 2 } }
+    }
+    {
+      \tl_if_in:NnT \g_pixlarttikz_decoup_tl { + }
+      {
+        % Format: numrowblock + numcolblock
+        \seq_set_split:NnV \l_tmpa_seq { + } \g_pixlarttikz_decoup_tl
+        \int_set:Nn \l_tmpa_int { \seq_item:Nn \l_tmpa_seq { 1 } }
+        \int_set:Nn \l_tmpb_int { \seq_item:Nn \l_tmpa_seq { 2 } }
+        \int_set:Nn \l_pixelart_block_nbrows_int { \int_div_truncate:nn { \g_pixelart_nblig_int } { \l_tmpa_int } }
+        \int_set:Nn \l_pixelart_block_nbcols_int { \int_div_truncate:nn { \g_pixelart_nbcol_int } { \l_tmpb_int } }
+      }
+    }
+    
+    \typeout{nbrows:~\int_use:N\l_pixelart_block_nbrows_int}
+    \typeout{rownb:~\int_use:N\l_pixelart_block_rownb_int}
+      
+    \int_set:Nn \l_pixelart_block_rmin_int { \l_pixelart_block_nbrows_int * ( \l_pixelart_block_rownb_int - 1 ) + 1 }
+    \int_set:Nn \l_pixelart_block_rmax_int { \l_pixelart_block_nbrows_int * \l_pixelart_block_rownb_int }
+    \int_set:Nn \l_pixelart_block_cmin_int { \l_pixelart_block_nbcols_int * ( \l_pixelart_block_colnb_int - 1 ) + 1 }
+    \int_set:Nn \l_pixelart_block_cmax_int { \l_pixelart_block_nbcols_int * \l_pixelart_block_colnb_int }
+    % back to normal
+    \int_set:Nn \l_pixelart_row_int { 0 }
+    % open csv file
+    \ior_open:Nn \g_pixelart_file_ior { #1 }
+    % read line by line
+    \ior_map_inline:Nn \g_pixelart_file_ior
+    {
+      %\int_incr:N \l_pixelart_row_int
+      \int_set:Nn \l_pixelart_col_int { 0 }
+      % parse line with sep ,
+      \clist_map_inline:nn { ##1 }
+      {
+        %\int_incr:N \l_pixelart_col_int
+        \tl_set:Nn \l_tmpa_tl { ####1 }
+        \tl_trim_spaces:N \l_tmpa_tl
+        % get color from prop
+        \prop_get:NVNTF \g_pixelart_color_prop \l_tmpa_tl \l_tmpb_tl
+        {
+          \bool_if:NT \g_pixlarttikz_correction_bool
+          {
+            % draw cell with or without border
+            \bool_if:NTF \g_pixlarttikz_borders_bool
+            {
+              \bool_if:nT
+              {
+                \int_compare_p:n { \l_pixelart_row_int + 1 >= \l_pixelart_block_rmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_row_int + 1 <= \l_pixelart_block_rmax_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 >= \l_pixelart_block_cmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 <= \l_pixelart_block_cmax_int }
+              }
+              {
+                \draw[fill=\l_tmpb_tl] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1,-1) ;
+              }
+            }
+            {
+              \bool_if:nT
+              {
+                \int_compare_p:n { \l_pixelart_row_int + 1 >= \l_pixelart_block_rmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_row_int + 1 <= \l_pixelart_block_rmax_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 >= \l_pixelart_block_cmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 <= \l_pixelart_block_cmax_int }
+              }
+              {
+                \filldraw[pixlartborder,\l_tmpb_tl] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1);
+              }
+            }
+          }
+          \bool_if:NT \g_pixlarttikz_codes_bool
+          {
+            \bool_if:nT
+              {
+                \int_compare_p:n { \l_pixelart_row_int + 1 >= \l_pixelart_block_rmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_row_int + 1 <= \l_pixelart_block_rmax_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 >= \l_pixelart_block_cmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 <= \l_pixelart_block_cmax_int }
+              }
+              {
+                \draw[] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1) node[inner~sep=0pt,midway,font=\tl_use:N \g_pixlarttikz_font_tl,text~depth=0pt] {\resizebox*{!}{\fp_eval:n {\g_pixlarttikz_font_scale * \g_pixlarttikz_unit_tl} cm}{\vphantom{AZERTYUIOPQSDFGHJKLMWXCVBN0123456789azertyuiopqsdfghjklmwxcvbn}\tl_use:N \l_tmpa_tl}} ;
+              }
+          }
+          \bool_if:NT \g_pixlarttikz_symbols_bool
+          {
+            \draw[] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1) node[inner~sep=0pt,midway,font=\tl_use:N \g_pixlarttikz_font_tl,text~depth=0pt] {\resizebox*{!}{\fp_eval:n {\g_pixlarttikz_font_scale * \g_pixlarttikz_unit_tl} cm}{\vphantom{AZERTYUIOPQSDFGHJKLMWXCVBN0123456789azertyuiopqsdfghjklmwxcvbn}\tl_use:N \l_tmpb_tl}} ;
+          }
+        }
+        {
+          % default color if not found
+          \bool_if:NT \g_pixlarttikz_borders_bool
+          {
+            \bool_if:nT
+              {
+                \int_compare_p:n { \l_pixelart_row_int + 1 >= \l_pixelart_block_rmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_row_int + 1 <= \l_pixelart_block_rmax_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 >= \l_pixelart_block_cmin_int }
+                &&
+                \int_compare_p:n { \l_pixelart_col_int + 1 <= \l_pixelart_block_cmax_int }
+              }
+              {
+                \draw[black,fill=white] ({\int_use:N \l_pixelart_col_int-0.5}, {-\int_use:N \l_pixelart_row_int+0.5}) rectangle ++(1, -1);
+              }
+          }
+        }
+        \int_incr:N \l_pixelart_col_int
+      }
+    \int_incr:N \l_pixelart_row_int
+    }
+    % close file
+    \ior_close:N \g_pixelart_file_ior
+  \end{tikzpicture}
+}
+
+\NewDocumentCommand{\pixlarttikzblock}{ O{} D<>{} m m m }
+{
+  % 1 = keys
+  % 2 = tikzpicture options
+  % 3 = map codes/colors/symbols
+  % 4 = block
+  % 5 = file
+  % keys
+  \group_begin:
+  \keys_set:nn { pixlarttikz } { unit = 1 , codes = true , borders = true , correction = false , symbols = false , font = \sffamily , cut = {} }
+  \keys_set:nn { pixlarttikz } { #1 }
+  % booleans
+  \bool_if:NT \g_pixlarttikz_correction_bool { \keys_set:nn { pixlarttikz } { codes = false } }
+  \bool_if:NT \g_pixlarttikz_symbols_bool    { \keys_set:nn { pixlarttikz } { codes = false } }
+  % init prop
+  \prop_clear:N \g_pixelart_color_prop
+  % parser letter = color
+  \clist_set:Ne \g_pixelart_clist_prop { #3 }
+  \clist_map_inline:Nn { \g_pixelart_clist_prop }
+  {
+    \__pixelart_parse_assignment:n { ##1 }
+  }
+  % get dim
+  \__pixelart_getdim:n { #5 }
+  % draw pixlart block
+  \__pixelart_draw_block:nnn { #5 } { #2 } { #4 }
+  \group_end:
+}
+
+\endinput

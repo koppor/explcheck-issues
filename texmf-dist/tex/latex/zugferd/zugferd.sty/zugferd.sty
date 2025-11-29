@@ -1,0 +1,1684 @@
+%%
+%% This is file `zugferd.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% zugferd.dtx  (with options: `package')
+%% 
+%% Copyright (C) 2023--2024 by Marei Peischl (peiTeX) <marei@peitex.de>
+%% 
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage{zugferd}{2025-09-22}{0.10}{Create ZUGFerd invoices using LaTeX}
+\tl_new:N \l__zugferd_tmp_tl
+\str_new:N \g__zugferd_format_str
+\str_new:N \g__zugferd_businessProcessId_str
+\bool_new:N \g__zugferd_writeTradeContact_bool
+\bool_new:N \g__zugferd_writePaymentMeans_bool
+\bool_new:N \g__zugferd_minimum_bool
+\str_new:N \g__zugferd_conformance_level_str
+\tl_new:N \g__zugferd_xml_embedded_file_tl
+\char_set_catcode_other:N \#%
+\keys_define:nn {zugferd} {
+xrechnung .code:n = {
+\bool_gset_true:N \g__zugferd_writeTradeContact_bool
+\bool_gset_true:N \g__zugferd_writePaymentMeans_bool
+\str_gset:Nn \g__zugferd_conformance_level_str {XRECHNUNG}
+\tl_gset:Nn \g__zugferd_xml_embedded_file_tl {xrechnung.xml}
+},
+format .choice:,
+format / xrechnung3.0 .code:n = {
+\str_gset:Nx \g__zugferd_format_str {
+urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0
+}
+\str_gset:Nx \g__zugferd_businessProcessId_str {
+urn:fdc:peppol.eu:2017:poacc:billing:01:1.0
+}
+\keys_set:nn {zugferd}{xrechnung}
+},
+format / xrechnung2.3 .code:n = {
+\str_gset:Nx \g__zugferd_format_str {
+urn:cen.eu:en16931:2017#compliant#urn:xoev-de:kosit:standard:xrechnung_2.3
+}
+\keys_set:nn {zugferd}{xrechnung}
+},
+format  / basic .code:n = {
+\str_gset:Nx \g__zugferd_format_str {
+urn:cen.eu:en16931:2017#compliant#urn:factur-x.eu:1p0:basic
+}
+\bool_gset_false:N \g__zugferd_writeTradeContact_bool
+\str_gset:Nn \g__zugferd_conformance_level_str {BASIC}
+\tl_gset:Nn \g__zugferd_xml_embedded_file_tl {factur-x.xml}
+},
+format  / minimum .code:n = {
+\str_gset:Nx \g__zugferd_format_str {
+urn:factur-x.eu:1p0:minimum
+}
+\bool_gset_true:N \g__zugferd_minimum_bool
+\bool_gset_false:N \g__zugferd_writeTradeContact_bool
+\bool_gset_false:N \g__zugferd_writePaymentMeans_bool
+\str_gset:Nn \g__zugferd_conformance_level_str {MINIMUM}
+\tl_gset:Nn \g__zugferd_xml_embedded_file_tl {factur-x.xml}
+},
+format / xrechnung .meta:n = { format = xrechnung3.0 },
+format .initial:n = xrechnung,
+format .usage:n = load,
+write-xml .bool_gset:N = \g__zugferd_write_xml_bool,
+write-xml .initial:n = true,
+write-xml .usage:n = load,
+zugferd .bool_gset:N = \g__zugferd_active_bool,
+zugferd .initial:n = true,
+zugferd .default:n = true,
+zugferd .usage:n = load,
+ZUGFerD .meta:n = {zugferd = #1},
+xml-file .tl_gset:N = \g__zugferd_xml_file_tl,
+xml-file .initial:n = \jobname _zugferd.xml,
+xml-file .usage:n = load,
+testing .bool_gset:N = \g__zugferd_testing_bool,
+testing .initial:n = false,
+testing .usage:n = load,
+auto-exemption .bool_gset:N = \g__zugferd_auto_exemption_bool,
+auto-exemption .initial:n = true,
+auto-exemption .default:n = true,
+auto-exemption .usage:n = load,
+unknown-value-warning .bool_gset:N = \g__zugferd_unknown_value_warning_bool,
+unknown-value-warning .initial:n = true,
+}
+\char_set_catcode_parameter:N \#%
+
+\ProcessKeyOptions[zugferd]
+\iow_new:N \__zugferd_xml_writer_iow
+\bool_if:NT \g__zugferd_active_bool {
+\cs_if_exist:NF \pdfmeta_xmp_xmlns_new:nn {
+\msg_new:nnnn {zugferd} {PDFmanagement-not-active} {
+The~\LaTeX~PDF~management~is~not~active.\\
+Activate~it~using~\string\DocumentMetadata.
+} {
+See~ZUGFeRD~or~PDFmanagement~documentation~for~more~information.
+}
+\msg_error:nn {zugferd} {PDFmanagement-not-active}
+}
+\IfPackageAtLeastTF{pdfmanagement-testphase}{2024/09/13}{}{
+\msg_new:nnnn {zugferd} {PDFmanagement-too-old} {
+Your~version~of~\LaTeX's~PDF~management~is~too~old.
+}{
+You~need~to~update~your~LaTeX~distribution~to~be~able~
+to~use~the~zugferd~package~correctly.
+}
+\msg_error:nn{zugferd} {PDFmanagement-too-old}
+}
+%% based on experiments for l3pdfmeta by Ulrike Fischer
+\pdfmeta_xmp_xmlns_new:nn {fx}{
+urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0\c_hash_str
+}
+
+\pdfmeta_xmp_schema_new:nnn
+  {Factur-X~PDFA~Extension~Schema}
+  {fx}
+  {urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0\c_hash_str}
+
+\pdfmeta_xmp_property_new:nnnnn
+  {fx}
+  {DocumentFileName}
+  {Text}
+  {external}
+  {name~of~the~embedded~XML~invoice~file}
+
+\pdfmeta_xmp_property_new:nnnnn
+  {fx}
+  {DocumentType}
+  {Text}
+  {external}
+  {INVOICE}
+
+\pdfmeta_xmp_property_new:nnnnn
+  {fx}
+  {Version}
+  {Text}
+  {external}
+  {The~actual~version~of~the~factur-x~schema}
+
+\pdfmeta_xmp_property_new:nnnnn
+  {fx}
+  {ConformanceLevel}
+  {Text}
+  {external}
+  {The~conformance~level~of~the~factur-x~data}
+
+\exp_args:Ne \pdfmeta_xmp_add:n {
+<fx:DocumentType>INVOICE</fx:DocumentType>
+\iow_newline:
+<fx:DocumentFileName>\g__zugferd_xml_embedded_file_tl</fx:DocumentFileName>
+\iow_newline:
+<fx:Version>1.0</fx:Version>
+\iow_newline:
+<fx:ConformanceLevel>\g__zugferd_conformance_level_str%
+</fx:ConformanceLevel>%
+\iow_newline:
+}
+}
+\NewDocumentCommand{\SetZUGFeRDData}{sm}{
+\IfBooleanTF{#1}
+{\keys_set:ne}
+{\keys_set:nn}
+{zugferd} {#2}
+}
+\let\SetZugferdData\SetZUGFeRDData
+\bool_if:NTF \g__zugferd_testing_bool {
+\cs_new:Nn \__zugferd_access_data:n {\tl_log:n {#1} #1}
+\cs_new:Nn \__zugferd_access_data:N {\tl_log:N #1 #1}
+\cs_generate_variant:Nn \__zugferd_access_data:N {c}
+} {
+\cs_set_eq:NN \__zugferd_access_data:c \use:c
+\cs_set_eq:NN \__zugferd_access_data:n \use:n
+}
+\cs_generate_variant:Nn {\__zugferd_access_data:n} {e}
+\NewDocumentCommand{\InsertZUGFeRDData}{om}{
+\IfNoValueTF{#1} {
+\keys_if_exist:nnTF {zugferd/data} {#2} {
+\keys_set:nn {zugferd/data} {#2}
+} {
+\str_set:Ne \l_tmpa_str {#2}
+\str_replace_all:Nnn \l_tmpa_str {-} {_}
+\str_replace_all:Nnn \l_tmpa_str {/} {_}
+\bool_set_true:N \g_tmpa_bool
+\clist_map_inline:nn {tl, str} {
+\clist_map_inline:nn {g, l} {
+\use:c {##1 _if_exist:cT} {####1__zugferd_ \l_tmpa_str _##1}
+{
+\__zugferd_access_data:c  {####1__zugferd_ \l_tmpa_str _##1}
+\bool_gset_false:N \g_tmpa_bool
+}
+\bool_if:NF \g_tmpa_bool {\clist_map_break:}
+}
+\bool_if:NF \g_tmpa_bool {\clist_map_break:}
+}
+}
+} {
+\cs_if_exist_use:cTF {zugferd_print_#1:n} {
+{#2}
+} {
+}
+}
+}
+\providecommand{\InsertZugferdData}{\InsertZUGFeRDData}
+\providecommand{\insertZugferdData}{\InsertZUGFeRDData}
+\cs_new:cn {zugferd_print_set-today:n} {
+\__zugferd_set_today:v {g__zugferd_#1_tl}
+}
+\cs_new:cn {zugferd_print_iso-date:n} {
+{
+\__zugferd_set_today:v {g__zugferd_#1_tl}
+\the\year
+-
+\int_compare:nNnT {\month} < {10} {0} \the\month
+-
+\int_compare:nNnT {\day} < {10} {0}\the\day
+}
+}
+\cs_new:Nn \__zugferd_set_today:n {
+\__zugferd_set_today_aux:w #1 \q_stop
+}
+\cs_generate_variant:Nn \__zugferd_set_today:n {v}
+\cs_new:Npn \__zugferd_set_today_aux:w #1 #2 #3 #4 #5 #6 #7 #8 \q_stop{
+\int_set:Nn \year {#1#2#3#4}
+\int_set:Nn \month {#5#6}
+\int_set:Nn \day {#7#8}
+}
+\NewExpandableDocumentCommand{\UseZUGFeRDElement}{O{l}m}{
+\use:c {#1__zugferd_#2_tl}
+}
+\NewExpandableDocumentCommand{\UseZUGFeRDAddressItem}{mm}{
+\zugferd_use_AddressData_item:nn {#1} {#2}
+}
+\cs_new:Nn \zugferd_use_AddressData_item:nn {
+\__zugferd_access_data:e
+{\prop_item:cn {g__zugferd_#1_AddressData_prop } {#2}}
+}
+\NewDocumentEnvironment{ZUGFeRD}{o}{
+\IfNoValueF{#1}{
+\SetZUGFeRDData{#1}
+}
+\zugferd_enable_XML_interfaces:
+\startWritingZUGFeRDxml
+\zugferd_write_Header:
+\ignorespaces
+}{
+\zugferd_enable_XML_interfaces:
+\zugferd_write_Footer:
+\stopWritingZUGFeRDxml
+\zugferd_disable_XML_interfaces:
+}
+\newcommand*{\startWritingZUGFeRDxml}{
+\begingroup
+\bool_if:NTF \g__zugferd_write_xml_bool {
+\char_set_active_eq:nN {13} \__zugferd_xml_newline_indent:
+\iow_open:Nn \__zugferd_xml_writer_iow {\g__zugferd_xml_file_tl}
+}{
+\msg_info:nn {zugferd} {no-xml-write}
+}
+}
+\msg_new:nnn {zugferd} {no-xml-write} {
+The~option~write-xml=false~was~set.\\
+Writing~of~XML~file~is~deactivated.
+}
+%% The metadata elements are taken from Ulrike Fischer's faktur-x experiments
+%% https://github.com/latex3/pdfresources/tree/main/experiments/factur-x-bills
+\newcommand*{\stopWritingZUGFeRDxml}{%
+\bool_if:NT \g__zugferd_write_xml_bool
+{\iow_close:N \__zugferd_xml_writer_iow}%
+\endgroup
+\bool_if:NT \g__zugferd_active_bool {
+\group_begin:
+\pdfdict_put:nnn {l_pdffile/Filespec} {AFRelationship}{/Alternative}
+\pdfdict_put:nnn {l_pdffile/Filespec} {Desc}{(Factur-X/ZUGFeRD-Rechnung)}
+\exp_args:NnV \pdffile_embed_file:nnn {\g__zugferd_xml_file_tl}
+\g__zugferd_xml_embedded_file_tl
+{zugferd/rechnung}
+\group_end:
+\pdfmanagement_add:nee
+{Catalog/Names/EmbeddedFiles}
+{\g__zugferd_xml_embedded_file_tl}
+{\pdf_object_ref:n{zugferd/rechnung}}
+\pdfmanagement_add:nnx{Catalog}{AF}{\pdf_object_ref:n{zugferd/rechnung}}
+}
+}
+\cs_new:Nn \zugferd_print_AddressDataSep:nnn {
+\cs_if_exist:cTF {zugferd_print_address_#2:n} {
+\exp_args:Nne \use:c {zugferd_print_address_#2:n}
+{\zugferd_use_AddressData_item:nn {#1}{#2}}
+} {
+\prop_if_in:cnT { g__zugferd_#1_AddressData_prop } {#2} {
+#3
+\zugferd_use_AddressData_item:nn {#1}{#2}
+}
+}
+}
+\cs_new:Nn \zugferd_print_AddressData:nn {
+\zugferd_print_AddressDataSep:nnn {#1} {#2} {}
+}
+\cs_new:Nn \zugferd_print_AddressData:n {
+\zugferd_print_AddressData:nn {#1} {name}
+\clist_map_inline:nn {
+lineone,
+linetwo,
+linethree,
+postcode,
+city,
+country
+} {
+\zugferd_print_AddressDataSep:nnn {#1} {##1} {\\}
+}
+}
+\cs_if_exist:NF \zugferd_print_address_city:n {
+\cs_new_nopar:Nn \zugferd_print_address_city:n {\space#1}
+}
+\cs_if_exist:NF \zugferd_print_address_country:n {
+\cs_new_nopar:Nn \zugferd_print_address_country:n {}
+}
+%% Code using the data for visual representation
+\cs_new:Nn \zugferd_enable_XML_interfaces: {
+\bool_if:NT \g__zugferd_write_xml_bool {
+\cs_gset:Nn \zugferd_write_Header: {
+\__zugferd_insert_Header:
+\__zugferd_insert_FrontMatter:
+}
+\cs_gset:Nn \zugferd_write_Footer: {
+\__zugferd_insert_Footer:
+}
+\bool_if:NTF \g__zugferd_minimum_bool {
+\cs_gset_eq:NN \zugferd_write_Item:nnnnnn \use_none:nnnnnn
+}{
+\cs_gset_eq:NN \zugferd_write_Item:nnnnnn
+\__zugferd_insert_TradeLineItem:nnnnnn
+}
+\cs_gset:Nn \zugferd_startInvoiceSums: {
+\__zugferd_ApplicableHeaderTradeAgreement:
+\__zugferd_ApplicableHeaderTradeSettlement_start:
+\__zugferd_SpecifiedTradeSettlementPaymentMeans:
+}
+\cs_gset:Nn \zugferd_stopInvoiceSums:  {
+\__zugferd_ApplicableHeaderTradeSettlement_stop:
+}
+\bool_if:NTF \g__zugferd_minimum_bool {
+\cs_gset_eq:NN \zugferd_write_TaxEntry:nnnn \use_none:nnnn
+} {
+\cs_gset_eq:NN \zugferd_write_TaxEntry:nnnn
+\__zugferd_ApplicableTradeTax:nnnn
+}
+\cs_gset_eq:NN  \zugferd_write_AllowanceCharge:n
+\__zugferd_SpecifiedTradeAllowanceCharge:n
+\cs_gset:Nn \zugferd_write_Summation:nnnnnnnn {
+\__zugferd_SpecifiedTradePaymentTerms:
+
+\__zugferd_SpecifiedTradeSettlementHeaderMonetarySummation:nnnnnnnn
+{##1} {##2} {##3} {##4} {##5} {##6} {##7} {##8}
+}
+}
+}
+\cs_new:Nn \zugferd_disable_XML_interfaces: {
+\cs_gset_eq:NN \zugferd_write_Header: \prg_do_nothing:
+\cs_gset_eq:NN \zugferd_write_Footer: \prg_do_nothing:
+\cs_gset_eq:NN \zugferd_write_Item:nnnnnn \use_none:nnnnnn
+\cs_gset_eq:NN \zugferd_startInvoiceSums: \prg_do_nothing:
+\cs_gset_eq:NN \zugferd_stopInvoiceSums: \prg_do_nothing:
+\cs_gset_eq:NN \zugferd_write_TaxEntry:nnnn \use_none:nnnn
+\cs_gset_eq:NN \zugferd_write_AllowanceCharge:n \use_none:n
+\cs_gset_eq:NN \zugferd_write_Summation:nnnnnnnn \use_none:nnnnnnnn
+}
+\bool_if:NTF \g__zugferd_write_xml_bool {
+\zugferd_enable_XML_interfaces:
+}{
+\zugferd_disable_XML_interfaces:
+}
+\cs_new:Nn \zugferd_write_Item:nnnnnnn {
+\group_begin:
+\keys_set:nn {zugferd/item} {#1}
+\zugferd_write_Item:nnnnnn {#2} {#3} {#4} {#5} {#6} {#7}
+\group_end:
+}
+\cs_generate_variant:Nn \zugferd_write_Item:nnnnnnn {ennnnnn}
+\cs_generate_variant:Nn \zugferd_write_TaxEntry:nnnn {ennn}
+\cs_new:Nn \zugferd_write_AllowanceCharge: {
+\__zugferd_SpecifiedTradeAllowanceCharge:
+}
+\bool_if:NTF \g__zugferd_write_xml_bool {
+\cs_new:Nn \__zugferd_write_xml:n {
+\tl_if_blank:nF {#1} {
+\exp_last_unbraced:Nnf \tl_if_head_eq_charcode:nNTF {#1} \iow_newline: {
+\iow_now:Ne \__zugferd_xml_writer_iow {\use_none:n  #1}
+} {
+\iow_now:Ne \__zugferd_xml_writer_iow {\__zugferd_xml_auto_indent: #1}
+}
+}
+}
+\cs_new_eq:NN \__zugferd_define_xml_writer:Nn \cs_new:Nn
+\cs_new_eq:NN \__zugferd_define_xml_content:Nn \cs_new:Nn
+} {
+\cs_set_eq:NN \__zugferd_write_xml:n \use_none:n
+\cs_set:Nn \__zugferd_define_xml_writer:Nn {\cs_new:Nn #1 {}}
+\cs_set:Nn \__zugferd_define_xml_content:Nn {\cs_new:Nn #1 {}}
+}
+
+\cs_generate_variant:Nn \__zugferd_write_xml:n {e}
+\RequirePackage{siunitx}
+\cs_new:Nn \__zugferd_number_format:nNn {
+\sisetup{
+parse-numbers=true,
+round-mode=places,
+round-precision=#1,
+round-pad = false,
+group-digits=none,
+minimum-decimal-digits=#1,
+output-decimal-marker=.
+}
+\siunitx_number_format:nN {#3} #2
+}
+\cs_generate_variant:Nn \__zugferd_number_format:nNn {nNe}
+\cs_new:Nn \__zugferd_write_rounded:nnnn {
+\__zugferd_number_format:nNe {#1} \l__zugferd_tmp_tl {#4}
+\__zugferd_write_xml:e {<ram:#2#3>\l__zugferd_tmp_tl</ram:#2>}
+}
+\cs_new:Nn \__zugferd_write_rounded:nnn {
+\__zugferd_write_rounded:nnnn {#1} {#2} {} {#3}
+}
+\int_new:N \g__zugferd_indent_int
+\cs_new:Nn \__zugferd_indent: {
+\space\space
+}
+\cs_new:Nn \__zugferd_indent:n {
+\prg_replicate:nn {#1} {\__zugferd_indent:}
+}
+\cs_new:Nn \__zugferd_xml_auto_indent:n {
+\__zugferd_indent:n {\g__zugferd_indent_int #1}
+}
+\cs_new:Nn \__zugferd_xml_auto_indent: {
+\__zugferd_xml_auto_indent:n {}
+}
+\cs_new:Nn \__zugferd_xml_newline_indent:n {
+\iow_newline: \__zugferd_xml_auto_indent:n {#1}
+}
+\cs_new:Nn \__zugferd_xml_newline_indent: {
+\__zugferd_xml_newline_indent:n {}
+}
+\cctab_new:N \g__zugferd_xml_cctab
+\begingroup%
+\endlinechar=13%
+\char_set_catcode:nn {13}{13}%
+\cctab_gsave_current:N \g__zugferd_xml_cctab%
+\endgroup
+%% modified list taken from hyperref.sty v7.01i
+%% Copyright
+%% 1995-2001 Sebastian Rahtz, with portions written by David Carlisle and Heiko Oberdiek
+%% 2001-2015 Heiko Oberdiek
+%% 2016-2019 Oberdiek Package Support Group
+%% 2019-2024 LaTeX Project
+%% modifications have been made to support the mechanism if hyperref is not loaded
+\cs_new:Nn \zugferd_disable_macros: {
+\let\{\c_left_brace_str
+\let\textbraceleft\c_left_brace_str
+\let\}\c_right_brace_str
+\let\textbraceright\c_right_brace_str
+\let\#\c_hash_str
+\let\textnumbersign\c_hash_str
+\let\$\c_dollar_str
+\let\textdollar\c_dollar_str
+\let\%\c_percent_str
+\let\&\c_ampersand_str
+\let\_\c_underscore_str
+\def\P{§}
+\def\ldots{…}
+\def\dots{…}
+\def\\{\space}%
+\def\newline{\space}%
+\def\TeX{TeX}%
+\def\LaTeX{La\TeX}%
+\def\LaTeXe{\LaTeX2e}%
+\def\eTeX{e-\TeX}%
+\def\SliTeX{Sli\TeX}%
+\def\MF{Metafont}%
+\def\MP{Metapost}%
+\let\fontencoding\@gobble
+\let\fontfamily\@gobble
+\let\fontseries\@gobble
+\let\fontshape\@gobble
+\let\fontsize\@gobbletwo
+\let\selectfont\@empty
+\let\usefont\@gobblefour
+\let\emph\@firstofone
+\let\textnormal\@firstofone
+\let\textrm\@firstofone
+\let\textsf\@firstofone
+\let\texttt\@firstofone
+\let\textbf\@firstofone
+\let\textmd\@firstofone
+\let\textit\@firstofone
+\let\textsc\@firstofone
+\let\textsl\@firstofone
+\let\textup\@firstofone
+\let\normalfont\@empty
+\let\rmfamily\@empty
+\let\sffamily\@empty
+\let\ttfamily\@empty
+\let\bfseries\@empty
+\let\mdseries\@empty
+\let\itshape\@empty
+\let\scshape\@empty
+\let\slshape\@empty
+\let\upshape\@empty
+\let\em\@empty
+\let\rm\@empty
+\let\Huge\@empty
+\let\LARGE\@empty
+\let\Large\@empty
+\let\footnotesize\@empty
+\let\huge\@empty
+\let\large\@empty
+\let\normalsize\@empty
+\let\scriptsize\@empty
+\let\small\@empty
+\let\tiny\@empty
+\let\mathversion\@gobble
+\let\phantom\@gobble
+\let\vphantom\@gobble
+\let\hphantom\@gobble
+\let\ding\HyPsd@ding
+\let\Cube\HyPsd@DieFace
+\def\begin##1{\csname##1\endcsname}%
+\def\end##1{\csname end##1\endcsname}%
+\def\textcolor##1##{\@secondoftwo}%
+\def\TextOrMath{\ifmmode\expandafter\@secondoftwo\else\expandafter\@firstoftwo\fi}%
+\let\foreignlanguage\@secondoftwo
+\let\textlatin\@firstofone
+\let\cyr\relax
+\let\glqq\textglqq
+\let\grqq\textgrqq
+\let\glq\textglq
+\let\grq\textgrq
+\let\flqq\textflqq
+\let\frqq\textfrqq
+\let\flq\textflq
+\let\frq\textfrq
+\let\if@mid@expandable\@firstoftwo
+\let\hspace\@gobble
+\let\label\@gobble
+\let\index\@gobble
+\let\glossary\@gobble
+\let\@mkboth\@gobbletwo
+\let\leavevmode\@empty
+\let\mbox\@empty
+\def\halign{\@gobble}%
+\let\Hy@SectionAnchorHref\@gobble
+\let\ref\@gobble
+\let\href\@gobble
+\let\pageref\@gobble
+\let\nameref\@gobble
+\let\autoref\@gobble
+\let\ignorespaces\relax
+\let\ensuremath\@firstofone
+\def\ {\space\relax}% space
+\exp_args:NV \cs_set_nopar:cpn \c_space_tl {\space}
+\let\nobreakspace\space
+\hook_use:n {zugferd/disable-macros}
+}
+\hook_new:n {zugferd/disable-macros}
+\tl_new:N \g__zugferd_tmp_tl
+\cs_new:Nn \zugferd_tl_gset_escaped_xml:Nn {
+\group_begin:
+\zugferd_disable_macros:
+\__zugferd_escape_xml_aux:
+\tl_gset_rescan:Nnn #1 {
+\cctab_select:N \c_str_cctab
+\__zugferd_escape_xml_activate:
+ } {#2}
+\tl_gset:Ne #1 {#1}
+\group_end:
+}
+\cs_new:Nn \zugferd_tl_set_escaped_xml:Nn {
+\zugferd_tl_gset_escaped_xml:Nn \g__zugferd_tmp_tl {#2}
+\tl_set_eq:NN #1 \g__zugferd_tmp_tl
+}
+\cs_new:Nn \__zugferd_escape_xml_aux: {
+\edef\&{\tl_to_str:n {&amp;}}
+\edef\textgreater{\tl_to_str:n {&gt;}}
+\edef\textless{\tl_to_str:n {&lt;}}
+\edef\textquotedbl{\tl_to_str:n {&quot;}}
+\edef\textquotesingle{\tl_to_str:n {&apos;}}
+\char_set_active_eq:NN > \textgreater
+\char_set_active_eq:NN < \textless
+\char_set_active_eq:NN " \textquotedbl
+\char_set_active_eq:NN ' \textquotesingle
+\char_set_active_eq:NN & \&
+}
+\cs_new:Nn \__zugferd_escape_xml_activate: {
+\char_set_catcode_active:N >
+\char_set_catcode_active:N <
+\char_set_catcode_active:N "
+\char_set_catcode_active:N '
+\char_set_catcode_active:N &
+}
+\cs_set:Nn \zugferd_fp_set_rounded:Nn {
+\__zugferd_number_format:nNn {2} \l__zugferd_tmp_tl {\fp_eval:n {#2}}
+\fp_set:Nn  #1 {\l__zugferd_tmp_tl }
+}
+\cs_set:Nn \zugferd_fp_gset_rounded:Nn {
+\__zugferd_number_format:nNn {2} \l__zugferd_tmp_tl {\fp_eval:n {#2}}
+\fp_gset:Nn  #1 {\l__zugferd_tmp_tl }
+}
+\seq_new:N \g__zugferd_notes_seq
+\tl_new:N \g__zugferd_id_tl
+\tl_new:N \g__zugferd_date_tl
+\tl_new:N \g__zugferd_delivery_date_tl
+\tl_new:N \g__zugferd_subject_tl
+\tl_new:N \g__zugferd_fromaddress_tl
+\tl_new:N \g__zugferd_DocumentTypeCode_tl
+\tl_new:N \l__zugferd_currency_tl
+\keys_define:nn { zugferd } {
+document-type .choice:,
+document-type / commercial-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {380},
+document-type / partial-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {326},
+document-type / corrected-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {384},
+document-type / self-billed-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {389},
+document-type / credit-note .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {381},
+document-type / partial-construction-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {875},
+document-type / partial-final-construction-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {876},
+document-type / final-construction-invoice .code:n =
+\tl_gset:Nn \g__zugferd_DocumentTypeCode_tl {877},
+document-type .initial:n = commercial-invoice,
+id .choice:,
+id / komavar .code:n = \tl_gset:Nf \g__zugferd_id_tl {\scr@invoice@var},
+id / unknown .code:n = \tl_gset:Nn \g__zugferd_id_tl {#1},
+currency .choices:nn = {EUR, USD, CHF} {
+\tl_set_eq:NN \l__zugferd_currency_tl \l_keys_choice_tl
+},
+currency / € .meta:n = {currency = EUR},
+currency / unknown .code:n = {
+\exp_args:Nnnx \keys_if_choice_exist:nnnTF {zugferd} {unit} {
+\str_uppercase:f {#1}
+}
+{\keys_set:nx { zugferd } {unit= {\str_uppercase:f {#1}}}}
+{
+\bool_if:NT \g__zugferd_unknown_value_warning_bool {
+\msg_warning:nnn { zugferd } {unknown-value} {currency} {#1}
+}
+\tl_set:Ne \l__zugferd_currency_tl {\str_uppercase:f {#1}}
+}
+},
+currency .initial:n = EUR,
+date .choice:,
+date / auto .code:n = \tl_gset:Ne \g__zugferd_date_tl {
+\the\year
+\int_compare:nNnT {\month} < {10} {0} \the\month
+\int_compare:nNnT {\day} < {10} {0}\the\day
+},
+date / unknown .code:n = \tl_gset:Nn \g__zugferd_date_tl {#1},
+date .initial:n = auto,
+delivery-date .choice:,
+delivery-date / auto .code:n = \tl_gset:Ne \g__zugferd_delivery_date_tl {
+\the\year
+\int_compare:nNnT {\month} < {10} {0} \the\month
+\int_compare:nNnT {\day} < {10} {0}\the\day
+},
+delivery-date / unknown .code:n = {
+\tl_gset:Nn \g__zugferd_delivery_date_tl {#1}
+},
+delivery-date .initial:n = auto,
+due-date .tl_gset:N = \g__zugferd_due_date_tl,
+due-date .initial:n =,
+start-date .tl_gset:N = \g__zugferd_start_date_tl,
+start-date .initial:n =,
+end-date .tl_gset:N = \g__zugferd_end_date_tl,
+end-date .initial:n =,
+payment-terms .str_gset:N = \g__zugferd_payment_terms_str,
+payment-terms .initial:n =,
+add-allowance .code:n = {
+\seq_gput_right:Nn \g__zugferd_AllowanceCharge_seq {
+Indicator=false,
+#1
+}
+},
+add-charge .code:n = {
+\seq_gput_right:Nn \g__zugferd_AllowanceCharge_seq {
+Indicator=true,
+#1
+}
+},
+subject .choice:,
+subject / komavar .code:n = {
+\tl_gset:Nf \g__zugferd_subject_tl {\scr@subject@var}
+},
+subject / unknown .code:n  = \tl_gset:Nn \g__zugferd_subject_tl {#1},
+fromaddress .choice:,
+fromaddress / komavar .code:n = \tl_gset:Nf \g__zugferd_fromaddress_tl
+{\scr@fromaddress@var},
+fromaddress / unknown .code:n = \tl_gset:Nn \g__zugferd_fromaddress_tl {#1},
+add-note .code:n = \seq_gput_right:Nn \g__zugferd_notes_seq {#1},
+}
+\msg_new:nnnn {zugferd} {unknown-value} {
+You~selected~a~#1~which~was~not~predefined.\\
+I~will~directly~use~your~selection~'#1=#2'.
+Please~ensure~the~selection~is~valid!
+} {
+For~more~information~see~the~zugferd~documentation.
+}
+\cs_new:Nn \__zugferd_note_if_not_empty:N {%
+\tl_if_empty:NF #1 {%
+\__zugferd_write_note:n {#1}%
+}%
+}%
+\clist_map_inline:nn {seller,buyer,shipto} {
+\prop_new:c {g__zugferd_#1_AddressData_prop}
+\keys_define:nn {zugferd / #1} {
+address .code:n = {
+\seq_set_split:Nnn \l_tmpa_seq {\\} {##1}
+\keys_set:nx {zugferd / #1} {
+lineone={\seq_item:Nn \l_tmpa_seq {1}},
+linetwo={\seq_item:Nn \l_tmpa_seq {2}},
+linethree={\seq_item:Nn \l_tmpa_seq {3}}
+}
+},
+contact .code:n = {
+\seq_set_split:Nnn \l_tmpa_seq {\\} {##1}
+\int_compare:nNnTF {\seq_count:N \l_tmpa_seq} > {3} {
+\keys_set:ne {zugferd/#1} {
+contact-name = {\seq_item:Nn \l_tmpa_seq {1}},
+contact-department = {\seq_item:Nn \l_tmpa_seq {2}},
+contact-phone = {\seq_item:Nn \l_tmpa_seq {3}},
+contact-email= {\seq_item:Nn \l_tmpa_seq {4}},
+}
+}{
+\keys_set:ne {zugferd/#1} {
+contact-name = {\seq_item:Nn \l_tmpa_seq {1}},
+contact-phone = {\seq_item:Nn \l_tmpa_seq {2}},
+contact-email= {\seq_item:Nn \l_tmpa_seq {3}},
+}
+}
+},
+unknown .code:n = \tl_if_blank:nF {##1} {
+\prop_gput:cVe {g__zugferd_#1_AddressData_prop}
+\l_keys_key_tl {\tl_trim_spaces:n {##1}}
+}
+}
+}
+\cs_new:Nn \__zugferd_TradePartyIdentity:N {
+\__zugferd_TradePartyIdentity:eeeee
+{\prop_item:Nn #1 {id}}
+{\prop_item:Nn #1 {name}}
+{\prop_item:Nn #1 {legal-description}}
+{\prop_item:Nn #1 {legal-id}}
+{\prop_item:Nn #1 {trading-name}}
+}
+\cs_new:Nn \__zugferd_PostalTradeAddress_short:N {
+\exp_args:Ne \tl_if_blank:nF {\prop_item:Nn #1 {name}}
+{<ram:Name>\prop_item:Nn #1 {name}</ram:Name>
+\iow_newline:\__zugferd_xml_auto_indent:}
+\__zugferd_PostalTradeAddress:eeeeeee
+{\prop_item:Nn #1 {postcode}}
+{\prop_item:Nn #1 {lineone}}
+{\prop_item:Nn #1 {linetwo}}
+{\prop_item:Nn #1 {linethree}}
+{\prop_item:Nn #1 {city}}
+{\prop_item:Nn #1 {country}}
+{\prop_item:Nn #1 {subdivision}}
+}
+\cs_new:Nn \__zugferd_PostalTradeAddress:N {%
+\__zugferd_PostalTradeAddress:eeeeeee
+{\prop_item:Nn #1 {postcode}}
+{\prop_item:Nn #1 {lineone}}
+{\prop_item:Nn #1 {linetwo}}
+{\prop_item:Nn #1 {linethree}}
+{\prop_item:Nn #1 {city}}
+{\prop_item:Nn #1 {country}}
+{\prop_item:Nn #1 {subdivision}}
+\__zugferd_UniversalCommunication:n {\prop_item:Nn #1 {email}}
+\__zugferd_TaxRegistration:Nnn #1 {vatid} {taxid}
+}%
+\cs_new:Nn \__zugferd_DefinedTradeContact:N {%
+\__zugferd_DefinedTradeContact:eeee
+{\prop_item:Nn #1 {contact-name}}
+{\prop_item:Nn #1 {contact-department}}
+{\prop_item:Nn #1 {contact-phone}}
+{\prop_item:Nn #1 {contact-email}}
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_TradePartyIdentity:nnnnn {%
+%%<!-- seller BT-29 | buyer BT-46 | shipto BT-71 -->
+\__zugferd_write_inline:nn {ram:ID} {#1}
+%%<!-- seller BT-27 | buyer BT-44 | shipto BT-70 -->
+\__zugferd_write_inline:nn {ram:Name} {#2}
+%%<!-- seller BT-33 -->
+\__zugferd_write_inline:nn {ram:Description} {#3}
+\tl_if_blank:eF {#4#5} {%
+\__zugferd_xml_newline_indent:
+<ram:SpecifiedLegalOrganization>
+%%%<!-- seller BT-30 | buyer BT-47 -->
+\__zugferd_write_inline_i:nnn {ram:ID} {~schemeID="0088"} {#4}
+%%<!-- seller BT-28 | buyer BT-45 -->
+\__zugferd_write_inline_i:nn {ram:TradingBusinessName} {#5}
+\__zugferd_xml_newline_indent:
+</ram:SpecifiedLegalOrganization>
+}%
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_PostalTradeAddress:nnnnnnn {%
+\__zugferd_xml_newline_indent:
+<ram:PostalTradeAddress>
+\bool_if:NF \g__zugferd_minimum_bool {%
+\__zugferd_write_inline_i:nn {ram:PostcodeCode} {#1}
+\__zugferd_write_inline_i:nn {ram:LineOne} {#2}
+\__zugferd_write_inline_i:nn {ram:LineTwo} {#3}
+\__zugferd_write_inline_i:nn {ram:LineThree} {#4}
+\__zugferd_write_inline_i:nn {ram:CityName} {#5}
+}%
+\__zugferd_write_inline_i:nn {ram:CountryID} {#6}
+\bool_if:NF \g__zugferd_minimum_bool {%
+\__zugferd_write_inline_i:nn {ram:CountrySubDivisionName} {#7}
+}%
+\__zugferd_xml_newline_indent:
+</ram:PostalTradeAddress>%
+}%
+\cctab_begin:N \g__zugferd_xml_cctab%
+\bool_if:NTF \g__zugferd_minimum_bool {%
+\cs_set_eq:NN \__zugferd_UniversalCommunication:n \use_none:n%
+} {%
+\__zugferd_define_xml_content:Nn \__zugferd_UniversalCommunication:n {%
+\tl_if_blank:eF {#1} {
+<ram:URIUniversalCommunication>
+\__zugferd_indent: <ram:URIID~schemeID="EM">#1</ram:URIID>
+</ram:URIUniversalCommunication>%
+}%
+}%
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_TaxRegistration:nn {%
+%%%<!-- BT-34 -->
+\tl_if_blank:eF {#1} {
+<ram:SpecifiedTaxRegistration>
+\__zugferd_indent: <ram:ID~schemeID="VA">#1</ram:ID>
+</ram:SpecifiedTaxRegistration>%
+}%
+%%%<!-- BT-32 -->
+\tl_if_blank:eF {#2} {
+<ram:SpecifiedTaxRegistration>
+\__zugferd_indent: <ram:ID~schemeID="FC">#2</ram:ID>
+</ram:SpecifiedTaxRegistration>%
+}%
+}%
+\cctab_end:
+\cs_new:Nn \__zugferd_TaxRegistration:Nnn {
+\__zugferd_TaxRegistration:nn {\prop_item:Nn #1 {#2}} {\prop_item:Nn #1 {#3}}
+}
+\__zugferd_define_xml_content:Nn \__zugferd_DefinedTradeContact:nnnn {%
+\tl_if_blank:eT {#1} {\use_none:nnn}
+\bool_if:NT \g__zugferd_writeTradeContact_bool {
+\__zugferd_xml_newline_indent:
+<ram:DefinedTradeContact>
+\__zugferd_write_inline_i:nn {ram:PersonName} {#1}
+\__zugferd_write_inline_i:nn {ram:DepartmentName} {#2}
+\__zugferd_write_inline_wrapped_i:nnn
+{ram:TelephoneUniversalCommunication} {ram:CompleteNumber} {#3}
+\__zugferd_write_inline_wrapped_i:nnn
+{ram:EmailURIUniversalCommunication} {ram:URIID} {#4}
+\__zugferd_xml_newline_indent:
+</ram:DefinedTradeContact>
+}
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_ApplicableHeaderTradeAgreement: {
+\__zugferd_write_xml:n {<ram:ApplicableHeaderTradeAgreement>}
+\int_gincr:N \g__zugferd_indent_int
+\bool_lazy_and:nnF
+{\tl_if_blank_p:V \g__zugferd_buyer_reference_tl}
+{\g__zugferd_minimum_bool}
+{
+\__zugferd_write_xml:e {
+<ram:BuyerReference>\g__zugferd_buyer_reference_tl</ram:BuyerReference>
+}
+}
+\__zugferd_write_xml:n {<ram:SellerTradeParty>}
+\int_gincr:N \g__zugferd_indent_int
+\__zugferd_write_xml:e {
+\__zugferd_TradePartyIdentity:N \g__zugferd_seller_AddressData_prop
+\__zugferd_DefinedTradeContact:N \g__zugferd_seller_AddressData_prop
+\__zugferd_PostalTradeAddress:N \g__zugferd_seller_AddressData_prop
+}
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:e {
+</ram:SellerTradeParty>
+\__zugferd_xml_newline_indent:
+<ram:BuyerTradeParty>
+}
+\int_gincr:N \g__zugferd_indent_int
+\__zugferd_write_xml:e {
+\__zugferd_TradePartyIdentity:N \g__zugferd_buyer_AddressData_prop
+\bool_if:NF \g__zugferd_minimum_bool {
+\__zugferd_DefinedTradeContact:N \g__zugferd_buyer_AddressData_prop
+\__zugferd_PostalTradeAddress:N \g__zugferd_buyer_AddressData_prop
+}%
+}%
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:n {</ram:BuyerTradeParty>}
+\clist_map_inline:nn {SellerOrder,BuyerOrder,Contract} {
+\__zugferd_write_ReferencedDocument:n {##1}
+}
+\__zugferd_write_keyval:Nnn \g__zugferd_extra_fields_prop
+{SpecifiedProcuringProject} {BT-11}
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:n {</ram:ApplicableHeaderTradeAgreement>}
+\bool_if:NTF \g__zugferd_minimum_bool
+{\__zugferd_write_xml:n {<ram:ApplicableHeaderTradeDelivery/>}}
+{\__zugferd_ApplicableHeaderTradeDelivery:V \g__zugferd_delivery_date_tl}
+}
+
+\cctab_begin:N \g__zugferd_xml_cctab%
+\__zugferd_define_xml_content:Nn \__zugferd_ApplicableHeaderTradeDelivery:n {%
+\bool_lazy_and:nnF {\prop_if_empty_p:N \g__zugferd_shipto_AddressData_prop}%
+{\tl_if_blank_p:n {#1}}%
+{%
+\__zugferd_write_xml:n {<ram:ApplicableHeaderTradeDelivery>}%
+\prop_if_empty:NF \g__zugferd_shipto_AddressData_prop {%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {<ram:ShipToTradeParty>}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+\__zugferd_PostalTradeAddress_short:N \g__zugferd_shipto_AddressData_prop%
+}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:ShipToTradeParty>}%
+\int_gdecr:N \g__zugferd_indent_int%
+}%
+\tl_if_blank:nF {#1} {%
+\__zugferd_write_xml:n {%
+\__zugferd_indent: <ram:ActualDeliverySupplyChainEvent>
+\__zugferd_xml_date:nnn {2} {Occurrence} {#1}
+\__zugferd_indent: </ram:ActualDeliverySupplyChainEvent>%
+}%
+}%
+\__zugferd_write_xml:n {</ram:ApplicableHeaderTradeDelivery>}%
+}%
+}%
+\cctab_end:
+\cs_generate_variant:Nn \__zugferd_TradePartyIdentity:nnnnn {eeeee}
+\cs_generate_variant:Nn \__zugferd_DefinedTradeContact:nnnn {eeee}
+\cs_generate_variant:Nn \__zugferd_PostalTradeAddress:nnnnnnn {eeeeeee}
+\cs_generate_variant:Nn \__zugferd_ApplicableHeaderTradeDelivery:n {V}
+\tl_new:N \g__zugferd_buyer_reference_tl
+\keys_define:nn {zugferd/buyer} {
+reference .choice:,
+reference / komavar .code:n = {
+\tl_gset:Nf \g__zugferd_buyer_reference_tl {\scr@yourref@var}
+},
+reference / unknown .code:n = {
+\tl_gset:Nn \g__zugferd_buyer_reference_tl {#1}
+}
+}
+\prop_new:N \g__zugferd_extra_fields_prop
+\keys_define:nn {zugferd/buyer} {
+accounting-reference .code:n = \prop_gput:Nnn \g__zugferd_extra_fields_prop {BT-19} {#1}
+}
+\keys_define:nn {zugferd} {
+project .code:n = {
+\seq_set_split:Nnn \l_tmpa_seq {\\} {#1}
+\seq_pop_left:NN \l_tmpa_seq \l_tmpa_tl
+\prop_gput:Nne \g__zugferd_extra_fields_prop {BT-11} {
+ram:ID={\exp_not:V \l_tmpa_tl},
+ram:Name={\seq_if_empty:NTF \l_tmpa_seq {Project~Reference} {\seq_use:Nn \l_tmpa_seq {\\}}}
+}
+},
+project-reference .meta:n = {project = {#1}},
+}
+\prop_new:N \g__zugferd_document_references_prop
+\clist_new:N \g__zugferd_buyer_document_references_clist
+\keys_define:nn {zugferd} {
+contract-reference .prop_gput:N =  \g__zugferd_document_references_prop,
+buyerorder-reference .prop_gput:N =  \g__zugferd_document_references_prop,
+purchase-order-reference .meta:n = {buyerorder-reference=#1},
+sellerorder-reference .prop_gput:N =  \g__zugferd_document_references_prop,
+sales-order-reference .meta:n = {sellerorder-reference=#1},
+}
+\cctab_begin:N \g__zugferd_xml_cctab%
+\__zugferd_define_xml_writer:Nn \__zugferd_write_ReferencedDocument:n {%
+\prop_if_in:NeT \g__zugferd_document_references_prop {\str_lowercase:n {#1}-reference} {%
+\__zugferd_write_xml:e {%
+<ram:#1ReferencedDocument>
+\__zugferd_indent:<ram:IssuerAssignedID>\prop_item:Ne \g__zugferd_document_references_prop {\str_lowercase:n {#1}-reference}</ram:IssuerAssignedID>
+</ram:#1ReferencedDocument>%
+}%
+}%
+}%
+\cctab_end:
+\ExplSyntaxOff
+\providecommand*{\zugferd@paymentMeans@german}{
+ 1 = Keine Zahlungsart definiert,
+10 = Bargeld,
+30 = Überweisung,
+42 = Zahlung an Bankkonto,
+48 = Kartenzahlung,
+49 = Lastschriftverfahren,
+57 = Dauerauftrag,
+58 = Zahlung per SEPA Überweisung.,
+59 = SEPA Lastschrift,
+97 = Ausgleich zwischen Partnern
+}
+\def\zugferd@paymentMeans@ngerman{\zugferd@paymentMeans@german}
+\providecommand*{\zugferd@paymentMeans@english}{
+ 1 = Instrument not defined,
+10 = In cash,
+30 = Credit Transfer,
+31 = Debit Transfer,
+42 = Payment to bank account,
+48 = Bank card,
+49 = Direct Debit,
+57 = Standing agreement,
+58 = SEPA credit transfer,
+59 = SEPA direct debit,
+97 = Clearing between partners
+}
+\ExplSyntaxOn
+\tl_new:N \g__zugferd_payment_means_tl
+\keys_define:nn {zugferd} {
+payment-means / type .choices:nn = {1,10,30,42,48,49,57,58,59,97} {
+\tl_gset_eq:NN \g__zugferd_payment_means_tl \l_keys_choice_tl
+},
+payment-means / unknown .code:n = {
+\bool_if:NT \g__zugferd_unknown_value_warning_bool {
+\msg_warning:nnn { zugferd } {unknown-value} {payment-means} {#1}
+}
+\tl_gset:Nn \g__zugferd_payment_means_tl {\int_eval:n {#1}}
+}
+}
+
+\clist_map_inline:nn {iban,account-holder,bic} {
+\keys_define:nn {zugferd/payment-means} {
+#1 .tl_gset:c = {g__zugferd_payment_#1_tl}
+}
+  \keys_define:nn {zugferd/data} {
+    payment-means / #1 .code:n = \__zugferd_access_data:c {g__zugferd_payment_#1_tl},
+    payment-means / #1 .value_forbidden:n = true,
+  }
+}
+
+\prop_new:c {g__zugferd_payment-means_names_prop}
+\newcommand*{\setupZUGFeRDStrings}[2]{
+\prop_gset_from_keyval:cn {g__zugferd_#1_names_prop} {
+#2
+}
+}
+
+\hook_gput_code:nnn {begindocument/end}{zugferd/payment-means}{
+\prop_if_empty:cT {g__zugferd_payment-means_names_prop} {
+\exp_args:Nne \setupZUGFeRDStrings{payment-means}{
+\use:c {zugferd@paymentMeans@
+\cs_if_exist:cTF {zugferd@paymentMeans@\languagename}
+{\languagename} {english}
+}
+}
+}
+}
+\keys_define:nn { zugferd } {
+unit .choices:nn = {HUR,DAY,C62,H87} {
+\tl_set_eq:NN \l__zugferd_unit_code_tl \l_keys_choice_tl
+},
+unit / hour .meta:n = {unit=HUR},
+unit / day .meta:n = {unit=DAY},
+unit / one .meta:n= {unit= C62},
+unit / piece .meta:n = {unit=H87},
+unit / unknown .code:n = {
+\tl_set:Nx \l_tmpa_tl {\str_uppercase:f {#1}}
+\exp_args:NnnV \keys_if_choice_exist:nnnTF {zugferd} {unit}
+\l_tmpa_tl
+{
+\keys_set:ne { zugferd } {unit= {\l_tmpa_tl}}
+} {
+\bool_if:NT \g__zugferd_unknown_value_warning_bool {
+\msg_warning:nnn { zugferd } {unknown-unit} {#1}
+}
+\tl_set_eq:NN \l__zugferd_unit_code_tl \l_tmpa_tl
+}
+},
+unit .usage:n = general,
+}
+
+\msg_new:nnnn {zugferd} {unknown-unit} {
+You~selected~a~unit~which~was~not~predefined.\\
+I~~will~directly~use~your~selection~'unit=#1'~as~Common~Code.
+Please~ensure~the~selection~is~valid!
+} {
+For~more~information~see~the~zugferd~documentation\\
+and~the~/UN/CEFACT~Common~Code~list.
+}
+\msg_new:nnnn {zugferd} {unknown-tax-category} {
+You~selected~an~unknown~tax~category.\\
+I~~will~directly~use~your~selection~'category=#1'~as~Code.\\
+Please~ensure~the~selection~is~valid!
+} {
+For~more~information~see~the~zugferd~documentation\\
+and~the~corresponding~code~list.
+}
+\msg_new:nnnn {zugferd} {no-auto-exemption} {
+You~selected~tax/category=#1~together~with~the~auto-exemption~option.\\
+I~don't~have~any~pre-configured~exemption~setting~for~category=#1.\\
+Please~make~sure~you~add~a~valid~setting~yourself.
+} {
+For~more~information~see~the~zugferd~documentation.
+}
+\cs_new:Nn \__zugferd_configure_auto_exemption:nn {
+\tl_if_in:nnTF {#2} {=} {
+\keys_define:nn { zugferd / tax } {
+exemption-reason-auto / #1 .code:n = {
+\keys_set:nn {zugferd/tax}{
+#2
+}
+}
+}
+} {
+\keys_define:nn { zugferd / tax } {
+exemption-reason-auto / #1 .code:n = {
+\keys_set:nn {zugferd/tax} {
+exemption-reason={#2}
+}
+}
+}
+}
+}
+\keys_define:nn { zugferd / tax } {
+category .choices:nn = {S,Z,E,AE,K,G,O,L,M} {
+\tl_set_eq:NN \l__zugferd_tax_category_code_tl \l_keys_choice_tl
+\bool_if:NT \g__zugferd_auto_exemption_bool {
+\keys_if_choice_exist:nnnTF {zugferd/tax}  {exemption-reason-auto} {#1} {
+\keys_set:nn  {zugferd/tax}  {exemption-reason-auto=#1}
+} {
+\msg_warning:nnn { zugferd } {no-auto-exemption} {#1}
+}
+}
+},
+exemption-reason .tl_set:N = \l__zugferd_tax_exemption_reason_tl,
+exemption-reason  .initial:V = \c_empty_tl,
+exemption-reason .usage:n = general,
+exemption-reason-code .tl_set:N  = \l__zugferd_tax_exemption_code_tl,
+exemption-reason-code  .initial:V = \c_empty_tl,
+exemption-reason .usage:n = general,
+exemption-reason-auto .choice:,
+exemption-reason-auto / S .code:n = {
+\keys_set:nn {zugferd/tax} {exemption-reason=,exemption-reason-code=}
+},
+exemption-reason-auto / K .code:n = {
+\keys_set:nn {zugferd/tax} {
+exemption-reason= Intra-Community~Supply,
+exemption-reason-code={vatex-eu-ic}
+}
+},
+exemption-reason-auto / AE .code:n = {
+\keys_set:nn {zugferd/tax}{
+exemption-reason=Reverse~Charge,
+exemption-reason-code={vatex-eu-ae}
+}
+},
+exemption-reason-auto / G .code:n = {
+\keys_set:nn {zugferd/tax}{
+exemption-reason=Export~outside~the~EU,
+exemption-reason-code={vatex-eu-g}
+}
+},
+exemption-reason-auto / O .code:n = {
+\keys_set:nn {zugferd/tax}{
+exemption-reason=No~subject~to~VAT,
+exemption-reason-code={vatex-eu-o}
+}
+},
+exemption-reason-auto / Z .code:n = {
+\keys_set:nn {zugferd/tax}{
+exemption-reason=,
+exemption-reason-code=
+}
+},
+add-exemption-reason-auto .code:n = {
+\keyval_parse:nnn {\use_none:n} {\__zugferd_configure_auto_exemption:nn} {#1}
+},
+standard .meta:n = {category=S},
+zero .meta:n = {category=Z},
+exempt .meta:n = {category=E},
+reverse-charge .meta:n = {category=AE},
+intra-community .meta:n = {category=K},
+EEA .meta:n = {category=K},
+export .meta:n = {category=G},
+canary-islands .meta:n = {category=L},
+ceuta .meta:n = {category=M},
+melilla .meta:n = {category=M},
+category / unknown .code:n = {
+\exp_args:Nnnx \keys_if_choice_exist:nnnTF {zugferd} {category}
+{\str_uppercase:f {#1}}
+{
+\keys_set:nx { zugferd } {category= {\str_uppercase:f {#1}}}
+} {
+\tl_set:Ne \l__zugferd_tax_category_code_tl {\str_uppercase:f {#1}}
+\bool_if:NT \g__zugferd_unknown_value_warning_bool {
+\msg_warning:nnn { zugferd } {unknown-tax-category} {#1}
+}
+}
+},
+category .initial:n =  S,
+category .usage:n = general,
+rate .fp_set:N =  \l__zugferd_tax_rate_fp,
+rate .initial:n = 19,
+rate .usage:n = general
+}%
+\keys_define:nn {zugferd/item} {
+tax .choice:,
+tax / unknown .code:n = {
+\keys_set:ne {zugferd/tax} {
+\l_keys_key_str = \exp_not:V \l_keys_value_tl
+}
+},
+unknown .code:n = \keys_set:ne {zugferd}
+{ \l_keys_key_str = \exp_not:V \l_keys_value_tl}
+}
+\keys_define:nn { zugferd / data / tax } {
+rate .code:n = \fp_use:N \l__zugferd_tax_rate_fp,
+category .code:n = \l__zugferd_tax_category_code_tl,
+exemption-reason .code:n = \l__zugferd_tax_exemption_reason_tl,
+exemption-reason-code .code:n = \l__zugferd_tax_exemption_code_tl,
+}
+\keys_define:nn { zugferd / item } {
+start-date .tl_set:N = \l__zugferd_start_date_tl,
+start-date .initial:n =,
+end-date .tl_set:N = \l__zugferd_end_date_tl,
+end-date .initial:n =,
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_write_inline:nn {
+\__zugferd_write_inline:nnn {#1} {} {#2}
+}
+\cs_generate_variant:Nn \__zugferd_write_inline:nn {ne}
+\__zugferd_define_xml_content:Nn \__zugferd_write_inline:nnnn {
+\tl_if_blank:nF {#4} {
+\__zugferd_xml_newline_indent:n {#1}
+<#2#3>#4</#2>
+}
+}
+\__zugferd_define_xml_content:Nn \__zugferd_write_inline:nnn {
+\__zugferd_write_inline:nnnn {} {#1} {#2} {#3}
+}
+\__zugferd_define_xml_content:Nn \__zugferd_xml_wrapped:nnnnn {
+\__zugferd_indent:n {#1} <#2>\__zugferd_xml_newline_indent:
+\__zugferd_indent:n {#1+1} <#3#4>#5</#3>\__zugferd_xml_newline_indent:
+\__zugferd_indent:n {#1} </#2>
+}
+\__zugferd_define_xml_content:Nn \__zugferd_write_inline_wrapped:nnnn {
+\tl_if_blank:nF {#4} {
+\__zugferd_xml_newline_indent:
+\__zugferd_xml_wrapped:nnnnn {#1} {#2} {#3} {} {#4}
+}
+}
+\cs_generate_variant:Nn \__zugferd_write_inline_wrapped:nnnn {nnne}
+
+\__zugferd_define_xml_content:Nn \__zugferd_xml_date:nnn {%
+ \__zugferd_xml_wrapped:nnnnn  {#1} {ram:#2DateTime}
+{udt:DateTimeString}{~format="102"}{#3}%
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_write_prop:Nnn {
+\prop_if_in:NeT #1 {#3} {
+\__zugferd_write_xml:e {
+<ram:#2>\prop_item:Ne #1 {#3}</ram:#2>
+}
+}
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_write_prop:Nn {
+ \__zugferd_write_prop:Nnn #1 {#2} {#2}
+}
+
+\cctab_begin:N \g__zugferd_xml_cctab%
+\__zugferd_define_xml_writer:Nn \__zugferd_write_prop_wrapped:Nnnn {%
+\prop_if_in:NeT #1 {#4} {%
+\__zugferd_write_xml:e {%
+<#2>
+\__zugferd_indent:<#3>\prop_item:Ne #1 {#4}</#3>
+</#2>%
+}%
+}%
+}%
+\cctab_end:
+\__zugferd_define_xml_writer:Nn \__zugferd_write_optional_wrapped:nnn {%
+\__zugferd_write_prop_wrapped:Nnnn \g__zugferd_extra_fields_prop
+{ram:#1} {ram:#2} {#3}
+}
+
+\__zugferd_define_xml_content:Nn \__zugferd_write_inline_wrapped_i:nnn {
+\__zugferd_write_inline_wrapped:nnnn {1} {#1} {#2} {#3}
+}
+\cs_generate_variant:Nn \__zugferd_write_inline_wrapped_i:nnn {nne}
+
+\__zugferd_define_xml_content:Nn \__zugferd_write_wrapped:nnn {
+\__zugferd_write_inline_wrapped:nnnn {1} {#1} {#2} {#3}
+}
+\cs_generate_variant:Nn \__zugferd_write_wrapped:nnn {nne}
+\__zugferd_define_xml_content:Nn  \__zugferd_write_inline_i:nnn {
+\__zugferd_write_inline:nnnn {+1} {#1} {#2} {#3}
+}
+\__zugferd_define_xml_content:Nn  \__zugferd_write_inline_i:nn {
+\__zugferd_write_inline_i:nnn {#1} {} {#2}
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_write_keyval:Nnn {
+\prop_if_in:NeT #1 {#3} {
+\__zugferd_write_xml:e {
+<ram:#2>
+\exp_args:Nnne \keyval_parse:nnn {\use_none:n} {
+\__zugferd_write_inline_i:nn
+} {\prop_item:Ne \g__zugferd_extra_fields_prop {#3}}
+\__zugferd_xml_newline_indent:
+</ram:#2>
+}
+}
+}
+
+\cctab_begin:N \g__zugferd_xml_cctab%
+\bool_if:NTF \g__zugferd_minimum_bool {%
+\cs_set_eq:NN \__zugferd_write_note:n \use_none:n%
+} {%
+\__zugferd_define_xml_writer:Nn \__zugferd_write_note:n {%
+\begingroup%
+\let\\\iow_newline:%
+\__zugferd_write_xml:e {%
+<ram:IncludedNote>
+\__zugferd_indent: <ram:Content>
+#1
+\__zugferd_indent: </ram:Content>
+</ram:IncludedNote>%
+}%
+\endgroup%
+}%
+}%
+\begingroup%
+\char_set_catcode_other:N \#%
+\char_set_catcode:nn {32}{10}%
+\__zugferd_define_xml_writer:Nn \__zugferd_insert_Header: {%
+\__zugferd_write_xml:e {%
+<?xml version='1.0' encoding='UTF-8' ?>
+<rsm:CrossIndustryInvoice %
+xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" %
+xmlns:qdt="urn:un:unece:uncefact:data:standard:QualifiedDataType:100" %
+xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" %
+xmlns:xs="http://www.w3.org/2001/XMLSchema" %
+xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">%
+}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {<rsm:ExchangedDocumentContext>}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+\str_if_empty:NF \g__zugferd_businessProcessId_str {%
+<ram:BusinessProcessSpecifiedDocumentContextParameter>
+\__zugferd_indent: <ram:ID>\g__zugferd_businessProcessId_str</ram:ID>
+</ram:BusinessProcessSpecifiedDocumentContextParameter>
+}%
+<ram:GuidelineSpecifiedDocumentContextParameter>
+\__zugferd_indent: <ram:ID>\g__zugferd_format_str</ram:ID>
+</ram:GuidelineSpecifiedDocumentContextParameter>%
+}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</rsm:ExchangedDocumentContext>}%
+}%
+\endgroup%
+\__zugferd_define_xml_writer:Nn \__zugferd_insert_FrontMatter: {%
+\__zugferd_write_xml:n {<rsm:ExchangedDocument>}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+<ram:ID>\g__zugferd_id_tl</ram:ID>
+<ram:TypeCode>\g__zugferd_DocumentTypeCode_tl</ram:TypeCode>
+\__zugferd_xml_date:nnn {0} {Issue} {\g__zugferd_date_tl}%
+}%
+\__zugferd_note_if_not_empty:N \g__zugferd_subject_tl%
+\__zugferd_note_if_not_empty:N \g__zugferd_fromaddress_tl%
+\seq_map_inline:Nn \g__zugferd_notes_seq {%
+\__zugferd_write_note:n {##1}%
+}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+</rsm:ExchangedDocument>
+<rsm:SupplyChainTradeTransaction>%
+}%
+\int_gincr:N \g__zugferd_indent_int%
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_insert_Footer: {%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</rsm:SupplyChainTradeTransaction>}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</rsm:CrossIndustryInvoice>}%
+}%
+\cctab_end:
+\cctab_begin:N \g__zugferd_xml_cctab%
+\__zugferd_define_xml_writer:Nn \__zugferd_AssociatedDocumentLineDocument:n {%
+<ram:AssociatedDocumentLineDocument>
+\__zugferd_indent: <ram:LineID>#1</ram:LineID>
+</ram:AssociatedDocumentLineDocument>%
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_SpecifiedTradeProduct:nn {%
+<ram:SpecifiedTradeProduct>
+\bool_lazy_or:nnF%
+{\tl_if_blank_p:n {#1}}%
+{\str_if_eq_p:Vn \g__zugferd_conformance_level_str {BASIC}} {%
+\__zugferd_indent: <ram:SellerAssignedID>#1</ram:SellerAssignedID>
+}%
+\__zugferd_indent: <ram:Name>#2</ram:Name>
+</ram:SpecifiedTradeProduct>%
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_ProductTradePrice:nn {%
+<ram:\str_uppercase:n #1PriceProductTradePrice>
+\__zugferd_indent: <ram:ChargeAmount>#2</ram:ChargeAmount>
+</ram:\str_uppercase:n #1PriceProductTradePrice>%
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedLineTradeAgreement:nn {%
+<ram:SpecifiedLineTradeAgreement>
+\__zugferd_indent:<ram:GrossPriceProductTradePrice>
+\__zugferd_indent:n {2} <ram:ChargeAmount>#1</ram:ChargeAmount>
+\__zugferd_indent:</ram:GrossPriceProductTradePrice>
+\__zugferd_indent:<ram:NetPriceProductTradePrice>
+\__zugferd_indent:n {2} <ram:ChargeAmount>#2</ram:ChargeAmount>
+\__zugferd_indent:</ram:NetPriceProductTradePrice>
+</ram:SpecifiedLineTradeAgreement>
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_SpecifiedLineTradeDelivery:nn {%
+<ram:SpecifiedLineTradeDelivery>
+\__zugferd_indent: <ram:BilledQuantity~unitCode="#1">#2</ram:BilledQuantity>
+</ram:SpecifiedLineTradeDelivery>%
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_write_SpecifiedLineTradeSettlement:nnn {%
+\__zugferd_write_xml:n {<ram:SpecifiedLineTradeSettlement>}%
+\int_gincr:N \g__zugferd_indent_int%
+ \__zugferd_write_xml:e {\__zugferd_Line_ApplicableTradeTax:nn {#1} {#2}}%
+ \__zugferd_write_xml:e {\__zugferd_BillingSpecifiedPeriod:VV \l__zugferd_start_date_tl \l__zugferd_end_date_tl}%
+ \__zugferd_write_xml:e {\__zugferd_SpecifiedTradeSettlementLineMonetarySummation:n {#3}}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:SpecifiedLineTradeSettlement>}%
+}%
+\cs_generate_variant:Nn \__zugferd_write_SpecifiedLineTradeSettlement:nnn {Vnn}%
+\__zugferd_define_xml_content:Nn \__zugferd_Line_ApplicableTradeTax:nn {%
+<ram:ApplicableTradeTax>
+\__zugferd_indent: <ram:TypeCode>VAT</ram:TypeCode>
+\__zugferd_indent:  <ram:CategoryCode>#1</ram:CategoryCode>
+\__zugferd_indent: <ram:RateApplicablePercent>#2</ram:RateApplicablePercent>
+</ram:ApplicableTradeTax>%
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_BillingSpecifiedPeriod:nn {%
+\bool_lazy_or:nnF {\tl_if_blank_p:n {#1}} {\tl_if_blank_p:n {#2}} {%
+<ram:BillingSpecifiedPeriod>%
+
+\__zugferd_xml_date:nnn {1} {Start} {#1}%
+
+\__zugferd_xml_date:nnn {1} {End} {#2}
+</ram:BillingSpecifiedPeriod>%
+   }%
+}%
+\__zugferd_define_xml_content:Nn \__zugferd_SpecifiedTradeSettlementLineMonetarySummation:n {%
+<ram:SpecifiedTradeSettlementLineMonetarySummation>
+\__zugferd_indent: <ram:LineTotalAmount>#1</ram:LineTotalAmount>
+ </ram:SpecifiedTradeSettlementLineMonetarySummation>%
+}
+
+\cctab_end:
+\cs_generate_variant:Nn \__zugferd_SpecifiedLineTradeSettlement:nnn {Vnn}
+\cs_generate_variant:Nn \__zugferd_BillingSpecifiedPeriod:nn {VV}
+\cs_new:Nn \__zugferd_SpecifiedLineTradeSettlement:nnnn {
+\msg_warning:nnnn {zugferd} {macro-deprecated}
+{ \__zugferd_SpecifiedLineTradeSettlement:nnnn }
+{ \__zugferd_SpecifiedLineTradeSettlement:nnn }
+\__zugferd_SpecifiedLineTradeSettlement:nnn {#2} {#3} {#4}
+}
+\cs_generate_variant:Nn \__zugferd_SpecifiedLineTradeSettlement:nnnn {VVnn}
+\__zugferd_define_xml_writer:Nn \__zugferd_insert_TradeLineItem:nnnnnn {
+\__zugferd_write_xml:n {<ram:IncludedSupplyChainTradeLineItem>}
+\int_gincr:N \g__zugferd_indent_int
+\__zugferd_write_xml:e {\__zugferd_AssociatedDocumentLineDocument:n {#1}}%
+
+\begingroup
+\zugferd_disable_macros:
+\__zugferd_write_xml:e {\__zugferd_SpecifiedTradeProduct:nn {#2} {#3}}
+\endgroup
+
+\__zugferd_write_xml:n {<ram:SpecifiedLineTradeAgreement>}
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {\__zugferd_ProductTradePrice:nn {net} {#4}}
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:SpecifiedLineTradeAgreement>}
+\__zugferd_write_xml:e {%
+\__zugferd_SpecifiedLineTradeDelivery:nn { \l__zugferd_unit_code_tl } {#5}%
+}%
+\__zugferd_write_SpecifiedLineTradeSettlement:Vnn \l__zugferd_tax_category_code_tl %
+{ \fp_use:N \l__zugferd_tax_rate_fp} {#6}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:IncludedSupplyChainTradeLineItem>}
+}
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradeSettlementHeaderMonetarySummation:nnnnnnnn {%
+\__zugferd_write_xml:n {<ram:SpecifiedTradeSettlementHeaderMonetarySummation>}%
+\int_gincr:N \g__zugferd_indent_int%
+\bool_if:NF \g__zugferd_minimum_bool {
+\__zugferd_write_rounded:nnn {2} {LineTotalAmount} {#1}
+\__zugferd_write_rounded:nnn {2} {ChargeTotalAmount} {#2}
+\__zugferd_write_rounded:nnn {2} {AllowanceTotalAmount} {#3}
+}
+\__zugferd_write_rounded:nnn {2} {TaxBasisTotalAmount} {#4}
+\__zugferd_write_rounded:nnnn {2} {TaxTotalAmount}
+{~currencyID="\l__zugferd_currency_tl "} {#5}
+\__zugferd_write_rounded:nnn {2} {GrandTotalAmount} {#6}
+\bool_if:NF \g__zugferd_minimum_bool {
+\__zugferd_write_rounded:nnn {2} {TotalPrepaidAmount} {#7}
+}
+\__zugferd_write_rounded:nnn {2} {DuePayableAmount} {#8}
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:SpecifiedTradeSettlementHeaderMonetarySummation>}%
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_ApplicableTradeTax:nnnn {%
+\__zugferd_write_xml:n {<ram:ApplicableTradeTax>}
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_rounded:nnn {2} {CalculatedAmount} {#4}%BT117
+\__zugferd_write_xml:n {<ram:TypeCode>VAT</ram:TypeCode>}%BT118
+\begingroup
+\bool_if:NT \g__zugferd_auto_exemption_bool {%
+\keys_set:nn  { zugferd / tax } {exemption-reason-auto=#1}
+}%
+\tl_if_blank:VF \l__zugferd_tax_exemption_reason_tl {%BT-120
+\__zugferd_write_xml:e {<ram:ExemptionReason>
+\l__zugferd_tax_exemption_reason_tl
+</ram:ExemptionReason>}
+}
+{{\__zugferd_write_rounded:nnn {2} {BasisAmount} {#3}}}%BT-116
+\__zugferd_write_xml:e {<ram:CategoryCode>#1</ram:CategoryCode>}%BT-118
+\bool_lazy_or:nnF% BT121
+{\tl_if_blank_p:V \l__zugferd_tax_exemption_code_tl}%
+{\str_if_eq_p:Vn \g__zugferd_conformance_level_str {BASIC}}%
+{%
+\__zugferd_write_xml:e {%
+<ram:ExemptionReasonCode>\l__zugferd_tax_exemption_code_tl</ram:ExemptionReasonCode>%
+}%
+}%
+\endgroup
+\__zugferd_write_xml:n {<ram:RateApplicablePercent>#2</ram:RateApplicablePercent>}%BT-119
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:ApplicableTradeTax>}
+}%
+\__zugferd_define_xml_writer:Nn \__zugferd_ApplicableHeaderTradeSettlement_start: {
+\__zugferd_write_xml:n {<ram:ApplicableHeaderTradeSettlement>}
+\int_gincr:N \g__zugferd_indent_int
+\__zugferd_write_xml:e {
+\__zugferd_write_inline:ne {ram:InvoiceCurrencyCode} {\l__zugferd_currency_tl}
+}
+}
+\__zugferd_define_xml_writer:Nn \__zugferd_ApplicableHeaderTradeSettlement_stop: {
+\__zugferd_write_optional_wrapped:nnn {ReceivableSpecifiedTradeAccountingAccount} {ID} {BT-19}% BT-19
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:n {</ram:ApplicableHeaderTradeSettlement>}
+}
+\seq_new:N \g__zugferd_AllowanceCharge_seq
+
+\clist_map_inline:nn {
+Indicator,
+CalculationPercent,
+BasisAmount,
+ActualAmount,
+ReasonCode,
+Reason,
+tax/category,
+tax/rate,
+} {
+\keys_define:nn {zugferd/allowance-charge} {
+#1 .code:n  = \prop_put:Nnn \l__zugferd_AllowanceCharge_prop {#1} {##1}
+}
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradeAllowanceCharge: {
+\seq_map_inline:Nn \g__zugferd_AllowanceCharge_seq {
+\__zugferd_SpecifiedTradeAllowanceCharge:n {##1}
+}
+}
+
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradeAllowanceCharge:n {
+\prop_clear_new:N \l__zugferd_AllowanceCharge_prop
+\keys_set:nn {zugferd/allowance-charge} {#1}
+\__zugferd_write_xml:n {<ram:SpecifiedTradeAllowanceCharge>}
+\int_gincr:N \g__zugferd_indent_int
+\__zugferd_write_prop_wrapped:Nnnn \l__zugferd_AllowanceCharge_prop
+{ram:ChargeIndicator} {udt:Indicator} {Indicator}
+\clist_map_inline:nn {
+CalculationPercent,% BT-101/BT-94
+BasisAmount,% BT-100/BT-93
+ActualAmount,% BT-99/BT-92
+ReasonCode,% BT-105/BT-98
+Reason% BT-104/BT-97
+} {
+\__zugferd_write_prop:Nn \l__zugferd_AllowanceCharge_prop {##1}
+}
+\__zugferd_write_xml:e {<ram:CategoryTradeTax>\iow_newline:
+\__zugferd_xml_auto_indent:n {+1}
+
+<ram:TypeCode>VAT</ram:TypeCode>
+}
+\int_incr:N \g__zugferd_indent_int
+
+\__zugferd_write_prop:Nnn \l__zugferd_AllowanceCharge_prop
+{CategoryCode} {tax/category}
+
+\__zugferd_write_prop:Nnn \l__zugferd_AllowanceCharge_prop
+{RateApplicablePercent} {tax/rate}
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:n {</ram:CategoryTradeTax>}
+\int_gdecr:N \g__zugferd_indent_int
+\__zugferd_write_xml:n {</ram:SpecifiedTradeAllowanceCharge>}
+}
+\cctab_begin:N \g__zugferd_xml_cctab%
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradePaymentTerms:nn {%
+\__zugferd_write_xml:e {\__zugferd_BillingSpecifiedPeriod:VV \g__zugferd_start_date_tl \g__zugferd_end_date_tl}%
+\__zugferd_write_xml:n {<ram:SpecifiedTradePaymentTerms>}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+\tl_if_blank:nF {#1} {%
+<ram:Description>#1</ram:Description>%
+}%
+\tl_if_blank:nF {#2} {
+\__zugferd_xml_date:nnn {0} {DueDate} {#2}%
+}%
+}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:SpecifiedTradePaymentTerms>}%
+}%
+\__zugferd_define_xml_writer:Nn%
+\__zugferd_SpecifiedTradeSettlementPaymentMeans:nnn%
+{%
+\bool_if:NT \g__zugferd_writePaymentMeans_bool {%
+\__zugferd_write_xml:n {<ram:SpecifiedTradeSettlementPaymentMeans>}%
+\int_gincr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:e {%
+<ram:TypeCode>\g__zugferd_payment_means_tl</ram:TypeCode>%
+\str_if_eq:VnT  \g__zugferd_conformance_level_str {XRECHNUNG} {%
+\__zugferd_write_inline:ne {ram:Information} {%
+\prop_item:cV {g__zugferd_payment-means_names_prop} \g__zugferd_payment_means_tl%
+}%
+}%
+\tl_if_blank:nF {#1#2} {
+<ram:PayeePartyCreditorFinancialAccount>%
+\__zugferd_write_inline_i:nn {ram:IBANID} {#2}%
+\str_if_eq:VnT  \g__zugferd_conformance_level_str {XRECHNUNG} {%
+\__zugferd_write_inline_i:nn {ram:AccountName} {#1}
+}%
+</ram:PayeePartyCreditorFinancialAccount>
+}%
+\str_if_eq:VnT  \g__zugferd_conformance_level_str {XRECHNUNG} {%
+\tl_if_blank:nF {#3} {%
+<ram:PayeeSpecifiedCreditorFinancialInstitution>%
+\__zugferd_write_inline_i:nn {ram:BICID} {#3}
+</ram:PayeeSpecifiedCreditorFinancialInstitution>%
+}%
+}%
+}%
+\int_gdecr:N \g__zugferd_indent_int%
+\__zugferd_write_xml:n {</ram:SpecifiedTradeSettlementPaymentMeans>}%
+}%
+}%
+\cctab_end:
+\cs_generate_variant:Nn \__zugferd_SpecifiedTradePaymentTerms:nn {VV}
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradePaymentTerms: {
+\bool_if:NF \g__zugferd_minimum_bool {
+\__zugferd_SpecifiedTradePaymentTerms:VV
+\g__zugferd_payment_terms_str \g__zugferd_due_date_tl
+}
+}
+\cs_generate_variant:Nn  \__zugferd_SpecifiedTradeSettlementPaymentMeans:nnn {vvv}
+\__zugferd_define_xml_writer:Nn \__zugferd_SpecifiedTradeSettlementPaymentMeans: {
+\tl_if_blank:VF \g__zugferd_payment_means_tl {
+\__zugferd_SpecifiedTradeSettlementPaymentMeans:vvv
+{g__zugferd_payment_account-holder_tl}
+{g__zugferd_payment_iban_tl} {g__zugferd_payment_bic_tl}
+}
+}
+\msg_new:nnn {zugferd} {macro-deprecated} {
+The~function~#1~is~deprecated.\\
+It~was~replaced~by~#2.\\
+Please~adjust~your~mechanism~to~use~the~new~version.
+}
+\endinput
+%%
+%% End of file `zugferd.sty'.

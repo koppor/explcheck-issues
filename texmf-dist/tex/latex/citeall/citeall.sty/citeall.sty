@@ -1,0 +1,185 @@
+%% ---------------------------------------------------------------
+%% The citeall package --- A package to test biblatex-cite commands
+%% Maintained by Ulrike Fischer
+%% E-mail: fischer@troubleshooting-tex.de
+%% www.troubleshooting-tex.de
+%% Released under the LaTeX Project Public License v1.3c or later
+%% See http://www.latex-project.org/lppl.txt
+%% $UFDate: 2017-12-03 18:19:20 +0100 -- Commit: 4f26014 (HEAD, master) -- master$
+%% ---------------------------------------------------------------
+
+\RequirePackage{xparse}
+
+\ProvidesExplPackage {citeall} {2017/12/03} {1.4}
+  {a package to test biblatex-cite commands}
+
+\@ifpackageloaded{biblatex}{}{%
+   \PackageWarning{citeall}
+    {
+     This~package~works~only~with~biblatex!\MessageBreak
+     Load~it~before~citeall!\MessageBreak
+     Loading~citeall~will~abort!
+     }%
+   \NewDocumentCommand\citeall { O{} } {}
+   \tex_endinput:D}
+
+\DeclareBibliographyCategory{citeall}
+
+% commands to hold arguments and temporary values
+\clist_new:N \l__UFca_citecommands_clist
+\tl_new:N    \l__UFca_temp_citefunction_tl
+\tl_new:N    \l__UFca_temp_entrykey_tl
+\int_new:N   \l__UFca_temp_listitem_int
+\int_new:N   \l__UFca_temp_listlength_int
+\int_new:N   \l__UFca_entrynum_int
+\int_new:N   \l__UFca_cur_entrynum_int
+
+% formatting commands
+\NewDocumentCommand \citeallgroupseparator     {}{\par}
+\NewDocumentCommand \citeallseparator          {}{,\c_space_tl}
+\NewDocumentCommand \citeallfinentry           {}{}
+\NewDocumentCommand \citealldefaultcite        {}{\cite}
+\NewDocumentCommand \citeallpreambledefinition {m}{}
+
+\clist_const:Nn\g_UFca_bbl_cmds_clist
+ {
+  true,
+  false,
+  field,
+  name,
+  strng,
+  keyw,
+  set,
+  warn,
+  inset,
+  range,
+  missing,
+  keyalias,
+  xref,
+  cnt,
+  annotation,
+  list
+ }
+
+\clist_const:Nn\g_UFca_bbl_envs_clist
+ {
+  refsection,
+  sortlist,
+  datalist
+ }
+
+\newcommand\@@UFca@bblcmd@true    [2][]{{\ignorespaces}}
+\newcommand\@@UFca@bblcmd@false   [2][]{{\ignorespaces}}
+\newcommand\@@UFca@bblcmd@field   [3][]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@name    [5][]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@strng   [2]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@keyw    [1]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@set     [1]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@warn    [1]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@inset   [1]{\addtocategory{citeall}{#1}\ignorespaces}
+\newcommand\@@UFca@bblcmd@range   [2]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@missing [1]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@keyalias[2]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@xref    [1]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@cnt     [2]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@annotation[5]{\ignorespaces}
+\newcommand\@@UFca@bblcmd@list    [4][]{\ignorespaces}
+
+\newenvironment{@@UFca@bblenv@refsection}[1]{}{\ignorespaces}
+\newenvironment{@@UFca@bblenv@sortlist}  [2][]{}{\ignorespaces}
+\newenvironment{@@UFca@bblenv@datalist}  [2][]{}{\ignorespaces}
+
+%init suitable definitions for the fields in the bbl
+\cs_new:Nn \__UFca_init_bblfields:
+ {
+  \let\preamble\citeallpreambledefinition
+  \clist_map_inline:Nn\g_UFca_bbl_cmds_clist
+  {
+   \cs_set_eq:cc { @@UFca@oricmd@##1 } { ##1 }
+   %\cs_show:c { @@UFca@oricmd@##1 }
+   \cs_set_eq:cc { ##1 } { @@UFca@bblcmd@##1 }
+  }
+  \def\verb##1\endverb     {\ignorespaces}
+  \def\lverb##1\endlverb   {\ignorespaces} %see https://github.com/plk/biblatex/issues/229
+  \cs_set_eq:NN \refsection      \@@UFca@bblenv@refsection
+  \cs_set_eq:NN \endrefsection   \end@@UFca@bblenv@refsection
+  \cs_set_eq:NN \sortlist        \@@UFca@bblenv@sortlist
+  \cs_set_eq:NN \endsortlist     \end@@UFca@bblenv@sortlist
+  \cs_set_eq:NN \datalist        \@@UFca@bblenv@datalist
+  \cs_set_eq:NN \enddatalist     \end@@UFca@bblenv@datalist
+ }
+
+% init the entry environment
+%#1=number of entries to process, if 0: process all
+\cs_new:Nn \__UFca_init_bblentryenv:n
+ {
+  \int_set:Nn   \l__UFca_entrynum_int {#1}
+  \int_zero:N   \l__UFca_cur_entrynum_int
+  \NewDocumentEnvironment{entry} {m m m}
+  {
+   \int_incr:N  \l__UFca_cur_entrynum_int
+   \tl_set:Nn   \l__UFca_temp_entrykey_tl {##1}
+   \int_zero:N  \l__UFca_temp_listitem_int
+   \int_set:Nn  \l__UFca_temp_listlength_int
+    {
+     \clist_count:N\l__UFca_citecommands_clist
+    }
+   \bool_if:nT
+    {
+     \int_compare_p:n { \l__UFca_entrynum_int = 0 }
+      ||
+     \int_compare_p:n { \l__UFca_cur_entrynum_int <= \l__UFca_entrynum_int }
+    }
+    {
+     \addtocategory{citeall}{##1}
+     \clist_map_variable:NNn \l__UFca_citecommands_clist \l__UFca_temp_citefunction_tl
+     {
+      \int_incr:N \l__UFca_temp_listitem_int
+      \group_begin:
+       \cs_set_eq:NN\list\@@UFca@oricmd@list
+
+       \l__UFca_temp_citefunction_tl {\l__UFca_temp_entrykey_tl}
+      \group_end:
+      \int_compare:nNnTF
+      {\l__UFca_temp_listitem_int}<{\l__UFca_temp_listlength_int}
+      {
+       \citeallseparator
+      }
+      {
+       \citeallfinentry
+      }
+     }
+     \citeallgroupseparator
+    }
+  }
+  {}
+ }
+
+
+% the main command
+
+\NewDocumentCommand\citeall { O{\citealldefaultcite} o}
+ {
+  \nocite{*} %cite all entries
+  \clist_set:Nn      \l__UFca_citecommands_clist { #1 }
+  \clist_if_empty:NT \l__UFca_citecommands_clist
+   {
+    \clist_put_right:Nn \l__UFca_citecommands_clist { \citealldefaultcite }
+   }
+  \group_begin:
+   \IfNoValueTF{#2}
+   {
+    \__UFca_init_bblentryenv:n{0}
+   }
+   {
+    \__UFca_init_bblentryenv:n{#2}
+   }
+   \__UFca_init_bblfields:
+   \file_if_exist:nT
+    {\jobname.bbl}
+    {\file_input:n{\jobname.bbl}}%
+  \group_end:
+ }
+
+
+\endinput

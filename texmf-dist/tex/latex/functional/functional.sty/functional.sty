@@ -1,0 +1,2930 @@
+%%% -*- coding: utf-8 -*-
+%% ----------------------------------------------------------------------------
+%% Functional: Intuitive Functional Programming Interface for LaTeX2
+%% Copyright : 2022-2023 (c) Jianrui Lyu <tolvjr@163.com>
+%% Repository: https://github.com/lvjr/functional
+%% Repository: https://bitbucket.org/lvjr/functional
+%% License   : The LaTeX Project Public License 1.3c
+%% ----------------------------------------------------------------------------
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Functional Programming (Prg)}
+%%% --------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}[2018-04-01]
+
+\RequirePackage{expl3}
+\ProvidesExplPackage{functional}{2024-12-18}{2024C}
+  {^^JIntuitive Functional Programming Interface for LaTeX2}
+
+\cs_generate_variant:Nn \iow_log:n { V }
+\cs_generate_variant:Nn \str_set:Nn { Ne }
+\cs_generate_variant:Nn \tl_const:Nn { NV }
+\cs_generate_variant:Nn \tl_log:n { e }
+\cs_generate_variant:Nn \tl_set:Nn { Ne }
+
+\prg_generate_conditional_variant:Nnn \str_if_eq:nn { Ve } { TF }
+
+\cs_new_protected:Npn \__fun_ignore_spaces_on:
+  {
+    \ExplSyntaxOn
+    \char_set_catcode_math_subscript:N \_
+    \char_set_catcode_other:N \:
+  }
+\cs_set_eq:NN \IgnoreSpacesOn \__fun_ignore_spaces_on:
+\cs_set_eq:NN \IgnoreSpacesOff \ExplSyntaxOff
+
+%%% --------------------------------------------------------
+%%> \subsection{Setting Functional Package}
+%%% --------------------------------------------------------
+
+\bool_new:N \l__fun_scoping_bool
+
+\cs_new_protected:Npn \__fun_scoping_true:
+  {
+    \cs_set_eq:NN \__fun_group_begin: \group_begin:
+    \cs_set_eq:NN \__fun_group_end: \group_end:
+  }
+
+\cs_new_protected:Npn \__fun_scoping_false:
+  {
+    \cs_set_eq:NN \__fun_group_begin: \scan_stop:
+    \cs_set_eq:NN \__fun_group_end: \scan_stop:
+  }
+
+\cs_new_protected:Npn \__fun_scoping_set:
+  {
+    \bool_if:NTF \l__fun_scoping_bool
+      { \__fun_scoping_true: } { \__fun_scoping_false: }
+  }
+
+\bool_new:N \l__fun_tracing_bool
+\tl_new:N \l__tracing_text_tl
+
+\cs_new_protected:Npn \__fun_tracing_log_on:n #1
+  {
+    \tl_set:Ne \l__tracing_text_tl
+      {
+        \prg_replicate:nn
+          { \int_eval:n { (\g__fun_nesting_level_int - 1) * 4 } } { ~ }
+      }
+    \tl_put_right:Nn \l__tracing_text_tl { #1 }
+    \iow_log:V \l__tracing_text_tl
+  }
+\cs_generate_variant:Nn \__fun_tracing_log_on:n { e, V }
+
+\cs_new_protected:Npn \__fun_tracing_log_off:n #1 { }
+\cs_new_protected:Npn \__fun_tracing_log_off:e #1 { }
+\cs_new_protected:Npn \__fun_tracing_log_off:V #1 { }
+
+\cs_new_protected:Npn \__fun_tracing_true:
+  {
+    \cs_set_eq:NN \__fun_tracing_log:n \__fun_tracing_log_on:n
+    \cs_set_eq:NN \__fun_tracing_log:e \__fun_tracing_log_on:e
+    \cs_set_eq:NN \__fun_tracing_log:V \__fun_tracing_log_on:V
+  }
+
+\cs_new_protected:Npn \__fun_tracing_false:
+  {
+    \cs_set_eq:NN \__fun_tracing_log:n \__fun_tracing_log_off:n
+    \cs_set_eq:NN \__fun_tracing_log:e \__fun_tracing_log_off:e
+    \cs_set_eq:NN \__fun_tracing_log:V \__fun_tracing_log_off:V
+  }
+
+\cs_new_protected:Npn \__fun_tracing_set:
+  {
+    \bool_if:NTF \l__fun_tracing_bool
+      { \__fun_tracing_true: } { \__fun_tracing_false: }
+  }
+
+\keys_define:nn { functional }
+  {
+    scoping .bool_set:N = \l__fun_scoping_bool,
+    tracing .bool_set:N = \l__fun_tracing_bool,
+  }
+
+\NewDocumentCommand \Functional { m }
+  {
+    \keys_set:nn { functional } { #1 }
+    \__fun_scoping_set:
+    \__fun_tracing_set:
+  }
+
+\Functional { scoping = false, tracing = false }
+
+%%% --------------------------------------------------------
+%%> \subsection{Creating New Functions and Conditionals}
+%%% --------------------------------------------------------
+
+\tl_new:N \gResultTl
+\int_new:N \l__fun_arg_count_int
+\tl_new:N \l__fun_parameters_defined_tl
+\tl_const:Nn \c__fun_parameter_defined_i__tl     {  } % no argument
+\tl_const:Nn \c__fun_parameter_defined_i_i_tl    { #1 }
+\tl_const:Nn \c__fun_parameter_defined_i_ii_tl   { #1 #2 }
+\tl_const:Nn \c__fun_parameter_defined_i_iii_tl  { #1 #2 #3 }
+\tl_const:Nn \c__fun_parameter_defined_i_iv_tl   { #1 #2 #3 #4 }
+\tl_const:Nn \c__fun_parameter_defined_i_v_tl    { #1 #2 #3 #4 #5 }
+\tl_const:Nn \c__fun_parameter_defined_i_vi_tl   { #1 #2 #3 #4 #5 #6 }
+\tl_const:Nn \c__fun_parameter_defined_i_vii_tl  { #1 #2 #3 #4 #5 #6 #7 }
+\tl_const:Nn \c__fun_parameter_defined_i_viii_tl { #1 #2 #3 #4 #5 #6 #7 #8 }
+\tl_const:Nn \c__fun_parameter_defined_i_ix_tl   { #1 #2 #3 #4 #5 #6 #7 #8 #9 }
+\tl_new:N \l__fun_parameters_called_tl
+\tl_const:Nn \c__fun_parameter_called_i_i_tl   { {#1} }
+\tl_const:Nn \c__fun_parameter_called_i_ii_tl  { {#1}{#2} }
+\tl_const:Nn \c__fun_parameter_called_i_iii_tl { {#1}{#2}{#3} }
+\tl_const:Nn \c__fun_parameter_called_i_iv_tl  { {#1}{#2}{#3}{#4} }
+\tl_const:Nn \c__fun_parameter_called_i_v_tl   { {#1}{#2}{#3}{#4}{#5} }
+\tl_const:Nn \c__fun_parameter_called_i_vi_tl  { {#1}{#2}{#3}{#4}{#5}{#6} }
+\tl_const:Nn \c__fun_parameter_called_i_vii_tl { {#1}{#2}{#3}{#4}{#5}{#6}{#7} }
+\tl_new:N \l__fun_parameters_true_tl
+\tl_new:N \l__fun_parameters_false_tl
+\tl_const:Nn \c__fun_parameter_called_i_tl    { {#1} }
+\tl_const:Nn \c__fun_parameter_called_ii_tl   { {#2} }
+\tl_const:Nn \c__fun_parameter_called_iii_tl  { {#3} }
+\tl_const:Nn \c__fun_parameter_called_iv_tl   { {#4} }
+\tl_const:Nn \c__fun_parameter_called_v_tl    { {#5} }
+\tl_const:Nn \c__fun_parameter_called_vi_tl   { {#6} }
+\tl_const:Nn \c__fun_parameter_called_vii_tl  { {#7} }
+\tl_const:Nn \c__fun_parameter_called_viii_tl { {#8} }
+\tl_const:Nn \c__fun_parameter_called_ix_tl   { {#9} }
+
+%% #1: function name; #2: argument specification; #3 function body
+\cs_new_protected:Npn \__fun_new_function:Nnn #1 #2 #3
+  {
+    \int_set:Nn \l__fun_arg_count_int { \tl_count:n {#2} } % spaces are ignored
+    \tl_set_eq:Nc \l__fun_parameters_defined_tl
+      { c__fun_parameter_defined_i_ \int_to_roman:n { \l__fun_arg_count_int } _tl }
+    \exp_last_unbraced:NcV \cs_new_protected:Npn
+      { __fun_defined_ \cs_to_str:N #1 : w }
+      \l__fun_parameters_defined_tl
+      {
+        \__fun_group_begin:
+        \tl_gclear:N \gResultTl
+        #3
+        \__fun_tracing_log:e { [O] ~ \exp_not:V \gResultTl }
+        \__fun_group_end:
+      }
+    \use:c { __fun_new_with_arg_ \int_to_roman:n { \l__fun_arg_count_int } :NnV }
+      #1 {#2} \l__fun_parameters_defined_tl
+  }
+\cs_generate_variant:Nn \__fun_new_function:Nnn { cne }
+
+\cs_set_eq:NN \prgNewFunction \__fun_new_function:Nnn
+\cs_set_eq:NN \PrgNewFunction \__fun_new_function:Nnn
+
+\tl_new:N \g__fun_last_result_tl
+\int_new:N \l__fun_cond_arg_count_int
+
+%% #1: function name; #2: argument specification; #3 function body
+\cs_new_protected:Npn \__fun_new_conditional:Nnn #1 #2 #3
+  {
+    \__fun_new_function:Nnn #1 { #2 } { #3 }
+    \int_set:Nn \l__fun_cond_arg_count_int { \tl_count:n {#2} }
+    \tl_set_eq:Nc \l__fun_parameters_called_tl
+      {
+        c__fun_parameter_called_i_
+        \int_to_roman:n { \l__fun_cond_arg_count_int } _tl
+      }
+    %% define function \FooIfBarT for #1=\FooIfBar
+    \tl_set_eq:Nc \l__fun_parameters_true_tl
+      {
+        c__fun_parameter_called_
+        \int_to_roman:n { \l__fun_cond_arg_count_int + 1 } _tl
+      }
+    \__fun_new_function:cne { \cs_to_str:N #1 T } { #2 n }
+      {
+        #1 \exp_not:V \l__fun_parameters_called_tl
+        \exp_not:n
+          {
+            \tl_set_eq:NN \g__fun_last_result_tl \gResultTl
+            \tl_gclear:N \gResultTl
+            \exp_last_unbraced:NV \bool_if:NT \g__fun_last_result_tl
+          }
+        \exp_not:V \l__fun_parameters_true_tl
+      }
+    %% define function \FooIfBarF for #1=\FooIfBar
+    \tl_set_eq:Nc \l__fun_parameters_false_tl
+      {
+        c__fun_parameter_called_
+        \int_to_roman:n { \l__fun_cond_arg_count_int + 1 } _tl
+      }
+    \__fun_new_function:cne { \cs_to_str:N #1 F } { #2 n }
+      {
+        #1 \exp_not:V \l__fun_parameters_called_tl
+        \exp_not:n
+          {
+            \tl_set_eq:NN \g__fun_last_result_tl \gResultTl
+            \tl_gclear:N \gResultTl
+            \exp_last_unbraced:NV \bool_if:NF \g__fun_last_result_tl
+          }
+        \exp_not:V \l__fun_parameters_false_tl
+      }
+    %% define function \FooIfBarTF for #1=\FooIfBar
+    \tl_set_eq:Nc \l__fun_parameters_true_tl
+      {
+        c__fun_parameter_called_
+        \int_to_roman:n { \l__fun_cond_arg_count_int + 1 } _tl
+      }
+    \tl_set_eq:Nc \l__fun_parameters_false_tl
+      {
+        c__fun_parameter_called_
+        \int_to_roman:n { \l__fun_cond_arg_count_int + 2 } _tl
+      }
+    \__fun_new_function:cne { \cs_to_str:N #1 TF } { #2 n n }
+      {
+        #1 \exp_not:V \l__fun_parameters_called_tl
+        \exp_not:n
+          {
+            \tl_set_eq:NN \g__fun_last_result_tl \gResultTl
+            \tl_gclear:N \gResultTl
+            \exp_last_unbraced:NV \bool_if:NTF \g__fun_last_result_tl
+          }
+        \exp_not:V \l__fun_parameters_true_tl
+        \exp_not:V \l__fun_parameters_false_tl
+      }
+  }
+
+\cs_set_eq:NN \prgNewConditional \__fun_new_conditional:Nnn
+\cs_set_eq:NN \PrgNewConditional \__fun_new_conditional:Nnn
+
+\int_new:N \g__fun_nesting_level_int
+
+%% Create arg tl variables to avoid check-declarations errors
+\cs_new_protected:Npn \__fun_new_arg_tl_vars:
+  {
+    \tl_gclear_new:c
+      { g__fun_arguments_ \int_use:N \g__fun_nesting_level_int _tl }
+    \int_step_inline:nnn {1} {9}
+      {
+        \tl_gclear_new:c
+          { g__fun_one_argument_ \int_use:N \g__fun_nesting_level_int _ ##1 _tl }
+      }
+  }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+%% Some times we need to create a function without arguments
+\cs_new_protected:Npn \__fun_new_with_arg_:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_i:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_i:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_ii:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_ii:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_iii:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_iii:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_iv:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_iv:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_v:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_one_argument_gset:nn { 5 } { ##5 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_v:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_vi:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_one_argument_gset:nn { 5 } { ##5 }
+        \__fun_one_argument_gset:nn { 6 } { ##6 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_vi:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_vii:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_one_argument_gset:nn { 5 } { ##5 }
+        \__fun_one_argument_gset:nn { 6 } { ##6 }
+        \__fun_one_argument_gset:nn { 7 } { ##7 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_vii:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_viii:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_one_argument_gset:nn { 5 } { ##5 }
+        \__fun_one_argument_gset:nn { 6 } { ##6 }
+        \__fun_one_argument_gset:nn { 7 } { ##7 }
+        \__fun_one_argument_gset:nn { 8 } { ##8 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_viii:Nnn { NnV }
+
+%% #1: function name; #2: argument specifications; #3 parameters tl defined
+\cs_new_protected:Npn \__fun_new_with_arg_ix:Nnn #1 #2 #3
+  {
+    \cs_new_protected:Npn #1 #3
+      {
+        \int_gincr:N \g__fun_nesting_level_int
+        \__fun_new_arg_tl_vars:
+        \__fun_one_argument_gset:nn { 1 } { ##1 }
+        \__fun_one_argument_gset:nn { 2 } { ##2 }
+        \__fun_one_argument_gset:nn { 3 } { ##3 }
+        \__fun_one_argument_gset:nn { 4 } { ##4 }
+        \__fun_one_argument_gset:nn { 5 } { ##5 }
+        \__fun_one_argument_gset:nn { 6 } { ##6 }
+        \__fun_one_argument_gset:nn { 7 } { ##7 }
+        \__fun_one_argument_gset:nn { 8 } { ##8 }
+        \__fun_one_argument_gset:nn { 9 } { ##9 }
+        \__fun_evaluate:Nn #1 {#2}
+        \int_gdecr:N \g__fun_nesting_level_int
+        \__fun_return_result:
+      }
+  }
+\cs_generate_variant:Nn \__fun_new_with_arg_ix:Nnn { NnV }
+
+\tl_new:N \l__fun_argtype_tl
+\tl_const:Nn \c__fun_argtype_e_tl { e }
+\tl_const:Nn \c__fun_argtype_E_tl { E }
+\tl_const:Nn \c__fun_argtype_m_tl { m }
+\tl_const:Nn \c__fun_argtype_M_tl { M }
+\tl_const:Nn \c__fun_argtype_n_tl { n }
+\tl_const:Nn \c__fun_argtype_N_tl { N }
+\tl_new:N \l__fun_argument_tl
+
+%% #1: function name; #2: argument specifications
+\cs_new_protected:Npn \__fun_evaluate:Nn #1 #2
+  {
+    \__fun_argtype_index_gzero:
+    \__fun_arguments_gclear:
+    \tl_map_variable:nNn { #2 } \l__fun_argtype_tl % spaces are ignored
+      {
+        \__fun_argtype_index_gincr:
+        \__fun_one_argument_get:eN { \__fun_argtype_index_use: } \l__fun_argument_tl
+        \tl_case:Nn \l__fun_argtype_tl
+          {
+            \c__fun_argtype_e_tl
+              {
+                \__fun_evaluate_all_and_put_argument:N \l__fun_argument_tl
+              }
+            \c__fun_argtype_E_tl
+              {
+                \__fun_evaluate_all_and_put_argument:N \l__fun_argument_tl
+              }
+            \c__fun_argtype_m_tl
+              {
+                \__fun_evaluate_and_put_argument:N \l__fun_argument_tl
+              }
+            \c__fun_argtype_M_tl
+              {
+                \__fun_evaluate_and_put_argument:N \l__fun_argument_tl
+              }
+            \c__fun_argtype_n_tl
+              {
+                \__fun_arguments_gput:e { { \exp_not:V \l__fun_argument_tl } }
+              }
+            \c__fun_argtype_N_tl
+              {
+                \__fun_arguments_gput:e { \exp_not:V \l__fun_argument_tl }
+              }
+          }
+      }
+    \__fun_arguments_log:N #1
+    \__fun_arguments_called:c { __fun_defined_ \cs_to_str:N #1 : w }
+  }
+
+\cs_new_protected:Npn \__fun_evaluate_all_and_put_argument:N #1
+  {
+    \__fun_eval_all:V #1
+    \__fun_arguments_gput:e { { \exp_not:V \gResultTl } }
+  }
+
+\cs_new_protected:Npn \__fun_evaluate_and_put_argument:N #1
+  {
+    \cs_if_exist:cTF
+      {
+        __fun_defined_ \exp_last_unbraced:Ne \cs_to_str:N { \tl_head:N #1 } : w
+      }
+      {
+        #1
+        \__fun_arguments_gput:e { { \exp_not:V \gResultTl } }
+      }
+      {
+        \__fun_arguments_gput:e { { \exp_not:V #1 } }
+      }
+  }
+
+%% #1: argument number; #2: token lists
+\cs_new_protected:Npn \__fun_one_argument_gset:nn #1 #2
+  {
+    \tl_gset:cn
+      { g__fun_one_argument_ \int_use:N \g__fun_nesting_level_int _#1_tl } { #2 }
+    %\__fun_one_argument_log:nn { #1 } { set }
+  }
+
+%% #1: argument number; #2: variable of token lists
+\cs_new_protected:Npn \__fun_one_argument_get:nN #1 #2
+  {
+    \tl_set_eq:Nc
+      #2 { g__fun_one_argument_ \int_use:N \g__fun_nesting_level_int _ #1 _tl }
+    %\__fun_one_argument_log:nn { #1 } { get }
+  }
+\cs_generate_variant:Nn \__fun_one_argument_get:nN { eN }
+
+%% #1: argument number; #2: get or set
+\cs_new_protected:Npn \__fun_one_argument_log:nn #1 #2
+  {
+    \tl_log:e
+      {
+        #2 ~ level _ \int_use:N \g__fun_nesting_level_int _ arg _ #1 ~ = ~
+        \exp_not:v
+          { g__fun_one_argument_ \int_use:N \g__fun_nesting_level_int _#1_tl }
+      }
+  }
+
+\int_new:c  { g__fun_argtype_index_ 1 _int }
+\int_new:c  { g__fun_argtype_index_ 2 _int }
+\int_new:c  { g__fun_argtype_index_ 3 _int }
+\int_new:c  { g__fun_argtype_index_ 4 _int }
+\int_new:c  { g__fun_argtype_index_ 5 _int }
+
+\cs_new_protected:Npn \__fun_argtype_index_gzero:
+  {
+    \int_gzero_new:c
+      { g__fun_argtype_index_ \int_use:N \g__fun_nesting_level_int _int }
+  }
+
+\cs_new_protected:Npn \__fun_argtype_index_gincr:
+  {
+    \int_gincr:c
+      { g__fun_argtype_index_ \int_use:N \g__fun_nesting_level_int _int }
+  }
+
+\cs_new:Npn \__fun_argtype_index_use:
+  {
+    \int_use:c { g__fun_argtype_index_ \int_use:N \g__fun_nesting_level_int _int }
+  }
+
+\cs_new_protected:Npn \__fun_arguments_called:N #1
+  {
+    \exp_last_unbraced:Nv
+      #1 { g__fun_arguments_ \int_use:N \g__fun_nesting_level_int _tl }
+  }
+\cs_generate_variant:Nn \__fun_arguments_called:N { c }
+
+\cs_new_protected:Npn \__fun_arguments_gclear:
+  {
+    \tl_gclear:c { g__fun_arguments_ \int_use:N \g__fun_nesting_level_int _tl }
+  }
+
+\cs_new_protected:Npn \__fun_arguments_log:N #1
+  {
+    \__fun_tracing_log:e
+    {
+      [I] ~ \token_to_str:N #1
+     \exp_not:v { g__fun_arguments_ \int_use:N \g__fun_nesting_level_int _tl }
+    }
+  }
+
+\cs_new_protected:Npn \__fun_arguments_gput:n #1
+  {
+    \tl_gput_right:cn
+      { g__fun_arguments_ \int_use:N \g__fun_nesting_level_int _tl } { #1 }
+  }
+\cs_generate_variant:Nn \__fun_arguments_gput:n { e }
+
+%%% --------------------------------------------------------
+%%> \subsection{Creating Some Useful Functions}
+%%% --------------------------------------------------------
+
+\prgNewFunction \prgSetEqFunction { N N }
+  {
+    \cs_set_eq:NN #1 #2
+    \cs_set_eq:cc { __fun_defined_ \cs_to_str:N #1 : w }
+      { __fun_defined_ \cs_to_str:N #2 : w }
+  }
+
+\prgNewFunction \prgDo {n} {#1}
+
+\cs_set_eq:NN \prgBreak \prg_break:
+
+\cs_set_eq:NN \prgBreakDo \prg_break:n
+
+%%% --------------------------------------------------------
+%%> \subsection{Return Values and Return Processors}
+%%% --------------------------------------------------------
+
+\cs_new_protected:Npn \__fun_put_result:n #1
+  {
+    \tl_gput_right:Nn \gResultTl { #1 }
+  }
+\cs_generate_variant:Nn \__fun_put_result:n { V, e, f, o }
+
+\prgNewFunction \prgReturn { m }
+  {
+    \__fun_put_result:n { #1 }
+  }
+%% Obsolete function, will be removed in the future
+%% We can not define it with \PrgSetEqFunction
+\PrgNewFunction \Result { m }
+  {
+    \__fun_put_result:n { #1 }
+  }
+
+\int_new:N \l__fun_return_level_int
+
+%% By default, the result is returned only if the function is not
+%% nested in another function, but this behavior can be customized
+\cs_new_protected:Npn \__fun_return_result:
+  {
+    \int_compare:nNnT { \g__fun_nesting_level_int } = { \l__fun_return_level_int }
+      { \__fun_use_result: }
+  }
+
+\cs_new_protected:Npn \__fun_use_result_default:
+  {
+    \tl_use:N \gResultTl
+  }
+
+%% Set default return processor
+\cs_new_protected:Npn \__fun_set_return_processor_default:
+  {
+    \int_set:Nn \l__fun_return_level_int {0}
+    \cs_set_eq:NN \__fun_use_result: \__fun_use_result_default:
+  }
+
+\__fun_set_return_processor_default:
+
+%% Set current nesting level and return processor
+\cs_new_protected:Npn \__fun_set_return_processor:n #1
+  {
+    \int_set_eq:NN \l__fun_return_level_int \g__fun_nesting_level_int
+    \cs_set_protected:Npn \__fun_use_result: { #1 }
+  }
+
+%% #1: return processor; #2: code to run
+%% We do it inside groups for nesting processors to make correct results
+\cs_new_protected:Npn \fun_run_return_processor:nn #1 #2
+  {
+    \group_begin:
+    \__fun_set_return_processor:n {#1}
+    #2
+    \group_end:
+  }
+
+%%% --------------------------------------------------------
+%%> \subsection{Evaluating Functions inside Arguments, I}
+%%% --------------------------------------------------------
+
+%% The function \__fun_eval_all:n is only used for arguments to be passed
+%% to \int_eval:n, \fp_eval:n, \dim_eval:n, and similar functions.
+%% It will not keep spaces, and will not distinguish between { and \bgroup.
+
+\tl_new:N \l__fun_eval_result_tl
+
+%% Evaluate all functions in #1 and replace them with their return values
+\cs_new_protected:Npn \__fun_eval_all:n #1
+  {
+    \fun_run_return_processor:nn
+      { \exp_last_unbraced:NV \__fun_eval_all_aux:n \gResultTl }
+      {
+        \tl_clear:N \l__fun_eval_result_tl
+        \__fun_eval_all_aux:n #1 \q_stop
+        \tl_gset_eq:NN \gResultTl \l__fun_eval_result_tl
+      }
+  }
+\cs_generate_variant:Nn \__fun_eval_all:n { V }
+
+\cs_new_protected:Npn \__fun_eval_all_aux:n #1
+  {
+    \tl_if_single_token:nTF {#1}
+      {
+        \token_if_eq_meaning:NNF #1 \q_stop
+          {
+            \bool_lazy_and:nnTF
+              { \token_if_cs_p:N #1 }
+              { \cs_if_exist_p:c { __fun_defined_ \cs_to_str:N #1 : w } }
+              { #1 }
+              {
+                \tl_put_right:Nn \l__fun_eval_result_tl {#1}
+                \__fun_eval_all_aux:n
+              }
+          }
+      }
+      {
+        %% The braces enclosing a single token (such as {x}) are removed
+        %% but I guess there is no harm inside \int_eval:n or \fp_eval:n
+        \tl_put_right:Nn \l__fun_eval_result_tl { {#1} }
+        \__fun_eval_all_aux:n
+      }
+  }
+
+%%% --------------------------------------------------------
+%%> \subsection{Evaluating Functions inside Arguments, II}
+%%% --------------------------------------------------------
+
+%% The function \evalWhole can be used in almost all use cases.
+%% It will keep spaces, and will distinguish between { and \bgroup.
+
+\prgNewFunction \evalWhole {n}
+  {
+    \__fun_eval_whole:n {#1}
+  }
+
+\tl_new:N \l__fun_eval_whole_tl
+\bool_new:N \l__fun_eval_none_bool
+
+%% Evaluate all functions in #1 and replace them with their return values
+\cs_new_protected:Npn \__fun_eval_whole:n #1
+  {
+    \fun_run_return_processor:nn
+      {
+        \bool_if:NTF \l__fun_eval_none_bool
+          {
+            \tl_put_right:Nx \l__fun_eval_whole_tl
+              { \exp_not:N \exp_not:n { \exp_not:V \gResultTl } }
+            \bool_set_false:N \l__fun_eval_none_bool
+            \__fun_eval_whole_aux:
+          }
+          { \exp_last_unbraced:NV \__fun_eval_whole_aux: \gResultTl }
+      }
+      {
+        \tl_clear:N \l__fun_eval_whole_tl
+        \__fun_eval_whole_aux: #1 \q_stop
+        %\tl_log:N \l__fun_eval_whole_tl
+        \tl_gset:Nx \gResultTl { \l__fun_eval_whole_tl }
+      }
+  }
+
+\cs_new_protected:Npn \__fun_eval_whole_aux:
+  {
+    %% ##1: <tokens> which both o-expand and x-expand to the current <token>;
+    %% ##2: <charcode>, a decimal number, −1 for a control sequence;
+    %% ##3: <catcode>, a capital hexadecimal digit, 0 for a control sequence.
+    \peek_analysis_map_inline:n
+      {
+        \int_compare:nNnTF {##2} = {-1} % control sequence
+          {
+            \exp_last_unbraced:No \token_if_eq_meaning:NNTF {##1} \q_stop
+              { \peek_analysis_map_break: }
+              {
+                \cs_if_exist:cTF
+                  { __fun_defined_ \exp_last_unbraced:No \cs_to_str:N {##1} : w }
+                  {
+                    \exp_last_unbraced:No \cs_if_eq:NNT {##1} \evalNone
+                      { \bool_set_true:N \l__fun_eval_none_bool }
+                    \peek_analysis_map_break:n
+                      {
+                        %% since ##1 is of the form "\exp_not:N \someFunc",
+                        %% we need to remove \exp_not:N first before evaluating
+                        \use:x {##1}
+                      }
+                  }
+                  { \tl_put_right:Nn \l__fun_eval_whole_tl {##1} }
+              }
+          }
+          { \tl_put_right:Nn \l__fun_eval_whole_tl {##1} }
+      }
+  }
+
+%% The function \evalNone prevent the evaluation of its argument
+
+\prgNewFunction \evalNone {n} { \tl_gset:Nn \gResultTl {#1} }
+
+%%% --------------------------------------------------------
+%%> \subsection{Printing Contents to the Input Stream}
+%%% --------------------------------------------------------
+
+\prgNewFunction \prgPrint { m }
+  {
+    \tl_log:n {running PrgPrint}
+    \int_set_eq:NN \l__fun_return_level_int \g__fun_nesting_level_int
+    #1
+    \int_zero:N \l__fun_return_level_int
+    \tl_gclear:N \gResultTl
+  }
+
+%%% --------------------------------------------------------
+%%> \subsection{Filling Arguments into Inline Commands}
+%%% --------------------------------------------------------
+
+%% To make better tracing log, we want to expand the return value once,
+%% but at the same time avoid evaluating the leading function in \gResultTl,
+%% therefore we need to use \tl_set:Nn command instead of \tlSet function.
+
+\prgNewFunction \prgRunOneArgCode { m n }
+  {
+    \cs_set:Npn \__fun_one_arg_cmd:n ##1 {#2}
+    \exp_args:NNo \tl_set:Nn \gResultTl { \__fun_one_arg_cmd:n {#1} }
+  }
+
+\prgNewFunction \prgRunTwoArgCode { m m n }
+  {
+    \cs_set:Npn \__fun_two_arg_cmd:nn ##1 ##2 {#3}
+    \exp_args:NNo \tl_set:Nn \gResultTl { \__fun_two_arg_cmd:nn {#1} {#2} }
+  }
+
+\prgNewFunction \prgRunThreeArgCode { m m m n }
+  {
+    \cs_set:Npn \__fun_three_arg_cmd:nnn ##1 ##2 ##3 {#4}
+    \exp_args:NNo \tl_set:Nn \gResultTl
+      { \__fun_three_arg_cmd:nnn {#1} {#2} {#3} }
+  }
+
+\prgNewFunction \prgRunFourArgCode { m m m m n }
+  {
+    \cs_set:Npn \__fun_four_arg_cmd:nnnn ##1 ##2 ##3 ##4 {#5}
+    \exp_args:NNo \tl_set:Nn \gResultTl
+      { \__fun_four_arg_cmd:nnnn {#1} {#2} {#3} {#4} }
+  }
+
+%%% --------------------------------------------------------
+%%> \subsection{Checking for Local or Global Variables}
+%%% --------------------------------------------------------
+
+\str_new:N \l__fun_variable_name_str
+\str_new:N \l__fun_variable_name_a_str
+\str_new:N \l__fun_variable_name_b_str
+
+\prg_new_protected_conditional:Npnn \__fun_if_global_variable:N #1 { TF }
+  {
+    \str_set:Ne \l__fun_variable_name_str { \cs_to_str:N #1 }
+    \str_set:Ne \l__fun_variable_name_b_str
+      { \str_item:Nn \l__fun_variable_name_str { 2 } }
+    \str_if_eq:VeTF
+      \l__fun_variable_name_b_str
+      { \str_uppercase:f { \l__fun_variable_name_b_str } }
+      {
+        \str_set:Ne \l__fun_variable_name_a_str
+          { \str_head:N \l__fun_variable_name_str }
+        \str_case:VnF \l__fun_variable_name_a_str
+          {
+            { l } { \prg_return_false: }
+            { g } { \prg_return_true: }
+          }
+          { \__fun_if_set_local: }
+      }
+      { \__fun_if_set_local: }
+  }
+
+\bool_new:N \g__fun_variable_local_bool
+
+\cs_new:Npn \__fun_if_set_local:
+  {
+    \bool_if:NTF \g__fun_variable_local_bool
+      {
+        \bool_gset_false:N \g__fun_variable_local_bool
+        \prg_return_false:
+      }
+      { \prg_return_true: }
+  }
+
+\prgNewFunction \prgLocal { }
+  { \bool_gset_true:N \g__fun_variable_local_bool }
+
+%% We must not put an assignment inside a group
+\cs_new_protected:Npn \__fun_do_assignment:Nnn #1 #2 #3
+  {
+    \__fun_group_end:
+    \__fun_if_global_variable:NTF #1 { #2 } { #3 }
+    \__fun_group_begin:
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Argument Using (Use)}
+%%% --------------------------------------------------------
+
+\prgNewFunction \expName { m }
+  {
+    \exp_args:Nc \__fun_put_result:n { #1 }
+  }
+
+\prgNewFunction \expValue { M }
+  {
+    \__fun_put_result:V #1
+  }
+
+\prgNewFunction \expWhole { m }
+  {
+    \__fun_put_result:e { #1 }
+  }
+
+\prgNewFunction \expPartial { m }
+  {
+    \__fun_put_result:f { #1 }
+  }
+
+\prgNewFunction \expOnce { m }
+  {
+    \__fun_put_result:o { #1 }
+  }
+
+\cs_set_eq:NN \unExpand    \exp_not:n
+\cs_set_eq:NN \noExpand    \exp_not:N
+\cs_set_eq:NN \onlyName    \exp_not:c
+\cs_set_eq:NN \onlyValue   \exp_not:V
+\cs_set_eq:NN \onlyPartial \exp_not:f
+\cs_set_eq:NN \onlyOnce    \exp_not:o
+
+\prgNewFunction \useOne { n } { \prgReturn {#1} }
+
+\prgNewFunction \gobbleOne { n } { }
+
+\prgNewFunction \useGobble { n n } { \prgReturn {#1} }
+
+\prgNewFunction \gobbleUse { n n } { \prgReturn {#2} }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Control Structures (Bool)}
+%%% --------------------------------------------------------
+
+\bool_const:Nn \cTrueBool { \c_true_bool }
+\bool_const:Nn \cFalseBool { \c_false_bool }
+
+\bool_new:N \lTmpaBool     \bool_new:N \lTmpbBool     \bool_new:N \lTmpcBool
+\bool_new:N \lTmpiBool     \bool_new:N \lTmpjBool     \bool_new:N \lTmpkBool
+\bool_new:N \l@FunTmpxBool \bool_new:N \l@FunTmpyBool \bool_new:N \l@FunTmpzBool
+
+\bool_new:N \gTmpaBool     \bool_new:N \gTmpbBool     \bool_new:N \gTmpcBool
+\bool_new:N \gTmpiBool     \bool_new:N \gTmpjBool     \bool_new:N \gTmpkBool
+\bool_new:N \g@FunTmpxBool \bool_new:N \g@FunTmpyBool \bool_new:N \g@FunTmpzBool
+
+\prgNewFunction \boolNew { M } { \bool_new:N #1 }
+
+\prgNewFunction \boolConst { M e } { \bool_const:Nn #1 {#2} }
+
+\prgNewFunction \boolSet { M e } {
+  \__fun_do_assignment:Nnn #1
+    { \bool_gset:Nn #1 {#2} } { \bool_set:Nn #1 {#2} }
+}
+
+\prgNewFunction \boolSetTrue { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \bool_gset_true:N #1 } { \bool_set_true:N #1 }
+  }
+
+\prgNewFunction \boolSetFalse { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \bool_gset_false:N #1 } { \bool_set_false:N #1 }
+  }
+
+\prgNewFunction \boolSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \bool_gset_eq:NN #1 #2 } { \bool_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \boolLog { e } { \bool_log:n {#1} }
+
+\prgNewFunction \boolVarLog { M } { \bool_log:N #1 }
+
+\prgNewFunction \boolShow { e } { \bool_show:n {#1} }
+
+\prgNewFunction \boolVarShow { M } { \bool_show:N #1 }
+
+\prgNewConditional \boolIfExist { M }
+  {
+    \bool_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \boolVarIf { M } { \prgReturn {#1} }
+
+\prgNewConditional \boolVarNot { M }
+  {
+    \bool_if:NTF #1
+      { \prgReturn { \cFalseBool } } { \prgReturn { \cTrueBool } }
+  }
+
+\prgNewConditional \boolVarAnd { M M }
+  {
+    \bool_lazy_and:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \boolVarOr { M M }
+  {
+    \bool_lazy_or:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \boolVarXor { M M }
+  {
+    \bool_xor:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewFunction \boolVarDoUntil { N n }
+  {
+    \bool_do_until:Nn #1 {#2}
+  }
+
+\prgNewFunction \boolVarDoWhile { N n }
+  {
+    \bool_do_while:Nn #1 {#2}
+  }
+
+\prgNewFunction \boolVarUntilDo { N n }
+  {
+    \bool_until_do:Nn #1 {#2}
+  }
+
+\prgNewFunction \boolVarWhileDo { N n }
+  {
+    \bool_while_do:Nn #1 {#2}
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Token Lists (Tl)}
+%%% --------------------------------------------------------
+
+\tl_const:NV \cEmptyTl \c_empty_tl
+\tl_const:NV \cSpaceTl \c_space_tl
+\tl_const:NV \cNoValueTl \c_novalue_tl
+
+\tl_new:N \lTmpaTl     \tl_new:N \lTmpbTl     \tl_new:N \lTmpcTl
+\tl_new:N \lTmpiTl     \tl_new:N \lTmpjTl     \tl_new:N \lTmpkTl
+\tl_new:N \l@FunTmpxTl \tl_new:N \l@FunTmpyTl \tl_new:N \l@FunTmpzTl
+
+\tl_new:N \gTmpaTl     \tl_new:N \gTmpbTl     \tl_new:N \gTmpcTl
+\tl_new:N \gTmpiTl     \tl_new:N \gTmpjTl     \tl_new:N \gTmpkTl
+\tl_new:N \g@FunTmpxTl \tl_new:N \g@FunTmpyTl \tl_new:N \g@FunTmpzTl
+
+\prgNewFunction \tlNew { M } { \tl_new:N #1 }
+
+\prgNewFunction \tlLog { m } { \tl_log:n { #1 } }
+
+\prgNewFunction \tlVarLog { M } { \tl_log:N #1 }
+
+\prgNewFunction \tlShow { m } { \tl_show:n { #1 } }
+
+\prgNewFunction \tlVarShow { M } { \tl_show:N #1 }
+
+\prgNewFunction \tlUse { M } { \prgReturn { \expValue #1 } }
+
+\prgNewFunction \tlToStr { m }
+  { \expWhole { \tl_to_str:n { #1 } } }
+
+\prgNewFunction \tlVarToStr { M }
+  { \expWhole { \tl_to_str:N #1 } }
+
+\prgNewFunction \tlConst { M m } { \tl_const:Nn #1 { #2 } }
+
+\prgNewFunction \tlSet { M m }
+  {
+    \__fun_do_assignment:Nnn #1 { \tl_gset:Nn #1 {#2} } { \tl_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \tlSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1 { \tl_gset_eq:NN #1 #2 } { \tl_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \tlConcat { M M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gconcat:NNN #1 #2 #3 } { \tl_concat:NNN #1 #2 #3 }
+  }
+
+\prgNewFunction \tlClear { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \tl_gclear:N #1 } { \tl_clear:N #1 }
+  }
+
+\prgNewFunction \tlClearNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \tl_gclear_new:N #1 } { \tl_clear_new:N #1 }
+  }
+
+\prgNewFunction \tlPutLeft { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gput_left:Nn #1 {#2} } { \tl_put_left:Nn #1 {#2} }
+  }
+
+\prgNewFunction \tlPutRight { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gput_right:Nn #1 {#2} } { \tl_put_right:Nn #1 {#2} }
+  }
+
+\prgNewFunction \tlVarReplaceOnce { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_greplace_once:Nnn #1 {#2} {#3} } { \tl_replace_once:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \tlVarReplaceAll { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_greplace_all:Nnn #1 {#2} {#3} } { \tl_replace_all:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \tlVarRemoveOnce { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gremove_once:Nn #1 {#2} } { \tl_remove_once:Nn #1 {#2} }
+  }
+
+\prgNewFunction \tlVarRemoveAll { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gremove_all:Nn #1 {#2} } { \tl_remove_all:Nn #1 {#2} }
+  }
+
+\prgNewFunction \tlTrimSpaces { m }
+  { \expWhole { \tl_trim_spaces:n { #1 } } }
+
+\prgNewFunction \tlVarTrimSpaces { M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \tl_gtrim_spaces:N #1 } { \tl_trim_spaces:N #1 }
+  }
+
+\prgNewFunction \tlCount { m }
+  { \expWhole { \tl_count:n { #1 } } }
+
+\prgNewFunction \tlVarCount { M }
+  { \expWhole { \tl_count:N #1 } }
+
+\prgNewFunction \tlHead { m }
+  { \expWhole { \tl_head:n { #1 } } }
+
+\prgNewFunction \tlVarHead { M }
+  { \expWhole { \tl_head:N #1 } }
+
+\prgNewFunction \tlTail { m }
+  { \expWhole { \tl_tail:n { #1 } } }
+
+\prgNewFunction \tlVarTail { M }
+  { \expWhole { \tl_tail:N #1 } }
+
+\prgNewFunction \tlItem { m m }
+  { \expWhole { \tl_item:nn {#1} {#2} } }
+
+\prgNewFunction \tlVarItem { M m }
+  { \expWhole { \tl_item:Nn #1 {#2} } }
+
+\prgNewFunction \tlRandItem { m }
+  { \expWhole { \tl_rand_item:n {#1} } }
+
+\prgNewFunction \tlVarRandItem { M }
+  { \expWhole { \tl_rand_item:N #1 } }
+
+\prgNewFunction \tlVarCase { M m }
+  { \tl_case:Nn {#1} {#2} }
+\prgNewFunction \tlVarCaseT { M m n }
+  { \tl_case:NnT {#1} {#2} {#3} }
+\prgNewFunction \tlVarCaseF { M m n }
+  { \tl_case:NnF {#1} {#2} {#3} }
+\prgNewFunction \tlVarCaseTF { M m n n }
+  { \tl_case:NnTF {#1} {#2} {#3} {#4} }
+
+\prgNewFunction \tlMapInline { m n }
+  {
+    \tl_map_inline:nn {#1} {#2}
+  }
+
+\prgNewFunction \tlVarMapInline { M n }
+  {
+    \tl_map_inline:Nn #1 {#2}
+  }
+
+\prgNewFunction \tlMapVariable { m M n }
+  {
+    \tl_map_variable:nNn {#1} #2 {#3}
+  }
+
+\prgNewFunction \tlVarMapVariable { M M n }
+  {
+    \tl_map_variable:NNn #1 #2 {#3}
+  }
+
+\prgNewConditional \tlIfExist { M }
+  {
+    \tl_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlIfEmpty { m }
+  {
+    \tl_if_empty:nTF {#1}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlVarIfEmpty { M }
+  {
+    \tl_if_empty:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlIfBlank { m }
+  {
+    \tl_if_blank:nTF {#1}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlIfEq { m m }
+  {
+    \tl_if_eq:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlVarIfEq { M M }
+  {
+    \tl_if_eq:NNTF #1 #2
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlIfIn { m m }
+  {
+    \tl_if_in:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlVarIfIn { M m }
+  {
+    \tl_if_in:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlIfSingle { m }
+  {
+    \tl_if_single:nTF {#1}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \tlVarIfSingle { M }
+  {
+    \tl_if_single:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Strings (Str)}
+%%% --------------------------------------------------------
+
+\str_const:NV \cAmpersandStr  \c_ampersand_str
+\str_const:NV \cAttignStr     \c_atsign_str
+\str_const:NV \cBackslashStr  \c_backslash_str
+\str_const:NV \cLeftBraceStr  \c_left_brace_str
+\str_const:NV \cRightBraceStr \c_right_brace_str
+\str_const:NV \cCircumflexStr \c_circumflex_str
+\str_const:NV \cColonStr      \c_colon_str
+\str_const:NV \cDollarStr     \c_dollar_str
+\str_const:NV \cHashStr       \c_hash_str
+\str_const:NV \cPercentStr    \c_percent_str
+\str_const:NV \cTildeStr      \c_tilde_str
+\str_const:NV \cUnderscoreStr \c_underscore_str
+\str_const:NV \cZeroStr       \c_zero_str
+
+\str_new:N \lTmpaStr     \str_new:N \lTmpbStr     \str_new:N \lTmpcStr
+\str_new:N \lTmpiStr     \str_new:N \lTmpjStr     \str_new:N \lTmpkStr
+\str_new:N \l@FunTmpxStr \str_new:N \l@FunTmpyStr \str_new:N \l@FunTmpzStr
+
+\str_new:N \gTmpaStr     \str_new:N \gTmpbStr     \str_new:N \gTmpcStr
+\str_new:N \gTmpiStr     \str_new:N \gTmpjStr     \str_new:N \gTmpkStr
+\str_new:N \g@FunTmpxStr \str_new:N \g@FunTmpyStr \str_new:N \g@FunTmpzStr
+
+\prgNewFunction \strNew { M } { \str_new:N #1 }
+
+\prgNewFunction \strLog { m } { \str_log:n { #1 } }
+
+\prgNewFunction \strVarLog { M } { \str_log:N #1 }
+
+\prgNewFunction \strShow { m } { \str_show:n { #1 } }
+
+\prgNewFunction \strVarShow { M } { \str_show:N #1 }
+
+\prgNewFunction \strUse { M } { \prgReturn { \expValue #1 } }
+
+\prgNewFunction \strConst { M m } { \str_const:Nn #1 {#2} }
+
+\prgNewFunction \strSet { M m }
+  {
+    \__fun_do_assignment:Nnn #1 { \str_gset:Nn #1 {#2} } { \str_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \strSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gset_eq:NN #1 #2 } { \str_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \strConcat { M M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gconcat:NNN #1 #2 #3 } { \str_concat:NNN #1 #2 #3 }
+  }
+
+\prgNewFunction \strClear { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \str_gclear:N #1 } { \str_clear:N #1 }
+  }
+
+\prgNewFunction \strClearNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \str_gclear_new:N #1 } { \str_clear_new:N #1 }
+  }
+
+\prgNewFunction \strPutLeft { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gput_left:Nn #1 {#2} } { \str_put_left:Nn #1 {#2} }
+  }
+
+\prgNewFunction \strPutRight { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gput_right:Nn #1 {#2} } { \str_put_right:Nn #1 {#2} }
+  }
+
+\prgNewFunction \strVarReplaceOnce { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_greplace_once:Nnn #1 {#2} {#3} }
+      { \str_replace_once:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \strVarReplaceAll { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_greplace_all:Nnn #1 {#2} {#3} }
+      { \str_replace_all:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \strVarRemoveOnce { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gremove_once:Nn #1 {#2} } { \str_remove_once:Nn #1 {#2} }
+  }
+
+\prgNewFunction \strVarRemoveAll { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \str_gremove_all:Nn #1 {#2} } { \str_remove_all:Nn #1 {#2} }
+  }
+
+\prgNewFunction \strCount { m } { \expWhole { \str_count:n { #1 } } }
+
+\prgNewFunction \strVarCount { M } { \expWhole { \str_count:N #1 } }
+
+\prgNewFunction \strHead { m } { \expWhole { \str_head:n { #1 } } }
+
+\prgNewFunction \strVarHead { M } { \expWhole { \str_head:N #1 } }
+
+\prgNewFunction \strTail { m } { \expWhole { \str_tail:n { #1 } } }
+
+\prgNewFunction \strVarTail { M } { \expWhole { \str_tail:N #1 } }
+
+\prgNewFunction \strItem { m m } { \expWhole { \str_item:nn {#1} {#2} } }
+
+\prgNewFunction \strVarItem { M m } { \expWhole { \str_item:Nn #1 {#2} } }
+
+\prgNewFunction \strCase { m m } { \str_case:nn {#1} {#2} }
+\prgNewFunction \strCaseT { m m n } { \str_case:nnT {#1} {#2} {#3} }
+\prgNewFunction \strCaseF { m m n } { \str_case:nnF {#1} {#2} {#3} }
+\prgNewFunction \strCaseTF { m m n n } { \str_case:nnTF {#1} {#2} {#3} {#4} }
+
+\prgNewFunction \strMapInline { m n } { \str_map_inline:nn {#1} {#2} }
+
+\prgNewFunction \strVarMapInline { M n } { \str_map_inline:Nn #1 {#2} }
+
+\prgNewFunction \strMapVariable { m M n } { \str_map_variable:nNn {#1} #2 {#3} }
+
+\prgNewFunction \strVarMapVariable { M M n } { \str_map_variable:NNn #1 #2 {#3} }
+
+\prgNewConditional \strIfExist { M }
+  {
+    \str_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strVarIfEmpty { M }
+  {
+    \str_if_empty:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strIfEq { m m }
+  {
+    \str_if_eq:nnTF {#1} {#2}
+     { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strVarIfEq { M M }
+  {
+    \str_if_eq:NNTF #1 #2
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strIfIn { m m }
+  {
+    \str_if_in:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strVarIfIn { M m }
+  {
+    \str_if_in:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \strCompare { m N m }
+  {
+    \str_compare:nNnTF {#1} #2 {#3}
+      { \prgReturn { \cTrueBool } }
+      { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Integers (Int)}
+%%% --------------------------------------------------------
+
+\cs_set_eq:NN \cZeroInt        \c_zero_int
+\cs_set_eq:NN \cOneInt         \c_one_int
+\cs_set_eq:NN \cMaxInt         \c_max_int
+\cs_set_eq:NN \cMaxRegisterInt \c_max_register_int
+\cs_set_eq:NN \cMaxCharInt     \c_max_char_in
+
+\int_new:N \lTmpaInt     \int_new:N \lTmpbInt     \int_new:N \lTmpcInt
+\int_new:N \lTmpiInt     \int_new:N \lTmpjInt     \int_new:N \lTmpkInt
+\int_new:N \l@FunTmpxInt \int_new:N \l@FunTmpyInt \int_new:N \l@FunTmpzInt
+
+\int_new:N \gTmpaInt     \int_new:N \gTmpbInt     \int_new:N \gTmpcInt
+\int_new:N \gTmpiInt     \int_new:N \gTmpjInt     \int_new:N \gTmpkInt
+\int_new:N \g@FunTmpxInt \int_new:N \g@FunTmpyInt \int_new:N \g@FunTmpzInt
+
+\prgNewFunction \intEval { e } { \expWhole { \int_eval:n {#1} } }
+
+\prgNewFunction \intMathAdd { e e } { \expWhole { \int_eval:n { (#1) + (#2) } } }
+
+\prgNewFunction \intMathSub { e e } { \expWhole { \int_eval:n { (#1) - (#2) } } }
+
+\prgNewFunction \intMathMult { e e } { \expWhole { \int_eval:n { (#1) * (#2) } } }
+
+\prgNewFunction \intMathDiv { e e } { \expWhole { \int_div_round:nn {#1} {#2} } }
+
+\prgNewFunction \intMathDivTruncate { e e }
+  {
+    \expWhole { \int_div_truncate:nn {#1} {#2} }
+  }
+
+\prgNewFunction \intMathSign { e } { \expWhole { \int_sign:n {#1} } }
+
+\prgNewFunction \intMathAbs { e } { \expWhole { \int_abs:n {#1} } }
+
+\prgNewFunction \intMathMax { e e } { \expWhole { \int_max:nn {#1} {#2} } }
+
+\prgNewFunction \intMathMin { e e } { \expWhole { \int_min:nn {#1} {#2} } }
+
+\prgNewFunction \intMathMod { e e } { \expWhole { \int_mod:nn {#1} {#2} } }
+
+\prgNewFunction \intMathRand { e e } { \expWhole { \int_rand:nn {#1} {#2} } }
+
+\prgNewFunction \intNew { M } { \int_new:N #1 }
+
+\prgNewFunction \intConst { M e } { \int_const:Nn #1 { #2 } }
+
+\prgNewFunction \intLog { e } { \int_log:n { #1 } }
+
+\prgNewFunction \intVarLog { M } { \int_log:N #1 }
+
+\prgNewFunction \intShow { e } { \int_show:n { #1 } }
+
+\prgNewFunction \intVarShow { M } { \int_show:N #1 }
+
+\prgNewFunction \intUse { M } { \prgReturn { \expValue #1 } }
+
+\prgNewFunction \intSet { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gset:Nn #1 {#2} } { \int_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \intZero { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gzero:N #1 } { \int_zero:N #1 }
+  }
+
+\prgNewFunction \intZeroNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gzero_new:N #1 } { \int_zero_new:N #1 }
+  }
+
+\prgNewFunction \intSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \int_gset_eq:NN #1 #2 } { \int_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \intIncr { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gincr:N #1 } { \int_incr:N #1 }
+  }
+
+\prgNewFunction \intDecr { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gdecr:N #1 } { \int_decr:N #1 }
+  }
+
+\prgNewFunction \intAdd { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gadd:Nn #1 {#2} } { \int_add:Nn #1 {#2} }
+  }
+
+\prgNewFunction \intSub { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \int_gsub:Nn #1 {#2} } { \int_sub:Nn #1 {#2} }
+  }
+
+%% Command \prg_replicate:nn yields its result after two expansion steps
+\prgNewFunction \intReplicate { e m }
+  {
+    \exp_args:NNo \exp_args:No \prgReturn { \prg_replicate:nn {#1} {#2} }
+  }
+
+\prgNewFunction \intStepInline { e e e n }
+  {
+    \int_step_inline:nnnn {#1} {#2} {#3} {#4}
+  }
+
+\prgNewFunction \intStepOneInline { e e n }
+  {
+    \int_step_inline:nnn {#1} {#2} {#3}
+  }
+
+\prgNewFunction \intStepVariable { e e e M n }
+  {
+    \int_step_variable:nnnNn {#1} {#2} {#3} #4 {#5}
+  }
+
+\prgNewFunction \intStepOneVariable { e e M n }
+  {
+    \int_step_variable:nnNn {#1} {#2} #3 {#4}
+  }
+
+\prgNewConditional \intIfExist { M }
+  {
+    \int_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \intIfOdd { e }
+  {
+    \int_if_odd:nTF { #1 }
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \intIfEven { e }
+  {
+    \int_if_even:nTF { #1 }
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \intCompare { e N e }
+  {
+    \int_compare:nNnTF {#1} #2 {#3}
+      { \prgReturn { \cTrueBool } }
+      { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewFunction \intCase { e m } { \int_case:nn {#1} {#2} }
+\prgNewFunction \intCaseT { e m n } { \int_case:nnT {#1} {#2} {#3} }
+\prgNewFunction \intCaseF { e m n } { \int_case:nnF {#1} {#2} {#3} }
+\prgNewFunction \intCaseTF { e m n n } { \int_case:nnTF {#1} {#2} {#3} {#4} }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Floating Point Numbers (Fp)}
+%%% --------------------------------------------------------
+
+\fp_const:Nn \cZeroFp      { \c_zero_fp }
+\fp_const:Nn \cMinusZeroFp { \c_minus_zero_fp }
+\fp_const:Nn \cOneFp       { \c_one_fp }
+\fp_const:Nn \cInfFp       { \c_inf_fp }
+\fp_const:Nn \cMinusInfFp  { \c_minus_inf_fp }
+\fp_const:Nn \cEFp         { \c_e_fp }
+\fp_const:Nn \cPiFp        { \c_pi_fp }
+\fp_const:Nn \cOneDegreeFp { \c_one_degree_fp }
+
+\fp_new:N \lTmpaFp     \fp_new:N \lTmpbFp     \fp_new:N \lTmpcFp
+\fp_new:N \lTmpiFp     \fp_new:N \lTmpjFp     \fp_new:N \lTmpkFp
+\fp_new:N \l@FunTmpxFp \fp_new:N \l@FunTmpyFp \fp_new:N \l@FunTmpzFp
+
+\fp_new:N \gTmpaFp     \fp_new:N \gTmpbFp     \fp_new:N \gTmpcFp
+\fp_new:N \gTmpiFp     \fp_new:N \gTmpjFp     \fp_new:N \gTmpkFp
+\fp_new:N \g@FunTmpxFp \fp_new:N \g@FunTmpyFp \fp_new:N \g@FunTmpzFp
+
+\prgNewFunction \fpEval { e } { \expWhole { \fp_eval:n {#1} } }
+
+\prgNewFunction \fpMathAdd { e e } { \expWhole { \fp_eval:n { (#1) + (#2) } } }
+
+\prgNewFunction \fpMathSub { e e } { \expWhole { \fp_eval:n { (#1) - (#2) } } }
+
+\prgNewFunction \fpMathMult { e e } { \expWhole { \fp_eval:n { (#1) * (#2) } } }
+
+\prgNewFunction \fpMathDiv { e e } { \expWhole { \fp_eval:n { (#1) / (#2) } } }
+
+\prgNewFunction \fpMathSign { e } { \expWhole { \fp_sign:n {#1} } }
+
+\prgNewFunction \fpMathAbs { e } { \expWhole { \fp_abs:n {#1} } }
+
+\prgNewFunction \fpMathMax { e e } { \expWhole { \fp_max:nn {#1} {#2} } }
+
+\prgNewFunction \fpMathMin { e e } { \expWhole { \fp_min:nn {#1} {#2} } }
+
+\prgNewFunction \fpNew { M } { \fp_new:N #1 }
+
+\prgNewFunction \fpConst { M e } { \fp_const:Nn #1 {#2} }
+
+\prgNewFunction \fpUse { M } { \expWhole { \fp_use:N #1 } }
+
+\prgNewFunction \fpLog { e } { \fp_log:n {#1} }
+
+\prgNewFunction \fpVarLog { M } { \fp_log:N #1 }
+
+\prgNewFunction \fpShow { e } { \fp_show:n {#1} }
+
+\prgNewFunction \fpVarShow { M } { \fp_show:N #1 }
+
+\prgNewFunction \fpSet { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gset:Nn #1 {#2} } { \fp_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \fpSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gset_eq:NN #1 #2 } { \fp_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \fpZero { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gzero:N #1 } { \fp_zero:N #1 }
+  }
+
+\prgNewFunction \fpZeroNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gzero_new:N #1 } { \fp_zero_new:N #1 }
+  }
+
+\prgNewFunction \fpAdd { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gadd:Nn #1 {#2} } { \fp_add:Nn #1 {#2} }
+  }
+
+\prgNewFunction \fpSub { M e }
+  {
+    \__fun_do_assignment:Nnn #1 { \fp_gsub:Nn #1 {#2} } { \fp_sub:Nn #1 {#2} }
+  }
+
+\prgNewFunction \fpStepInline { e e e n }
+  {
+    \fp_step_inline:nnnn {#1} {#2} {#3} {#4}
+  }
+
+\prgNewFunction \fpStepVariable { e e e M n }
+  {
+    \fp_step_variable:nnnNn {#1} {#2} {#3} #4 {#5}
+  }
+
+\prgNewConditional \fpIfExist { M }
+  {
+    \fp_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \fpCompare { e N e }
+  {
+    \fp_compare:nNnTF {#1} #2 {#3}
+      { \prgReturn { \cTrueBool } }
+      { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Dimensions (Dim)}
+%%% --------------------------------------------------------
+
+\cs_set_eq:NN \cMaxDim  \c_max_dim
+\cs_set_eq:NN \cZeroDim \c_zero_dim
+
+\dim_new:N \lTmpaDim     \dim_new:N \lTmpbDim     \dim_new:N \lTmpcDim
+\dim_new:N \lTmpiDim     \dim_new:N \lTmpjDim     \dim_new:N \lTmpkDim
+\dim_new:N \l@FunTmpxDim \dim_new:N \l@FunTmpyDim \dim_new:N \l@FunTmpzDim
+
+\dim_new:N \gTmpaDim     \dim_new:N \gTmpbDim     \dim_new:N \gTmpcDim
+\dim_new:N \gTmpiDim     \dim_new:N \gTmpjDim     \dim_new:N \gTmpkDim
+\dim_new:N \g@FunTmpxDim \dim_new:N \g@FunTmpyDim \dim_new:N \g@FunTmpzDim
+
+\prgNewFunction \dimEval { m }
+  {
+    \prgReturn { \expWhole { \dim_eval:n { #1 } } }
+  }
+
+\prgNewFunction \dimMathAdd { m m }
+  {
+    \dim_set:Nn \l@FunTmpxDim { \dim_eval:n { (#1) + (#2) } }
+    \prgReturn { \expValue \l@FunTmpxDim }
+  }
+
+\prgNewFunction \dimMathSub { m m }
+  {
+    \dim_set:Nn \l@FunTmpxDim { \dim_eval:n { (#1) - (#2) } }
+    \prgReturn { \expValue \l@FunTmpxDim }
+  }
+
+\prgNewFunction \dimMathSign { m }
+  {
+    \prgReturn { \expWhole { \dim_sign:n { #1 } } }
+  }
+
+\prgNewFunction \dimMathAbs { m }
+  {
+    \prgReturn { \expWhole { \dim_abs:n { #1 } } }
+  }
+
+\prgNewFunction \dimMathMax { m m }
+  {
+    \prgReturn { \expWhole { \dim_max:nn { #1 } { #2 } } }
+  }
+
+\prgNewFunction \dimMathMin { m m }
+  {
+    \prgReturn { \expWhole { \dim_min:nn { #1 } { #2 } } }
+  }
+
+\prgNewFunction \dimMathRatio { m m }
+  {
+    \prgReturn { \expWhole { \dim_ratio:nn { #1 } { #2 } } }
+  }
+
+\prgNewFunction \dimNew { M } { \dim_new:N #1 }
+
+\prgNewFunction \dimConst { M m } { \dim_const:Nn #1 {#2} }
+
+\prgNewFunction \dimUse { M } { \prgReturn { \expValue #1 } }
+
+\prgNewFunction \dimLog { m } { \dim_log:n { #1 } }
+
+\prgNewFunction \dimVarLog { M } { \dim_log:N #1 }
+
+\prgNewFunction \dimShow { m } { \dim_show:n { #1 } }
+
+\prgNewFunction \dimVarShow { M } { \dim_show:N #1 }
+
+\prgNewFunction \dimSet { M m }
+  {
+    \__fun_do_assignment:Nnn #1 { \dim_gset:Nn #1 {#2} } { \dim_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \dimSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \dim_gset_eq:NN #1 #2 } { \dim_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \dimZero { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \dim_gzero:N #1 } { \dim_zero:N #1 }
+  }
+
+\prgNewFunction \dimZeroNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \dim_gzero_new:N #1 } { \dim_zero_new:N #1 }
+  }
+
+\prgNewFunction \dimAdd { M m }
+  {
+    \__fun_do_assignment:Nnn #1 { \dim_gadd:Nn #1 {#2} } { \dim_add:Nn #1 {#2} }
+  }
+
+\prgNewFunction \dimSub { M m }
+  {
+    \__fun_do_assignment:Nnn #1 { \dim_gsub:Nn #1 {#2} } { \dim_sub:Nn #1 {#2} }
+  }
+
+\prgNewFunction \dimStepInline { m m m n }
+  {
+    \dim_step_inline:nnnn { #1 } { #2 } { #3 } { #4 }
+  }
+
+\prgNewFunction \dimStepVariable { m m m M n }
+  {
+    \dim_step_variable:nnnNn { #1 } { #2 } { #3 } #4 { #5 }
+  }
+
+\prgNewConditional \dimIfExist { M }
+  {
+    \dim_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \dimCompare { m N m }
+  {
+    \dim_compare:nNnTF {#1} #2 {#3}
+      { \prgReturn { \cTrueBool } } { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewFunction \dimCase { m m }
+  { \dim_case:nn {#1} {#2} }
+\prgNewFunction \dimCaseT { m m n }
+  { \dim_case:nnT {#1} {#2} {#3} }
+\prgNewFunction \dimCaseF { m m n }
+  { \dim_case:nnF {#1} {#2} {#3} }
+\prgNewFunction \dimCaseTF { m m n n }
+  { \dim_case:nnTF {#1} {#2} {#3} {#4} }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Sorting Functions (Sort)}
+%%% --------------------------------------------------------
+
+\cs_set_eq:NN \sortReturnSame \sort_return_same:
+\cs_set_eq:NN \sortReturnSwapped \sort_return_swapped:
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Comma Separated Lists (Clist)}
+%%% --------------------------------------------------------
+
+\clist_new:N \lTmpaClist \clist_new:N \lTmpbClist \clist_new:N \lTmpcClist
+\clist_new:N \lTmpiClist \clist_new:N \lTmpjClist \clist_new:N \lTmpkClist
+
+\clist_new:N \gTmpaClist \clist_new:N \gTmpbClist \clist_new:N \gTmpcClist
+\clist_new:N \gTmpiClist \clist_new:N \gTmpjClist \clist_new:N \gTmpkClist
+
+\clist_new:N \l@FunTmpxClist \clist_new:N \g@FunTmpxClist
+\clist_new:N \l@FunTmpyClist \clist_new:N \g@FunTmpyClist
+\clist_new:N \l@FunTmpzClist \clist_new:N \g@FunTmpzClist
+
+\clist_const:Nn \cEmptyClist {}
+
+\prgNewFunction \clistNew { M } { \clist_new:N #1 }
+
+\prgNewFunction \clistLog { m } { \clist_log:n { #1 } }
+
+\prgNewFunction \clistVarLog { M } { \clist_log:N #1 }
+
+\prgNewFunction \clistShow { m } { \clist_show:n { #1 } }
+
+\prgNewFunction \clistVarShow { M } { \clist_show:N #1 }
+
+\prgNewFunction \clistVarJoin { M m }
+  {
+    \expWhole { \clist_use:Nn #1 { #2 } }
+  }
+
+\prgNewFunction \clistVarJoinExtended { M m m m }
+  {
+    \expWhole { \clist_use:Nnnn #1 { #2 } { #3 } { #4 } }
+  }
+
+\prgNewFunction \clistJoin { m m }
+  {
+    \expWhole { \clist_use:nn { #1 } { #2 } }
+  }
+
+\prgNewFunction \clistJoinExtended { m m m m }
+  {
+    \expWhole { \clist_use:nnnn { #1 } { #2 } { #3 } { #4 } }
+  }
+
+\prgNewFunction \clistConst { M m }
+  { \clist_const:Nn #1 { #2 } }
+
+\prgNewFunction \clistSet { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gset:Nn #1 {#2} } { \clist_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gset_eq:NN #1 #2 } { \clist_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \clistSetFromSeq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gset_from_seq:NN #1 #2 } { \clist_set_from_seq:NN #1 #2 }
+  }
+
+\prgNewFunction \clistConcat { M M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gconcat:NNN #1 #2 #3 } { \clist_concat:NNN #1 #2 #3 }
+  }
+
+\prgNewFunction \clistClear { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \clist_gclear:N #1 } { \clist_clear:N #1 }
+  }
+
+\prgNewFunction \clistClearNew { M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gclear_new:N #1 } { \clist_clear_new:N #1 }
+  }
+
+\prgNewFunction \clistPutLeft { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gput_left:Nn #1 {#2} } { \clist_put_left:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistPutRight { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gput_right:Nn #1 {#2} } { \clist_put_right:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistVarRemoveDuplicates { M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gremove_duplicates:N #1 } { \clist_remove_duplicates:N #1 }
+  }
+
+\prgNewFunction \clistVarRemoveAll { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gremove_all:Nn #1 {#2} } { \clist_remove_all:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistVarReverse { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \clist_greverse:N #1 } { \clist_reverse:N #1 }
+  }
+
+\prgNewFunction \clistVarSort { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gsort:Nn #1 {#2} } { \clist_sort:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistCount { m }
+  { \expWhole { \clist_count:n { #1 } } }
+
+\prgNewFunction \clistVarCount { M }
+  { \expWhole { \clist_count:N #1 } }
+
+\prgNewFunction \clistGet { M M }
+  {
+    \clist_get:NN #1 #2
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \clistGetT { M M n } { \clist_get:NNT #1 #2 {#3} }
+\prgNewFunction \clistGetF { M M n } { \clist_get:NNF #1 #2 {#3} }
+\prgNewFunction \clistGetTF { M M n n } { \clist_get:NNTF #1 #2 {#3} {#4} }
+
+\prgNewFunction \clistPop { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gpop:NN #1 #2 } { \clist_pop:NN #1 #2 }
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \clistPopT { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gpop:NNT #1 #2 {#3} } { \clist_pop:NNT #1 #2 {#3} }
+  }
+\prgNewFunction \clistPopF { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gpop:NNF #1 #2 {#3} } { \clist_pop:NNF #1 #2 {#3} }
+  }
+\prgNewFunction \clistPopTF { M M n n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gpop:NNTF #1 #2 {#3} {#4} } { \clist_pop:NNTF #1 #2 {#3} {#4} }
+  }
+
+\prgNewFunction \clistPush { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \clist_gpush:Nn #1 {#2} } { \clist_push:Nn #1 {#2} }
+  }
+
+\prgNewFunction \clistItem { m m }
+  { \expWhole { \clist_item:nn {#1} {#2} } }
+
+\prgNewFunction \clistVarItem { M m }
+  { \expWhole { \clist_item:Nn #1 {#2} } }
+
+\prgNewFunction \clistRandItem { m }
+  { \expWhole { \clist_rand_item:n {#1} } }
+
+\prgNewFunction \clistVarRandItem { M }
+  { \expWhole { \clist_rand_item:N #1 } }
+
+\prgNewFunction \clistMapInline { m n }
+  {
+    \clist_map_inline:nn {#1} {#2}
+  }
+
+\prgNewFunction \clistVarMapInline { M n }
+  {
+    \clist_map_inline:Nn #1 {#2}
+  }
+
+\prgNewFunction \clistMapVariable { m M n }
+  {
+    \clist_map_variable:nNn {#1} #2 {#3}
+  }
+
+\prgNewFunction \clistVarMapVariable { M M n }
+  {
+    \clist_map_variable:NNn #1 #2 {#3}
+  }
+
+\cs_set_eq:NN \clistMapBreak \clist_map_break:
+
+\prgNewConditional \clistIfExist { M }
+  {
+    \clist_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \clistIfEmpty { m }
+  {
+    \clist_if_empty:nTF {#1}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \clistVarIfEmpty { M }
+  {
+    \clist_if_empty:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \clistIfIn { m m }
+  {
+    \clist_if_in:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \clistVarIfIn { M m }
+  {
+    \clist_if_in:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Sequences and Stacks (Seq)}
+%%% --------------------------------------------------------
+
+\seq_new:N \lTmpaSeq     \seq_new:N \lTmpbSeq     \seq_new:N \lTmpcSeq
+\seq_new:N \lTmpiSeq     \seq_new:N \lTmpjSeq     \seq_new:N \lTmpkSeq
+\seq_new:N \l@FunTmpxSeq \seq_new:N \l@FunTmpySeq \seq_new:N \l@FunTmpzSeq
+
+\seq_new:N \gTmpaSeq     \seq_new:N \gTmpbSeq     \seq_new:N \gTmpcSeq
+\seq_new:N \gTmpiSeq     \seq_new:N \gTmpjSeq     \seq_new:N \gTmpkSeq
+\seq_new:N \g@FunTmpxSeq \seq_new:N \g@FunTmpySeq \seq_new:N \g@FunTmpzSeq
+
+\seq_const_from_clist:Nn \cEmptySeq {}
+
+\prgNewFunction \seqNew { M } { \seq_new:N #1 }
+
+\prgNewFunction \seqVarLog { M } { \seq_log:N #1 }
+
+\prgNewFunction \seqVarShow { M } { \seq_show:N #1 }
+
+\prgNewFunction \seqVarJoin { M m }
+  {
+    \expWhole { \seq_use:Nn #1 { #2 } }
+  }
+
+\prgNewFunction \seqVarJoinExtended { M m m m }
+  {
+    \expWhole { \seq_use:Nnnn #1 { #2 } { #3 } { #4 } }
+  }
+
+\prgNewFunction \seqJoin { m m }
+  {
+    \expWhole { \seq_use:nn { #1 } { #2 } }
+  }
+
+\prgNewFunction \seqJoinExtended { m m m m }
+  {
+    \expWhole { \seq_use:nnnn { #1 } { #2 } { #3 } { #4 } }
+  }
+
+\prgNewFunction \seqConstFromClist { M m }
+  { \seq_const_from_clist:Nn #1 { #2 } }
+
+\prgNewFunction \seqSetFromClist { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gset_from_clist:Nn #1 {#2} } { \seq_set_from_clist:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gset_eq:NN #1 #2 } { \seq_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \seqSetSplit { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gset_split:Nnn #1 {#2} {#3} } { \seq_set_split:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \seqConcat { M M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gconcat:NNN #1 #2 #3 } { \seq_concat:NNN #1 #2 #3 }
+  }
+
+\prgNewFunction \seqClear { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \seq_gclear:N #1 } { \seq_clear:N #1 }
+  }
+
+\prgNewFunction \seqClearNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \seq_gclear_new:N #1 } { \seq_clear_new:N #1 }
+  }
+
+\prgNewFunction \seqPutLeft { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gput_left:Nn #1 {#2} } { \seq_put_left:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqPutRight { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gput_right:Nn #1 {#2} } { \seq_put_right:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqVarRemoveDuplicates { M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gremove_duplicates:N #1 } { \seq_remove_duplicates:N #1 }
+  }
+
+\prgNewFunction \seqVarRemoveAll { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gremove_all:Nn #1 {#2} } { \seq_remove_all:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqVarReverse { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \seq_greverse:N #1 } { \seq_reverse:N #1 }
+  }
+
+\prgNewFunction \seqVarSort { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gsort:Nn #1 {#2} } { \seq_sort:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqVarCount { M }
+  { \expWhole { \seq_count:N #1 } }
+
+\prgNewFunction \seqGet { M M }
+  {
+    \seq_get:NN #1 #2
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqGetT { M M n }
+  { \seq_get:NNT #1 #2 {#3} }
+\prgNewFunction \seqGetF { M M n }
+  { \seq_get:NNF #1 #2 {#3} }
+\prgNewFunction \seqGetTF { M M n n }
+  { \seq_get:NNTF #1 #2 {#3} {#4} }
+
+\prgNewFunction \seqPop { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop:NN #1 #2 } { \seq_pop:NN #1 #2 }
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqPopT { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop:NNT #1 #2 {#3} } { \seq_pop:NNT #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopF { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop:NNF #1 #2 {#3} } { \seq_pop:NNF #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopTF { M M n n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop:NNTF #1 #2 {#3} {#4} } { \seq_pop:NNTF #1 #2 {#3} {#4} }
+  }
+
+\prgNewFunction \seqPush { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpush:Nn #1 {#2} } { \seq_push:Nn #1 {#2} }
+  }
+
+\prgNewFunction \seqGetLeft { M M }
+  {
+    \seq_get_left:NN #1 #2
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqGetLeftT { M M n }
+  { \seq_get_left:NNT #1 #2 {#3} }
+\prgNewFunction \seqGetLeftF { M M n }
+  { \seq_get_left:NNF #1 #2 {#3} }
+\prgNewFunction \seqGetLeftTF { M M n n }
+  { \seq_get_left:NNTF #1 #2 {#3} {#4} }
+
+\prgNewFunction \seqGetRight { M M }
+  {
+    \seq_get_right:NN #1 #2
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqGetRightT { M M n }
+  { \seq_get_right:NNT #1 #2 {#3} }
+\prgNewFunction \seqGetRightF { M M n }
+  { \seq_get_right:NNF #1 #2 {#3} }
+\prgNewFunction \seqGetRightTF { M M n n }
+  { \seq_get_right:NNTF #1 #2 {#3} {#4} }
+
+\prgNewFunction \seqPopLeft { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_left:NN #1 #2 } { \seq_pop_left:NN #1 #2 }
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqPopLeftT { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_left:NNT #1 #2 {#3} } { \seq_pop_left:NNT #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopLeftF { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_left:NNF #1 #2 {#3} } { \seq_pop_left:NNF #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopLeftTF { M M n n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_left:NNTF #1 #2 {#3} {#4} }
+      { \seq_pop_left:NNTF #1 #2 {#3} {#4} }
+  }
+
+\prgNewFunction \seqPopRight { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_right:NN #1 #2 } { \seq_pop_right:NN #1 #2 }
+    \__fun_quark_upgrade_no_value:N #2
+  }
+\prgNewFunction \seqPopRightT { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_right:NNT #1 #2 {#3} } { \seq_pop_right:NNT #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopRightF { M M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_right:NNF #1 #2 {#3} } { \seq_pop_right:NNF #1 #2 {#3} }
+  }
+\prgNewFunction \seqPopRightTF { M M n n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \seq_gpop_right:NNTF #1 #2 {#3} {#4} }
+      { \seq_pop_right:NNTF #1 #2 {#3} {#4} }
+  }
+
+\prgNewFunction \seqVarItem { M m }
+  { \expWhole { \seq_item:Nn #1 {#2} } }
+
+\prgNewFunction \seqVarRandItem { M }
+  { \expWhole { \seq_rand_item:N #1 } }
+
+\prgNewFunction \seqVarMapInline { M n }
+  {
+    \seq_map_inline:Nn #1 {#2}
+  }
+
+\prgNewFunction \seqVarMapVariable { M M n }
+  {
+    \seq_map_variable:NNn #1 #2 {#3}
+  }
+
+\cs_set_eq:NN \seqMapBreak \seq_map_break:
+
+\prgNewConditional \seqIfExist { M }
+  {
+    \seq_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \seqVarIfEmpty { M }
+  {
+    \seq_if_empty:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \seqVarIfIn { M m }
+  {
+    \seq_if_in:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Property Lists (Prop)}
+%%% --------------------------------------------------------
+
+\prop_new:N \lTmpaProp     \prop_new:N \lTmpbProp     \prop_new:N \lTmpcProp
+\prop_new:N \lTmpiProp     \prop_new:N \lTmpjProp     \prop_new:N \lTmpkProp
+\prop_new:N \l@FunTmpxProp \prop_new:N \l@FunTmpyProp \prop_new:N \l@FunTmpzProp
+
+\prop_new:N \gTmpaProp     \prop_new:N \gTmpbProp     \prop_new:N \gTmpcProp
+\prop_new:N \gTmpiProp     \prop_new:N \gTmpjProp     \prop_new:N \gTmpkProp
+\prop_new:N \g@FunTmpxProp \prop_new:N \g@FunTmpyProp \prop_new:N \g@FunTmpzProp
+
+\prop_const_from_keyval:Nn \cEmptyProp {}
+
+\prgNewFunction \propNew { M } { \prop_new:N #1 }
+
+\prgNewFunction \propVarLog { M } { \prop_log:N #1 }
+
+\prgNewFunction \propVarShow { M } { \prop_show:N #1 }
+
+\prgNewFunction \propConstFromKeyval { M m }
+  { \prop_const_from_keyval:Nn #1 { #2 } }
+
+\prgNewFunction \propSetFromKeyval { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gset_from_keyval:Nn #1 {#2} } { \prop_set_from_keyval:Nn #1 {#2} }
+  }
+
+\prgNewFunction \propSetEq { M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gset_eq:NN #1 #2 } { \prop_set_eq:NN #1 #2 }
+  }
+
+\prgNewFunction \propClear { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \prop_gclear:N #1 } { \prop_clear:N #1 }
+  }
+
+\prgNewFunction \propClearNew { M }
+  {
+    \__fun_do_assignment:Nnn #1 { \prop_gclear_new:N #1 } { \prop_clear_new:N #1 }
+  }
+
+\prgNewFunction \propConcat { M M M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gconcat:NNN #1 #2 #3 } { \prop_concat:NNN #1 #2 #3 }
+  }
+
+\prgNewFunction \propPut { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gput:Nnn #1 {#2} {#3} } { \prop_put:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \propPutIfNew { M m m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gput_if_new:Nnn #1 {#2} {#3} } { \prop_put_if_new:Nnn #1 {#2} {#3} }
+  }
+
+\prgNewFunction \propPutFromKeyval { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gput_from_keyval:Nn #1 {#2} } { \prop_put_from_keyval:Nn #1 {#2} }
+  }
+
+\prgNewFunction \propVarRemove { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gremove:Nn #1 {#2} } { \prop_remove:Nn #1 {#2} }
+  }
+
+\prgNewFunction \propVarCount { M } { \expWhole { \prop_count:N #1 } }
+
+\prgNewFunction \propVarItem { M m } { \expWhole { \prop_item:Nn #1 {#2} } }
+
+\prgNewFunction \propToKeyval { M } { \expWhole { \prop_to_keyval:N #1 } }
+
+\prgNewFunction \propGet { M m M }
+  {
+    \prop_get:NnN #1 {#2} #3
+    \__fun_quark_upgrade_no_value:N #3
+  }
+\prgNewFunction \propGetT { M m M n } { \prop_get:NnNT #1 {#2} #3 {#4} }
+\prgNewFunction \propGetF { M m M n } { \prop_get:NnNF #1 {#2} #3 {#4} }
+\prgNewFunction \propGetTF { M m M n n } { \prop_get:NnNTF #1 {#2} #3 {#4} {#5} }
+
+\prgNewFunction \propPop { M m M }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gpop:NnN #1 {#2} #3 } { \prop_pop:NnN #1 {#2} #3 }
+    \__fun_quark_upgrade_no_value:N #3
+  }
+\prgNewFunction \propPopT { M m M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gpop:NnNT #1 {#2} #3 {#4} } { \prop_pop:NnNT #1 {#2} #3 {#4} }
+  }
+\prgNewFunction \propPopF { M m M n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gpop:NnNF #1 {#2} #3 {#4} } { \prop_pop:NnNF #1 {#2} #3 {#4} }
+  }
+\prgNewFunction \propPopTF { M m M n n }
+  {
+    \__fun_do_assignment:Nnn #1
+      { \prop_gpop:NnNTF #1 {#2} #3 {#4} {#5} }
+      { \prop_pop:NnNTF #1 {#2} #3 {#4} {#5} }
+  }
+
+\prgNewFunction \propVarMapInline { M n } { \prop_map_inline:Nn #1 {#2} }
+
+\cs_set_eq:NN \propMapBreak \prop_map_break:
+
+\prgNewConditional \propIfExist { M }
+  {
+    \prop_if_exist:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \propVarIfEmpty { M }
+  {
+    \prop_if_empty:NTF #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \propVarIfIn { M m }
+  {
+    \prop_if_in:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Regular Expressions (Regex)}
+%%% --------------------------------------------------------
+
+\regex_new:N \lTmpaRegex  \regex_new:N \lTmpbRegex  \regex_new:N \lTmpcRegex
+\regex_new:N \lTmpiRegex  \regex_new:N \lTmpjRegex  \regex_new:N \lTmpkRegex
+
+\regex_new:N \gTmpaRegex  \regex_new:N \gTmpbRegex  \regex_new:N \gTmpcRegex
+\regex_new:N \gTmpiRegex  \regex_new:N \gTmpjRegex  \regex_new:N \gTmpkRegex
+
+\regex_new:N \l@FunTmpxRegex  \regex_new:N \g@FunTmpxRegex
+\regex_new:N \l@FunTmpyRegex  \regex_new:N \g@FunTmpyRegex
+\regex_new:N \l@FunTmpzRegex  \regex_new:N \g@FunTmpzRegex
+
+\prgNewFunction \regexNew { M } { \regex_new:N #1 }
+
+\prgNewFunction \regexSet { M m }
+  {
+    \__fun_do_assignment:Nnn #1
+     { \regex_gset:Nn #1 {#2} } { \regex_set:Nn #1 {#2} }
+  }
+
+\prgNewFunction \regexConst { M m } { \regex_const:Nn #1 {#2} }
+
+\prgNewFunction \regexLog { m } { \regex_log:n {#1} }
+
+\prgNewFunction \regexVarLog { M } { \regex_log:N #1 }
+
+\prgNewFunction \regexShow { m } { \regex_show:n {#1} }
+
+\prgNewFunction \regexVarShow { M } { \regex_show:N #1 }
+
+\prgNewConditional \regexMatch { m m }
+  {
+    \regex_match:nnTF {#1} {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewConditional \regexVarMatch { M m }
+  {
+    \regex_match:NnTF #1 {#2}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewFunction \regexCount { m m M } { \regex_count:nnN {#1} {#2} #3 }
+
+\prgNewFunction \regexVarCount { M m M } { \regex_count:NnN #1 {#2} #3 }
+
+\prgNewFunction \regexMatchCase { m m }
+  {
+    \regex_match_case:nn {#1} {#2}
+  }
+\prgNewFunction \regexMatchCaseT { m m n }
+  {
+    \regex_match_case:nnT {#1} {#2} {#3}
+  }
+\prgNewFunction \regexMatchCaseF { m m n }
+  {
+    \regex_match_case:nnF {#1} {#2} {#3}
+  }
+\prgNewFunction \regexMatchCaseTF { m m n n }
+  {
+    \regex_match_case:nnTF {#1} {#2} {#3} {#4}
+  }
+
+\prgNewFunction \regexExtractOnce { m m M }
+  {
+    \regex_extract_once:nnN {#1} {#2} #3
+  }
+\prgNewFunction \regexExtractOnceT { m m M n }
+  {
+    \regex_extract_once:nnNT {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexExtractOnceF { m m M n }
+  {
+    \regex_extract_once:nnNF {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexExtractOnceTF { m m M n n }
+  {
+    \regex_extract_once:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexVarExtractOnce { M m M }
+  {
+    \regex_extract_once:NnN #1 {#2} #3
+  }
+\prgNewFunction \regexVarExtractOnceT { M m M n }
+  {
+    \regex_extract_once:NnNT #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarExtractOnceF { M m M n }
+  {
+    \regex_extract_once:NnNF #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarExtractOnceTF { M m M n n }
+  {
+    \regex_extract_once:NnNTF #1 {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexExtractAll { m m M }
+  {
+    \regex_extract_all:nnN {#1} {#2} #3
+  }
+\prgNewFunction \regexExtractAllT { m m M n }
+  {
+    \regex_extract_all:nnNT {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexExtractAllF { m m M n }
+  {
+    \regex_extract_all:nnNF {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexExtractAllTF { m m M n n }
+  {
+    \regex_extract_all:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexVarExtractAll { M m M }
+  {
+    \regex_extract_all:NnN #1 {#2} #3
+  }
+\prgNewFunction \regexVarExtractAllT { M m M n }
+  {
+    \regex_extract_all:NnNT #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarExtractAllF { M m M n }
+  {
+    \regex_extract_all:NnNF #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarExtractAllTF { M m M n n }
+  {
+    \regex_extract_all:NnNTF #1 {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexSplit { m m M }
+  {
+    \regex_split:nnN {#1} {#2} #3
+  }
+\prgNewFunction \regexSplitT { m m M n }
+  {
+    \regex_split:nnNT {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexSplitF { m m M n }
+  {
+    \regex_split:nnNF {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexSplitTF { m m M n n }
+  {
+    \regex_split:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexVarSplit { M m M }
+  {
+    \regex_split:NnN #1 {#2} #3
+  }
+\prgNewFunction \regexVarSplitT { M m M n }
+  {
+    \regex_split:NnNT #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarSplitF { M m M n }
+  {
+    \regex_split:NnNF #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarSplitTF { M m M n n }
+  {
+    \regex_split:NnNTF #1 {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexReplaceOnce { m m M }
+  {
+    \regex_replace_once:nnN {#1} {#2} #3
+  }
+\prgNewFunction \regexReplaceOnceT { m m M n }
+  {
+    \regex_replace_once:nnNT {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexReplaceOnceF { m m M n }
+  {
+    \regex_replace_once:nnNF {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexReplaceOnceTF { m m M n n }
+  {
+    \regex_replace_once:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexVarReplaceOnce { M m M }
+  {
+    \regex_replace_once:NnN #1 {#2} #3
+  }
+\prgNewFunction \regexVarReplaceOnceT { M m M n }
+  {
+    \regex_replace_once:NnNT #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarReplaceOnceF { M m M n }
+  {
+    \regex_replace_once:NnNF #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarReplaceOnceTF { M m M n n }
+  {
+    \regex_replace_once:NnNTF #1 {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexReplaceAll { m m M }
+  {
+    \regex_replace_all:nnN {#1} {#2} #3
+  }
+\prgNewFunction \regexReplaceAllT { m m M n }
+  {
+    \regex_replace_all:nnNT {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexReplaceAllF { m m M n }
+  {
+    \regex_replace_all:nnNF {#1} {#2} #3 {#4}
+  }
+\prgNewFunction \regexReplaceAllTF { m m M n n }
+  {
+    \regex_replace_all:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexVarReplaceAll { M m M }
+  {
+    \regex_replace_all:NnN #1 {#2} #3
+  }
+\prgNewFunction \regexVarReplaceAllT { M m M n }
+  {
+    \regex_replace_all:NnNT #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarReplaceAllF { M m M n }
+  {
+    \regex_replace_all:NnNF #1 {#2} #3 {#4}
+  }
+\prgNewFunction \regexVarReplaceAllTF { M m M n n }
+  {
+    \regex_replace_all:NnNTF #1 {#2} #3 {#4} {#5}
+  }
+
+\prgNewFunction \regexReplaceCaseOnce { m M }
+  {
+    \regex_replace_case_once:nN {#1} #2
+  }
+\prgNewFunction \regexReplaceCaseOnceT { m M n }
+  {
+    \regex_replace_case_once:nN {#1} #2 {#3}
+  }
+\prgNewFunction \regexReplaceCaseOnceF { m M n }
+  {
+    \regex_replace_case_once:nN {#1} #2 {#3}
+  }
+\prgNewFunction \regexReplaceCaseOnceTF { m M n n }
+  {
+    \regex_replace_case_once:nN {#1} #2 {#3} {#4}
+  }
+
+\prgNewFunction \regexReplaceCaseAll { m M }
+  {
+    \regex_replace_case_all:nN {#1} #2
+  }
+\prgNewFunction \regexReplaceCaseAllT { m M n }
+  {
+    \regex_replace_case_all:nN {#1} #2 {#3}
+  }
+\prgNewFunction \regexReplaceCaseAllF { m M n }
+  {
+    \regex_replace_case_all:nN {#1} #2 {#3}
+  }
+\prgNewFunction \regexReplaceCaseAllTF { m M n n }
+  {
+    \regex_replace_case_all:nN {#1} #2 {#3} {#4}
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Token Manipulation (Token)}
+%%% --------------------------------------------------------
+
+\prgNewFunction \charLowercase { M } { \expWhole { \char_lowercase:N #1 } }
+
+\prgNewFunction \charUppercase { M } { \expWhole { \char_uppercase:N #1 } }
+
+\prgNewFunction \charTitlecase { M } { \expWhole { \char_titlecase:N #1 } }
+
+\prgNewFunction \charFoldcase { M } { \expWhole { \char_foldcase:N #1 } }
+
+\prgNewFunction \charStrLowercase { M } { \expWhole { \char_str_lowercase:N #1 } }
+
+\prgNewFunction \charStrUppercase { M } { \expWhole { \char_str_uppercase:N #1 } }
+
+\prgNewFunction \charStrTitlecase { M } { \expWhole { \char_str_titlecase:N #1 } }
+
+\prgNewFunction \charStrFoldcase { M } { \expWhole { \char_str_foldcase:N #1 } }
+
+\prgNewFunction \charSetLccode { m m } { \char_set_lccode:nn {#1} {#2} }
+
+\prgNewFunction \charValueLccode { m } { \expWhole { \char_value_lccode:n {#1} } }
+
+\prgNewFunction \charSetUccode { m m } { \char_set_uccode:nn {#1} {#2} }
+
+\prgNewFunction \charValueUccode { m } { \expWhole { \char_value_uccode:n {#1} } }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Text Processing (Text)}
+%%% --------------------------------------------------------
+
+\prgNewFunction \textExpand { m }
+  {
+    \expWhole { \text_expand:n {#1} }
+  }
+
+\prgNewFunction \textLowercase { m }
+  {
+    \expWhole { \text_lowercase:n {#1} }
+  }
+
+\prgNewFunction \textUppercase { m }
+  {
+    \expWhole { \text_uppercase:n {#1} }
+  }
+
+\prgNewFunction \textTitlecase { m }
+  {
+    \expWhole { \text_titlecase:n {#1} }
+  }
+
+\prgNewFunction \textTitlecaseFirst { m }
+  {
+    \expWhole { \text_titlecase_first:n {#1} }
+  }
+
+\prgNewFunction \textLangLowercase { m m }
+  {
+    \expWhole { \text_lowercase:nn {#1} {#2} }
+  }
+
+\prgNewFunction \textLangUppercase { m m }
+  {
+    \expWhole { \text_uppercase:nn {#1} {#2} }
+  }
+
+\prgNewFunction \textLangTitlecase { m m }
+  {
+    \expWhole { \text_titlecase:nn {#1} {#2} }
+  }
+
+\prgNewFunction \textLangTitlecaseFirst { m m }
+  {
+    \expWhole { \text_titlecase_first:nn {#1} {#2} }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Files (File)}
+%%% --------------------------------------------------------
+
+\msg_new:nnn { functional } { file-not-found } { File ~ "#1" ~ not ~ found! }
+
+\prgNewFunction \fileInput { m }
+  {
+    \file_get:nnN {#1} {} \l@FunTmpxTl
+    \quark_if_no_value:NTF \l@FunTmpxTl
+      { \msg_error:nnn { functional } { file-not-found } { #1 } }
+      { \tlUse \l@FunTmpxTl }
+  }
+
+\prgNewFunction \fileIfExistInput { m }
+  {
+    \file_get:nnN {#1} {} \l@FunTmpxTl
+    \quark_if_no_value:NF \l@FunTmpxTl { \tlUse \l@FunTmpxTl }
+  }
+
+\prgNewFunction \fileIfExistInputF { m n }
+  {
+    \file_get:nnN {#1} {} \l@FunTmpxTl
+    \quark_if_no_value:NTF \l@FunTmpxTl { #2 } { \tlUse \l@FunTmpxTl }
+  }
+
+\cs_set_eq:NN \fileInputStop \file_input_stop:
+
+\prgNewFunction \fileGet { m m M }
+  {
+    \file_get:nnN {#1} {#2} #3
+    \__fun_quark_upgrade_no_value:N #3
+  }
+
+\prgNewFunction \fileGetT { m m M n }
+  {
+    \file_get:nnNT {#1} {#2} #3 {#4}
+  }
+
+\prgNewFunction \fileGetF { m m M n }
+  {
+    \file_get:nnNF {#1} {#2} #3 {#4}
+  }
+
+\prgNewFunction \fileGetTF { m m M n n }
+  {
+    \file_get:nnNTF {#1} {#2} #3 {#4} {#5}
+  }
+
+\prgNewConditional \fileIfExist { m }
+  {
+    \file_if_exist:nTF {#1}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for Quarks (Quark)}
+%%% --------------------------------------------------------
+
+\quark_new:N \qNoValue
+
+\cs_new_protected:Npn \__fun_quark_upgrade_no_value:N #1
+  {
+    \quark_if_no_value:NT #1 { \tl_set_eq:NN #1 \qNoValue }
+  }
+
+\prgNewConditional \quarkVarIfNoValue { M }
+  {
+    \tl_if_eq:NNTF \qNoValue #1
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces to Legacy Concepts (Legacy)}
+%%% --------------------------------------------------------
+
+\prgNewConditional \legacyIf { m }
+  {
+    \legacy_if:nTF {#1}
+      { \prgReturn { \cTrueBool } }  { \prgReturn { \cFalseBool } }
+  }
+
+\prgNewFunction \legacyIfSetTrue { m }
+  {
+    \__fun_do_assignment:Nnn \c@name
+      { \legacy_if_gset_true:n {#1} } { \legacy_if_set_true:n {#1} }
+  }
+
+\prgNewFunction \legacyIfSetFalse { m }
+  {
+    \__fun_do_assignment:Nnn \c@name
+      { \legacy_if_gset_false:n {#1} } { \legacy_if_set_false:n {#1} }
+  }
+
+\prgNewFunction \legacyIfSet { m m }
+  {
+    \__fun_do_assignment:Nnn \c@name
+      { \legacy_if_gset:nn {#1} {#2} } { \legacy_if_set:nn {#1} {#2} }
+  }
+
+%%% --------------------------------------------------------
+%%> \section{Interfaces for other packages}
+%%% --------------------------------------------------------
+
+\AddToHook{package/xcolor/after}
+  {
+    \tlNew \l@Fun@Color@Tl
+    \prgNewFunction \funColor { m m }
+      {
+        %% replace commas with vertical bars
+        \tlSet \l@Fun@Color@Tl { \clistJoin { fun | #1 | #2 } { | } }
+        %% functional library in tabularray package need global colors
+        \xglobal \definecolor { \l@Fun@Color@Tl } { #1 } { #2 }
+        \prgReturn { \expValue \l@Fun@Color@Tl }
+      }
+  }
