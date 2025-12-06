@@ -1,0 +1,843 @@
+\RequirePackage{expl3}[2024/01/25]
+\ProvidesExplPackage{non-decimal-units}{2024/01/25}{1.0.1}{Macros for displaying and manipulating historical non-decimal units}
+
+% License: CC-BY-SA 4.0
+% Author: Mikkel Eide Eriksen <mikkel.eriksen@gmail.com>
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Key setup
+% 
+
+\keys_define:nn { non-decimal-units }
+{
+	% nil/zero
+	replace~nil~with 			.tl_set:N		= \l__ndu_replace_nil_with_tl ,
+	treat~zero~as~nil 			.bool_set:N 	= \l__ndu_treat_zero_as_nil_bool ,
+	treat~zero~as~nil 			.default:n 		= true ,
+
+	% formatting
+	unit~separator 				.tl_set:N		= \l__ndu_unit_separator_tl ,
+	unit~separator				.default:n		= { \nobreakspace } ,
+	default~format				.tl_set:N		= \l__ndu_default_format_tl ,
+	default~format				.default:n		= { \VALUE\nobreakspace\SYMBOL } ,
+	display						.choice: ,
+	display						.choices:nn		= 
+		{ values~only, symbols~only, formatted }
+		{ \tl_set_eq:NN \l__ndu_display_choice_tl \l_keys_choice_tl } ,
+	display						.default:n		= { formatted } ,
+	unit~depth					.tl_set:N		= \l__ndu_unit_depth_tl ,
+	use~numprint	 			.bool_set:N 	= \l__ndu_use_numprint_bool ,
+	use~numprint	 			.default:n 		= true ,
+
+	% tabular alignment
+	aligned						.bool_set:N		= \l__ndu_aligned_bool ,
+	aligned						.default:n 		= true ,
+	cell~widths					.code:n			= {
+			\seq_set_from_clist:Nn \l__ndu_cell_widths_seq {#1}
+		} ,
+	cell~widths 				.default:n 		= 3em ,
+
+	% math
+	normalize 					.bool_set:N		= \l__ndu_normalize_bool ,
+	normalize 					.default:n 		= true ,
+	current~variable			.tl_set:N		= \l__ndu_current_variable_tl ,
+	current~operator			.tl_set:N		= \l__ndu_current_operator_tl ,
+	add~to~variable				.meta:n			= {
+			current~variable = {#1} ,
+			current~operator = {+}
+		} ,
+	subtract~from~variable		.meta:n			= {
+			current~variable = {#1} ,
+			current~operator = {-}
+		} ,
+	
+	% environments
+	set~aligned~for~environment	.code			= {
+			\AtBeginEnvironment{#1}{\nduKeys{aligned}}
+		} ,
+}
+
+\NewDocumentCommand { \nduKeys } { m } {
+	\keys_set:nn { non-decimal-units } { #1 }
+}
+
+% set some defaults
+\keys_set:nn { non-decimal-units } {
+	unit~separator,
+	default~format,
+	display,
+	cell~widths,
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Errors and log messages
+% 
+
+\msg_new:nnnn
+{ non-decimal-units } { base-unit-exists }
+{ A ~ base ~ unit ~ named ~ #1 ~ already ~ exists }
+{ You ~ will ~ need ~ to ~ give ~ it ~ another ~ name ~ or ~ load ~ less ~ units. }
+
+\msg_new:nnnn
+{ non-decimal-units } { unit-group-exists }
+{ A ~ unit ~ group ~ named ~ #1 ~ already ~ exists }
+{ You ~ will ~ need ~ to ~ give ~ it ~ another ~ name ~ or ~ load ~ less ~ units. }
+
+\msg_new:nnnn
+{ non-decimal-units } { missing-base-unit }
+{ No ~ base ~ unit ~ exists ~ named ~ #1 }
+{ You ~ will ~ need ~ to ~ add ~ it ~ with ~ nduNewBaseUnit. }
+
+\msg_new:nnnn
+{ non-decimal-units } { missing-unit-group }
+{ No ~ unit ~ group ~ exists ~ named ~ #1 }
+{ You ~ will ~ need ~ to ~ add ~ it ~ with ~ nduNewUnitGroup. }
+
+\msg_new:nnnn
+{ non-decimal-units } { missing-factor }
+{ No ~ conversion ~ factor ~ exists ~ between ~ #1 ~ and ~ #2 }
+{ You ~ will ~ need ~ to ~ add ~ it ~ when ~ creating ~ the ~ base ~ unit ~ or ~ via ~ nduKeys. }
+
+\msg_new:nnn
+{ non-decimal-units } { calculating-factor }
+{ Calculating ~ conversion ~ factor ~ between ~ #1 ~ and ~ #2 ~ via ~ #3 }
+
+\msg_new:nnn
+{ non-decimal-units } { found-factor }
+{ Found ~ conversion ~ factor ~ between ~ #1 ~ and ~ #2: ~ #3 }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Unit setup
+% 
+
+\NewDocumentCommand { \nduNewBaseUnit } { m m } {
+	\tl_if_exist:cT { l__ndu_factors_#1_prop }
+	{
+		\msg_error:nnn { non-decimal-units } { base-unit-exists } { #1 }
+	}
+	\prop_clear_new:c { l__ndu_factors_#1_prop }
+	\keys_define:nn { non-decimal-units / units / #1 } {
+		factor				.code			= {
+			\regex_extract_once:nnN { (\d+)\ (\D+) } { ##1 } \l_tmpa_seq
+			\prop_put:cee { l__ndu_factors_#1_prop } { \seq_item:Nn \l_tmpa_seq 3 } { \seq_item:Nn \l_tmpa_seq 2 }
+		} ,
+		symbol				.tl_set:c		= { l__ndu_symbol_#1_tl } ,
+		format				.tl_set:c		= { l__ndu_format_#1_tl } ,
+	}
+	\keys_set:nn { non-decimal-units / units / #1 } { #2 }
+}
+
+\NewDocumentCommand { \nduNewUnitGroup } { m O{} m o }
+{
+	\tl_if_exist:cT { l__ndu_group_#1_seq }
+	{
+		\msg_error:nnn { non-decimal-units } { unit-group-exists } { #1 }
+	}
+	\seq_set_from_clist:cn { l__ndu_group_#1_seq } {#3}
+
+	% set base unit to rightmost item
+	\seq_get_right:cN { l__ndu_group_#1_seq } \l_tmpa_tl
+	\tl_set_eq:cN { l__ndu_base_unit_#1_tl } \l_tmpa_tl
+
+	% store keys for unit group
+	\tl_clear_new:c { l__ndu_options_#1_tl }
+	\IfValueT {#2} {
+		\tl_set:cn { l__ndu_options_#1_tl } {#2}
+	}
+
+	% optionally create macro
+	\IfValueT {#4} {
+		\NewDocumentCommand { #4 } { O{} m } {
+			\group_begin:
+				\nduValue{#1}[#2,##1]{##2}
+			\group_end:
+		}
+	}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Conversion factor initialization and access
+% 
+
+\cs_new_protected:Nn \ndu_get_factor:Nnn
+{
+	% parameters
+	% #1: output result (int)
+	% #2: from unit (tl)
+	% #3: to unit (tl)
+	\tl_if_exist:cF { l__ndu_factors_#2_prop }
+	{
+		\msg_error:nnn { non-decimal-units } { missing-base-unit } { #2 }
+	}
+	\tl_if_exist:cF { l__ndu_factors_#3_prop }
+	{
+		\msg_error:nnn { non-decimal-units } { missing-base-unit } { #3 }
+	}
+	\str_if_eq:nnTF {#2} {#3}
+	{
+		\int_set:Nn #1 { 1 }
+	}
+	{
+		\prop_if_in:cnTF { l__ndu_factors_#2_prop } { #3 }
+		{
+			\prop_get:cnN  { l__ndu_factors_#2_prop } { #3 } \l_tmpa_tl
+%			\msg_term:nnnee { non-decimal-units } { found-factor } { #2 } { #3 } { \tl_use:N \l_tmpa_tl }
+			\int_set:Nn #1 { \l_tmpa_tl }
+		}{
+			\int_zero_new:N \l__ndu_factor_product_int
+			\prop_map_inline:cn { l__ndu_factors_#2_prop } {
+				\str_if_eq:nnF {#3} {##1}
+				{
+%					\msg_term:nnnee { non-decimal-units } { calculating-factor } { #2 } { #3 } { ##1 }
+					\int_zero_new:N \l__ndu_sub_factor_int
+					\ndu_get_factor:Nnn \l__ndu_sub_factor_int { ##1 } { #3 }
+					\int_set:Nn \l__ndu_factor_product_int { ##2 * \l__ndu_sub_factor_int }
+					\int_set:Nn #1 { \l__ndu_factor_product_int }
+					\prop_put:cnV { l__ndu_factors_#2_prop } { #3 } \l__ndu_factor_product_int
+				}
+			}
+		}
+	}
+}
+\cs_generate_variant:Nn \ndu_get_factor:Nnn {
+	NnV,
+	NVV
+}
+
+% ndu_super_factors (call from nduNewUnitGroup)
+
+\NewDocumentCommand \nduFactor { m m } {
+	\ndu_get_factor:Nnn \l_tmpa_int { #1 } { #2 }
+	\int_use:N \l_tmpa_int
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Converting from/to representation
+% 
+
+\cs_new_protected:Nn \ndu_repr_to_seq:NNNNN
+{
+	% parameters
+	% #1: output result (seq)
+	% #2: unit group (seq)
+	% #3: base unit (tl)
+	% #4: value (int)
+	% #5: unit depth (tl)
+	\seq_clear:N #1
+
+	\int_zero_new:N \l__ndu_remainder_int
+
+	% initial value * base factor
+	\ndu_get_factor:NVV \l_tmpa_int { #5 } { #3 }
+	\int_set:Nn \l__ndu_remainder_int { #4 * \l_tmpa_int }
+
+	% for unit in units:
+	\seq_map_inline:Nn #2
+	{
+		\int_zero_new:N \l__ndu_factor_int
+		\int_zero_new:N \l__ndu_sum_int
+
+		\ndu_get_factor:NnV \l__ndu_factor_int { ##1 } { #3 }
+
+		% while (remainder >= factor_to_base):
+		\int_while_do:nn {\l__ndu_remainder_int >= \l__ndu_factor_int} {
+			% remainder -= factor_to_base
+			\int_sub:Nn \l__ndu_remainder_int { \l__ndu_factor_int }
+			% result[i] += 1
+			\int_incr:N \l__ndu_sum_int
+		}
+		\seq_put_right:NV #1 \l__ndu_sum_int
+		
+		% stop when we hit the desired unit depth
+		\str_if_eq:NNT {##1} {#5} {
+			\seq_map_break:
+		}
+	}
+}
+\cs_generate_variant:Nn \ndu_repr_to_seq:NNNNN {
+	NccNc,
+	Ncccc,
+	NccNN
+}
+
+% convenience function
+\cs_new_protected:Nn \ndu_repr_to_seq:NnN
+{
+	% parameters
+	% #1: output result (int)
+	% #2: unit group name (tl)
+	% #3: value (int)
+	\ndu_repr_to_seq:NccNc
+		#1
+		{ l__ndu_group_#2_seq }
+		{ l__ndu_base_unit_#2_tl }
+		#3
+		{ l__ndu_base_unit_#2_tl }
+
+}
+\cs_generate_variant:Nn \ndu_repr_to_seq:NnN {
+	Nnc
+}
+
+
+\cs_new_protected:Nn \ndu_seq_to_repr:NNNN
+{
+	% parameters
+	% #1: output result (int)
+	% #2: unit group (seq)
+	% #3: base unit (tl)
+	% #4: input (seq)
+	\int_zero:N #1
+
+	\seq_map_indexed_inline:Nn #2
+	{
+		\tl_set:Ne \l__ndu_value_tl { \seq_item:Nn #4 {##1} }
+		\tl_if_blank:VF \l__ndu_value_tl {
+			\ndu_get_factor:NnV \l_tmpa_int { ##2 } { #3 }
+			\int_add:Nn #1 { \l__ndu_value_tl * \l_tmpa_int }
+		}
+	}
+}
+\cs_generate_variant:Nn \ndu_seq_to_repr:NNNN {
+	NccN
+}
+
+% convenience function
+\cs_new_protected:Nn \ndu_seq_to_repr:NnN
+{
+	% parameters
+	% #1: output result (seq)
+	% #2: unit group name (tl)
+	% #3: values (seq)
+	\ndu_seq_to_repr:NccN
+		#1
+		{ l__ndu_group_#2_seq }
+		{ l__ndu_base_unit_#2_tl }
+		#3
+}
+\cs_generate_variant:Nn \ndu_seq_to_repr:NnN {
+	Nnc
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Formatting values
+% 
+
+\prg_new_protected_conditional:Nnn \ndu_if_not_nil_or_zero:Nn {T,TF}
+{
+	% parameters
+	% #1: output result (tl)
+	% #2: value (tl)
+	% returns T if value should be output, otherwise F
+
+	\tl_if_blank:nTF {#2}
+	{
+		% only output something if we are replacing nil
+		\tl_if_empty:NTF {\l__ndu_replace_nil_with_tl}
+		{
+			\prg_return_false:
+		}
+		{
+			\tl_set_eq:NN #1 \l__ndu_replace_nil_with_tl
+			\prg_return_true:
+		}
+	}
+	{
+		\bool_if:nTF {
+			\l__ndu_treat_zero_as_nil_bool &&
+			\int_compare_p:n { #2 = 0 }
+		} {
+			% only output something if we are replacing nil
+			\tl_if_empty:NTF {\l__ndu_replace_nil_with_tl}
+			{
+				\prg_return_false:
+			}
+			{
+				\tl_set_eq:NN #1 \l__ndu_replace_nil_with_tl
+				\prg_return_true:
+			}
+		}
+		{
+			% else output directly
+			\tl_set:Ne #1 { #2 }
+			\prg_return_true:
+		}
+	}
+}
+\prg_generate_conditional_variant:Nnn \ndu_if_not_nil_or_zero:Nn
+{
+	Ne
+}
+{
+	T,TF
+}
+
+\tl_const:Nn \c__ndu_values_only_tl { values~only }
+\tl_const:Nn \c__ndu_symbols_only_tl { symbols~only }
+\tl_const:Nn \c__ndu_formatted_tl { formatted }
+
+\cs_new_protected:Nn \ndu__numprint_helper:nn
+{
+	\numprint[#1]{#2}
+}
+
+\cs_new_protected:Nn \ndu_format_display_helper:Nnnn
+{
+	% parameters
+	% #1: output result (tl)
+	% #2: format (tl)
+	% #3: symbol (tl)
+	% #4: value (int)
+	\tl_case:Nn \l__ndu_display_choice_tl {
+		\c__ndu_symbols_only_tl {
+			\tl_set:Nn #1 { #3 }
+		}
+		\c__ndu_values_only_tl {
+			\tl_set:Nn #1 {
+				\bool_if:NTF \l__ndu_use_numprint_bool
+					{ \ndu__numprint_helper:nn {} {#4} }
+					{ #4 }
+			}
+		}
+		\c__ndu_formatted_tl {
+			\tl_set:Nn #1 { #2 }
+			\tl_replace_all:Nnn #1 { \SYMBOL } { #3 }
+			\tl_replace_all:Nnn #1 { \VALUE } {
+				\bool_if:NTF \l__ndu_use_numprint_bool
+					{ \ndu__numprint_helper:nn {} {#4} }
+					{ #4 }
+			}
+		}
+	}
+}
+\cs_generate_variant:Nn \ndu_format_display_helper:Nnnn {
+	NVVV
+}
+
+\cs_new_protected:Nn \ndu_format_values:NNNN
+{
+	% parameters
+	% #1: output result (tl)
+	% #2: unit group (seq)
+	% #3: values (seq)
+	% #4: separator (tl)
+	\seq_clear:N #1
+	\seq_clear_new:N \l__ndu_formatted_segments_seq
+
+	\seq_map_indexed_inline:Nn #3
+	{
+		\tl_clear_new:N \l__ndu_formatted_segment
+
+		% get symbol
+		\tl_clear_new:N \l__ndu_symbol_tl
+		\tl_set:Ne \l__ndu_symbol_tl { \tl_use:c { l__ndu_symbol_ \seq_item:Nn #2 {##1} _tl } }
+
+		% get format
+		\tl_clear_new:N \l__ndu_format_tl
+		\tl_if_empty:cTF { l__ndu_format_ \seq_item:Nn #2 {##1} _tl }
+		{
+			\tl_set_eq:NN \l__ndu_format_tl \l__ndu_default_format_tl
+		}
+		{
+			\tl_set_eq:Nc \l__ndu_format_tl { l__ndu_format_ \seq_item:Nn #2 {##1} _tl }
+		}
+
+		% build formatted segment and append to putput
+		\ndu_if_not_nil_or_zero:NnT \l_tmpa_tl { ##2 }
+		{
+			\ndu_format_display_helper:NVVV
+				\l__ndu_formatted_segment
+				\l__ndu_format_tl
+				\l__ndu_symbol_tl
+				\l_tmpa_tl
+			\seq_put_right:NV \l__ndu_formatted_segments_seq \l__ndu_formatted_segment
+		}
+
+		% stop when we hit the desired unit depth
+		\tl_set:Ne \l__ndu_unit_tl { \seq_item:Nn #2 {##1} }
+		\tl_if_eq:NNT \l__ndu_unit_tl \l__ndu_unit_depth_tl
+		{
+			\seq_map_break:
+		}
+	}
+	\tl_set:Nn #1 { \seq_use:Nn \l__ndu_formatted_segments_seq {#4} }
+}
+\cs_generate_variant:Nn \ndu_format_values:NNNN {
+	NcNN
+}
+
+
+\prg_new_protected_conditional:Nnn \ndu_if_valid_dim:n {F}
+{
+	% adapted from https://tex.stackexchange.com/questions/498976/testing-for-a-length
+	\regex_match:nnTF
+		{ \A [+\-]? ((\d+(\.\d*)?)|(\.\d+)) \s* (pt|pc|in|bp|cm|mm|dd|cc|sp|ex|em) \Z}
+		{ #1 } % test string
+		{ \prg_return_true: }
+		{ \prg_return_false: }
+}
+\prg_generate_conditional_variant:Nnn \ndu_if_valid_dim:n
+{
+	V
+}
+{
+	F
+}
+
+
+\cs_new_protected:Nn \ndu_make_box:Nnn
+{
+	% parameter
+	% #1: output result (box)
+	% #2: contents (tl)
+	% #3: unit index
+	\box_clear_new:N #1
+
+	% find configured width for index
+	\dim_zero_new:N \l__ndu_cell_width_dim
+	\tl_set:Ne \l_tmpa_tl { \seq_item:Nn \l__ndu_cell_widths_seq { #3 } }
+	\ndu_if_valid_dim:VF \l_tmpa_tl
+	{
+		\seq_get_right:NN \l__ndu_cell_widths_seq \l_tmpa_tl
+	}
+	\dim_set:Nn \l__ndu_cell_width_dim { \l_tmpa_tl }
+
+	\hbox_set_to_wd:Nnn #1 { \l__ndu_cell_width_dim } { #2 }
+}
+\cs_generate_variant:Nn \ndu_make_box:Nnn {
+	cnn
+}
+
+
+\cs_new_protected:Nn \ndu_format_values_aligned:NNN
+{
+	% parameters
+	% #1: output result (tl)
+	% #2: unit group (seq)
+	% #3: values (seq)
+	\tl_set:Nn #1 { \leavevmode }
+
+	\seq_map_indexed_inline:Nn #2
+	{
+		\tl_clear_new:N \l__ndu_value_tl
+		\ndu_if_not_nil_or_zero:NeTF \l__ndu_value_tl { \seq_item:Nn #3 ##1 }
+		{
+			\ndu_make_box:cnn
+				{ l__ndu_cell_ \int_to_alph:n {##1} _box }
+				{ \hfill \tl_use:N \l__ndu_value_tl }
+				{ ##1 }
+		}
+		{
+			\ndu_make_box:cnn
+				{ l__ndu_cell_ \int_to_alph:n {##1} _box }
+				{ \hfill }
+				{ ##1 }
+		}
+
+		\tl_put_right:Ne #1 { \box_use:c { l__ndu_cell_ \int_to_alph:n {##1} _box } }
+
+		% stop when we hit the desired unit depth
+		\tl_if_eq:NnT \l__ndu_unit_depth_tl {##2}
+		{
+			\seq_map_break:
+		}
+	}
+}
+\cs_generate_variant:Nn \ndu_format_values_aligned:NNN {
+	NcN
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% User commands
+% 
+
+
+\cs_new_protected:Nn \ndu_set_options:nn
+{
+	\tl_if_exist:cF { l__ndu_group_#1_seq }
+	{
+		\msg_error:nnn { non-decimal-units } { missing-unit-group } { #1 }
+	}
+
+	% set keys for unit group
+	\keys_set:nv { non-decimal-units } { l__ndu_options_#1_tl } 
+
+	% set keys provided by command
+	\keys_set:nn { non-decimal-units } { #2 }
+}
+
+\NewDocumentCommand \nduValue { m O{} m } {
+	\group_begin:
+		\ndu_set_options:nn {#1} {#2}
+
+		\tl_clear_new:N \l__ndu_result_tl
+		\int_zero_new:N \l__ndu_normalized_int
+		\seq_set_split:Nnn \l_tmpa_seq { . } {#3}
+
+		% should we normalize the input?
+		\bool_if:nT \l__ndu_normalize_bool
+		{
+			\ndu_seq_to_repr:NnN
+				\l__ndu_normalized_int
+				{ #1 }
+				\l_tmpa_seq
+			\ndu_repr_to_seq:NnN
+				\l_tmpa_seq
+				{ #1 }
+				\l__ndu_normalized_int
+		}
+
+		% are we outputting aligned cells?
+		\bool_if:NTF \l__ndu_aligned_bool
+		{
+			\ndu_format_values_aligned:NcN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+		}
+		{
+			\ndu_format_values:NcNN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+				\l__ndu_unit_separator_tl
+		}
+
+		% should we do any math?
+		\tl_if_empty:NF \l__ndu_current_variable_tl
+		{
+			\nduMath{#1}[#2]{\l__ndu_current_variable_tl}{\l__ndu_current_operator_tl}{#3}
+		}
+
+		% output
+		\tl_use:N \l__ndu_result_tl
+	\group_end:
+}
+
+\NewDocumentCommand \nduNormalize { m O{} m m } {
+	\group_begin:
+		\ndu_set_options:nn {#1} {#2}
+
+		\tl_clear_new:N \l__ndu_result_tl
+
+		\int_zero_new:N \l__ndu_amount_int
+		\int_set:Nn \l__ndu_amount_int {#3}
+		\tl_clear_new:N \l__ndu_unit_tl
+		\tl_set:Nn \l__ndu_unit_tl {#4}
+
+		\ndu_repr_to_seq:NccNN
+			\l_tmpa_seq
+			{ l__ndu_group_#1_seq }
+			{ l__ndu_base_unit_#1_tl }
+			\l__ndu_amount_int
+			\l__ndu_unit_tl
+
+		% are we outputting aligned cells?
+		\bool_if:NTF \l__ndu_aligned_bool
+		{
+			\ndu_format_values_aligned:NcN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+		}
+		{
+			\ndu_format_values:NcNN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+				\l__ndu_unit_separator_tl
+		}
+
+		% should we do any math?
+		\tl_if_empty:NF \l__ndu_current_variable_tl
+		{
+			\nduMath{#1}[#2]{\l__ndu_current_variable_tl}{\l__ndu_current_operator_tl}{#3}
+		}
+
+		% output
+		\tl_use:N \l__ndu_result_tl
+	\group_end:
+}
+
+\tl_const:Nn \c__ndu_plus_tl { + }
+\tl_const:Nn \c__ndu_minus_tl { - }
+
+\NewDocumentCommand \nduMath { m O{} m m m } {
+	\group_begin:
+		\ndu_set_options:nn {#1} {#2}
+
+		\int_if_exist:cF { g__ndu_variable_#3_int } {
+			\int_zero_new:c { g__ndu_variable_#3_int }
+		}
+
+		\int_zero_new:N \l__ndu_operand_int
+
+		\bool_if:nTF
+		{
+			% TODO hacky, but works
+			\str_if_eq_p:nV {#4} \c__ndu_plus_tl ||
+			\str_if_eq_p:nV {#4} \c__ndu_minus_tl ||
+			\tl_if_eq_p:NN {#4} \c__ndu_plus_tl ||
+			\tl_if_eq_p:NN {#4} \c__ndu_minus_tl
+		}
+		{
+			% plus or minus means we use the representation of the provided value
+			\seq_set_split:Nnn \l_tmpa_seq { . } { #5 }
+			\ndu_seq_to_repr:NnN
+				\l__ndu_operand_int
+				{ #1 }
+				\l_tmpa_seq
+		}
+		{
+			% otherwise (multiplication/division) we use the number provided directly
+			\int_set:Nn \l__ndu_operand_int { #5 }
+		}
+
+		\int_gset:cn { g__ndu_variable_#3_int } {
+			\int_use:c { g__ndu_variable_#3_int }
+			#4
+			\l__ndu_operand_int
+		}
+	\group_end:
+}
+
+\NewDocumentCommand \nduResult { m O{} m } {
+	\group_begin:
+		\ndu_set_options:nn {#1} {#2}
+
+		\int_if_exist:cF { g__ndu_variable_#3_int } {
+			\int_zero_new:c { g__ndu_variable_#3_int }
+		}
+
+		\tl_clear_new:N \l__ndu_result_tl
+
+		\ndu_repr_to_seq:Nnc
+			\l_tmpa_seq
+			{ #1 }
+			{ g__ndu_variable_#3_int }
+
+		% are we outputting aligned cells?
+		\bool_if:NTF \l__ndu_aligned_bool
+		{
+			\ndu_format_values_aligned:NcN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+		}
+		{
+			\ndu_format_values:NcNN
+				\l__ndu_result_tl
+				{ l__ndu_group_#1_seq }
+				\l_tmpa_seq
+				\l__ndu_unit_separator_tl
+		}
+
+		% output
+		\tl_use:N \l__ndu_result_tl
+	\group_end:
+}
+
+\NewDocumentCommand \nduHeader { m O{} } {
+	\group_begin:
+		\ndu_set_options:nn {#1} {#2}
+		\tl_set:Nn \l__ndu_result_tl { \leavevmode }
+
+		% build boxes
+		\seq_set_eq:Nc \l_tmpa_seq { l__ndu_group_#1_seq }
+		\seq_map_indexed_inline:Nn \l_tmpa_seq
+		{
+			\ndu_make_box:cnn
+				{ l__ndu_cell_ \int_to_alph:n {##1} _box }
+				{ \hfill \tl_use:c { l__ndu_symbol_ ##2 _tl } }
+				{ ##1 }
+			\tl_put_right:Nn \l__ndu_result_tl { \box_use:c { l__ndu_cell_ \int_to_alph:n {##1} _box } }
+
+			% stop when we hit the desired unit depth
+			\tl_if_eq:NnT \l__ndu_unit_depth_tl {##2}
+			{
+				\seq_map_break:
+			}
+		}
+
+		% output
+		\tl_use:N \l__ndu_result_tl
+	\group_end:
+}
+
+\NewDocumentCommand \nduSymbol { m } {
+	\tl_use:c { l__ndu_symbol_#1_tl }
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Column type for tabularray
+% 
+
+\keys_define:nn { non-decimal-units }
+{
+	tabularray~column~type		.code			= {
+			\NewColumnType {#1}[2] { Q[r, cmd=\ndu_tblr_cell:nnn {##1} {##2}] }
+		} ,
+}
+
+\tl_clear_new:N \l__ndu_tblr_column_type_tl
+
+\tl_const:Nn \c__ndu_HEADER_tl { HEADER }
+\tl_const:Nn \c__ndu_RESULT_tl { RESULT }
+\tl_const:Nn \c__ndu_SKIP_tl { SKIP }
+
+\cs_new_protected:Nn \ndu_tblr_cell:nnn
+{
+	\keys_set:nn { non-decimal-units } {
+		aligned,
+		#2
+	}
+	\tl_set:Nn \l_tmpa_tl {#3}
+	\tl_case:NnF \l_tmpa_tl {
+		\c__ndu_HEADER_tl {
+			\nduHeader
+			{ #1 }
+		}
+		\c__ndu_RESULT_tl {
+			\nduResult
+			{ #1 }
+			{ \l__ndu_current_variable_tl }
+		}
+		\c__ndu_SKIP_tl {
+			% nothing
+		}
+	}
+	{
+		% format value if no special token was hit
+		% do math only once per tblr cell
+		% Will https://github.com/lvjr/tabularray/issues/179 introduce
+		% elenganter solution?
+		\cs_if_exist:cTF { \ndu__tblr_cell_get_csname: }
+			% or use a specific bool, e.g., \ndu__do_math_bool
+			{ \tl_clear:N \l__ndu_current_variable_tl }
+			{ \cs_gset:cpn { \ndu__tblr_cell_get_csname: } {} }
+		\nduValue
+			{ #1 }
+			{ #3 }
+	}
+}
+
+% a csname distinct per tblr table, per cell
+\cs_new:Npn \ndu__tblr_cell_get_csname:
+	{
+		ndu__tblr_ \int_use:N \g__tblr_table_count_int
+		_cell_ \int_use:N \c@rownum _ \int_use:N \c@colnum
+		:
+	}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Setup
+% 
+
+\keys_define:nn { non-decimal-units / options }
+{
+	british	 					.code:n 		= { \input{non-decimal-units.british} } ,
+	danish	 					.code:n 		= { \input{non-decimal-units.danish} } ,
+	german	 					.code:n 		= { \input{non-decimal-units.german} } ,
+}
+
+\ProcessKeyOptions [ non-decimal-units / options ]

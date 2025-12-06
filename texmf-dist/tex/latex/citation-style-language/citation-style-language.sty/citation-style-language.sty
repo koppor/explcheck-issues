@@ -1,0 +1,218 @@
+%
+% Copyright (c) 2021-2025 Zeping Lee
+% Released under the MIT License.
+% Repository: https://github.com/zepinglee/citeproc-lua
+%
+
+\NeedsTeXFormat{LaTeX2e}
+
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+
+\ProvidesExplPackage {citation-style-language} {2025-11-30} {0.9.1}
+  {Citation Style Language for LaTeX}
+
+\RequirePackage { url }
+
+
+\prop_gput:Nnn \g_msg_module_name_prop { citation-style-language } { CSL }
+\prop_gput:Nnn \g_msg_module_type_prop { citeproc } { Module }
+
+\msg_new:nnn { citeproc } { citeproc-error } {#1}
+\msg_new:nnn { citeproc } { citeproc-warning } {#1}
+
+
+% Check incompatible packages
+\msg_new:nnn { citation-style-language } { incompatible-package }
+  { Package~ '#1'~ is~ incompatible~ with~ 'citation-style-language'. }
+
+\clist_map_inline:nn
+  {
+    babelbib , biblatex , bibtopic , bibunits , chapterbib ,
+    cite , citeref , inlinebib , jurabib , mcite , mciteplus ,
+    multibib , natbib , splitbib
+  }
+  {
+    \hook_gput_code:nnn { package / #1 / before } { . }
+      { \msg_error:nnn { citation-style-language } { incompatible-package } {#1} }
+  }
+
+
+% Load Lua module in LuaTeX
+\sys_if_engine_luatex:T
+  {
+    \lua_now:n
+      {
+        citeproc_manager = require("citeproc-manager")
+        csl_citation_manager = citeproc_manager.CslCitationManager:new()
+      }
+  }
+
+
+% Global options
+
+\NewDocumentCommand \cslsetup { m }
+  { \keys_set:nn { csl } {#1} }
+
+
+\bool_new:N \l__csl_regression_test_bool
+\tl_new:N \g__csl_global_style_tl
+\tl_new:N \l__csl_style_tl
+\newcommand \csl@style {}  % For latex2e interface
+\tl_new:N \l__csl_class_tl  % TODO: This should be removed
+\bool_new:N \g__csl_global_note_class_bool
+\bool_new:N \l__csl_note_bool
+\clist_new:N \g__csl_global_bib_resources_clist
+\clist_new:N \l__csl_bib_resources_clist
+\tl_new:N \g__csl_global_locale_tl
+\tl_new:N \l__csl_locale_tl
+\bool_new:N \g__csl_use_bbl_bool
+\bool_new:N \g__csl_use_lua_module_bool
+\bool_new:N \l__csl_back_ref_bool
+\str_new:N \l__csl_back_ref_type_str
+% Citation formatting
+\tl_new:N \l__csl_prefix_separator_tl
+\tl_new:N \l__csl_suffix_separator_tl
+% Bibliography formatting
+\tl_new:N \bibsection
+\tl_new:N \l__csl_bib_font_tl
+\bool_new:N \l__csl_bib_entry_page_break_bool
+\dim_new:N \l__csl_bib_label_sep_dim
+\tl_new:N \l__csl_bib_item_sep_tl
+\tl_new:N \l__csl_bib_name_sep_tl
+\tl_new:N \l__csl_bib_block_sep_tl
+\tl_new:N \l__csl_bib_par_indent_tl
+\tl_new:N \l__csl_bib_hang_tl
+\str_new:N \l__csl_bib_ref_section_str
+
+
+\keys_define:nn { csl }
+  {
+    regression-test .bool_set:N = \l__csl_regression_test_bool ,
+    style .code:n =
+      {
+        \tl_set:Nn \l__csl_style_tl {#1}
+        \renewcommand \csl@style {#1}
+        \tl_gset:Nn \g__csl_global_style_tl {#1}
+      } ,
+    class .code:n = {} ,  % Deprecated, should be removed in the next release.
+    bib-resource .code:n =
+      {
+        \clist_set:Nn \l__csl_bib_resources_clist {#1}
+        \clist_gset_eq:NN \g__csl_global_bib_resources_clist \l__csl_bib_resources_clist
+      } ,
+    locale .code:n =
+      {
+        \tl_set:Nn \l__csl_locale_tl {#1}
+        \tl_gset:Nn \g__csl_global_locale_tl {#1}
+      } ,
+    use-bbl .bool_gset:N = \g__csl_use_bbl_bool ,
+    backref .choices:nn =
+      { true, page, section, false }
+      { \exp_args:NV \__csl_set_back_ref:n \l_keys_choice_tl } ,
+    % Citation formatting
+    prefix-separator .tl_set:N = \l__csl_prefix_separator_tl ,
+    suffix-separator .tl_set:N = \l__csl_suffix_separator_tl ,
+    % Bibliography formatting
+    bib-section .tl_set:N = \bibsection ,
+    bib-font .tl_set:N = \l__csl_bib_font_tl ,
+    bib-entry-page-break .bool_set:N = \l__csl_bib_entry_page_break_bool ,
+    bib-label-sep .dim_set:N = \l__csl_bib_label_sep_dim ,
+    bib-item-sep .tl_set:N = \l__csl_bib_item_sep_tl ,
+    bib-name-sep .tl_set:N = \l__csl_bib_name_sep_tl ,
+    bib-after-name-sep .tl_set:N = \l__csl_bib_after_name_sep_tl ,
+    bib-par-indent .tl_set:N = \l__csl_bib_par_indent_tl ,
+    bib-hang .tl_set:N = \l__csl_bib_hang_tl ,
+    % ref section
+    ref-section .choices:nn =
+      { none, part, chapter, chapter+, section, section+, subsection, subsection+ }
+      { \str_set:NV \l__csl_bib_ref_section_str \l_keys_choice_tl } ,
+  }
+
+\cs_new:Npn \__csl_set_back_ref:n #1
+  {
+    \str_if_eq:nnTF {#1} { false }
+      {
+        \bool_set_false:N \l__csl_back_ref_bool
+      }
+      {
+        \bool_set_true:N \l__csl_back_ref_bool
+        \str_if_eq:nnTF {#1} { true }
+          { \str_set:Nn \l__csl_back_ref_type_str { page } }
+          { \str_set:Nn \l__csl_back_ref_type_str {#1} }
+      }
+  }
+
+% Default settings
+\keys_set:nn { csl }
+  {
+    use-bbl = false ,
+    backref = false ,
+    prefix-separator = { ~ } ,
+    suffix-separator = { , ~ } ,
+    bib-entry-page-break = true ,
+    bib-label-sep = { \labelsep } ,
+    bib-name-sep = { 0 pt } ,
+    bib-after-name-sep = { 0 pt } ,
+    bib-par-indent = { \parindent } ,
+    bib-hang = { 1 em } ,
+    ref-section = none ,
+  }
+
+
+\ProcessKeyOptions [ csl ]
+
+
+\hook_gput_code:nnn { enddocument } { . }
+  {
+    \bool_if:NT \g__csl_use_bbl_bool
+      {
+        \sys_if_engine_luatex:T
+          {
+            \file_if_exist:nF { \jobname .bbl }
+              { \lua_now:e { csl_citation_manager:write_bbl("\jobname") } }
+          }
+      }
+  }
+
+
+\DeclareDocumentCommand \bibliographystyle { m }
+  {
+    \__csl_if_preamble:F
+      { \__csl_write_aux_bibstyle:n {#1} }
+    \tl_set:Nn \l__csl_style_tl {#1}
+  }
+
+\tl_new:N \g__csl_aux_bibstyle_tl
+\cs_new:Npn \csl@aux@style #1#2
+  {
+    \str_if_eq:nnT {#1} { 0 }
+      { \tl_gset:Nn \g__csl_aux_bibstyle_tl {#2} }
+  }
+
+
+% Write to an empty `.ccf` file for use with latexmk
+\sys_if_engine_luatex:F
+  {
+    \iow_new:N \l__csl_ccf_iow
+    \iow_open:Nn \l__csl_ccf_iow { \c_sys_jobname_str .ccf }
+    \iow_now:Ne \l__csl_ccf_iow
+      {
+        \c_percent_str \c_space_tl This~ file~ is~ generated~ by~
+        citation-style-language~ package. \iow_newline:
+        \c_percent_str \c_space_tl Its~ main~ purpose~ is~ to~ be~ recognized~
+        by~ latexmk.
+      }
+    \iow_close:N \l__csl_ccf_iow
+  }
+
+
+% Load other modules
+\input { citation-style-language-init.sty }
+\input { citation-style-language-data.sty }
+\input { citation-style-language-cite.sty }
+\input { citation-style-language-bib.sty }
+\input { citation-style-language-compatible.sty }
+
+
+\endinput

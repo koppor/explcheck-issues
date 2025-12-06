@@ -1,0 +1,1165 @@
+% This is file `diffcoeff.sty'.
+%
+% This work may be distributed and/or modified under the conditions
+% of the LaTeX Project Public License, either version 1.3c
+% (2008-05-04) of this license or any later version; see
+% http://www.latex-project.org/lppl.txt
+% 
+% Andrew Parsloe ajparsloe@gmail.com
+%
+\DeclareRelease{v4}{}{diffcoeff4.sty}
+\DeclareCurrentRelease{}{2025/10/17}
+
+\RequirePackage{mleftright}
+\ProvidesExplPackage {diffcoeff} {2025/10/17} {5.5} 
+  {Write differential coefficients easily and consistently.}
+\keys_define:nn { diffcoeff }
+  { 
+    spaced        .int_set:N = \l__diffcoeff_spaced_int, 
+    spaced        .default:n = 1,
+    spaced        .initial:n = 0,
+    dif**       .clist_set:N = \l__diffcoeff_reversed_clist,
+    mleftright   .bool_set:N = \l__diffcoeff_mLR_bool,
+    mleftright    .default:n = true,
+    mleftright    .initial:n = false,
+    def-file      .tl_gset:N = \g__diffcoeff_def_tl,
+    DIF         .clist_set:N = \l__diffcoeff_dif_clist,
+    ISO          .bool_set:N = \l__diffcoeff_ISO_bool % v4 relic
+  }
+\IfFormatAtLeastTF {2020-10-01} {}
+  { \RequirePackage { xparse } }
+\IfFormatAtLeastTF {2022-06-01}
+  { \ProcessKeyOptions [ diffcoeff ] }
+  {
+    \RequirePackage { l3keys2e }
+    \ProcessKeysOptions { diffcoeff }
+  }
+\bool_if:NT \l__diffcoeff_mLR_bool { \mleftright }
+\cs_if_exist:NTF \seq_map_pairwise_function:NNN
+  { \cs_set_eq:NN \__diffcoeff_braid:NNN \seq_map_pairwise_function:NNN }
+  { \cs_set_eq:NN \__diffcoeff_braid:NNN \seq_mapthread_function:NNN }
+\cs_generate_variant:Nn \tl_if_single_p:n { e }
+% Child template with new defaults (key=value)
+% #1 object type #2 parent template #3 child template 
+% #4 internal defaults, #5 (new) public defaults
+\IfFormatAtLeastTF {2024-06-01}
+  {
+    \NewDocumentCommand \DeclareObjectType {} { \NewTemplateType }
+    \NewDocumentCommand \IfInstanceExistTF {} { \IfInstanceExistsTF }
+    \DeclareDocumentCommand \DeclareChildTemplate { m m m m m }
+      {
+        \DeclareTemplateCopy {#1} {#3} {#2}
+        \EditTemplateDefaults {#1} {#3} {#4,#5}
+      }
+  }
+  {
+    \RequirePackage{xtemplate}
+    \IfPackageLoadedTF {xtemplate}
+      {
+        \DeclareDocumentCommand \DeclareChildTemplate { m m m m m }
+          {
+            \DeclareRestrictedTemplate {#1} {#2} {#3} {}
+            \EditTemplateDefaults {#1} {#3} {#5}
+            \DeclareRestrictedTemplate {#1} {#3} {#3} {#4}
+          }
+      }
+      {
+        \PackageError{diffcoeff}
+          { LaTeX~version~too~old~\MessageBreak or~xtemplate~not~found }
+          {
+            diffcoeff~requires~either~LaTeX~from~24-06-01~or~later,
+            \MessageBreak 
+            or~availability~of~the~xtemplate~package.
+          }
+        \fi\stop
+      }
+  }
+%%%%%%%%%% messages %%%%%%%%% 
+\cs_new:Npn \__diffcoeff_msg_autocalc:n #1 
+  { 
+    in~the~order~spec.~[#1]~\msg_line_context:.~Calculation~
+    of~the~total~differentiation~order~fails~in~this~case.~
+    Use~the~order~override~option~to~enter~the~total~order.~
+    \msg_see_documentation_text:n {diffcoeff}
+  }
+\cs_new:Npn \__diffcoeff_msg_style:nnn #1#2#3
+  { 
+    The~style~specified~in~the~current~instance,~#1,~
+    \msg_line_context:,~#3~Reverting~to~default~style~#2.
+  }
+\tl_const:Nn \c__diffcoeff_msg_vcon_tl 
+    { Version~5~of~diffcoeff~does~not~support~the~use~of~ }
+\tl_const:Nn \c__diffcoeff_msg_revert_tl 
+    { Or~revert~to~version~4~by~appending~[=v4]~to~the~preamble~call;~
+    for~example,~\tl_to_str:n{\usepackage}{diffcoeff}[=v4] }
+\msg_new:nnn { diffcoeff } { file-not-found } { File~#1.def~not~found. }
+\msg_new:nnn { diffcoeff } { order-spec-general } 
+  { #3~followed~by~#2~\__diffcoeff_msg_autocalc:n { #1 } }
+\msg_new:nnn { diffcoeff } { unknown-style }
+  { \__diffcoeff_msg_style:nnn {#1} {#2} { is~unknown. } }
+\msg_new:nnn { diffcoeff } { wrong-style }
+  { \__diffcoeff_msg_style:nnn {#1} {#2} { conflicts~with~its~template. } }
+\msg_new:nnn { diffcoeff } { version-conflict }
+  { 
+    \c__diffcoeff_msg_vcon_tl #1~\msg_line_context:.~\tl_to_str:n { #2 }
+    \msg_see_documentation_text:n {diffcoeff}~\c__diffcoeff_msg_revert_tl
+  }
+\msg_new:nnn { diffcoeff } { ISO }
+  { 
+    Version~5~of~diffcoeff~uses~ISO~settings~by~default.~Package~option~
+    ISO~is~redundant.~\msg_see_documentation_text:n {diffcoeff}~
+    \c__diffcoeff_msg_revert_tl
+  }
+\bool_if:NT \l__diffcoeff_ISO_bool
+  { \msg_note:nn { diffcoeff } { ISO } }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\bool_new:N \l__diffcoeff_app_bool
+\bool_new:N \l__diffcoeff_op_left_bool
+\bool_new:N \l__diffcoeff_exponent_bool
+\tl_new:N \l__diffcoeff_slashsepl_tl
+\tl_new:N \l__diffcoeff_slashsepr_tl
+\tl_new:N \l__diffcoeff_override_tl
+\tl_new:N \l__diffcoeff_frac_tl
+\tl_new:N \l__diffcoeff_derivand_tl
+\tl_new:N \l__diffcoeff_instance_tl
+\tl_new:N \l__diffcoeff_ord_tl
+\tl_new:N \l__diffcoeff_var_tl
+\tl_new:N \l__diffcoeff_vph_vars_tl
+\tl_new:N \l__diffcoeff_tot_ord_tl
+\tl_new:N \l__diffcoeff_vph_tl
+\tl_new:N \l__diffcoeff_exponent_tl
+\tl_new:N \l__diffcoeff_curr_num_tl
+\tl_new:N \l__diffcoeff_curr_var_tl
+\tl_new:N \l__diffcoeff_paren_tl
+\seq_new:N \l__diffcoeff_ords_seq
+\seq_new:N \l__diffcoeff_vars_seq
+\seq_new:N \l__diffcoeff_paren_seq
+\int_new:N \l__diffcoeff_group_int 
+\int_new:N \l__diffcoeff_style_int
+\int_new:N \l__diffcoeff_curr_tok_int
+\int_new:N \l__diffcoeff_curr_state_int
+\int_new:N \l__diffcoeff_nos_int
+\int_new:N \l__diffcoeff_parenvar_int
+\prop_new:N \l__diffcoeff_vars_prop
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\DeclareObjectType { diffcoeff } { 5 } 
+
+% #1 append boolean; #2 order spec(clist); #3 derivand(tl);
+% #4 diff variables(clist); #5 pt of eval(tl)
+\DeclareTemplateInterface { diffcoeff } { DIF } { 5 }
+  { % internal
+    style-group      : choice { f, s, c, j, l } = f,
+    % public
+    style            : choice  { 
+                                 frac, tfrac, dfrac,  
+                                 /, sfrac, auto, big, Big, bigg, Bigg,
+                                 _, d^, cc, dl 
+                               }  = frac ,
+    slash-tok        : tokenlist  = / ,
+    slash-sep        : commalist  = 0 mu ,
+    sfrac-scaling    : real       = 0.7 ,
+    derivand-sep     : tokenlist  = 3 mu plus 1 mu minus 2 mu,
+    op-symbol        : tokenlist  = \mathrm{d},
+    op-symbol-alt    : tokenlist  = \KeyValue { op-symbol },
+    op-order-nudge   : tokenlist  = 0 mu ,
+    op-sub-nudge     : tokenlist  = 0 mu ,
+    var-sup-nudge    : tokenlist  = 1 mu, 
+    multi-term-sep   : tokenlist  = 2 mu plus 1 mu minus 1 mu,
+    term-sep-adjust  : tokenlist  = -1 mu,
+    dots             : tokenlist  = \cdots,
+    long-var-wrap    : choice { dv, d(v), (dv) }
+                                  = d(v) ,
+    lvwrap-Ldelim    : tokenlist  = \mleft  (,
+    lvwrap-Rdelim    : tokenlist  = \mright ),
+    lvwrap-sup-nudge : tokenlist  = -1 mu ,
+    outer-Ldelim     : tokenlist  = \left ( ,
+    outer-Rdelim     : tokenlist  = \right ),
+    elbowroom        : tokenlist  = 0 mu ,
+    sub-nudge        : tokenlist  = -5 mu,
+    difcc-var-ord    : function 1 = ^{#1},
+    *slash-sep       : commalist  = \KeyValue { slash-sep },
+    *derivand-sep    : tokenlist  = \KeyValue { derivand-sep },
+    *op-set-left     : boolean    = false,
+    *italic-nudge    : tokenlist  = 0 mu ,
+    *inner-wrap      : boolean    = false, 
+    *inner-Ldelim    : tokenlist  = (,
+    *inner-Rdelim    : tokenlist  = ),
+    *outer-Ldelim    : tokenlist  = \bigl [,
+    *outer-Rdelim    : tokenlist  = \bigr ],
+    *sub-nudge       : tokenlist  = 0 mu
+  }
+\DeclareTemplateCode { diffcoeff } { DIF } { 5 }
+  { % internal
+    style-group      = { 
+                         f = \int_set:Nn \l__diffcoeff_group_int { 0 },
+                         s = \int_set:Nn \l__diffcoeff_group_int { 1 },
+                         c = \int_set:Nn \l__diffcoeff_group_int { 2 },
+                         j = \int_set:Nn \l__diffcoeff_group_int { 3 },
+                         l = \int_set:Nn \l__diffcoeff_group_int { 4 }
+                       },
+    % public
+    style            = {
+                frac = \__diffcoeff_style:nn { 0 } { \frac  },
+               tfrac = \__diffcoeff_style:nn { 0 } { \tfrac },
+               dfrac = \__diffcoeff_style:nn { 0 } { \dfrac },
+                   / = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_slash:nn },
+               sfrac = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_sfrac:nn },
+                auto = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_slashauto:nn },
+                 big = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_slashbg:nnn {big} },
+                 Big = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_slashbg:nnn {Big} },
+                bigg = \__diffcoeff_style:nn { 3 } 
+                          { \__diffcoeff_slashbg:nnn {bigg} },
+                Bigg = \__diffcoeff_style:nn { 3 } 
+                           { \__diffcoeff_slashbg:nnn {Bigg} },
+                   _ = \__diffcoeff_style:nn { 6 } {},
+                  d^ = \__diffcoeff_style:nn { 6 } {},
+                  cc = \__diffcoeff_style:nn { 7 } {},
+                  dl = \__diffcoeff_style:nn { 8 } {},
+             unknown = \__diffcoeff_style:nn { 9 } {}
+                       },
+    slash-tok        = \l__diffcoeff_slashtok_tl,
+    slash-sep        = \l__diffcoeff_slashsep_clist,
+    sfrac-scaling    = \l__diffcoeff_sfrac_scale_fp,
+    derivand-sep     = \l__diffcoeff_derivsep_tl,
+    op-symbol        = \l__diffcoeff_opi_tl,
+    op-symbol-alt    = \l__diffcoeff_opii_tl,
+    op-order-nudge   = \l__diffcoeff_opordnuj_tl,
+    op-sub-nudge     = \l__diffcoeff_opsubnuj_tl,
+    var-sup-nudge    = \l__diffcoeff_vsupnuj_tl,
+    multi-term-sep   = \l__diffcoeff_termsep_tl,
+    term-sep-adjust  = \l__diffcoeff_sepadj_tl,
+    dots             = \l__diffcoeff_dots_tl,
+    long-var-wrap    = {
+                dv   = \cs_set_eq:NN \__diffcoeff_wrap_longvars:nn 
+                          \__diffcoeff_wrap_longvars_dv:nn,
+                d(v) = \cs_set_eq:NN \__diffcoeff_wrap_longvars:nn 
+                          \__diffcoeff_wrap_longvars_dvi:nn,
+                (dv) = \cs_set_eq:NN \__diffcoeff_wrap_longvars:nn
+                          \__diffcoeff_wrap_longvars_dvii:nn,
+             unknown = \cs_set_eq:NN \__diffcoeff_wrap_longvars:nn
+                         \__diffcoeff_wrap_longvars_dvi:nn
+                       },
+    lvwrap-Ldelim    = \l__diffcoeff_lvw_ldelim_tl,
+    lvwrap-Rdelim    = \l__diffcoeff_lvw_rdelim_tl,
+    lvwrap-sup-nudge = \l__diffcoeff_lvwsupnuj_tl,
+    outer-Ldelim     = \l__diffcoeff_ldelim_tl,
+    outer-Rdelim     = \l__diffcoeff_rdelim_tl,
+    elbowroom        = \l__diffcoeff_elbowrm_tl ,
+    sub-nudge        = \l__diffcoeff_subnuj_tl,
+    difcc-var-ord    = \__diffcoeff_difcc:n,
+    *slash-sep       = \l__diffcoeff_slashsep_app_clist,
+    *derivand-sep    = \l__diffcoeff_derivsep_app_tl,
+    *op-set-left     = \l__diffcoeff_op_left_bool,
+    *italic-nudge    = \l__diffcoeff_opleftnuj_tl,
+    *inner-wrap      = \l__diffcoeff_innerwrap_bool,
+    *inner-Ldelim    = \l__diffcoeff_lopwrap_tl,
+    *inner-Rdelim    = \l__diffcoeff_ropwrap_tl,
+    *outer-Ldelim    = \l__diffcoeff_ldelim_app_tl,
+    *outer-Rdelim    = \l__diffcoeff_rdelim_app_tl,
+    *sub-nudge       = \l__diffcoeff_subnuj_app_tl
+  }
+  { 
+    \AssignTemplateKeys
+    \__diffcoeff_check_style:nn 
+        { \l__diffcoeff_group_int } { \l__diffcoeff_style_int }
+    \tl_put_left:Ne \l__diffcoeff_dots_tl 
+        { \mskip -\l__diffcoeff_termsep_tl }
+    \__diffcoeff_append:n { #1 }
+    \__diffcoeff_ords_vars:nn { #2 } { #4 } 
+    \__diffcoeff_derivand:nn { #3 } { \l__diffcoeff_spaced_int }
+    \tl_set:Ne \l__diffcoeff_vph_vars_tl 
+        { \seq_use:Nn\l__diffcoeff_vars_seq {} }
+    \seq_pop_right:NN \l__diffcoeff_vars_seq \l__diffcoeff_var_tl
+    \__diffcoeff_build:nn { #4 } { #5 }
+  }
+%%%%%%%%%%
+\cs_new_protected:Npn \__diffcoeff_style:nn #1#2
+  { 
+    \int_compare:nNnTF { #1 } = { 9 }
+      {
+        \msg_error:nnee { diffcoeff } { unknown-style }
+          { \l__diffcoeff_instance_tl } 
+          { \__diffcoeff_style_group_base:n { \l__diffcoeff_group_int } }
+      }
+      {
+        \int_set:Nn \l__diffcoeff_style_int { #1 }
+        \tl_set:Nn \l__diffcoeff_frac_tl { #2 }
+      }
+  }
+% #1 group int; #2 style int
+\cs_new_protected:Npn \__diffcoeff_check_style:nn #1#2
+  {
+    \bool_if:nF 
+      { 
+        ( \int_compare_p:nNn { \int_div_truncate:nn {#2} {3} } = { #1 } 
+            &&  \int_compare_p:nNn { #1 } < { 3 } ) % f,s,c
+         || ( \int_compare_p:nNn { \int_div_truncate:nn {#2} {2} } < { #1 }
+                && \int_compare_p:nNn { #1 } = { 3 } ) % j
+         || \int_compare_p:nNn { #1 + #2 } > { 9 } % l
+      }
+      { 
+        \msg_warning:nnee { diffcoeff } { wrong-style }
+            { \l__diffcoeff_instance_tl } 
+            { \__diffcoeff_style_group_base:n { #1 } }
+        \int_compare:nNnTF { #1 } = { 3 }
+          { \__diffcoeff_style:nn { 0 } {} }
+          { 
+            \int_compare:nNnTF { #1 } = { 4 }
+              { \__diffcoeff_style:nn { 8 } {} }  
+              { \__diffcoeff_style:nn { 3*#1 } {} }
+          }
+      }
+    \bool_if:nT 
+        { \int_compare_p:nNn { #1 } > { 0 } && \int_if_even_p:n { #1 } }
+      { \tl_set_eq:NN \l__diffcoeff_opii_tl \l__diffcoeff_opi_tl }
+
+  }
+\cs_new:Npn \__diffcoeff_style_group_base:n #1
+  { \clist_item:nn { frac, /, _, frac, dl } { #1 + 1 } }
+%%%%%%%%% append? (always if \difc(p))
+\cs_new_protected:Npn \__diffcoeff_append:n #1
+  {
+    \bool_set:Nn \l__diffcoeff_app_bool 
+      { 
+        \bool_lazy_or_p:nn { #1 } 
+            { \int_compare_p:nNn { \l__diffcoeff_group_int } = {2} }
+      }
+    \bool_if:NTF \l__diffcoeff_app_bool
+      {
+        \tl_set_eq:NN \l__diffcoeff_derivsep_tl \l__diffcoeff_derivsep_app_tl
+        \__diffcoeff_slashsep:N \l__diffcoeff_slashsep_app_clist
+        \bool_if:NT \l__diffcoeff_innerwrap_bool
+          { \__diffcoeff_innerwrap: }
+      }
+      { 
+        \bool_set_false:N \l__diffcoeff_innerwrap_bool 
+        \__diffcoeff_slashsep:N \l__diffcoeff_slashsep_clist
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_slashsep:N #1
+  {
+    \tl_set:Ne \l__diffcoeff_slashsepl_tl { \clist_item:Nn #1 {  1 } }
+    \tl_set:Ne \l__diffcoeff_slashsepr_tl { \clist_item:Nn #1 { -1 } }
+  } 
+\cs_new_protected:Npn \__diffcoeff_innerwrap:
+  { 
+    \tl_set_eq:NN \l__diffcoeff_subnuj_tl \l__diffcoeff_subnuj_app_tl
+    \tl_set_eq:NN \l__diffcoeff_ldelim_tl \l__diffcoeff_ldelim_app_tl
+    \tl_set_eq:NN \l__diffcoeff_rdelim_tl \l__diffcoeff_rdelim_app_tl
+  }
+%%%%%%%%% #1 orders, #2 vars 
+\cs_new_protected:Npn \__diffcoeff_ords_vars:nn #1#2
+  {
+    \str_if_eq:nnT { #2 } { / } % v4 notation
+       { \__diffcoeff_ords_version_iv: } 
+    \clist_if_empty:nTF { #2 }
+      { \__diffcoeff_ords_novars:n { #1 } }
+      { 
+        \str_if_in:nnTF { #2 } { : }
+          { \__diffcoeff_ords_colon:n { #2 } }
+          { \__diffcoeff_ords_sqbrkt:nn { #1 } { #2 } }
+        \tl_set:Ne \l__diffcoeff_vph_tl 
+            { \seq_use:Nn\l__diffcoeff_ords_seq {} }
+      }
+    \int_compare:nNnT { \l__diffcoeff_style_int } = { 7 }
+      { 
+        \seq_clear:N \l_tmpa_seq
+        \__diffcoeff_braid:NNN \l__diffcoeff_vars_seq \l__diffcoeff_ords_seq
+            \__diffcoeff_coalesce:nn
+        \seq_clear:N \l__diffcoeff_vars_seq
+        \seq_put_right:Ne \l__diffcoeff_vars_seq
+          { \seq_use:Nn \l_tmpa_seq { \mskip \l__diffcoeff_termsep_tl } }
+      }
+    \__diffcoeff_ords_override:N \l__diffcoeff_override_tl
+  }
+% #1 var #2 ord
+\cs_new_protected:Npn \__diffcoeff_coalesce:nn #1#2
+  { 
+    \seq_put_right:Ne \l_tmpa_seq
+      { 
+        #1 
+        \str_if_eq:nnF { #2 } { 1 } 
+          { 
+            \exp_not:N \__diffcoeff_difcc:n 
+            { \mskip \l__diffcoeff_vsupnuj_tl #2 }
+          } 
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_version_iv:
+  {
+    \msg_error:nnnn { diffcoeff } { version-conflict } { / } 
+      { Use~\difs or~\difsp instead.~ } 
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_novars:n #1
+  {
+    \seq_set_from_clist:Nn \l__diffcoeff_vars_seq { \prg_do_nothing: } 
+    \__diffcoeff_ords:nn { 1 } { #1 }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_colon:n #1
+  {
+    \clist_map_inline:nn  { #1 }
+      {
+        \exp_args:NNV
+        \seq_set_split:Nnn \l_tmpa_seq \c_colon_str { ##1 }
+        \seq_pop:NN \l_tmpa_seq \l_tmpa_tl
+        \seq_put_right:NV \l__diffcoeff_vars_seq \l_tmpa_tl
+        \seq_if_empty:NTF \l_tmpa_seq
+          { \seq_put_right:Nn \l__diffcoeff_ords_seq { 1 } }
+          {
+            \seq_pop:NN \l_tmpa_seq \l_tmpa_tl
+            \seq_put_right:NV \l__diffcoeff_ords_seq \l_tmpa_tl
+          }
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_sqbrkt:nn #1#2
+  {
+    \seq_set_from_clist:Nn \l__diffcoeff_vars_seq { #2 } 
+    \exp_args:Ne \__diffcoeff_ords:nn 
+      { \int_max:nn { 1 } { \clist_count:n {#2} } } { #1 }
+  }
+% #1(int) no. of vars; #2(clist) orders spec
+\cs_new_protected:Npn \__diffcoeff_ords:nn #1#2 
+  { 
+    \bool_if:NTF \l__diffcoeff_exponent_bool
+      { 
+        \exp_args:NNe 
+        \seq_set_from_clist:Nn \l__diffcoeff_ords_seq 
+            { \prg_replicate:nn { #1 } { \l__diffcoeff_exponent_tl, } }
+      }
+      {
+        \seq_set_from_clist:Nn \l__diffcoeff_ords_seq { #2 }
+        \exp_args:Nne\__diffcoeff_ords_adj_seq:nn { #1 }
+            { \seq_count:N \l__diffcoeff_ords_seq }
+      }
+  }
+% #1 no. vars, #2 no. orders
+\cs_new_protected:Npn \__diffcoeff_ords_adj_seq:nn #1#2
+  { 
+    \int_compare:nNnTF { #1 } < { #2 }
+      { % truncate
+        \int_step_inline:nn { #2 - #1 }
+          { \seq_pop_right:NN \l__diffcoeff_ords_seq \l_tmpa_tl }
+      }
+      { % pad 
+        \int_step_inline:nnnn { 1 + #2 } { 1 } { #1 }
+            { \seq_put_right:Nn \l__diffcoeff_ords_seq { 1 } }
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_override:N #1
+  {
+    \tl_if_empty:NTF #1
+      { 
+        \__diffcoeff_ords_calc_total:NN \l__diffcoeff_ords_seq
+            \l__diffcoeff_tot_ord_tl 
+      }
+      { \tl_set_eq:NN \l__diffcoeff_tot_ord_tl #1 }
+    \int_compare:nNnTF { \l__diffcoeff_style_int } = { 7 }
+      { \tl_set_eq:NN \l__diffcoeff_ord_tl \l__diffcoeff_tot_ord_tl }
+      { \seq_pop_right:NN \l__diffcoeff_ords_seq \l__diffcoeff_ord_tl }
+  }
+%%%%%%%%%% calc. total order
+% #1(seq) expr in; #2(tl) expr out
+\cs_new_protected:Npn \__diffcoeff_ords_calc_total:NN #1 #2
+  {
+    \tl_clear:N \l__diffcoeff_nos_tl
+    \exp_args:Ne \__diffcoeff_ords_digest_expr:n { \seq_use:Nn #1 { + } }
+    \prop_if_empty:NTF \l__diffcoeff_vars_prop
+      { \tl_set:NV #2 \l__diffcoeff_nos_tl }
+      { 
+        \int_compare:nNnT { \l__diffcoeff_nos_int } = { 0 }
+          { \tl_clear:N \l__diffcoeff_nos_tl }
+        \__diffcoeff_ords_eval:NN \l__diffcoeff_vars_prop #2 
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_digest_expr:n #1
+  { 
+    \tl_set:Nn \l__diffcoeff_curr_num_tl { + }
+    \tl_set:Nn \l__diffcoeff_paren_tl { +1 }
+    \tl_set:Nn \l__diffcoeff_nos_tl { 0 }
+    \int_zero:N \l__diffcoeff_curr_state_int
+    \int_zero:N \l__diffcoeff_curr_tok_int
+    \tl_map_inline:nn { #1+ }
+      { 
+        \__diffcoeff_ords_curr_ndx:nN { ##1 } \l__diffcoeff_curr_tok_int
+        \__diffcoeff_ords_transtns:nNN { ##1 } 
+            \l__diffcoeff_curr_state_int \l__diffcoeff_curr_tok_int 
+      }
+    \int_set:Nn \l__diffcoeff_nos_int { \l__diffcoeff_nos_tl }
+    \tl_set:Ne \l__diffcoeff_nos_tl { \int_use:N \l__diffcoeff_nos_int }
+  }
+% #1 curr tok (tl); #2 <== curr tok ndx (int)
+\cs_new_protected:Npn \__diffcoeff_ords_curr_ndx:nN #1#2
+  { 
+    \tl_if_in:nnTF { 1234567890 } { #1 }
+      { \int_set:Nn #2 { 1 } } % digit
+      { 
+        \tl_if_in:nnTF { +- } { #1 }
+          { \int_set:Nn #2 { 0 } }
+          { 
+            \tl_if_eq:nnTF { ( } { #1 }
+              { \int_set:Nn #2 { 3 } }
+              {
+                \tl_if_eq:nnTF { ) } { #1 } 
+                  { \int_set:Nn #2 { 4 } }
+                  { \int_set:Nn #2 { 2 } }  % var
+              }
+          }
+      }
+  }
+% #1(tl) curr tok; #2(int) curr state; #3(int) curr tok ndx
+\cs_new_protected:Npn \__diffcoeff_ords_transtns:nNN #1#2#3
+  { 
+    \int_case:nn { #2 }
+      { 
+        { 0 } { \__diffcoeff_ords_sgn:nNN { #1 }#2#3 } % sgn + -
+        { 1 } { \__diffcoeff_ords_num:nNN { #1 }#2#3 } % num 
+        { 2 } { \__diffcoeff_ords_alg:nNN { #1 }#2#3 } % alg
+        { 4 } { \__diffcoeff_ords_rpar:nNN { #1 }#2#3 } % )
+      }
+  }
+% transitions from the signed state
+% #1(tl) curr tok; #2(int) 0, curr state; #3 curr tok ndx
+\cs_new_protected:Npn \__diffcoeff_ords_sgn:nNN #1#2#3
+  {
+    \int_case:nnT { #3 }
+      {
+        { 0 } { \__diffcoeff_ords_sgn_sgn:n { #1 } } % tok = s
+        { 1 } { \tl_put_right:Nn \l__diffcoeff_curr_num_tl { #1 } } % tok = d
+        { 2 } { \__diffcoeff_ords_sgn_alg:n { #1 } } % tok = v
+        { 3 } { \__diffcoeff_ords_sgn_lpar:n { #3 } } % tok = (
+      }
+      { \int_set_eq:NN #2 #3 }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_sgn_sgn:n #1 % tok = s
+  {
+    \str_if_eq:nVTF { #1 } \l__diffcoeff_curr_num_tl
+      { \tl_set:Nn \l__diffcoeff_curr_num_tl { + } }
+      { \tl_set:Nn \l__diffcoeff_curr_num_tl { - } }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_sgn_alg:n #1 % tok = v
+  {
+    \tl_put_right:Nn \l__diffcoeff_curr_num_tl { 1 }
+    \tl_set:Nn \l__diffcoeff_curr_var_tl { #1 }
+  }
+\cs_new_protected:Npn  \__diffcoeff_ords_sgn_lpar:n #1 % tok = (
+  {
+    \seq_push:NV \l__diffcoeff_paren_seq \l__diffcoeff_paren_tl
+    \tl_put_left:NV \l__diffcoeff_paren_tl \l__diffcoeff_curr_num_tl
+    \tl_set:Nn \l__diffcoeff_curr_num_tl { + }
+    \int_set:Nn #1 { 0 }
+  }
+% transitions from the numeric state
+% #1 = curr. tok.; #2 = 0, curr. state; #3 curr. tok. index
+\cs_new_protected:Npn \__diffcoeff_ords_num:nNN #1#2#3
+  {
+    \int_case:nnT { #3 }
+      {
+        { 0 } { \__diffcoeff_ords_num_sgn:n { #1 } } % tok = s
+        { 1 } { \tl_put_right:Nn \l__diffcoeff_curr_num_tl { #1 } } % tok = d
+        { 2 } { \__diffcoeff_ords_num_alg:n { #1 } }% tok = v
+        { 3 } { \__diffcoeff_ords_num_lpar:n { #3 } } % tok = (
+        { 4 } { \__diffcoeff_ords_num_rpar: } % tok = )
+      }
+      { \int_set_eq:NN #2 #3 }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_num_sgn:n #1 % tok = s
+  {
+    \tl_put_right:NV\l__diffcoeff_nos_tl 
+      { \l__diffcoeff_paren_tl * \l__diffcoeff_curr_num_tl }
+    \tl_set:Nn \l__diffcoeff_curr_num_tl { #1 } 
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_num_alg:n #1 % tok = v
+  { 
+    \tl_if_in:nnTF { ^ \times * / } { #1 }
+      { 
+        \msg_error:nneee { diffcoeff } { order-spec-general } 
+        { \seq_use:Nn \l__diffcoeff_ords_seq { , } } { #1 } { number }
+      }
+      { \tl_set:Nn \l__diffcoeff_curr_var_tl { #1 } }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_num_lpar:n #1 % tok = (
+  { 
+    \seq_push:NV \l__diffcoeff_paren_seq \l__diffcoeff_paren_tl
+    \tl_put_left:Nn \l__diffcoeff_paren_tl { * }
+    \tl_put_left:NV \l__diffcoeff_paren_tl \l__diffcoeff_curr_num_tl
+    \tl_set:Nn \l__diffcoeff_curr_num_tl { + }
+    \int_set:Nn #1 { 0 } 
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_num_rpar:
+  {
+    \tl_put_right:NV \l__diffcoeff_nos_tl 
+        { \l__diffcoeff_paren_tl * \l__diffcoeff_curr_num_tl }
+  }
+% transitions from the algebraic state
+% #1 = curr. tok.; #2 = 2, curr. state; #3 curr. tok. index
+\cs_new:Npn \__diffcoeff_ords_alg:nNN #1#2#3
+  { 
+    \int_case:nnT { #3 }
+      {
+        { 0 } { \__diffcoeff_ords_alg_sgn:nn { #1 } { #3 } } % tok = s
+        { 1 } { \__diffcoeff_ords_alg_num:nn { #1 } { #3 } } % tok = d
+        { 2 } { \tl_put_right:Nn \l__diffcoeff_curr_var_tl { #1 } } % tok = v
+        { 3 } { \__diffcoeff_ords_alg_lpar:nn { #1 } { #3 } } % tok = (
+        { 4 } { \__diffcoeff_ords_alg_rpar:nn { #1 } { #3 } } % tok = )
+      }
+      { \int_set_eq:NN #2 #3 }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_alg_sgn:nn #1#2
+  { 
+    \int_compare:nNnTF { \l__diffcoeff_parenvar_int } = { 0 }
+      {
+        \__diffcoeff_ords_store_var:NVV \l__diffcoeff_curr_var_tl
+            \l__diffcoeff_paren_tl \l__diffcoeff_curr_num_tl
+        \tl_clear:N \l__diffcoeff_curr_var_tl
+        \tl_set:Nn \l__diffcoeff_curr_num_tl { #1 }
+      }
+      {
+        \tl_put_right:Nn \l__diffcoeff_curr_var_tl { #1 }
+        \int_set:Nn #2 { 2 }
+      }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_alg_num:nn #1#2
+  { 
+    \tl_put_right:Nn \l__diffcoeff_curr_var_tl { #1 } 
+    \int_set:Nn #2 { 2 }
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_alg_lpar:nn #1#2
+  {
+    \tl_put_right:Nn \l__diffcoeff_curr_var_tl { #1 }
+    \int_set:Nn #2 { 2 }
+    \int_incr:N \l__diffcoeff_parenvar_int
+  }
+\cs_new_protected:Npn \__diffcoeff_ords_alg_rpar:nn #1#2
+  {
+    \int_compare:nNnTF { \l__diffcoeff_parenvar_int } = { 0 }
+      {
+        \__diffcoeff_ords_store_var:NVV \l__diffcoeff_curr_var_tl
+            \l__diffcoeff_paren_tl \l__diffcoeff_curr_num_tl
+        \tl_clear:N \l__diffcoeff_curr_var_tl
+      }
+      {
+        \tl_put_right:Nn \l__diffcoeff_curr_var_tl { #1 }
+        \int_set:Nn #2 { 2 }
+        \int_decr:N \l__diffcoeff_parenvar_int
+      }
+  }
+% transitions from the ) state
+% #1 = curr. tok.; #2 = 4, curr. state; #3 curr. tok. index
+\cs_new_protected:Npn \__diffcoeff_ords_rpar:nNN #1#2#3
+  {
+    \int_compare:nNnTF { \int_mod:nn { #3 } { 4} } = { 0 }
+      { 
+        \tl_set:Nn \l__diffcoeff_curr_num_tl { #1 }
+        \seq_pop:NN \l__diffcoeff_paren_seq \l__diffcoeff_paren_tl
+        \int_set_eq:NN #2 #3
+      }
+      {
+        \msg_error:nneee { diffcoeff } { order-spec-general } 
+            { \seq_use:Nn \l__diffcoeff_ords_seq { , } } { #1 } { ) }
+      }
+  }
+% #1 var (tlvar); #2 num (tlvar); #3 num coeff (tlvar)
+\cs_new:Npn \__diffcoeff_ords_store_var:Nnn #1#2#3
+  {
+    \prop_get:NVNF \l__diffcoeff_vars_prop #1 \l_tmpa_tl
+      { \tl_clear:N \l_tmpa_tl }
+    \tl_put_right:Nn \l_tmpa_tl { #2 * #3 }
+    \prop_put:NVV \l__diffcoeff_vars_prop #1 \l_tmpa_tl
+  }
+\cs_generate_variant:Nn \__diffcoeff_ords_store_var:Nnn { NVV }
+% #1 (propv) key=var, val=coeff; #2 <= total order
+\cs_new_protected:Npn \__diffcoeff_ords_eval:NN #1#2
+  { 
+    \seq_clear:N \l_tmpa_seq
+    \seq_clear:N \l_tmpb_seq
+    \prop_map_inline:Nn #1 { \seq_put_left:Nn \l_tmpa_seq { ##1 } }
+    \seq_sort:Nn \l_tmpa_seq
+      {
+        \int_compare:nNnTF { \str_count:n { ##1 } } < { \str_count:n { ##2 } }
+          { \sort_return_same: } { \sort_return_swapped: }
+      }
+    \seq_map_inline:Nn \l_tmpa_seq
+      {
+        \prop_pop:NnN #1 { ##1 } \l_tmpb_tl
+        \seq_put_right:Ne \l_tmpb_seq { \int_eval:n \l_tmpb_tl }
+       }
+    \tl_set:Ne \l_tmpa_tl 
+      {
+        \__diffcoeff_braid:NNN \l_tmpa_seq \l_tmpb_seq 
+            \__diffcoeff_ords_total:nn 
+      }
+    \tl_if_head_eq_charcode:VNTF \l_tmpa_tl +
+      { 
+        \tl_set:Ne \l_tmpb_tl { \tl_tail:N \l_tmpa_tl }
+        \int_compare:nNnT { \l__diffcoeff_nos_int } > { 0 }
+          { \tl_put_left:Nn \l__diffcoeff_nos_tl { + } }
+        \tl_concat:NNN #2 \l_tmpb_tl \l__diffcoeff_nos_tl
+      }
+      { 
+        \int_compare:nNnTF { \l__diffcoeff_nos_int } > { 0 }
+          { \tl_concat:NNN #2 \l__diffcoeff_nos_tl \l_tmpa_tl }
+          { \tl_concat:NNN #2 \l_tmpa_tl \l__diffcoeff_nos_tl }
+      }
+    \tl_set_rescan:Nno #2 { } #2
+  }
+\cs_new:Npn \__diffcoeff_ords_total:nn #1#2
+  { 
+    \int_compare:nNnTF { #2 } > { 0 }
+      { \int_compare:nNnTF { #2 } = { 1 } { +#1 } { +#2#1 } }
+      {
+        \int_compare:nNnT { #2 } < { 0 }
+          { \int_compare:nNnTF { #2 } = { -1 } { -#1 } { #2#1 } }
+      }
+  }
+%%%%%%%%% derivand
+% #1 derivand #2 spaced int
+\cs_new_protected:Npn \__diffcoeff_derivand:nn #1#2
+  { 
+    \tl_set:Ne \l__diffcoeff_derivand_tl 
+      {
+        \int_case:nn { #2 }
+          {
+            {  1 } { \mskip \l__diffcoeff_derivsep_tl }
+            { -1 } { \__diffcoeff_derivand:n  { #1 } }
+          }
+        \exp_not:o {#1}
+      }
+  }
+\cs_new:Npn \__diffcoeff_derivand:n #1
+  {
+    \bool_lazy_or:nnT 
+        { \l__diffcoeff_app_bool } { !\tl_if_single_p:n { #1 } }
+      { \mskip \l__diffcoeff_derivsep_tl } 
+  }   
+%%%%%%%%% build #1 vars clist; #2 trailing arg
+\cs_new:Npn \__diffcoeff_build:nn #1#2
+  { 
+    \__diffcoeff_wrap_and_form:nn { #2 }
+      {
+        \__diffcoeff_form_deriv:eNN 
+          { 
+            \__diffcoeff_build_numer:Vn \l__diffcoeff_tot_ord_tl
+                { \l__diffcoeff_style_int } 
+          }
+          \__diffcoeff_build_denom:
+          \l__diffcoeff_derivand_tl
+      }
+  }
+% extra braces for \[ \alert{\dl x} \] in beamer
+\cs_new:Npn \__diffcoeff_wrap_and_form:nn #1#2
+  {
+    \tl_if_novalue:nTF { #1 }
+      {{ #2 }}
+      {{
+        \l__diffcoeff_ldelim_tl \mskip \l__diffcoeff_elbowrm_tl 
+        #2 \__diffcoeff_trailing_arg:n { #1 } 
+      }}
+  }
+\cs_new:Npn \__diffcoeff_trailing_arg:n #1
+  { 
+    \mskip \l__diffcoeff_elbowrm_tl \l__diffcoeff_rdelim_tl
+    \tl_if_empty:nF { #1 }
+       { \c_math_subscript_token { \mskip \l__diffcoeff_subnuj_tl #1 } }
+  }
+%%%%%%%%% numerator #1 total order tl #2 style int
+\cs_new:Npn \__diffcoeff_build_numer:nn #1#2
+  {
+    \int_compare:nNnF { #2 } > { 5 }
+      { 
+        \bool_if:NT \l__diffcoeff_op_left_bool
+          { \mskip \l__diffcoeff_opleftnuj_tl }
+        \exp_not:o \l__diffcoeff_opi_tl
+        \str_if_eq:nnF { #1 } { 1 }
+          { 
+            ^ { \mskip \l__diffcoeff_opordnuj_tl \exp_not:o {#1} }
+            % \mskip \l__diffcoeff_sepadj_tl
+          }
+        \bool_if:NT \l__diffcoeff_op_left_bool
+          { \exp_not:o { \hfill } }
+      }
+  }
+\cs_generate_variant:Nn \__diffcoeff_build_numer:nn { V } 
+%%%%%%%%%% denominator %%%%%%%%%
+\cs_new:Npn \__diffcoeff_build_denom:
+  { 
+    \__diffcoeff_braid:NNN \l__diffcoeff_ords_seq
+        \l__diffcoeff_vars_seq \__diffcoeff_build_denom_items:nn
+    \str_if_eq:VnTF \l__diffcoeff_var_tl { ... }
+      { \l__diffcoeff_dots_tl } 
+      { 
+        \__diffcoeff_build_denom_item:VV 
+            \l__diffcoeff_ord_tl \l__diffcoeff_var_tl
+        \str_if_eq:VnF \l__diffcoeff_ord_tl { 1 }
+          { 
+            \int_compare:nNnT { \l__diffcoeff_group_int } < { 2 }
+                { \mskip -\l__diffcoeff_sepadj_tl} 
+          }
+      }
+  }
+% #1 order #2 var
+\cs_new:Npn \__diffcoeff_build_denom_items:nn#1#2
+  { 
+    \str_if_eq:nnTF { #2 } { ... }
+      { \l__diffcoeff_dots_tl }
+      { 
+        \__diffcoeff_build_denom_item:nn {#1} {#2} 
+        \mskip \l__diffcoeff_termsep_tl
+        \str_if_eq:nnF { #1 } { 1 }
+          { \mskip \l__diffcoeff_sepadj_tl }
+      }
+  }
+% #1 order #2 var
+\cs_new:Npn \__diffcoeff_build_denom_item:nn #1#2 
+  { 
+    \int_compare:nTF { 5 < \l__diffcoeff_style_int < 8 }
+      { \__diffcoeff_build_denom_difc:onn \l__diffcoeff_vph_tl {#1}{#2} }
+      { \__diffcoeff_build_denom_dif:nn {#1} {#2} }
+  }
+\cs_generate_variant:Nn \__diffcoeff_build_denom_item:nn { VV }
+% #1 vphantom orders #2 order #3 var
+\cs_new:Npn \__diffcoeff_build_denom_difc:nnn #1#2#3
+  { 
+    \exp_not:o \l__diffcoeff_opii_tl 
+    \int_compare:nNnTF { \l__diffcoeff_group_int } = { 4 }
+      {
+        \str_if_eq:nnF { #2 } { 1 } 
+          { ^{ \mskip \l__diffcoeff_opordnuj_tl \exp_not:o {#2} } } 
+        #3
+      }
+      {
+        \c_math_subscript_token { \mskip \l__diffcoeff_opsubnuj_tl {}#3 }
+        ^ {
+            \mskip \l__diffcoeff_opordnuj_tl \vphantom{#1}
+            \str_if_eq:nnF { #2 } { 1 } 
+              { \exp_not:o {#2} \mskip \l__diffcoeff_sepadj_tl } 
+          }
+      }
+  }
+\cs_generate_variant:Nn \__diffcoeff_build_denom_difc:nnn { o }
+% #1 order #2 var
+\cs_new:Npn \__diffcoeff_build_denom_dif:nn #1#2
+  {
+    \str_if_eq:nnTF { #1 } { 1 }
+      { \exp_not:o { \l__diffcoeff_opii_tl #2 } }
+      { 
+        \tl_if_single:nTF { #2 }
+          { \__diffcoeff_shortvars:nn { #1 } { #2 } }
+          { \__diffcoeff_wrap_longvars:nn { #1 } { #2 } }
+        \mskip \l__diffcoeff_sepadj_tl
+      }
+  }
+% #1 order #2 var
+\cs_new:Npn \__diffcoeff_shortvars:nn #1#2
+  { 
+    \exp_not:o { \l__diffcoeff_opii_tl #2^ 
+        { \mskip \l__diffcoeff_vsupnuj_tl #1 } } 
+  }
+% #1 order #2 var; wrap_longvars:nn equals one of following
+% {} needed if e.g. #2=\sin x
+\cs_new:Npn \__diffcoeff_wrap_longvars_dv:nn #1#2
+  { 
+    \exp_not:o { \l__diffcoeff_opii_tl { {}#2 }^ 
+        { \mskip \l__diffcoeff_vsupnuj_tl #1 } }
+  }
+\cs_new:Npn \__diffcoeff_wrap_longvars_dvi:nn #1#2
+  { 
+    \exp_not:o { \l__diffcoeff_opii_tl \l__diffcoeff_lvw_ldelim_tl {#2} 
+      \l__diffcoeff_lvw_rdelim_tl^{ \mskip \l__diffcoeff_lvwsupnuj_tl #1 } }
+  }
+\cs_new:Npn \__diffcoeff_wrap_longvars_dvii:nn #1#2
+  { 
+    \exp_not:o { \l__diffcoeff_lvw_ldelim_tl \l__diffcoeff_opii_tl {}#2 
+      \l__diffcoeff_lvw_rdelim_tl^{ \mskip  \l__diffcoeff_lvwsupnuj_tl #1 } }
+  }
+%%%%%%%%%%
+% #1 op+order; #2 denom; #3 diff'iand
+\cs_new:Npn \__diffcoeff_form_deriv:nNN #1#2#3
+  { 
+    \bool_if:NTF \l__diffcoeff_app_bool
+      { \l__diffcoeff_frac_tl { #1 } { #2 } #3 }
+      { \l__diffcoeff_frac_tl { #1 #3 } { #2 } }
+  }
+\cs_generate_variant:Nn \__diffcoeff_form_deriv:nNN { e }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\file_get:nnNT { diffcoeff.DIF } {} \l_tmpa_tl
+  { 
+    \exp_args:Nnno
+    \EditTemplateDefaults { diffcoeff } { DIF } \l_tmpa_tl
+  }
+\clist_if_empty:NF \l__diffcoeff_dif_clist
+  {
+    \exp_args:Nnno
+    \EditTemplateDefaults { diffcoeff } { DIF } \l__diffcoeff_dif_clist
+  }
+% create new, edit existing, templates/instances
+% #1 id: f,s,c,fp, sp, cp, j,l; #2 name; #3 key-value list
+\NewDocumentCommand \difdef { >{ \TrimSpaces } m >{ \TrimSpaces } m m }
+  { 
+    \clist_map_inline:nn { #1 }
+      {
+        \tl_if_empty:nTF { #2 }
+          { 
+            \DeclareChildTemplate  { diffcoeff } 
+              { DIF\str_uppercase:n {##1} } { DIF\str_uppercase:n {##1} }
+              { style-group = \use_i:nn ##1 \c_empty_tl } { #3 }
+            \DeclareInstance { diffcoeff } { dif##1 } 
+              { DIF\str_uppercase:n {##1} } {}
+          }
+          { 
+            \IfInstanceExistTF { diffcoeff } { dif##1.#2 }
+              { \EditInstance { diffcoeff } { dif##1.#2 } { #3 } } 
+              { \exp_args:Nnne
+                \DeclareInstance { diffcoeff } { dif##1.#2 } 
+                    { DIF\str_uppercase:n {##1} } { #3 } 
+              }
+          }
+      }
+  }
+\DeclareDocumentCommand \diffdef { m m } 
+  { 
+    \msg_error:nnnn { diffcoeff } { version-conflict } { \diffdef~(two~
+    arguments) } { Use~\difdef~(three~arguments)~instead.~ }
+  }
+\DeclareChildTemplate { diffcoeff } { DIF } { DIFF } 
+  { style-group = f } {}
+\DeclareChildTemplate { diffcoeff } { DIFF } { DIFFP } 
+  { style-group = f }
+  { 
+    op-symbol      = \partial,
+    op-order-nudge = 1 mu,
+    *italic-nudge  = 3 mu
+  }
+\DeclareChildTemplate { diffcoeff } { DIF } { DIFS }
+  { style-group = s }
+  {
+    style          = /, 
+    derivand-sep   = 2 mu plus 1 mu minus 2 mu,
+    dots           = \ldots,
+    outer-Ldelim   = (,
+    outer-Rdelim   = ),
+    sub-nudge      = 0 mu,
+    *inner-wrap    = true
+  }
+\DeclareChildTemplate { diffcoeff } { DIFS } { DIFSP }
+  { style-group = s }
+  {
+    op-symbol        = \partial,
+    op-order-nudge   = 1 mu
+   }
+\DeclareChildTemplate { diffcoeff } { DIF } { DIFC } 
+  { style-group = c } 
+  {
+    style           = _,
+    derivand-sep    = 1 mu plus 1 mu minus 1 mu,
+    multi-term-sep  = 1 mu,
+    term-sep-adjust = 0 mu,
+    dots            = \ldots,
+    outer-Ldelim    = \bigl (,
+    outer-Rdelim    = \bigr ),
+    sub-nudge       = -2 mu
+  }
+\DeclareChildTemplate { diffcoeff } { DIFC } { DIFCP } 
+  { style-group = c } 
+  { 
+    op-symbol = \partial,
+    op-order-nudge = 1 mu
+  }
+\DeclareInstance { diffcoeff } { diff  } { DIFF  } {}
+\DeclareInstance { diffcoeff } { diffp } { DIFFP } {}
+\DeclareInstance { diffcoeff } { difs  } { DIFS  } {}
+\DeclareInstance { diffcoeff } { difsp } { DIFSP } {}
+\DeclareInstance { diffcoeff } { difc  } { DIFC  } {}
+\DeclareInstance { diffcoeff } { difcp } { DIFCP } {}
+% jacobian
+\DeclareChildTemplate { diffcoeff } { DIF } { DIFJ } 
+  { style-group = j }
+  { 
+    op-symbol    = \partial,
+    outer-Ldelim = , 
+    outer-Rdelim = 
+  }
+\DeclareInstance { diffcoeff } { difj } { DIFJ } {}
+% differential
+\DeclareChildTemplate { diffcoeff } { DIF } { DIFL }
+  { style-group = l }
+  {
+    style            = dl ,
+    outer-Ldelim     = \, ,
+    outer-Rdelim     = 
+  }
+\DeclareInstance { diffcoeff } { difl } { DIFL } {}
+%%%%%%%%%%
+
+\file_if_exist:nTF { \g__diffcoeff_def_tl.def }
+  { \file_input:n { \g__diffcoeff_def_tl.def } }
+  { 
+    \tl_if_empty:NF  \g__diffcoeff_def_tl
+      { \msg_note:nne { diffcoeff } { file-not-found } 
+          { \g__diffcoeff_def_tl } }
+  }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\NewDocumentCommand \negmu {s} { \mskip \IfBooleanT #1 {-} -1 mu }
+\NewDocumentCommand \nilmu {s} { \mskip \IfBooleanT #1 {-} 0 mu }
+\NewDocumentCommand \onemu {s} { \mskip \IfBooleanT #1 {-} 1 mu }
+\NewDocumentCommand \twomu {s} { \mskip \IfBooleanT #1 {-} 2 mu }
+\NewDocumentCommand\spacedone {} 
+  { \int_set:Nn \l__diffcoeff_spaced_int { 1 } }
+\NewDocumentCommand\spacednil {} 
+  { \int_zero:N \l__diffcoeff_spaced_int }
+\NewDocumentCommand\spacedneg {}
+  { \int_set:Nn \l__diffcoeff_spaced_int { -1 } }
+\NewDocumentCommand \difoverride { >{\TrimSpaces} m } 
+  { \tl_set:Nn \l__diffcoeff_override_tl { #1 } }
+% derivatives
+% #1 .variant. #2* appnd, #3* reverse #5#6, #4 [order spec]
+% #5 derivand #6 diff. vars #7 pt of eval/vars held const
+\clist_map_inline:Nn \l__diffcoeff_reversed_clist
+  { 
+    \exp_args:Nc \NewDocumentCommand {dif#1} 
+        { >{\TrimSpaces} D..{} s s O{1} D<>{} >{\TrimSpaces} m  m !o }
+      { 
+        \IfBooleanTF ##3
+          { \__diffcoeff_inputs:nnnnnnnn {#1}  
+                {##1} {##2} {##4} {##6} {##7} {##8} {##5} }
+          { \__diffcoeff_inputs:nnnnnnnn {#1}  
+                {##1} {##2} {##4} {##7} {##6} {##8} {##5} }
+      }
+  }
+\clist_map_inline:nn { f,fp,s,sp,c,cp }
+  { 
+    \exp_args:Nc \ProvideDocumentCommand {dif#1} 
+        { >{\TrimSpaces} D..{} s s O{1} D<>{} >{\TrimSpaces} m  m !o }
+      { 
+        \IfBooleanTF ##3
+          { \__diffcoeff_inputs:nnnnnnnn {#1}  
+                {##1} {##2} {##4} {##7} {##6} {##8} {##5} }
+          { \__diffcoeff_inputs:nnnnnnnn {#1}  
+                {##1} {##2} {##4} {##6} {##7} {##8} {##5} }
+      }
+  }
+% #3 appd bool #4 order spec #5 derivand #6 vars #7 pt of eval
+\cs_new_protected:Npn \__diffcoeff_inputs:nnnnnnnn #1#2#3#4#5#6#7#8
+  { 
+    \group_begin:
+    \tl_if_empty:nF { #8 }
+      { \tl_set:Nn \l__diffcoeff_override_tl { #8 } }
+    \tl_set:Ne \l__diffcoeff_instance_tl 
+        { dif#1 \tl_if_empty:nF { #2 } { .#2 } }
+    \exp_args:Nno \UseInstance { diffcoeff } \l__diffcoeff_instance_tl
+        {#3} {#4} {#5} {#6} {#7}
+    \group_end:
+  }
+\cs_new_protected:Npn \__diffcoeff_use:nnnnnn #1#2#3#4#5#6
+  { \UseInstance { diffcoeff } {#1} {#2} {#3} {#4} {#5}{ #6} }
+\cs_generate_variant:Nn \__diffcoeff_use:nnnnnn { e }
+  
+% Jacobian
+\NewDocumentCommand \jacob { >{\TrimSpaces} D..{} m  m }
+  { 
+    \group_begin:
+    \int_zero:N \l__diffcoeff_spaced_int
+    \tl_set:Ne \l__diffcoeff_instance_tl
+        { difj \tl_if_empty:nF { #1 } { .#1 } } 
+    \exp_args:Nno \UseInstance { diffcoeff } \l__diffcoeff_instance_tl
+      { \c_false_bool } {} 
+      { \l__diffcoeff_lvw_ldelim_tl #2 \l__diffcoeff_lvw_rdelim_tl } 
+      { {\l__diffcoeff_lvw_ldelim_tl #3 \l__diffcoeff_lvw_rdelim_tl} } {}
+    \group_end:
+   }
+\NewDocumentCommand \difj {} { \jacob }
+% differential; #1 variant ; #2 ord(s); #3 vars; #4 exponent
+\NewDocumentCommand \dl { >{ \TrimSpaces } D..{} O{1} m e{^} }
+  {
+    \group_begin:
+    \tl_set:Ne \l__diffcoeff_instance_tl
+        { difl \tl_if_empty:nF { #1 } { .#1 } }
+    \difoverride {}
+    \tl_set:Nn \l__diffcoeff_exponent_tl { #4 }
+    \bool_set:Nn \l__diffcoeff_exponent_bool { !\tl_if_novalue_p:n {#4} }
+    \exp_args:Nno 
+    \UseInstance { diffcoeff } \l__diffcoeff_instance_tl
+        {\c_false_bool} {#2} {} {#3} {}
+    \group_end:
+  }
+\NewDocumentCommand \difl {} { \dl }
+% slash fractions
+% #1 innerwrap bool #2 derivand #3 var(s)
+\cs_new:Npn \__diffcoeff_slash:nn #1#2
+  { \__diffcoeff_slashfracs:nnn  { #1 } { #2 } {} }
+\cs_new:Npn \__diffcoeff_slashbg:nnn #1#2#3
+  { \__diffcoeff_slashfracs:nnn { #2 } { #3 } { \use:c{#1} } }
+\cs_new:Npn \__diffcoeff_slashauto:nn #1#2
+  { \__diffcoeff_slashfracs:nnn { \left. #1\vphantom{#2} } 
+      { #2\right.}  { \middle } }
+\cs_new:Npn \__diffcoeff_slashfracs:nnn #1#2#3
+  { 
+    \bool_if:NT \l__diffcoeff_app_bool { \l__diffcoeff_lopwrap_tl }
+    #1 \mskip \l__diffcoeff_slashsepl_tl 
+    #3 \l__diffcoeff_slashtok_tl  
+    \mskip \l__diffcoeff_slashsepr_tl #2
+    \bool_if:NT \l__diffcoeff_app_bool { \l__diffcoeff_ropwrap_tl }
+  }
+\cs_new_protected:Npn \__diffcoeff_sfrac:nn #1#2
+  { 
+    \bool_if:NT \l__diffcoeff_app_bool { \l__diffcoeff_lopwrap_tl }
+    \__diffcoeff_sfrac_aux:nn { #1 } { #2 }
+    \bool_if:NT \l__diffcoeff_app_bool { \l__diffcoeff_ropwrap_tl }
+  }
+% split-level fraction
+\box_new:N \l__diffcoeff_sfrac_slash_box
+\box_new:N \l__diffcoeff_sfrac_vdim_box
+\box_new:N \l__diffcoeff_sfrac_numer_box
+\box_new:N \l__diffcoeff_sfrac_denom_box
+
+\cs_new:Npn \__diffcoeff_sfrac_vdim: 
+  { \dim_eval:n { \box_ht_plus_dp:N \l__diffcoeff_sfrac_vdim_box } }
+  
+\cs_new:Npn \__diffcoeff_sfrac_fontscale: 
+  { 
+    \fontsize
+      { \fp_to_dim:n { \l__diffcoeff_sfrac_scale_fp * \__diffcoeff_sfrac_vdim: } }
+      { \c_zero_dim }
+    \selectfont
+  }
+\cs_new_protected:Npn \__diffcoeff_sfrac_aux:nn #1#2
+  {
+    \text
+      { 
+        \hbox_set:Nn \l__diffcoeff_sfrac_vdim_box
+          { \ensuremath { ( } }
+        \hbox_set:Nn \l__diffcoeff_sfrac_slash_box
+          { 
+            \ensuremath 
+              { 
+                \mskip \l__diffcoeff_slashsepl_tl
+                /
+                \mskip \l__diffcoeff_slashsepr_tl
+              }
+          }
+        \hbox_set:Nn \l__diffcoeff_sfrac_numer_box
+          { 
+            \__diffcoeff_sfrac_fontscale:
+            \ensuremath { \vphantom { ( } #1 } 
+          }
+        \box_move_up:nn
+          {
+            \dim_eval:n { \box_ht:N \l__diffcoeff_sfrac_slash_box -
+               \box_ht:N \l__diffcoeff_sfrac_numer_box }
+          }
+          { \box_use_drop:N \l__diffcoeff_sfrac_numer_box }
+        \box_use:N \l__diffcoeff_sfrac_slash_box
+        \hbox_set:Nn \l__diffcoeff_sfrac_denom_box
+          {
+            \__diffcoeff_sfrac_fontscale:
+            \ensuremath { \vphantom { ( } #2 } 
+          }
+        \box_use_drop:N \l__diffcoeff_sfrac_denom_box
+      }
+  }
+% end of file diffcoeff.sty

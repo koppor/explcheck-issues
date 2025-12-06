@@ -1,0 +1,1355 @@
+%%% Package   : fontscale -- A flexible interface for setting font sizes
+%%% Copyright : 2024-2025 (c) Oliver Beery <beeryoliver@gmail.com>
+%%% CTAN      : https://ctan.org/pkg/fontscale
+%%% Repository: https://github.com/beeryoliver/fontscale
+%%% License   : The LaTeX Project Public License 1.3c
+
+%%> \section{Loading the package}
+
+% LaTeX2e version 2023-11-01 added \IfExplAtLeastTF.
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage
+  {fontscale}
+  {2025-02-13}
+  {3.1.2}
+  {A flexible interface for setting font sizes}
+
+% l3kernel version 2023-11-09 added documentation for \c_nan_fp.
+\IfExplAtLeastTF { 2023-11-09 } { }
+  {
+    \msg_new:nnn { fontscale } { l3kernel-out-of-date }
+      {
+        The~ fontscale~ package~ could~ not~ load. \\
+        This~ package~ requires~
+        L3~ programming~ layer~ version~ 2023-11-09~ or~ newer.
+      }
+    \msg_critical:nn { fontscale } { l3kernel-out-of-date }
+  }
+
+%%> \section{Messages}
+
+\msg_new:nnn { fontscale } { key-musical-base-out-of-bounds }
+  {
+    Invalid~ value~ '#1'~ \msg_line_context:. \\
+    The~ value~ of~ the~ key~ 'musical / base'~ must~ be~ a~ positive~ length.
+  }
+\msg_new:nnn { fontscale } { key-musical-ratio-out-of-bounds }
+  {
+    Invalid~ value~ '#1'~ \msg_line_context:. \\
+    The~ value~ of~ the~ key~ 'musical / ratio'~ must~ be~ greater~ than~ 1.
+  }
+\msg_new:nnn { fontscale } { key-musical-notes-out-of-bounds }
+  {
+    Invalid~ value~ '#1'~ \msg_line_context:. \\
+    The~ value~ of~ the~ key~ 'musical / notes'~ must~ be~ a~ positive~
+    integer.
+  }
+\msg_new:nnn { fontscale } { key-font-scale-out-of-bounds }
+  {
+    Invalid~ value~ '#2'~ \msg_line_context:. \\
+    The~ value~ of~ the~ key~ '#1 / scale'~ must~ be~ positive.
+  }
+\msg_new:nnn { fontscale } { key-font-size-out-of-bounds }
+  {
+    Invalid~ value~ '#2'~ \msg_line_context:. \\
+    The~ value~ of~ the~ key~ '#1 / size'~ must~ be~ a~ positive~ length.
+  }
+\msg_new:nnn { fontscale } { key-font-scale-overwritten }
+  {
+    The~ font~ size~ set~ by~ the~ key~ '#1 / scale'~
+    has~ been~ overwritten~ by~ the~ key~ '#1 / size'~ \msg_line_context:.
+  }
+\msg_new:nnn { fontscale } { font-sizes-out-of-order }
+  {
+    The~ font~ sizes~ are~ not~ in~ the~ correct~ order~ \msg_line_context:. \\
+    The~ lengths~ of~ the~ font~ sizes~ should~ be~ ordered~ from~
+    \iow_char:N \\tiny~ to~ \iow_char:N \\Huge.
+  }
+
+% This package tests for math mode only at the user level because this is not
+% necessary for programmers. To avoid confusion, this package issues a warning
+% when \fontsize + \selectfont would be used in math mode because it would not
+% change the math font size.
+\msg_new:nnn { fontscale } { math-mode-warning }
+  { '#1'~ does~ nothing~ if~ used~ in~ math~ mode~ \msg_line_context:. }
+% \@ and \par cannot be used in math mode.
+\msg_new:nnn { fontscale } { math-mode-error }
+  { '#1'~ cannot~ be~ used~ in~ math~ mode~ \msg_line_context:. }
+\msg_new:nnn { fontscale } { font-size-out-of-bounds }
+  {
+    Invalid~ font~ size~ '#1'~ \msg_line_context:. \\
+    The~ font~ size~ must~ be~ a~ positive~ length.
+  }
+\msg_new:nnn { fontscale } { font-step-out-of-bounds }
+  {
+    Invalid~ font~ step~ '#1'~ \msg_line_context:. \\
+    The~ font~ step~ must~ equal~ the~ font~ step~ of~
+    any~ font~ size~ command~ from~ \iow_char:N \\tiny~ to~ \iow_char:N \\Huge~
+    unless~ the~ value~ of~ the~ key~ 'typographic-scale'~ is~ 'musical'.
+  }
+\msg_new:nnn { fontscale } { current-font-step-out-of-bounds }
+  {
+    The~ new~ font~ step~ could~ not~ be~ calculated~
+    because~ the~ current~ font~ step~ is~ undefined~ \msg_line_context:.
+  }
+
+%%> \section{Some variables}
+
+% Declares and initializes the font step, font scale, font size, and font
+% baselineskip of each font size command from \tiny to \Huge.
+
+\fp_const:Nn \c_fontscale_tiny_step_fp         { -4 }
+\fp_const:Nn \c_fontscale_scriptsize_step_fp   { -3 }
+\fp_const:Nn \c_fontscale_footnotesize_step_fp { -2 }
+\fp_const:Nn \c_fontscale_small_step_fp        { -1 }
+\fp_const:Nn \c_fontscale_normalsize_step_fp   {  0 }
+\fp_const:Nn \c_fontscale_large_step_fp        {  1 }
+\fp_const:Nn \c_fontscale_Large_step_fp        {  2 }
+\fp_const:Nn \c_fontscale_LARGE_step_fp        {  3 }
+\fp_const:Nn \c_fontscale_huge_step_fp         {  4 }
+\fp_const:Nn \c_fontscale_Huge_step_fp         {  5 }
+
+\fp_const:Nn \c_fontscale_normalsize_scale_fp { 1 }
+
+\fp_new:N \l_fontscale_tiny_scale_fp
+\fp_new:N \l_fontscale_scriptsize_scale_fp
+\fp_new:N \l_fontscale_footnotesize_scale_fp
+\fp_new:N \l_fontscale_small_scale_fp
+\fp_new:N \l_fontscale_large_scale_fp
+\fp_new:N \l_fontscale_Large_scale_fp
+\fp_new:N \l_fontscale_LARGE_scale_fp
+\fp_new:N \l_fontscale_huge_scale_fp
+\fp_new:N \l_fontscale_Huge_scale_fp
+
+\dim_new:N \l_fontscale_tiny_size_dim
+\dim_new:N \l_fontscale_scriptsize_size_dim
+\dim_new:N \l_fontscale_footnotesize_size_dim
+\dim_new:N \l_fontscale_small_size_dim
+\dim_new:N \l_fontscale_normalsize_size_dim
+\dim_new:N \l_fontscale_large_size_dim
+\dim_new:N \l_fontscale_Large_size_dim
+\dim_new:N \l_fontscale_LARGE_size_dim
+\dim_new:N \l_fontscale_huge_size_dim
+\dim_new:N \l_fontscale_Huge_size_dim
+
+\skip_new:N \l_fontscale_tiny_baselineskip_skip
+\skip_new:N \l_fontscale_scriptsize_baselineskip_skip
+\skip_new:N \l_fontscale_footnotesize_baselineskip_skip
+\skip_new:N \l_fontscale_small_baselineskip_skip
+\skip_new:N \l_fontscale_normalsize_baselineskip_skip
+\skip_new:N \l_fontscale_large_baselineskip_skip
+\skip_new:N \l_fontscale_Large_baselineskip_skip
+\skip_new:N \l_fontscale_LARGE_baselineskip_skip
+\skip_new:N \l_fontscale_huge_baselineskip_skip
+\skip_new:N \l_fontscale_Huge_baselineskip_skip
+
+\fp_set:Nn \l_fontscale_tiny_scale_fp         { 0.6 }
+\fp_set:Nn \l_fontscale_scriptsize_scale_fp   { 0.7 }
+\fp_set:Nn \l_fontscale_footnotesize_scale_fp { 0.8 }
+\fp_set:Nn \l_fontscale_small_scale_fp        { 0.9 }
+\fp_set:Nn \l_fontscale_large_scale_fp        { 1.1 }
+\fp_set:Nn \l_fontscale_Large_scale_fp        { 1.2 }
+\fp_set:Nn \l_fontscale_LARGE_scale_fp        { 1.4 }
+\fp_set:Nn \l_fontscale_huge_scale_fp         { 1.6 }
+\fp_set:Nn \l_fontscale_Huge_scale_fp         { 1.8 }
+
+\dim_set:Nn \l_fontscale_tiny_size_dim         {  6pt }
+\dim_set:Nn \l_fontscale_scriptsize_size_dim   {  7pt }
+\dim_set:Nn \l_fontscale_footnotesize_size_dim {  8pt }
+\dim_set:Nn \l_fontscale_small_size_dim        {  9pt }
+\dim_set:Nn \l_fontscale_normalsize_size_dim   { 10pt }
+\dim_set:Nn \l_fontscale_large_size_dim        { 11pt }
+\dim_set:Nn \l_fontscale_Large_size_dim        { 12pt }
+\dim_set:Nn \l_fontscale_LARGE_size_dim        { 14pt }
+\dim_set:Nn \l_fontscale_huge_size_dim         { 16pt }
+\dim_set:Nn \l_fontscale_Huge_size_dim         { 18pt }
+
+\skip_set:Nn \l_fontscale_tiny_baselineskip_skip         {  7.2pt }
+\skip_set:Nn \l_fontscale_scriptsize_baselineskip_skip   {  8.4pt }
+\skip_set:Nn \l_fontscale_footnotesize_baselineskip_skip {  9.6pt }
+\skip_set:Nn \l_fontscale_small_baselineskip_skip        { 10.8pt }
+\skip_set:Nn \l_fontscale_normalsize_baselineskip_skip   { 12  pt }
+\skip_set:Nn \l_fontscale_large_baselineskip_skip        { 13.2pt }
+\skip_set:Nn \l_fontscale_Large_baselineskip_skip        { 14.4pt }
+\skip_set:Nn \l_fontscale_LARGE_baselineskip_skip        { 16.8pt }
+\skip_set:Nn \l_fontscale_huge_baselineskip_skip         { 19.2pt }
+\skip_set:Nn \l_fontscale_Huge_baselineskip_skip         { 21.6pt }
+
+% Stores the current font step, font scale, font size, and font baselineskip.
+% They are set in the selectfont hook.
+\fp_new:N   \l_fontscale_step_fp
+\fp_new:N   \l_fontscale_scale_fp
+\dim_new:N  \l_fontscale_size_dim
+\skip_new:N \l_fontscale_baselineskip_skip
+
+% For speed, \__fontscale_hook_code_selectfont: tries to avoid computing a
+% floating point expression by using \fp_set_eq:NN when the font size equals
+% the font size of any font size command from \tiny to \Huge. The case when
+% the font size equals that of \normalsize is optimized further because it is
+% by far the most common case. \f@size and \f@baselineskip are not used
+% elsewhere in the code.
+\cs_new_protected:Npn \__fontscale_hook_code_selectfont:
+  {
+    \dim_set:Nn \l_fontscale_size_dim { \f@size pt }
+    \skip_set:Nn \l_fontscale_baselineskip_skip { \f@baselineskip }
+    \dim_compare:nNnTF \l_fontscale_size_dim = \l_fontscale_normalsize_size_dim
+      {
+        \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_normalsize_step_fp
+        \fp_set_eq:NN \l_fontscale_scale_fp \c_fontscale_normalsize_scale_fp
+      }
+      { \__fontscale_hook_code_selectfont_auxi: }
+  }
+\cs_new_protected:Npn \__fontscale_hook_code_selectfont_auxi:
+  {
+    \dim_case:nnF { \l_fontscale_size_dim }
+      {
+        { \l_fontscale_small_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_small_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_small_scale_fp
+        }
+        { \l_fontscale_large_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_large_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_large_scale_fp
+        }
+        { \l_fontscale_footnotesize_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp \c_fontscale_footnotesize_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp
+            \l_fontscale_footnotesize_scale_fp
+        }
+        { \l_fontscale_Large_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_Large_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_Large_scale_fp
+        }
+        { \l_fontscale_scriptsize_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_scriptsize_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_scriptsize_scale_fp
+        }
+        { \l_fontscale_LARGE_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_LARGE_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_LARGE_scale_fp
+        }
+        { \l_fontscale_tiny_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_tiny_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_tiny_scale_fp
+        }
+        { \l_fontscale_huge_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_huge_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_huge_scale_fp
+        }
+        { \l_fontscale_Huge_size_dim }
+        {
+          \fp_set_eq:NN \l_fontscale_step_fp  \c_fontscale_Huge_step_fp
+          \fp_set_eq:NN \l_fontscale_scale_fp \l_fontscale_Huge_scale_fp
+        }
+      }
+      { \__fontscale_hook_code_selectfont_auxii: }
+  }
+\cs_new_protected:Npn \__fontscale_hook_code_selectfont_auxii:
+  {
+    \fp_set:Nn \l_fontscale_scale_fp
+      {
+        \dim_to_fp:n { \l_fontscale_size_dim } /
+        \l__fontscale_normalsize_size_fp
+      }
+    \str_if_eq:VnTF \l__fontscale_typographic_scale_str { musical }
+      {
+        \fp_set:Nn \l_fontscale_step_fp
+          {
+            \l__fontscale_musical_selectfont_fp *
+            ln
+              (
+                \dim_compare:nNnTF \l__fontscale_musical_base_dim =
+                  \l_fontscale_normalsize_size_dim
+                  { \l_fontscale_scale_fp }
+                  {
+                    \dim_to_fp:n { \l_fontscale_size_dim } /
+                    \l__fontscale_musical_base_fp
+                  }
+              )
+          }
+      }
+      { \fp_set_eq:NN \l_fontscale_step_fp \c_nan_fp }
+  }
+\hook_gput_code:nnn { selectfont } { fontscale }
+  { \__fontscale_hook_code_selectfont: }
+
+% Used only to speed up floating point calculations.
+\fp_new:N \l__fontscale_normalsize_size_fp
+\fp_set:Nn \l__fontscale_normalsize_size_fp { 10 }
+\fp_new:N \l__fontscale_musical_base_fp
+\fp_new:N \l__fontscale_musical_notes_fp
+\fp_new:N \l__fontscale_musical_selectfont_fp
+
+\fp_const:Nn \c__fontscale_five_fp { 5 }
+
+% Scratch variables
+\dim_new:N  \l__fontscale_tmp_dim
+\skip_new:N \l__fontscale_tmp_skip
+\fp_new:N   \l__fontscale_tmp_fp
+
+%%> \section{Some functions}
+
+% Variants of l3kernel functions
+\cs_generate_variant:Nn \msg_error:nnnn { nnnv }
+% Sets a dimen/skip variable from a dimen/skip expression, appending a default
+% unit 'pt', and removes extra trailing tokens, if any.
+\cs_new_protected:Npn \__fontscale_dim_set_default_pt:Nn #1#2
+  {
+    \afterassignment \use_none_delimit_by_q_stop:w
+      #1 = \dimexpr #2 pt \relax
+    \q_stop
+  }
+\cs_generate_variant:Nn \__fontscale_dim_set_default_pt:Nn { c }
+\cs_new_protected:Npn \__fontscale_skip_set_default_pt:Nn #1#2
+  {
+    \afterassignment \use_none_delimit_by_q_stop:w
+      #1 = \glueexpr #2 pt \relax
+    \q_stop
+  }
+\cs_generate_variant:Nn \__fontscale_skip_set_default_pt:Nn { c }
+% Argument processors
+\cs_new_protected:Npn \__fontscale_arg_process_dim:n #1
+  {
+    \__fontscale_dim_set_default_pt:Nn \l__fontscale_tmp_dim {#1}
+    \tl_set:NV \ProcessedArgument \l__fontscale_tmp_dim
+  }
+\cs_new_protected:Npn \__fontscale_arg_process_skip:n #1
+  {
+    \__fontscale_skip_set_default_pt:Nn \l__fontscale_tmp_skip {#1}
+    \tl_set:NV \ProcessedArgument \l__fontscale_tmp_skip
+  }
+% Used to define \tiny to \Huge. Sets \@currsize only for compatibility. Need
+% \dim_use:N only for compatibility with versions of the microtype package
+% older than v3.2 2024-12-12.
+\cs_new_protected:Npn \__fontscale_name:NNN #1#2#3
+  {
+    \cs_set_eq:NN \@currsize #1
+    \fontsize { \dim_use:N #2 } #3 \selectfont
+  }
+% Similar to \fontsize + \selectfont, except that it:
+% (1) Takes dimen and skip expressions as arguments without appending a default
+% unit of 'pt'.
+% (2) Avoids the issue where \f@size is set to the new font size before the
+% second argument is expanded.
+% (3) Issues a user-friendly error message if the font size is not positive.
+\cs_new_protected:Npn \__fontscale_set_font_size:nn #1#2
+  {
+    \use:e
+      {
+        \__fontscale_set_font_size_aux:nn { \dim_eval:n {#1} }
+          { \skip_eval:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_set_font_size_aux:nn #1#2
+  {
+    \dim_compare:nNnTF {#1} > \c_zero_dim
+      { \fontsize {#1} {#2} \selectfont }
+      { \msg_error:nnn { fontscale } { font-size-out-of-bounds } {#1} }
+  }
+% Similar to \__fontscale_set_font_size:nn, except that it sets the font
+% baselineskip equal to the new font size times the baselineskip-size-ratio.
+\cs_new_protected:Npn \__fontscale_set_font_size:n #1
+  { \exp_args:Ne \__fontscale_set_font_size_aux:n { \dim_eval:n {#1} } }
+\cs_new_protected:Npn \__fontscale_set_font_size_aux:n #1
+  {
+    \dim_compare:nNnTF {#1} > \c_zero_dim
+      {
+        \fontsize {#1}
+          {
+            \fp_to_dim:n
+              { \dim_to_fp:n {#1} * \l__fontscale_baselineskip_size_ratio_fp }
+          }
+        \selectfont
+      }
+      { \msg_error:nnn { fontscale } { font-size-out-of-bounds } {#1} }
+  }
+\cs_new:Npn \__fontscale_fp_eval_round:n #1
+  { \fp_eval:n { round ( #1 , \c__fontscale_five_fp ) } }
+
+%%> \section{Define keys}
+
+\str_new:N \l__fontscale_typographic_scale_str
+\dim_new:N \l__fontscale_musical_base_dim
+
+\cs_new_protected:Npn \__fontscale_keys_code_musical_base:
+  {
+    \__fontscale_dim_set_default_pt:Nn \l__fontscale_musical_base_dim
+      { \l_keys_value_tl }
+  }
+\cs_new_protected:Npn \__fontscale_keys_code_name:
+  {
+    \tl_if_in:NnTF \l_keys_value_tl { / }
+      { \exp_after:wN \__fontscale_keys_code_name:ww \l_keys_value_tl \q_stop }
+      {
+        \tl_set_eq:cN { l__fontscale_ \l_keys_key_str _size_tl }
+          \l_keys_value_tl
+      }
+  }
+\cs_new_protected:Npn \__fontscale_keys_code_name:ww #1 / #2 \q_stop
+  {
+    \tl_set:cn { l__fontscale_ \l_keys_key_str _size_tl } {#1}
+    \tl_set:cn { l__fontscale_ \l_keys_key_str _baselineskip_tl } {#2}
+  }
+
+\keys_define:nn { fontscale }
+  {
+      baselineskip-size-ratio .fp_set:N =
+        \l__fontscale_baselineskip_size_ratio_fp
+    , baselineskip-size-ratio .value_required:n = true
+
+    , typographic-scale .choices:nn =
+        { classic-10pt , classic-11pt , classic-12pt , musical }
+        { \str_set:Nn \l__fontscale_typographic_scale_str {#1} }
+    , typographic-scale .value_required:n = true
+
+    , classic-10pt .meta:n = { typographic-scale = classic-10pt }
+    , classic-10pt .value_forbidden:n = true
+
+    , classic-11pt .meta:n = { typographic-scale = classic-11pt }
+    , classic-11pt .value_forbidden:n = true
+
+    , classic-12pt .meta:n = { typographic-scale = classic-12pt }
+    , classic-12pt .value_forbidden:n = true
+
+    , musical .meta:n = { typographic-scale = musical }
+    , musical .value_forbidden:n = true
+  }
+\keys_define:nn { fontscale / musical }
+  {
+      base .code:n = \__fontscale_keys_code_musical_base:
+    , base .value_required:n = true
+
+    , ratio .fp_set:N = \l__fontscale_musical_ratio_fp
+    , ratio .value_required:n = true
+
+    , notes .int_set:N = \l__fontscale_musical_notes_int
+    , notes .value_required:n = true
+  }
+\keys_define:nn { fontscale / normalsize }
+  {
+      size .tl_set:N = \l__fontscale_normalsize_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_normalsize_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / tiny }
+  {
+      scale .tl_set:N = \l__fontscale_tiny_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_tiny_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_tiny_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / scriptsize }
+  {
+      scale .tl_set:N = \l__fontscale_scriptsize_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_scriptsize_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_scriptsize_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / footnotesize }
+  {
+      scale .tl_set:N = \l__fontscale_footnotesize_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_footnotesize_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_footnotesize_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / small }
+  {
+      scale .tl_set:N = \l__fontscale_small_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_small_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_small_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / large }
+  {
+      scale .tl_set:N = \l__fontscale_large_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_large_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_large_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / Large }
+  {
+      scale .tl_set:N = \l__fontscale_Large_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_Large_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_Large_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / LARGE }
+  {
+      scale .tl_set:N = \l__fontscale_LARGE_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_LARGE_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_LARGE_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / huge }
+  {
+      scale .tl_set:N = \l__fontscale_huge_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_huge_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_huge_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale / Huge }
+  {
+      scale .tl_set:N = \l__fontscale_Huge_scale_tl
+    , scale .value_required:n = true
+
+    , size .tl_set:N = \l__fontscale_Huge_size_tl
+    , size .value_required:n = true
+
+    , baselineskip .tl_set:N = \l__fontscale_Huge_baselineskip_tl
+    , baselineskip .value_required:n = true
+  }
+\keys_define:nn { fontscale }
+  {
+      tiny .code:n = \__fontscale_keys_code_name:
+    , tiny .value_required:n = true
+
+    , scriptsize .code:n = \__fontscale_keys_code_name:
+    , scriptsize .value_required:n = true
+
+    , footnotesize .code:n = \__fontscale_keys_code_name:
+    , footnotesize .value_required:n = true
+
+    , small .code:n = \__fontscale_keys_code_name:
+    , small .value_required:n = true
+
+    , normalsize .code:n = \__fontscale_keys_code_name:
+    , normalsize .value_required:n = true
+
+    , large .code:n = \__fontscale_keys_code_name:
+    , large .value_required:n = true
+
+    , Large .code:n = \__fontscale_keys_code_name:
+    , Large .value_required:n = true
+
+    , LARGE .code:n = \__fontscale_keys_code_name:
+    , LARGE .value_required:n = true
+
+    , huge .code:n = \__fontscale_keys_code_name:
+    , huge .value_required:n = true
+
+    , Huge .code:n = \__fontscale_keys_code_name:
+    , Huge .value_required:n = true
+  }
+
+%%> \section{Initialize and pre-compile keys}
+
+% Pre-compiles the keys with their initial values and then sets the keys to
+% their initial values. This is significantly faster than using .initial:n and
+% \keys_precompile:nnN. The special value of \q_no_value is used to test if the
+% corresponding key has been set by the user.
+\cs_new_protected:Npn \__fontscale_keys_set_initial:
+  {
+    \fp_set:Nn  \l__fontscale_baselineskip_size_ratio_fp { 1.2 }
+    \str_set:Nn \l__fontscale_typographic_scale_str      { classic-10pt }
+    \dim_set:Nn \l__fontscale_musical_base_dim           { 10pt }
+    \fp_set:Nn  \l__fontscale_musical_ratio_fp           { 2 }
+    \int_set:Nn \l__fontscale_musical_notes_int          { 5 }
+
+    \tl_map_inline:nn
+      {
+        \l__fontscale_tiny_scale_tl
+        \l__fontscale_scriptsize_scale_tl
+        \l__fontscale_footnotesize_scale_tl
+        \l__fontscale_small_scale_tl
+        \l__fontscale_large_scale_tl
+        \l__fontscale_Large_scale_tl
+        \l__fontscale_LARGE_scale_tl
+        \l__fontscale_huge_scale_tl
+        \l__fontscale_Huge_scale_tl
+
+        \l__fontscale_tiny_size_tl
+        \l__fontscale_scriptsize_size_tl
+        \l__fontscale_footnotesize_size_tl
+        \l__fontscale_small_size_tl
+        \l__fontscale_normalsize_size_tl
+        \l__fontscale_large_size_tl
+        \l__fontscale_Large_size_tl
+        \l__fontscale_LARGE_size_tl
+        \l__fontscale_huge_size_tl
+        \l__fontscale_Huge_size_tl
+
+        \l__fontscale_tiny_baselineskip_tl
+        \l__fontscale_scriptsize_baselineskip_tl
+        \l__fontscale_footnotesize_baselineskip_tl
+        \l__fontscale_small_baselineskip_tl
+        \l__fontscale_normalsize_baselineskip_tl
+        \l__fontscale_large_baselineskip_tl
+        \l__fontscale_Large_baselineskip_tl
+        \l__fontscale_LARGE_baselineskip_tl
+        \l__fontscale_huge_baselineskip_tl
+        \l__fontscale_Huge_baselineskip_tl
+      }
+      { \tl_set:Nn ##1 { \q_no_value } }
+  }
+\__fontscale_keys_set_initial:
+
+%%> \section{Set and process keys}
+
+\NewDocumentCommand \fontscalesetup { s m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \fontscalesetup }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_keys_reset:n {#2} }
+          { \__fontscale_keys_set:n   {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_keys_reset:n
+  { \__fontscale_keys_set_initial: \__fontscale_keys_set:n }
+\cs_new_protected:Npn \__fontscale_keys_set:n #1
+  {
+    \keys_set:nn { fontscale } {#1}
+    \__fontscale_keys_process:
+    \normalsize
+    \prg_break:
+    \prg_break_point:
+  }
+\cs_new_protected:Npn \__fontscale_keys_process:
+  {
+    \__fontscale_keys_process_start:
+    \__fontscale_keys_process_normalsize:
+    \__fontscale_keys_process_other:
+    \__fontscale_keys_process_check_order:
+  }
+\cs_new_protected:Npn \__fontscale_keys_process_start:
+  {
+    \dim_compare:nNnF \l__fontscale_musical_base_dim > \c_zero_dim
+      {
+        \msg_error:nnV { fontscale } { key-musical-base-out-of-bounds }
+          \l__fontscale_musical_base_dim
+        \prg_break:
+      }
+    \fp_compare:nNnF \l__fontscale_musical_ratio_fp > \c_one_fp
+      {
+        \msg_error:nne { fontscale } { key-musical-ratio-out-of-bounds }
+          { \fp_use:N \l__fontscale_musical_ratio_fp }
+        \prg_break:
+      }
+    \int_compare:nNnF \l__fontscale_musical_notes_int > 0
+      {
+        \msg_error:nnV { fontscale } { key-musical-notes-out-of-bounds }
+          \l__fontscale_musical_notes_int
+        \prg_break:
+      }
+  }
+% Sets the font size and font baselineskip of \normalsize. Its font size must
+% be set before doing any processing involving the font scale.
+\cs_new_protected:Npn \__fontscale_keys_process_normalsize:
+  {
+    \quark_if_no_value:NTF \l__fontscale_normalsize_size_tl
+      {
+        \dim_set:Nn \l_fontscale_normalsize_size_dim
+          {
+            \str_case:Vn \l__fontscale_typographic_scale_str
+              {
+                { classic-10pt } { 10pt }
+                { classic-11pt } { 11pt }
+                { classic-12pt } { 12pt }
+                { musical } { \l__fontscale_musical_base_dim }
+              }
+          }
+      }
+      {
+        \__fontscale_dim_set_default_pt:Nn \l_fontscale_normalsize_size_dim
+          { \l__fontscale_normalsize_size_tl }
+        \dim_compare:nNnF \l_fontscale_normalsize_size_dim > \c_zero_dim
+          {
+            \msg_error:nnnV { fontscale } { key-font-size-out-of-bounds }
+              { normalsize } \l_fontscale_normalsize_size_dim
+            \prg_break:
+          }
+      }
+    \fp_set:Nn \l__fontscale_normalsize_size_fp
+      { \dim_to_fp:n { \l_fontscale_normalsize_size_dim } }
+    \quark_if_no_value:NTF \l__fontscale_normalsize_baselineskip_tl
+      {
+        \skip_set:Nn \l_fontscale_normalsize_baselineskip_skip
+          {
+            \fp_to_dim:n
+              {
+                \l__fontscale_normalsize_size_fp *
+                \l__fontscale_baselineskip_size_ratio_fp
+              }
+          }
+      }
+      {
+        \__fontscale_skip_set_default_pt:Nn
+          \l_fontscale_normalsize_baselineskip_skip
+          { \l__fontscale_normalsize_baselineskip_tl }
+      }
+  }
+% Auxiliary functions that expand to the font size depending on the name of the
+% font size command.
+\cs_new:Npn \__fontscale_keys_process_other_classic_xpt:n #1
+  {
+    \str_case:nn {#1}
+      {
+        { tiny         } {  6pt }
+        { scriptsize   } {  7pt }
+        { footnotesize } {  8pt }
+        { small        } {  9pt }
+        { large        } { 11pt }
+        { Large        } { 12pt }
+        { LARGE        } { 14pt }
+        { huge         } { 16pt }
+        { Huge         } { 18pt }
+      }
+  }
+\cs_new:Npn \__fontscale_keys_process_other_classic_xipt:n #1
+  {
+    \str_case:nn {#1}
+      {
+        { tiny         } {  7pt }
+        { scriptsize   } {  8pt }
+        { footnotesize } {  9pt }
+        { small        } { 10pt }
+        { large        } { 12pt }
+        { Large        } { 14pt }
+        { LARGE        } { 16pt }
+        { huge         } { 18pt }
+        { Huge         } { 21pt }
+      }
+  }
+\cs_new:Npn \__fontscale_keys_process_other_classic_xiipt:n #1
+  {
+    \str_case:nn {#1}
+      {
+        { tiny         } {  8pt }
+        { scriptsize   } {  9pt }
+        { footnotesize } { 10pt }
+        { small        } { 11pt }
+        { large        } { 14pt }
+        { Large        } { 16pt }
+        { LARGE        } { 18pt }
+        { huge         } { 21pt }
+        { Huge         } { 24pt }
+      }
+  }
+\cs_new:Npn \__fontscale_keys_process_other_musical:n #1
+  {
+    \fp_to_dim:n
+      {
+        \l__fontscale_musical_base_fp * \l__fontscale_musical_ratio_fp ^
+        ( \use:c { c_fontscale_#1_step_fp } / \l__fontscale_musical_notes_fp )
+      }
+  }
+% Sets the font size, font scale, and font baselineskip of the other font size
+% commands.
+\cs_new_protected:Npn \__fontscale_keys_process_other:
+  {
+    \str_case:Vn \l__fontscale_typographic_scale_str
+      {
+        { classic-10pt }
+        {
+          \cs_set_eq:NN \__fontscale_keys_process_other_fn_aux:n
+            \__fontscale_keys_process_other_classic_xpt:n
+        }
+        { classic-11pt }
+        {
+          \cs_set_eq:NN \__fontscale_keys_process_other_fn_aux:n
+            \__fontscale_keys_process_other_classic_xipt:n
+        }
+        { classic-12pt }
+        {
+          \cs_set_eq:NN \__fontscale_keys_process_other_fn_aux:n
+            \__fontscale_keys_process_other_classic_xiipt:n
+        }
+        { musical }
+        {
+          \cs_set_eq:NN \__fontscale_keys_process_other_fn_aux:n
+            \__fontscale_keys_process_other_musical:n
+          \fp_set:Nn \l__fontscale_musical_base_fp
+            { \dim_to_fp:n { \l__fontscale_musical_base_dim } }
+          \fp_set:Nn \l__fontscale_musical_notes_fp
+            { \int_use:N \l__fontscale_musical_notes_int }
+          \fp_set:Nn \l__fontscale_musical_selectfont_fp
+            {
+              \int_use:N \l__fontscale_musical_notes_int /
+              ln ( \l__fontscale_musical_ratio_fp )
+            }
+        }
+      }
+    \tl_map_function:nN
+      {
+        {tiny} {scriptsize} {footnotesize} {small}
+        {large} {Large} {LARGE} {huge} {Huge}
+      }
+      \__fontscale_keys_process_other_fn:n
+  }
+\cs_new_protected:Npn \__fontscale_keys_process_other_fn:n #1
+  {
+    \quark_if_no_value:cF { l__fontscale_#1_scale_tl }
+      {
+        \dim_set:cn { l_fontscale_#1_size_dim }
+          {
+            \fp_to_dim:n
+              {
+                \l__fontscale_normalsize_size_fp *
+                ( \use:c { l__fontscale_#1_scale_tl } )
+              }
+          }
+        \dim_compare:nNnF { \use:c { l_fontscale_#1_size_dim } } > \c_zero_dim
+          {
+            \tl_map_break:n
+              {
+                \msg_error:nnne { fontscale } { key-font-scale-out-of-bounds }
+                  {#1} { \fp_eval:n { \use:c { l__fontscale_#1_scale_tl } } }
+                \prg_break:
+              }
+          }
+        \quark_if_no_value:cT { l__fontscale_#1_size_tl } { \prg_break: }
+      }
+    \quark_if_no_value:cF { l__fontscale_#1_size_tl }
+      {
+        \__fontscale_dim_set_default_pt:cn { l_fontscale_#1_size_dim }
+          { \use:c { l__fontscale_#1_size_tl } }
+        \dim_compare:nNnF { \use:c { l_fontscale_#1_size_dim } } > \c_zero_dim
+          {
+            \tl_map_break:n
+              {
+                \msg_error:nnnv { fontscale } { key-font-size-out-of-bounds }
+                  {#1} { l_fontscale_#1_size_dim }
+                \prg_break:
+              }
+          }
+        \quark_if_no_value:cF { l__fontscale_#1_scale_tl }
+          {
+            \msg_warning:nnn { fontscale } { key-font-scale-overwritten } {#1}
+          }
+        \prg_break:
+      }
+    \dim_set:cn { l_fontscale_#1_size_dim }
+      { \__fontscale_keys_process_other_fn_aux:n {#1} }
+    \prg_break:
+    \prg_break_point:
+    \fp_set:cn { l_fontscale_#1_scale_fp }
+      {
+        \dim_to_fp:n { \use:c { l_fontscale_#1_size_dim } } /
+        \l__fontscale_normalsize_size_fp
+      }
+    \quark_if_no_value:cTF { l__fontscale_#1_baselineskip_tl }
+      {
+        \skip_set:cn { l_fontscale_#1_baselineskip_skip }
+          {
+            \fp_to_dim:n
+              {
+                \dim_to_fp:n { \use:c { l_fontscale_#1_size_dim } } *
+                \l__fontscale_baselineskip_size_ratio_fp
+              }
+          }
+      }
+      {
+        \__fontscale_skip_set_default_pt:cn
+          { l_fontscale_#1_baselineskip_skip }
+          { \use:c { l__fontscale_#1_baselineskip_tl } }
+      }
+  }
+% Issues a warning if the font sizes are not in the correct order.
+\cs_new_protected:Npn \__fontscale_keys_process_check_order:
+  {
+    \dim_compare:nF
+      {
+          \l_fontscale_tiny_size_dim
+        < \l_fontscale_scriptsize_size_dim
+        < \l_fontscale_footnotesize_size_dim
+        < \l_fontscale_small_size_dim
+        < \l_fontscale_normalsize_size_dim
+        < \l_fontscale_large_size_dim
+        < \l_fontscale_Large_size_dim
+        < \l_fontscale_LARGE_size_dim
+        < \l_fontscale_huge_size_dim
+        < \l_fontscale_Huge_size_dim
+      }
+      { \msg_warning:nn { fontscale } { font-sizes-out-of-order } }
+  }
+
+%%> \section{Document commands}
+
+% Defines the standard LaTeX font size commands from \tiny to \Huge and
+% initializes to \normalsize. Their internal functions are not used elsewhere
+% in the code for compatibility with hooks such as
+% \AddToHook{cmd/<font size command>/after}{<code>}.
+\DeclareDocumentCommand \tiny { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \tiny }
+      }
+      { \__fontscale_tiny: }
+  }
+\cs_new_protected:Npn \__fontscale_tiny:
+  {
+    \__fontscale_name:NNN \tiny \l_fontscale_tiny_size_dim
+      \l_fontscale_tiny_baselineskip_skip
+  }
+\DeclareDocumentCommand \scriptsize { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \scriptsize }
+      }
+      { \__fontscale_scriptsize: }
+  }
+\cs_new_protected:Npn \__fontscale_scriptsize:
+  {
+    \__fontscale_name:NNN \scriptsize \l_fontscale_scriptsize_size_dim
+      \l_fontscale_scriptsize_baselineskip_skip
+  }
+\DeclareDocumentCommand \footnotesize { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \footnotesize }
+      }
+      { \__fontscale_footnotesize: }
+  }
+\cs_new_protected:Npn \__fontscale_footnotesize:
+  {
+    \__fontscale_name:NNN \footnotesize \l_fontscale_footnotesize_size_dim
+      \l_fontscale_footnotesize_baselineskip_skip
+  }
+\DeclareDocumentCommand \small { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \small }
+      }
+      { \__fontscale_small: }
+  }
+\cs_new_protected:Npn \__fontscale_small:
+  {
+    \__fontscale_name:NNN \small \l_fontscale_small_size_dim
+      \l_fontscale_small_baselineskip_skip
+  }
+\DeclareDocumentCommand \normalsize { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \normalsize }
+      }
+      { \__fontscale_normalsize: }
+  }
+\cs_new_protected:Npn \__fontscale_normalsize:
+  {
+    \__fontscale_name:NNN \normalsize \l_fontscale_normalsize_size_dim
+      \l_fontscale_normalsize_baselineskip_skip
+  }
+\DeclareDocumentCommand \large { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \large }
+      }
+      { \__fontscale_large: }
+  }
+\cs_new_protected:Npn \__fontscale_large:
+  {
+    \__fontscale_name:NNN \large \l_fontscale_large_size_dim
+      \l_fontscale_large_baselineskip_skip
+  }
+\DeclareDocumentCommand \Large { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \Large }
+      }
+      { \__fontscale_Large: }
+  }
+\cs_new_protected:Npn \__fontscale_Large:
+  {
+    \__fontscale_name:NNN \Large \l_fontscale_Large_size_dim
+      \l_fontscale_Large_baselineskip_skip
+  }
+\DeclareDocumentCommand \LARGE { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \LARGE }
+      }
+      { \__fontscale_LARGE: }
+  }
+\cs_new_protected:Npn \__fontscale_LARGE:
+  {
+    \__fontscale_name:NNN \LARGE \l_fontscale_LARGE_size_dim
+      \l_fontscale_LARGE_baselineskip_skip
+  }
+\DeclareDocumentCommand \huge { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \huge }
+      }
+      { \__fontscale_huge: }
+  }
+\cs_new_protected:Npn \__fontscale_huge:
+  {
+    \__fontscale_name:NNN \huge \l_fontscale_huge_size_dim
+      \l_fontscale_huge_baselineskip_skip
+  }
+\DeclareDocumentCommand \Huge { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \Huge }
+      }
+      { \__fontscale_Huge: }
+  }
+\cs_new_protected:Npn \__fontscale_Huge:
+  {
+    \__fontscale_name:NNN \Huge \l_fontscale_Huge_size_dim
+      \l_fontscale_Huge_baselineskip_skip
+  }
+\normalsize
+
+\NewExpandableDocumentCommand \CurrentFontStep { } { \__fontscale_step: }
+\cs_new:Npn \__fontscale_step:
+  { \fp_if_nan:nF { \l_fontscale_step_fp } { \fp_use:N \l_fontscale_step_fp } }
+
+\NewExpandableDocumentCommand \CurrentFontScale { } { \__fontscale_scale: }
+\cs_new:Npn \__fontscale_scale: { \fp_use:N \l_fontscale_scale_fp }
+
+\NewExpandableDocumentCommand \CurrentFontSize { } { \__fontscale_size: }
+\cs_new:Npn \__fontscale_size: { \dim_use:N \l_fontscale_size_dim }
+
+\NewExpandableDocumentCommand \CurrentFontBaselineskip { }
+  { \__fontscale_baselineskip: }
+\cs_new:Npn \__fontscale_baselineskip:
+  { \skip_use:N \l_fontscale_baselineskip_skip }
+
+\NewDocumentCommand \SetFontStep { s m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \SetFontStep }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_add_font_step:n {#2} }
+          { \__fontscale_set_font_step:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_add_font_step:n #1
+  {
+    \fp_if_nan:nTF { \l_fontscale_step_fp }
+      { \msg_error:nn { fontscale } { current-font-step-out-of-bounds } }
+      { \__fontscale_set_font_step:n { (#1) + \l_fontscale_step_fp } }
+  }
+\cs_new_protected:Npn \__fontscale_set_font_step:n #1
+  {
+    \fp_set:Nn \l__fontscale_tmp_fp {#1}
+    \str_case:enF { \__fontscale_fp_eval_round:n { \l__fontscale_tmp_fp } }
+      {
+        { -4 } { \tiny         }
+        { -3 } { \scriptsize   }
+        { -2 } { \footnotesize }
+        { -1 } { \small        }
+        {  0 } { \normalsize   }
+        {  1 } { \large        }
+        {  2 } { \Large        }
+        {  3 } { \LARGE        }
+        {  4 } { \huge         }
+        {  5 } { \Huge         }
+      }
+      {
+        \str_if_eq:VnTF \l__fontscale_typographic_scale_str { musical }
+          {
+            \__fontscale_set_font_size:n
+              {
+                \fp_to_dim:n
+                  {
+                    \l__fontscale_musical_base_fp *
+                    \l__fontscale_musical_ratio_fp ^
+                    ( \l__fontscale_tmp_fp / \l__fontscale_musical_notes_fp )
+                  }
+              }
+          }
+          {
+            \msg_error:nne { fontscale } { font-step-out-of-bounds }
+              { \fp_use:N \l__fontscale_tmp_fp }
+          }
+      }
+  }
+
+\NewDocumentCommand \SetFontScale { s m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \SetFontScale }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_add_font_scale:n {#2} }
+          { \__fontscale_set_font_scale:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_add_font_scale:n #1
+  { \__fontscale_set_font_scale:n { (#1) + \l_fontscale_scale_fp } }
+\cs_new_protected:Npn \__fontscale_set_font_scale:n #1
+  {
+    \__fontscale_set_font_size:n
+      { \fp_to_dim:n { (#1) * \l__fontscale_normalsize_size_fp } }
+  }
+
+\NewDocumentCommand \SetFontSize { s >{ \__fontscale_arg_process_dim:n } m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \SetFontSize }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_add_font_size:n {#2} }
+          { \__fontscale_set_font_size:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_add_font_size:n #1
+  { \__fontscale_set_font_size:n { (#1) + \l_fontscale_size_dim } }
+
+\NewDocumentCommand \ScaleFont { m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \ScaleFont }
+      }
+      { \__fontscale_scale_font:n {#1} }
+  }
+\cs_new_protected:Npn \__fontscale_scale_font:n #1
+  {
+    \fp_set:Nn \l__fontscale_tmp_fp {#1}
+    \__fontscale_set_font_size:nn
+      {
+        \fp_to_dim:n
+          { \l__fontscale_tmp_fp * \dim_to_fp:n { \l_fontscale_size_dim } }
+      }
+      {
+        \fp_to_dim:n
+          {
+            \l__fontscale_tmp_fp *
+            \dim_to_fp:n { \l_fontscale_baselineskip_skip }
+          }
+      }
+  }
+
+\NewDocumentCommand \SetFontSizeBaselineskip
+  {
+    >{ \__fontscale_arg_process_dim:n  } m
+    >{ \__fontscale_arg_process_skip:n } m
+  }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \SetFontSizeBaselineskip }
+      }
+      { \__fontscale_set_font_size:nn {#1} {#2} }
+  }
+
+\NewDocumentCommand \SetFontBaselineskip
+  { s >{ \__fontscale_arg_process_skip:n } m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_warning:nne { fontscale } { math-mode-warning }
+          { \token_to_str:N \SetFontBaselineskip }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_add_font_baselineskip:n {#2} }
+          { \__fontscale_set_font_baselineskip:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_add_font_baselineskip:n #1
+  {
+    \__fontscale_set_font_baselineskip:n
+      { (#1) + \l_fontscale_baselineskip_skip }
+  }
+\cs_new_protected:Npn \__fontscale_set_font_baselineskip:n
+  { \__fontscale_set_font_size:nn { \l_fontscale_size_dim } }
+
+\NewDocumentCommand \PrintFontSizeParameters { }
+  { \__fontscale_print_font_size_parameters: }
+\cs_new_protected:Npn \__fontscale_print_font_size_parameters:
+  {
+    step~ =~
+    \fp_if_nan:nF { \l_fontscale_step_fp }
+      { \__fontscale_fp_eval_round:n { \l_fontscale_step_fp } }
+    ,~
+    scale~ =~ \__fontscale_fp_eval_round:n { \l_fontscale_scale_fp } ,~
+    size~ =~ \dim_use:N \l_fontscale_size_dim ,~
+    baselineskip~ =~ \skip_use:N \l_fontscale_baselineskip_skip
+  }
+
+\NewDocumentCommand \PrintAllFontSizeParameters { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_error:nne { fontscale } { math-mode-error }
+          { \token_to_str:N \PrintAllFontSizeParameters }
+      }
+      { \__fontscale_print_all_font_size_parameters: }
+  }
+\cs_new_protected:Npn \__fontscale_print_all_font_size_parameters:
+  {
+    \tl_map_inline:nn
+      {
+        {tiny} {scriptsize} {footnotesize} {small} {normalsize}
+        {large} {Large} {LARGE} {huge} {Huge}
+      }
+      {
+        \token_to_str:c {##1} \@ \c_colon_str \c_space_tl
+        step~ =~ \fp_use:c { c_fontscale_##1_step_fp } ,~
+        scale~ =~
+        \str_if_eq:nnTF {##1} { normalsize }
+          { 1 }
+          {
+            \__fontscale_fp_eval_round:n
+              { \use:c { l_fontscale_##1_scale_fp } }
+          }
+        ,~
+        size~ =~ \dim_use:c { l_fontscale_##1_size_dim } ,~
+        baselineskip~ =~ \skip_use:c { l_fontscale_##1_baselineskip_skip }
+        \str_if_eq:nnF {##1} { Huge } { \newline }
+      }
+  }
+
+\NewDocumentCommand \PrintSampleText { >{ \ReverseBoolean } s +m }
+  {
+    \mode_if_math:TF
+      {
+        \msg_error:nne { fontscale } { math-mode-error }
+          { \token_to_str:N \PrintSampleText }
+      }
+      {
+        \IfBooleanTF #1
+          { \__fontscale_print_sample_text_ascending_order:n  {#2} }
+          { \__fontscale_print_sample_text_descending_order:n {#2} }
+      }
+  }
+\cs_new_protected:Npn \__fontscale_print_sample_text_ascending_order:n #1
+  {
+    \group_begin:
+      \tl_map_inline:nn
+        {
+          \tiny \scriptsize \footnotesize \small \normalsize
+          \large \Large \LARGE \huge \Huge
+        }
+        { ##1 #1 \par }
+    \group_end:
+  }
+\cs_new_protected:Npn \__fontscale_print_sample_text_descending_order:n #1
+  {
+    \group_begin:
+      \tl_map_inline:nn
+        {
+          \Huge \huge \LARGE \Large \large
+          \normalsize \small \footnotesize \scriptsize \tiny
+        }
+        { ##1 #1 \par }
+    \group_end:
+  }
+
+\NewDocumentCommand \PrintFontSizeCommand { }
+  {
+    \mode_if_math:TF
+      {
+        \msg_error:nne { fontscale } { math-mode-error }
+          { \token_to_str:N \PrintFontSizeCommand }
+      }
+      { \__fontscale_print_name: }
+  }
+\cs_new_protected:Npn \__fontscale_print_name:
+  {
+    \token_to_str:c
+      {
+        \dim_case:nnF { \l_fontscale_size_dim }
+          {
+            { \l_fontscale_tiny_size_dim         } { tiny         }
+            { \l_fontscale_scriptsize_size_dim   } { scriptsize   }
+            { \l_fontscale_footnotesize_size_dim } { footnotesize }
+            { \l_fontscale_small_size_dim        } { small        }
+            { \l_fontscale_normalsize_size_dim   } { normalsize   }
+            { \l_fontscale_large_size_dim        } { large        }
+            { \l_fontscale_Large_size_dim        } { Large        }
+            { \l_fontscale_LARGE_size_dim        } { LARGE        }
+            { \l_fontscale_huge_size_dim         } { huge         }
+            { \l_fontscale_Huge_size_dim         } { Huge         }
+          }
+          { undefined }
+      }
+    \@
+  }
+
+%%> \section{Purifying text}
+
+\NewExpandableDocumentCommand \__fontscale_use_none_sm:w { s m } { }
+\tl_map_inline:nn
+  {
+    \fontscalesetup
+    \SetFontStep
+    \SetFontScale
+    \SetFontSize
+    \SetFontBaselineskip
+  }
+  { \text_declare_purify_equivalent:Nn #1 { \__fontscale_use_none_sm:w } }
+\text_declare_purify_equivalent:Nn \ScaleFont { \use_none:n }
+\text_declare_purify_equivalent:Nn \SetFontSizeBaselineskip { \use_none:nn }

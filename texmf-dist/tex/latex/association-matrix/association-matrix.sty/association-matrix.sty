@@ -1,0 +1,428 @@
+%% association-matrix.sty
+%% Copyright 2020-2022 Whisperity
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2008/05/04 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+%
+% The Current Maintainer of this work is Whisperity.
+%
+% This work consists of the files association-matrix.sty
+% and association-matrix.tex.
+%
+\NeedsTeXFormat{LaTeX2e}[2017/01/01]
+\ProvidesPackage{association-matrix}[2022/10/29 v1.1 Association matrix generator]
+
+\RequirePackage{etoolbox}
+\RequirePackage{forloop}
+\RequirePackage{ifthen}
+\RequirePackage{textcomp}
+\RequirePackage{xparse}
+
+\newrobustcmd{\amxDate}{2022/10/29}
+\newrobustcmd{\amxVersion}{1.1}
+
+\ExplSyntaxOn
+% (via http://tex.stackexchange.com/a/300215)
+\NewExpandableDocumentCommand{\egreg@Repeat}{O{}mm}
+ {
+  \int_compare:nT { #2 > 0 }
+   {
+    #3 \prg_replicate:nn { #2 - 1 } { #1#3 }
+   }
+ }
+\ExplSyntaxOff
+
+%%%
+%%%    COMPATIBILITY SHIMS
+%%%
+
+%% Compatibility with the 'array' package, because we need to hand-craft the
+%% table's column specifiers. With the 'array' package changing the definition
+%% of 'tabular' to eagerly parse the specifier for what columns to make, the
+%% logic that built the "|c|c|c|..." sequence in conventional LaTeX broke.
+%%
+%% (via http://tex.stackexchange.com/a/199244)
+\newtoggle{amx@Compatibility@array}
+
+% In pure LaTeX, no compatibility needed because we can expand the tokens in
+% the 'tabular' specifier properly.
+\newenvironment{amx@Tabular}[0]{%
+    \begin{tabular}{|l|%
+        \egreg@Repeat[|]{\expandafter\theamx@ColumnCount}{c}%
+        |}%
+}{%
+    \end{tabular}%
+}%
+
+\@ifpackageloaded{array}{%
+    \global\toggletrue{amx@Compatibility@array}%
+    %
+    \newcolumntype{\amx@amx@Array@Expand}{}%
+    \long\@namedef{NC@rewrite@\string\amx@amx@Array@Expand}{\expandafter\NC@find}%
+    \newcommand{\amx@amx@Array@PreambleTrampoline}{}%
+    %
+    \renewenvironment{amx@Tabular}[0]
+        {%
+            % Creates "|l|c|c|c|c|..." sequence, one 'c' for each column.
+            \protected@edef\amx@amx@Array@PreambleTrampoline{|l|%
+                \egreg@Repeat[|]{\expandafter\theamx@ColumnCount}{c}%
+            |}%
+            \begin{tabular}{\amx@amx@Array@Expand\amx@amx@Array@PreambleTrampoline}
+        }{%
+            \end{tabular}
+        }%
+}{%
+    % Intentionally left empty, the default is good enough.
+}
+
+\newrobustcmd{\amx@CheckCompatibility}[0]{%
+    \@ifpackageloaded{array}{%
+        \iftoggle{amx@Compatibility@array}{%
+            % The compatibility was injected, thus no error needed.
+        }{%
+            \PackageError{association-matrix}{%
+                Package 'array' loaded after 'association-matrix' -- compatibility was not set up}{%
+                Make sure to load 'association-matrix' AFTER 'array' because a compatibility shim needs to be inserted for '\\amxgenerate' to work properly.
+            }%
+        }%
+    }{}%
+}
+
+%%%
+%%%    FIELDS, REPRESENTATION AND DEFINITION FUNCTIONS
+%%%
+
+%% Internal cursors that are used for various iteration purposes.
+\newcounter{amx@CursorR}
+\newcounter{amx@CursorC}
+\newcounter{amx@Cursor}
+
+%% Internal data structure holding the row keys.
+\newcommand{\amx@Rows}{}
+%% The total number of theses defined.
+\newcounter{amx@RowCount}
+%%
+%% Internal data structure holding the column keys.
+\newcommand{\amx@Cols}{}
+%% The total number of columns defined.
+\newcounter{amx@ColumnCount}
+%%
+%% Internal data structure holding the row-to-column assignments.
+\newcommand{\amx@Associations}{}
+%%
+%% Returns the number of theses that are defined.
+\newrobustcmd{\amxrows}{\the\value{amx@RowCount}}
+%% Returns the number of columns that are defined.
+\newrobustcmd{\amxcols}{\the\value{amx@ColumnCount}}
+%%
+%% Retrieve the name for the <index>th row.
+\newcommand{\amx@RowKey}[1]{\csname amx@Rows@#1\endcsname}
+%% Retrieve the text for the <index>th row.
+\newcommand{\amx@RowText}[1]{\csname amx@RowTexts@#1\endcsname}
+%% Retrieve the name for the <index>th column.
+\newcommand{\amx@ColumnKey}[1]{\csname amx@Cols@#1\endcsname}
+%% Retrieve the text for the <index>th column.
+\newcommand{\amx@ColumnText}[1]{\csname amx@ColTexts@#1\endcsname}
+%%
+
+%% Registers the row with the given key, and text.
+\newrobustcmd{\amx@NewRow}[2]{%
+    \stepcounter{amx@RowCount}%
+    %
+    \listcsgadd{amx@Rows}{#1}%
+    \expandafter\def\csname amx@Rows@\theamx@RowCount\endcsname{#1}%
+    \expandafter\def\csname amx@RowTexts@\theamx@RowCount\endcsname{#2}%
+}
+%% \amxrow{<key>}{<text>}
+%% registers the row of <key> to be <text>
+\newrobustcmd{\amxrow}[2]{%
+    \amx@NewRow{#1}{#2}%
+}
+
+%% Retrieve the text for the row defined as <key>.
+\newrobustcmd{\amxrowtext}[1]{%
+    \amx@FindRowIndex{#1}%
+    \amx@RowText{\theamx@CursorR}%
+}
+
+%% Registers the public with the given key, and body.
+\newrobustcmd{\amx@NewColumn}[2]{%
+    \stepcounter{amx@ColumnCount}%
+    %
+    \listcsgadd{amx@Cols}{#1}%
+    \expandafter\def\csname amx@Cols@\theamx@ColumnCount\endcsname{#1}%
+    \expandafter\def\csname amx@ColTexts@\theamx@ColumnCount\endcsname{#2}%
+}
+%% \amxcol{<key>}{<text>}
+%% registers the column of <key> to be <text>
+\newrobustcmd{\amxcol}[2]{%
+    \amx@NewColumn{#1}{#2}%
+}
+
+%% Retrieve the text for the column defined as <key>.
+\newrobustcmd{\amxcoltext}[1]{%
+    \amx@FindColumnIndex{#1}%
+    \amx@ColumnText{\theamx@CursorC}%
+}
+
+%% Sets that #1 col is related to #2 row (both args are keys).
+\newrobustcmd{\amx@AssociateRowToCol}[2]{%
+    \amx@FindRowIndex{#1}     % CursorR set.
+    \amx@FindColumnIndex{#2}  % CursorC set.
+    % Format is: (row,column) pairs in the list.
+    \listcsxadd{amx@Associations}{(\amx@RowKey{\theamx@CursorR},\amx@ColumnKey{\theamx@CursorC})}%
+}
+%% \amxassociate <column-key> <row-key>
+%% assigns the given column to be relevant for the given row.
+\newrobustcmd{\amxassociate}[2]{%
+    \amx@AssociateRowToCol{#2}{#1}%
+}
+
+%%
+%%    ALGORITHMS & ITERATORS
+%%
+
+%% Internal command which sets the counter amx@CursorR to the index of the row with the given <key>.
+\newcommand\amx@FindRowIndex[1]{%
+    \renewcommand*{\do}[1]{%
+        \ifstrequal{##1}{#1}%
+            {\listbreak}%
+            {\stepcounter{amx@CursorR}}%
+    }%
+    \setcounter{amx@CursorR}{0}%
+    \dolistcsloop{amx@Rows}%
+    \stepcounter{amx@CursorR}%
+    %
+    \ifnumgreater{\value{amx@CursorR}}{\value{amx@RowCount}}{%
+        \PackageError{association-matrix}{Requested information about row '#1' but it doesn't exist}{%
+            Check that functions such as \detokenize{\amxrowtext} are not given undefined row keys!}%
+    }%
+}
+
+%% Internal command which sets the counter amx@CursorC to the index of the
+%% column with the given <key>.
+\newcommand\amx@FindColumnIndex[1]{%
+    \renewcommand*{\do}[1]{%
+        \ifstrequal{##1}{#1}%
+            {\listbreak}%
+            {\stepcounter{amx@CursorC}}%
+    }%
+    \setcounter{amx@CursorC}{0}%
+    \dolistcsloop{amx@Cols}%
+    \stepcounter{amx@CursorC}%
+    %
+    \ifnumgreater{\value{amx@CursorC}}{\value{amx@ColumnCount}}{%
+        \PackageError{association-matrix}{Requested information about column '#1' but it doesn't exist}{%
+            Check that functions such as \detokenize{\amxcoltext} are not given undefined column keys!}%
+    }%
+}
+
+%% amx@RowColAssigned {<row-key>} {<column-key>} {<if-true>} {<if-false>}
+%% If the column given is assigned by the client to the row given, executes <if-true>, otherwise, <if-false>.
+\newcommand{\amx@RowColAssigned}[4]{%
+    \xifinlistcs{(#1,#2)}{amx@Associations}{#3}{#4}%
+}
+
+%%
+%%    RENDERERS AND FORMAT CUSTOMISATION
+%%
+
+%% Renderer for the table's 1st cell.
+\newcommand{\amx@Renderer@Default@TopCorner}{Associations}
+\newcommand{\amx@Renderer@TopCorner}{} % Dummy.
+\newrobustcmd{\amxsetTopCorner}[1]{%
+    \renewcommand{\amx@Renderer@TopCorner}{#1}%
+}
+%%
+%% Renderer for the title text entries in the rows.
+\newcommand{\amx@Renderer@Default@Row}[2]{%
+    #1. #2%
+}
+\newcommand{\amx@Renderer@Default@Row@Highlighted}[2]{%
+    #1. \textbf{#2}%
+}
+\newcommand{\amx@Renderer@Row}{} % Dummy.
+\newcommand{\amx@Renderer@Row@Highlighted}{} % Dummy.
+\newrobustcmd{\amxsetRowFormat}[1]{%
+    \renewcommand{\amx@Renderer@Row}{#1}%
+}
+\newrobustcmd{\amxsetRowFormatHighlighted}[1]{%
+    \renewcommand{\amx@Renderer@Row@Highlighted}{#1}%
+}
+%%
+%% Renderer for the columns' first cells.
+\newcommand{\amx@Renderer@Default@ColumnHeading}[1]{#1}
+\newcommand{\amx@Renderer@ColumnHeading}{} % Dummy.
+\newrobustcmd{\amxsetColumnHeading}[1]{%
+    \renewcommand{\amx@Renderer@ColumnHeading}{#1}%
+}
+%%
+%% Renderer for the indicators in the rows.
+\newcommand{\amx@Renderer@Default@Indicator}{%
+    \textbullet%
+}
+\newcommand{\amx@Renderer@Default@Indicator@Highlighted@Current}{%
+    \textbullet%
+}
+\newcommand{\amx@Renderer@Default@Indicator@Highlighted@Other}{%
+    \textopenbullet%
+}
+\newcommand{\amx@Renderer@Indicator}{} % Dummy.
+\newcommand{\amx@Renderer@Indicator@Highlighted@Current}{} % Dummy.
+\newcommand{\amx@Renderer@Indicator@Highlighted@Other}{} % Dummy.
+\newrobustcmd{\amxsetIndicator}[1]{%
+    \renewcommand{\amx@Renderer@Indicator}{#1}%
+}
+\newrobustcmd{\amxsetIndicatorHighlighted}[2]{%
+    \renewcommand{\amx@Renderer@Indicator@Highlighted@Current}{#1}%
+    \renewcommand{\amx@Renderer@Indicator@Highlighted@Other}{#2}%
+}
+
+%%
+%%    RENDERING
+%%
+
+%% Internal toggle that specifies whether the current row of \RowsVSCols
+%% should be highlighted or not.
+\newtoggle{amx@AreAnyHighlightSet}
+\newtoggle{amx@IsCurrentRowHighlighted}
+%
+\newcommand{\amx@amx@RowRenderHELPER}[1]{} % Dummy.
+
+%% Renders the heading of the table.
+\newcommand{\amx@amx@RenderHeading}{%
+    \setcounter{amx@CursorC}{\value{amx@ColumnCount}}%
+    \stepcounter{amx@CursorC}%
+    %
+    \amx@Renderer@TopCorner{}%
+    \forloop{amx@Cursor}{1}{\value{amx@Cursor} < \value{amx@CursorC}}{%
+        & \amx@Renderer@ColumnHeading{\amx@ColumnText{\theamx@Cursor}}%
+    }%
+}
+
+%% amx@amx@Indicator{<row-key>}{<column-key>}
+%% Returns the visual blip part of the generated table.
+\newcommand{\amx@amx@Indicator}[2]{%
+    \amx@RowColAssigned{#1}{#2}{%
+        \iftoggle{amx@AreAnyHighlightSet}{%
+            \iftoggle{amx@IsCurrentRowHighlighted}{%
+                \amx@Renderer@Indicator@Highlighted@Current{}%
+            }{%
+                \amx@Renderer@Indicator@Highlighted@Other{}%
+            }%
+        }{%
+            \amx@Renderer@Indicator{}%
+        }%
+    }{%
+        % This field is intentionally left blank.
+    }%
+}
+
+%% amx@amx@RenderRow{<key>}
+%% Renders the row for <key>.
+\newcommand{\amx@amx@RenderRow}[1]{%
+    \amx@FindRowIndex{#1}%
+    \iftoggle{amx@AreAnyHighlightSet}{%
+        \iftoggle{amx@IsCurrentRowHighlighted}{%
+            \amx@Renderer@Row@Highlighted{\theamx@CursorR}{\amx@RowText{\theamx@CursorR}}%
+        }{%
+            \amx@Renderer@Row{\theamx@CursorR}{\amx@RowText{\theamx@CursorR}}%
+        }%
+    }{%
+        \amx@Renderer@Row{\theamx@CursorR}{\amx@RowText{\theamx@CursorR}}%
+    }%
+    %
+    \setcounter{amx@CursorC}{\value{amx@ColumnCount}}%
+    \stepcounter{amx@CursorC}%
+    \forloop{amx@Cursor}{1}{\value{amx@Cursor} < \value{amx@CursorC}}{%
+        & \amx@amx@Indicator{#1}{\amx@ColumnKey{\theamx@Cursor}}%
+    }%
+}
+
+%% Typesets the Rows vs. Cols table, highlighting the row for the given key, or highlighting no rows if #1 is 0.
+\newcommand{\amx@amx@MakeTabular}[1]{%
+    \renewcommand{\amx@amx@RowRenderHELPER}[1]{%
+        % Set the global toggle whether highlighting is enabled or not.
+        \ifthenelse{\equal{#1}{0}}{%
+            \global\togglefalse{amx@AreAnyHighlightSet}%
+        }{%
+            \global\toggletrue{amx@AreAnyHighlightSet}%
+            %
+            % Set highlight for current row.
+            \ifthenelse{\equal{##1}{#1}}{%
+                \global\toggletrue{amx@IsCurrentRowHighlighted}%
+            }{%
+                \global\togglefalse{amx@IsCurrentRowHighlighted}%
+            }%
+        }%
+        %
+        \amx@amx@RenderRow{##1} \\
+        \hline%
+    }%
+    %
+    \amx@CheckCompatibility{}%
+    %
+    \begin{amx@Tabular}
+        \hline
+        \amx@amx@RenderHeading \\
+        \hline
+        \forlistcsloop{\amx@amx@RowRenderHELPER}{amx@Rows}%
+    \end{amx@Tabular}%
+}
+\newrobustcmd{\amxgenerate}[1][0]{%
+    \amx@amx@MakeTabular{#1}%
+}
+
+%%
+%%    CLEARING / RESET
+%%
+
+%% Clear all the internal data structures, undefine all commands, and reset all counters.
+\newrobustcmd{\amx@Reset}{%
+    % Clear the data store macros:
+    \forloop[-1]{amx@Cursor}{\value{amx@RowCount}}{\value{amx@Cursor} > 0}{%
+        \expandafter\def\csname amx@Rows@\theamx@Cursor\endcsname{}%
+        \expandafter\def\csname amx@RowTexts@\theamx@Cursor\endcsname{}%
+    }%
+    \forloop[-1]{amx@Cursor}{\value{amx@ColumnCount}}{\value{amx@Cursor} > 0}{%
+        \expandafter\def\csname amx@Cols@\theamx@Cursor\endcsname{}%
+        \expandafter\def\csname amx@ColTexts@\theamx@Cursor\endcsname{}%
+    }%
+    % Reset the lists and counters:
+    \renewcommand{\amx@Rows}{}%
+    \setcounter{amx@RowCount}{0}%
+    \renewcommand{\amx@Cols}{}%
+    \setcounter{amx@ColumnCount}{0}%
+    \renewcommand{\amx@Associations}{}%
+    %
+    \setcounter{amx@CursorR}{0}%
+    \setcounter{amx@CursorC}{0}%
+    \setcounter{amx@Cursor}{0}%
+    % Reset customisation.
+    \amx@Renderer@Reset%
+}
+%% DANGEROUS! Clear the internal data structures!
+\newrobustcmd{\amxReset}{%
+    \amx@Reset%
+}
+%% Resets the renderers to their default versions.
+\newcommand{\amx@Renderer@Reset}{%
+    \renewcommand{\amx@Renderer@TopCorner}{\amx@Renderer@Default@TopCorner}%
+    \renewcommand{\amx@Renderer@ColumnHeading}[1]{\amx@Renderer@Default@ColumnHeading{##1}}%
+    \renewcommand{\amx@Renderer@Row}[2]{\amx@Renderer@Default@Row{##1}{##2}}%
+    \renewcommand{\amx@Renderer@Row@Highlighted}[2]{\amx@Renderer@Default@Row@Highlighted{##1}{##2}}%
+    \renewcommand{\amx@Renderer@Indicator}{\amx@Renderer@Default@Indicator}%
+    \renewcommand{\amx@Renderer@Indicator@Highlighted@Current}{\amx@Renderer@Default@Indicator@Highlighted@Current}%
+    \renewcommand{\amx@Renderer@Indicator@Highlighted@Other}{\amx@Renderer@Default@Indicator@Highlighted@Other}%
+}
+% Start the document with the renderers having the default version.
+\amx@Renderer@Reset
+
+\endinput

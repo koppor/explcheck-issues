@@ -1,0 +1,551 @@
+%
+% Copyright (c) 2021-2025 Zeping Lee
+% Released under the MIT License.
+% Repository: https://github.com/zepinglee/citeproc-lua
+%
+
+% ## Initialization at `\begin{document}`
+
+\hook_gput_code:nnn { begindocument } { . } { \__csl_at_begin_document_hook: }
+
+
+\cs_new:Npn \__csl_at_begin_document_hook:
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \bool_gset_true:N \g__csl_use_lua_module_bool
+        \bool_if:NT \g__csl_use_bbl_bool
+          {
+            \file_if_exist:nT { \jobname .bbl }
+              { \bool_gset_false:N \g__csl_use_lua_module_bool }
+          }
+      }
+      { \bool_gset_false:N \g__csl_use_lua_module_bool }
+    \__csl_write_aux_info:
+    \bool_if:NTF \g__csl_use_lua_module_bool
+      { \__csl_initialize_lua_module: }
+      {
+        \__csl_load_bbl:
+        \__csl_get_style_class:
+      }
+    \__csl_read_entry_ids:
+    \__csl_set_ref_section_level:
+  }
+
+
+\prop_const_from_keyval:Nn \c__csl_renamed_style_ids_prop
+  {
+    % https://github.com/citation-style-language/styles/commit/0a535d9
+    chicago-fullnote-bibliography = chicago-notes-bibliography,
+    chicago-note-bibliography = chicago-shortened-notes-bibliography,
+    % https://github.com/citation-style-language/styles/commit/8411bce
+    modern-humanities-research-association = modern-humanities-research-association-notes,
+  }
+
+\clist_new:N \g__csl_aux_bib_files_clist
+
+\cs_new:Npn \__csl_write_aux_info:
+  {
+    \tl_if_empty:NF \l__csl_style_tl
+      { \exp_args:NV \__csl_write_aux_bibstyle:n \l__csl_style_tl }
+    \tl_if_empty:NT \l__csl_style_tl
+      { \tl_set_eq:NN \l__csl_style_tl \g__csl_aux_bibstyle_tl }
+    \tl_if_empty:NT \l__csl_style_tl
+      {
+        \msg_warning:nn { citation-style-language } { missing-style-name }
+        \tl_set:Nn \l__csl_style_tl { apa }
+      }
+    \file_if_exist:nF { \l__csl_style_tl .csl }
+      {
+        \prop_get:NVNT \c__csl_renamed_style_ids_prop \l__csl_style_tl \l_tmpa_tl
+          {
+            \file_if_exist:nT { \l_tmpa_tl .csl }
+              {
+                \msg_warning:nnVV { citation-style-language } { style-renamed }
+                  \l__csl_style_tl \l_tmpa_tl
+                \tl_set_eq:NN \l__csl_style_tl \l_tmpa_tl
+              }
+
+          }
+      }
+    \file_if_exist:nF { \l__csl_style_tl .csl }
+      {
+        \msg_error:nnV { citation-style-language } { style-not-found }
+          \l__csl_style_tl
+      }
+    \tl_set_eq:NN \csl@style \l__csl_style_tl
+    \clist_if_empty:NTF \l__csl_bib_resources_clist
+      {
+        \clist_if_empty:NTF \g__csl_aux_bib_files_clist
+          { \msg_warning:nn { citation-style-language } { empty-bib-resources } }
+          {
+            \clist_map_inline:Nn \g__csl_aux_bib_files_clist
+              { \addbibresource {##1} }
+          }
+      }
+      {
+        \clist_map_inline:Nn \l__csl_bib_resources_clist
+          {
+            \tl_clear:N \l_tmpa_tl
+            \prop_get:NnN \g__csl_bib_resource_options_prop {##1} \l_tmpa_tl
+            \exp_args:NnV \__csl_write_aux_bibdata:nn {##1} \l_tmpa_tl
+          }
+      }
+
+    \__csl_write_aux_csl_options:
+  }
+
+\cs_new:Npn \__csl_write_aux_bibstyle:n #1
+  {
+    \if@filesw
+      \iow_now:Ne \@auxout
+        {
+          \token_to_str:N \csl@aux@style
+            { \int_use:N \g__csl_ref_section_index_int } {#1}
+        }
+    \fi
+  }
+
+\cs_new:Npn \__csl_write_aux_bibdata:nn #1#2
+  {
+    \if@filesw
+      % Full expansion for files like \jobname.bib
+      \iow_now:Ne \@auxout
+        {
+          \token_to_str:N \csl@aux@data
+            { \int_use:N \g__csl_ref_section_index_int } {#1} {#2}
+        }
+    \fi
+  }
+
+% In earlier time, \bibdata{xxx.json} was used but this causes latexmk unable
+% to find xxx.json.bib and it refuses to run the $bibtex procedure.
+% John Collins suggests using a different command than \bibdata.
+\cs_new:Npn \csl@aux@data #1#2#3
+  {
+    \str_if_eq:nnT {#1} { 0 }
+      {
+        \clist_map_inline:nn {#2}
+          {
+            \clist_gput_right:Nn \g__csl_aux_bib_files_clist {##1}
+            \prop_gput:Nnn \g__csl_bib_resource_options_prop {##1} {#3}
+          }
+      }
+  }
+
+
+
+\cs_new:Npn \__csl_initialize_lua_module:
+  {
+    \bool_if:NT \l__csl_regression_test_bool
+      {
+        \lua_now:n { csl_citation_manager.regression_test = true }
+      }
+    \lua_now:e
+      {
+        csl_citation_manager:init(
+          "\l__csl_style_tl",
+          "\l__csl_locale_tl"
+        )
+      }
+    \str_if_eq:eeTF
+      {
+        \lua_now:n
+          {
+            tex.sprint(tostring(
+              csl_citation_manager.ref_section.initialized
+            ))
+          }
+      }
+      { true }
+      { \bool_set_true:N \l__csl_engine_initialized_bool }
+      { \bool_set_false:N \l__csl_engine_initialized_bool }
+    \__csl_get_style_class_luatex:
+    \@ifpackageloaded { hyperref }
+      { \lua_now:n { csl_citation_manager:enable_linking() } }
+      { }
+  }
+
+\msg_new:nnn { citation-style-language } { missing-style-name }
+  { Missing~ style~ name.~ Will~ use~ default~ APA~ style. }
+
+\msg_new:nnn { citation-style-language } { style-renamed }
+  { Style~ '#1'~ has~ been~ renamed~ to~ '#2'. }
+
+\msg_new:nnn { citation-style-language } { style-not-found }
+  { Style~ '#1'~ not~ found. }
+
+\msg_new:nnn { citation-style-language } { empty-bib-resources }
+  { Empty~ bibliographic~ resources.~ Use~ \token_to_str:N \addbibresource. }
+
+
+% \str_new:N \l__csl_style_class_str
+% In-text (including numeric or author-date) or note style
+% \bool_new:N \l__csl_note_style_bool
+
+\cs_new:Npn \__csl_get_style_class_luatex: {
+  \bool_set_false:N \l__csl_note_bool
+  \bool_if:NT \l__csl_engine_initialized_bool
+    {
+      \tl_set:Ne \l__csl_class_tl { \lua_now:n { tex.sprint(csl_citation_manager:get_style_class()) } }
+      \tl_if_eq:NnT \l__csl_class_tl { note }
+        { \bool_set_true:N \l__csl_note_bool }
+    }
+  \int_compare:nNnT { \g__csl_ref_section_index_int } = { 0 }
+    { \bool_gset_eq:NN \g__csl_global_note_class_bool \l__csl_note_bool }
+}
+
+
+\bool_new:N \l__csl_engine_initialized_bool
+
+\prop_new:N \l__csl_language_code_map_prop
+\prop_set_from_keyval:Nn \l__csl_language_code_map_prop
+  {
+    acadian         = fr-CA,
+    american        = en-US,
+    australian      = en-AU,
+    afrikaans       = af-ZA,
+    albanian        = sq-AL,
+    amharic         = am-ET,
+    arabic          = ar,
+    armenian        = hy-AM,
+    asturian        = ast-ES,
+    austrian        = de-AT,
+    bahasa          = id-ID,
+    bahasai         = id-ID,
+    bahasam         = id-ID,
+    basque          = eu-ES,
+    bengali         = bn-BD,
+    bgreek          = el-GR,
+    brazil          = pt-BR,
+    brazilian       = pt-BR,
+    breton          = br-FR,
+    british         = en-GB,
+    bulgarian       = bg-BG,
+    canadian        = en-CA,
+    canadien        = fr-CA,
+    catalan         = ca-AD,
+    coptic          = cop,
+    croatian        = hr-HR,
+    czech           = cs-CZ,
+    danish          = da-DK,
+    divehi          = dv-MV,
+    dutch           = nl-NL,
+    english         = en-US,
+    esperanto       = eo-001,
+    estonian        = et-EE,
+    ethiopia        = am-ET,
+    farsi           = fa-IR,
+    finnish         = fi-FI,
+    francais        = fr-FR,
+    french          = fr-FR,
+    frenchle        = fr-FR,
+    friulan         = fur-IT,
+    galician        = gl-ES,
+    german          = de-DE,
+    germanb         = de-DE,
+    greek           = el-GR,
+    hebrew          = he-IL,
+    hindi           = hi-IN,
+    ibygreek        = el-CY,
+    icelandic       = is-IS,
+    indon           = id-ID,
+    indonesia       = id-ID,
+    interlingua     = ia-FR,
+    irish           = ga-IE,
+    italian         = it-IT,
+    japanese        = ja-JP,
+    kannada         = kn-IN,
+    lao             = lo-LA,
+    latin           = la-Latn,
+    latvian         = lv-LV,
+    lithuanian      = lt-LT,
+    lowersorbian    = dsb-DE,
+    lsorbian        = dsb-DE,
+    magyar          = hu-HU,
+    malay           = id-ID,
+    malayalam       = ml-IN,
+    marathi         = mr-IN,
+    meyalu          = id-ID,
+    mongolian       = mn-Cyrl,
+    naustrian       = de-AT,
+    newzealand      = en-NZ,
+    ngerman         = de-DE,
+    nko             = ha-NG,
+    norsk           = nb-NO,
+    norwegian       = nn-NO,
+    nynorsk         = nn-NO,
+    occitan         = oc-FR,
+    piedmontese     = pms-IT,
+    pinyin          = pny,
+    polish          = pl-PL,
+    polutonikogreek = el-GR,
+    portuges        = pt-PT,
+    portuguese      = pt-PT,
+    romanian        = ro-RO,
+    romansh         = rm-CH,
+    russian         = ru-RU,
+    samin           = se-NO,
+    sanskrit        = sa-IN,
+    scottish        = gd-GB,
+    serbian         = sr-Latn,
+    serbianc        = sr-Cyrl,
+    slovak          = sk-SK,
+    slovene         = sl-SI,
+    slovenian       = sl-SI,
+    spanish         = es-ES,
+    swedish         = sv-SE,
+    swiss           = de-CH,
+    swissgerman     = de-CH,
+    nswissgerman    = de-CH,
+    syriac          = syc,
+    tamil           = ta-IN,
+    telugu          = te-IN,
+    thai            = th-TH,
+    thaicjk         = th-TH,
+    tibetan         = bo-CN,
+    turkish         = tr-TR,
+    turkmen         = tk-TM,
+    ukrainian       = uk-UA,
+    urdu            = ur-IN,
+    UKenglish       = en-GB,
+    uppersorbian    = hsb-DE,
+    USenglish       = en-US,
+    usorbian        = hsb-DE,
+    vietnamese      = vi-VN,
+    welsh           = cy-GB,
+  }
+
+
+\cs_new:Npn \__csl_write_aux_csl_options:
+  {
+    \clist_clear:N \l_tmpa_clist  % list of options to write to aux file
+    % locale
+    \tl_if_empty:NT \l__csl_locale_tl
+      { \__csl_get_locale_from_babel: }
+    \tl_if_empty:NF \l__csl_locale_tl
+      {
+        \clist_put_right:Ne \l_tmpa_clist
+          { locale = \l__csl_locale_tl }
+      }
+    % linking
+    \@ifpackageloaded { hyperref }
+      { \clist_put_right:Nn \l_tmpa_clist { linking = true } }
+      { }
+    % use-bbl
+    \bool_if:NT \g__csl_use_bbl_bool
+      {
+        \sys_if_engine_luatex:T
+          { \clist_put_right:Nn \l_tmpa_clist { use-bbl = true } }
+      }
+    % write to aux file
+    \prop_if_empty:NF \l_tmpa_clist
+      {
+        \exp_args:Ne \__csl_write_aux_options:n
+          { \clist_use:Nn \l_tmpa_clist { , } }
+      }
+  }
+
+% This is the hook for `babel` package.
+\cs_new:Npn \__csl_get_locale_from_babel: { }
+
+\cs_new:Npn \__csl_write_aux_options:n #1
+  {
+    \if@filesw
+      \iow_now:Ne \@auxout
+        {
+          \token_to_str:N \csl@aux@options
+          { \int_use:N \g__csl_ref_section_index_int } {#1}
+        }
+    \fi
+  }
+
+\tl_new:N \l__csl_ref_section_index_tl
+
+\cs_new:Npn \csl@aux@options #1#2
+  {
+    \tl_set:Nn \l__csl_ref_section_index_tl {#1}
+    \keys_set:nn { csl / options } {#2}
+  }
+
+
+% Load .bbl at the beginning of document to save one pass of latex.
+% In this procedure, the \cslcitation command is processed and the contents
+% of `thebibliography` is stored into \g__csl_bibliographies_prop.
+\cs_new:Npn \__csl_load_bbl:
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \__csl_collect_bibliography:n
+          {
+            \file_if_exist_input:n { \jobname .bbl }
+          }
+      }
+      {
+        % The \@input@ prints "No file ....bbl" in the .log file from which
+        % the latexmk decides to run $bibtex or not.
+        \__csl_collect_bibliography:n { \@input@ { \jobname .bbl } }
+      }
+  }
+
+
+% A document may have multiple bibliographies or biblists and they are stored
+% in `\g__csl_bibliographies_prop` by their index.
+\prop_new:N \g__csl_bibliographies_prop
+
+
+% Collection the bibliography into \g__csl_bibliographies_prop
+\cs_new:Npn \__csl_collect_bibliography:n #1
+  {
+    \group_begin:
+      % URLs may contain "%" and "#" characters.
+      \char_set_catcode_other:N \%
+      \char_set_catcode_other:N \#
+      \RenewDocumentEnvironment { thebibliography } { m +b }
+        {
+          \tl_set:Nn \l__csl_bib_index_tl { 1 }
+          \keys_set:nn { csl / bib-options } {##1}
+          \prop_gput:NVn \g__csl_bibliographies_prop \l__csl_bib_index_tl
+            {
+              \begin { thebibliography } {##1}
+                ##2
+              \end { thebibliography }
+            }
+        }
+        { }
+      % Perform the execution
+      #1
+    \group_end:
+  }
+
+% At the moment, the `\csloptions` only reads the style class from `.bbl`
+% generated by `citeproc-lua`.
+% #1: refsection index
+% #2: refsection options
+\NewDocumentCommand \csloptions { m m }
+  {
+    \tl_set:Nn \l__csl_ref_section_index_tl {#1}
+    \keys_set:nn { csl / options } {#2}
+  }
+
+% The class option is in the `<style>=<class>` form
+% (e.g. `\csloptions{class={apa=in-text}}`).
+\keys_define:nn { csl / options }
+  {
+    class .code:n = { \prop_gput_from_keyval:Nn \g__csl_style_class_prop {#1} },
+    entry-ids .code:n = { \__csl_process_entry_ids:n {#1} } ,
+    excluded-ids .code:n = { \__csl_process_excluded_ids:n {#1} } ,
+    unknown .code:n = { } ,
+  }
+
+\cs_new:Npn \__csl_process_entry_ids:n #1 { }
+
+\cs_new:Npn \__csl_process_excluded_ids:n #1 { }
+
+\prop_new:N \g__csl_style_class_prop
+
+% The `\textcite` bahaves differently with note styles.
+% Thus we read the style class from the `.csl` file with non-LuaTeX engines.
+\ior_new:N \l__csl_style_ior
+\cs_new:Npn \__csl_get_style_class:
+  {
+    \tl_clear:N \l__csl_class_tl
+    \bool_set_false:N \l__csl_note_bool
+    \prop_get:NVNF \g__csl_style_class_prop \l__csl_style_tl \l__csl_class_tl
+      { \__csl_read_style_class: }
+    \tl_if_empty:NF \l__csl_class_tl
+      {
+        \str_case:VnTF \l__csl_class_tl
+          {
+            { note } { \bool_set_true:N \l__csl_note_bool }
+            { in-text } { \bool_set_false:N \l__csl_note_bool }
+          }
+          {
+            \int_compare:nNnT { \g__csl_ref_section_index_int } = { 0 }
+              {
+                \bool_gset_eq:NN \g__csl_global_note_class_bool \l__csl_note_bool
+              }
+          }
+          {
+            \msg_error:nnV { citation-style-language } { invalid-style-class }
+            \l__csl_class_tl
+          }
+      }
+  }
+
+\cs_new:Npn \__csl_read_style_class:
+  {
+    \tl_if_blank:VF \l__csl_style_tl
+      {
+        \exp_args:NNe \ior_open:Nn \l__csl_style_ior { \l__csl_style_tl .csl }
+        \ior_map_inline:Nn \l__csl_style_ior
+          {
+            % \tl_show:n {##1}
+            \tl_if_in:nnTF {##1} { class="note" }
+              {
+                \tl_set:Nn \l__csl_class_tl { note }
+                \bool_set_true:N \l__csl_note_bool
+                \prop_gput:NVn \g__csl_style_class_prop \l__csl_style_tl { note }
+                \ior_map_break:
+              }
+              {
+                \tl_if_in:nnT {##1} { class="in-text" }
+                  {
+                    \tl_set:Nn \l__csl_class_tl { in-text }
+                    \bool_set_false:N \l__csl_note_bool
+                    \prop_gput:NVn \g__csl_style_class_prop \l__csl_style_tl { in-text }
+                    \ior_map_break:
+                  }
+              }
+          }
+        \ior_close:N \l__csl_style_ior
+      }
+  }
+
+\msg_new:nnn { citation-style-language } { invalid-style-class }
+  { Invalid~ style~ class~ '#1'. }
+
+% \msg_new:nnn { citation-style-language } { file-non-exist }
+%   { No~ file~ #1. }
+
+% This is a hook for `hyperref`.
+\cs_new:Npn \__csl_read_entry_ids: {}
+
+\cs_new:Npn \__csl_set_ref_section_level:
+  {
+    \str_case:Vn \l__csl_bib_ref_section_str
+      {
+        { none } { }
+        { part }
+          { \__csl_patch_ref_section:n { part } }
+        { chapter }
+          { \__csl_patch_ref_section:n { chapter } }
+        { chapter+ }
+          {
+            \__csl_patch_ref_section:n { part }
+            \__csl_patch_ref_section:n { chapter }
+          }
+        { section }
+          { \__csl_patch_ref_section:n { section } }
+        { section+ }
+          {
+            \__csl_patch_ref_section:n { part }
+            \__csl_patch_ref_section:n { chapter }
+            \__csl_patch_ref_section:n { section }
+          }
+        { subsection }
+          { \__csl_patch_ref_section:n { subsection } }
+        { subsection+ }
+          {
+            \__csl_patch_ref_section:n { part }
+            \__csl_patch_ref_section:n { chapter }
+            \__csl_patch_ref_section:n { section }
+            \__csl_patch_ref_section:n { subsection }
+          }
+      }
+  }
+
+\cs_new:Npn \__csl_patch_ref_section:n #1
+  {
+    \hook_gput_code:nnn { cmd / #1 / before } { . } { \newrefsection }
+  }

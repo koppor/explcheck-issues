@@ -1,0 +1,83 @@
+%% Copyright 2021-2024 Tobias Enderle
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{pyluatex}[2024/01/10 v0.6.3 Execute Python code on the fly]
+
+\RequirePackage{expl3}
+\ExplSyntaxOn
+\sys_if_engine_luatex:F{
+    \PackageError{PyLuaTeX}{LuaTeX~is~required}{}
+}
+\sys_if_shell_unrestricted:F{
+    \PackageError{PyLuaTeX}{Shell~escape~is~required~(add~--shell-escape~option)}{}
+}
+\ExplSyntaxOff
+
+\directlua{require("pyluatex")}
+
+\RequirePackage{kvoptions}
+\DeclareStringOption[python3]{executable}
+\DeclareBoolOption{ignoreerrors}
+\DeclareBoolOption{verbose}
+\DeclareBoolOption[true]{localimports}
+\DeclareStringOption[veryveryend]{shutdown}
+\ProcessKeyvalOptions*
+
+\newcommand*{\pyluatex@boolopt}[1]{\csname ifpyluatex@#1\endcsname true\else false\fi}
+
+\directlua{pyluatex.ignore_errors = \pyluatex@boolopt{ignoreerrors}}
+\directlua{pyluatex.verbose = \pyluatex@boolopt{verbose}}
+\directlua{pyluatex.start([==[\pyluatex@executable]==], \pyluatex@boolopt{localimports})}
+
+\ExplSyntaxOn
+\str_case_e:nnF{\pyluatex@shutdown}{
+    {veryveryend}{
+        \AddToHook{enddocument/end}{\directlua{pyluatex.shutdown()}}
+    }{veryenddocument}{
+        \AddToHook{enddocument/afteraux}{\directlua{pyluatex.shutdown()}}
+    }{off}{}
+}{\PackageError{PyLuaTeX}{Invalid~value~for~package~option~"shutdown":~\pyluatex@shutdown}{}}
+\ExplSyntaxOff
+
+\newcommand*{\PyLTVerbatimEnv}{\directlua{pyluatex.set_parent_env([==[\@currenvir]==])}}
+
+\newenvironment{python}{\directlua{pyluatex.record_env("python")}}
+{\directlua{pyluatex.execute_env(true, false)}}
+
+\newenvironment{pythonq}{\directlua{pyluatex.record_env("pythonq")}}
+{\directlua{pyluatex.execute_env(false, false)}}
+
+\newenvironment{pythonrepl}{\directlua{pyluatex.record_env("pythonrepl")}}
+{\directlua{pyluatex.execute_env(false, true)}}
+
+\newcommand*{\pyluatex@inline}[3]{\directlua{pyluatex.execute([==[#1]==], #2, #3, false, true)}}
+
+\newcommand*{\py}[1]{\pyluatex@inline{#1}{true}{true}}
+\newcommand*{\pyq}[1]{\pyluatex@inline{#1}{true}{false}}
+
+\newcommand*{\pyc}[1]{\pyluatex@inline{#1}{false}{true}}
+\newcommand*{\pycq}[1]{\pyluatex@inline{#1}{false}{false}}
+
+\newcommand*{\pysession}[1]{\directlua{pyluatex.session = [==[#1]==]}}
+\newcommand*{\pyoption}[2]{\directlua{pyluatex.set_option([==[#1]==], [==[#2]==])}}
+
+\newcommand*{\pyfile}[1]{\directlua{pyluatex.run_file([==[#1]==], true, false)}}
+\newcommand*{\pyfileq}[1]{\directlua{pyluatex.run_file([==[#1]==], false, false)}}
+\newcommand*{\pyfilerepl}[1]{\directlua{pyluatex.run_file([==[#1]==], false, true)}}
+
+\newcommand*{\pyif}[1]{%
+    \ifnum1=\directlua{pyluatex.execute([==['1' if (#1) else '0']==], true, true, false, false)}\relax
+        \expandafter\@firstoftwo
+    \else
+        \expandafter\@secondoftwo
+    \fi}
+
+\endinput

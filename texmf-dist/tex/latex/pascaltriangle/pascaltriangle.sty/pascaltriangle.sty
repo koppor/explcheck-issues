@@ -1,0 +1,397 @@
+%%% ----------------------------------------------------------------------------
+%%% pascaltriangle: Typeset Pascal triangle figure with LaTeX3
+%%% Author    : Nan Geng <nangeng@nwafu.edu.cn>
+%%% Repository: https://github.com/registor/pascaltriangle or https://gitee.com/nwafu_nan/pascaltriangle
+%%% License   : The LaTeX Project Public License 1.3c
+%%% ----------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}
+\RequirePackage{expl3}
+\ProvidesExplPackage{pascaltriangle}{2022-01-28}{v1.0.1}
+  {Typeset Pascal triangle figure with LaTeX3}
+
+\RequirePackage{xparse}
+
+%% \tl_if_eq:NnTF 与texlive 2020的兼容性设置
+\cs_if_exist:NF \tl_if_eq:NnTF
+  {
+    \tl_new:N \l__tblr_backport_b_tl
+    \prg_new_protected_conditional:Npnn \tl_if_eq:Nn #1 #2 { T, F, TF }
+      {
+        \group_begin:
+          \tl_set:Nn \l__tblr_backport_b_tl {#2}
+          \exp_after:wN
+        \group_end:
+        \if_meaning:w #1 \l__tblr_backport_b_tl
+          \prg_return_true:
+        \else:
+          \prg_return_false:
+        \fi:
+      }
+    \prg_generate_conditional_variant:Nnn \tl_if_eq:Nn { c } { TF, T, F }
+  }
+
+\cs_if_exist:NF \seq_map_indexed_function:NN
+  {
+    \cs_set_eq:NN \seq_map_indexed_function:NN \seq_indexed_map_function:NN
+  }
+
+%% 解决TikZ库无法在Expl3中载入问题
+\RequirePackage {amsmath, tikz, etoolbox}
+\ExplSyntaxOff
+\patchcmd
+{\tcb@input@library@in}
+  {%
+   \input\tcbpkgprefix#1\relax%
+  }
+  {%
+    \@pushfilename
+    \input\tcbpkgprefix#1\relax%
+    \@popfilename
+  }
+  {}{}
+
+\patchcmd
+{\pgfutil@InputIfFileExists}
+  {\input #1}
+  {%
+    \@pushfilename
+    \xdef\@currname{#1}%
+    \input #1 %
+    \@popfilename
+  }
+  {}{}
+\ExplSyntaxOn
+\usetikzlibrary{shapes.geometric}
+
+%% 定义变量
+\bool_new:N  \l__pascal_num_cell_bool   % 是否绘制行列号
+\bool_new:N  \l__pascal_binom_cell_bool % 是否仅绘制二项式表达式
+
+\tl_new:N    \l__pascal_cell_color_tl   % 单元格填充颜色
+\tl_new:N    \l__pascal_shift_col_pt_tl % 列变换坐标
+\tl_new:N    \l__pascal_shift_row_pt_tl % 行变换坐标
+\tl_new:N    \l__pascal_font_size_tl    % 文件大小
+
+\int_new:N    \l__pascal_shape_type_int % 形状(1---等腰，2---直角)
+\int_new:N    \l__pascal_row_idx_int    % 行索引(从0计数)
+\int_new:N    \l__pascal_col_idx_int    % 列索引(从0计数)
+\int_new:N    \l__pascal_row_top_int    % 各列最大行数
+\int_new:N    \l__pascal_total_idx_int  % 索引总数
+\int_new:N    \l__pascal_fill_row_int   % 填充行号(最大值与当前列数有关，从顶向下从0计数)
+\int_new:N    \l__pascal_fill_col_int   % 填充列号(从0计数)
+
+\dim_new:N    \l__pascal_cell_radius_dim % 单元格大小(中心到顶点的半径)
+
+%% 选项设计
+\keys_define:nn { pascal }
+  {
+    % 是否需要行列编号
+    withnum .bool_set:N = \l__pascal_num_cell_bool,
+    withnum .default:n = true,
+    withnum .initial:n = false,
+
+    % 是否仅绘制二项式表达式
+    binom .bool_set:N = \l__pascal_binom_cell_bool,
+    binom .default:n = true,
+    binom .initial:n = false,
+
+    % 形状选择(iso---等腰三角形, rt---直角三角形)
+    shape .choice:,
+    shape .value_required:n = true,
+    shape .choices:nn =
+      { iso, rt }
+      { \int_set_eq:NN \l__pascal_shape_type_int \l_keys_choice_int },
+    shape .initial:n = iso,
+
+    % 单元格半径(中心到顶点)
+    radius .dim_set:N  = \l__pascal_cell_radius_dim,
+    radius .initial:n = 0.5cm,
+
+    % 文字大小
+    fontsize .tl_set:N  = \l__pascal_font_size_tl,
+    fontsize .initial:n = \small,
+
+    % 要填充单元格行数(按列从顶向下，从0开始计数)
+    fillr .int_set:N = \l__pascal_fill_row_int,
+    fillr .initial:n = 1 ,
+    % 要填充单元格列数(从左向右，从0开始计数)
+    fillc .int_set:N = \l__pascal_fill_col_int,
+    fillc .initial:n = 1 ,
+    fillrc  .meta:n = { fillr = #1 , fillc = #1 },
+
+    unknown .code:n = { \__pascal_error:n { unknown-option } }
+  }
+
+\msg_new:nnn { pascal } { unknown-option }
+  { package~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+%% 参数设置用户接口
+\NewDocumentCommand \pascalset { m }
+  { \keys_set:nn { pascal } {#1} }
+
+%% 利用LaTeX3的fact阶乘计算函数计算组合数
+\cs_set:Npn \__pascal_binomcoeff:nn #1#2
+  {
+    \fp_eval:n { fact(#1) / (fact(#2) * fact(#1 - #2)) }
+  }
+
+%% 组合数计算用户接口
+\NewDocumentCommand{\binomc}{m m}
+  {
+    \__pascal_binomcoeff:nn{#1}{#2}
+  }
+
+%% 绘制Pascal三角形
+%% 注意":"无法使用造成极坐标不能用的问题，以下网站给出了解决方案
+%% https://tex.stackexchange.com/questions/501333/how-to-use-colon-as-part-of-tikz-syntax-while-in-explsyntaxon-environment
+%% 将":"用\c_colon_str代替
+
+%% 根据形状类型计算列变换坐标(极坐标)
+\cs_set:Npn \__pascal_shift_col_pt:n #1
+  {
+    \int_case:nn { \l__pascal_shape_type_int }
+      {
+        {1}{
+          \tl_set:Nn \l__pascal_shift_col_pt_tl { -60 \c_colon_str
+              \fp_eval:n {sqrt(3) * \l__pascal_cell_radius_dim * #1}pt
+            }
+        }
+        {2}{
+          \tl_set:Nn \l__pascal_shift_col_pt_tl { -45 \c_colon_str
+              \fp_eval:n {2 * \l__pascal_cell_radius_dim * #1}pt
+            }
+        }
+      }
+  }
+
+%% 根据形状类型计算行变换坐标(极坐标)
+\cs_set:Npn \__pascal_shift_row_pt:n #1
+  {
+    \int_case:nn { \l__pascal_shape_type_int }
+      {
+        {1}{
+          \tl_set:Nn \l__pascal_shift_row_pt_tl { -120 \c_colon_str
+              \fp_eval:n {sqrt(3) * \l__pascal_cell_radius_dim * #1}pt
+            }
+        }
+        {2}{
+          \tl_set:Nn \l__pascal_shift_row_pt_tl { -90 \c_colon_str
+              \fp_eval:n {sqrt(2) * \l__pascal_cell_radius_dim * #1}pt
+            }
+        }
+      }
+  }
+
+%% 正六边形闭合路径代码
+\cs_set:Npn \__pascal_hex_cell:
+  {
+    (30  \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (90  \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (150 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (210 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (270 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (330 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    cycle (90 \c_colon_str 0)
+  }
+
+%% 正方形闭合路径代码
+\cs_set:Npn \__pascal_square_cell:
+  {
+    (45  \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (134 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (225 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    (-45 \c_colon_str \fp_eval:n{\l__pascal_cell_radius_dim}pt) --
+    cycle (90 \c_colon_str 0)
+  }
+
+%% 绘制行列编号标记单元格
+\cs_set:Npn \__pascal_num_draw:nnn #1#2#3
+  {
+    \int_case:nn { \l__pascal_shape_type_int }
+      {
+        {1}{% 正六边形
+          \int_compare:nNnT { #1 } = {0}% 最左列
+            {
+              \int_compare:nNnT { #2 } = { #3 - 1 }% 最底行
+                {
+                  \begin{scope}[shift={(-150\c_colon_str {\fp_eval:n{3*\l__pascal_cell_radius_dim}pt})}]
+                    \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                      \__pascal_hex_cell:
+                      node[rotate=-45] {$m,n$};
+                  \end{scope}
+                }
+            }
+          \int_compare:nNnT { #1 } = { 0 }% 最左列
+            {
+              \begin{scope}[shift={(-180\c_colon_str {\fp_eval:n{sqrt(3)*\l__pascal_cell_radius_dim}pt})}]
+                \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                  \__pascal_hex_cell:
+                  node{$(\int_eval:n {#2})$};
+              \end{scope}
+            }
+          \int_compare:nNnT { #2 } = { #3 - 1 }% 最底行
+            {
+              \begin{scope}[shift={(-120\c_colon_str {\fp_eval:n{sqrt(3)*\l__pascal_cell_radius_dim}pt})}]
+                \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                  \__pascal_hex_cell:
+                  node {$(\int_eval:n {#1})$};
+              \end{scope}
+            }
+        }
+        {2}{% 正方形
+          \int_compare:nNnT { #1 } = {0}% 最左列
+            {
+              \int_compare:nNnT { #2 } = { #3 - 1 }% 最底行
+                {
+                  \begin{scope}[shift={(-135\c_colon_str {\fp_eval:n{2*\l__pascal_cell_radius_dim}pt})}]
+                    \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                      \__pascal_square_cell:
+                      node[scale=0.8,rotate=-45] {$m,n$};
+                  \end{scope}
+                }
+            }
+          \int_compare:nNnT { #1 } = { 0 }% 最左列
+            {
+              \begin{scope}[shift={(-180\c_colon_str {\fp_eval:n{sqrt(2)*\l__pascal_cell_radius_dim}pt})}]
+                \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                  \__pascal_square_cell:
+                  node{$(\int_eval:n {#2})$};
+              \end{scope}
+            }
+          \int_compare:nNnT { #2 } = { #3 - 1 }% 最底行
+            {
+              \begin{scope}[shift={(-90\c_colon_str {\fp_eval:n{sqrt(2)*\l__pascal_cell_radius_dim}pt})}]
+                \draw[dashed, top~color=gray!10,bottom~color=gray!20]
+                  \__pascal_square_cell:
+                  node {$(\int_eval:n {#1})$};
+              \end{scope}
+            }
+        }
+      }
+  }
+
+%% 绘制三角形单元格
+\cs_set:Npn \__pascal_cell_draw:nn #1#2
+  {
+    \int_case:nn { \l__pascal_shape_type_int }
+      {
+        {1}{% 正六边形
+          \draw[top~color=\l__pascal_cell_color_tl!20,bottom~color=\l__pascal_cell_color_tl!60]
+            \__pascal_hex_cell:
+            \bool_if:NTF \l__pascal_binom_cell_bool
+              {
+                node {$\binom{\int_eval:n {#1}}{\int_eval:n {#2}}$};
+              }
+              {
+                node {$\__pascal_binomcoeff:nn {#1}{#2}$};
+              }
+        }
+        {2}{% 正方形
+          \draw[top~color=\l__pascal_cell_color_tl!20,bottom~color=\l__pascal_cell_color_tl!60]
+            \__pascal_square_cell:
+            \bool_if:NTF \l__pascal_binom_cell_bool
+              {
+                node {$\binom{\int_eval:n {#1}}{\int_eval:n {#2}}$};
+              }
+              {
+                node {$\__pascal_binomcoeff:nn {#1}{#2}$};
+              }
+        }
+      }
+  }
+
+%% 绘制Pascal三角形
+% 等腰三角形的绘制原理参考了 https://texample.net/tikz/examples/pascal-triangle/
+% Author: M.H. Ahmadi
+\cs_set:Npn \__pascal_triangle_draw:n #1
+  {
+    % 设置正常单元格为灰色
+    \tl_set:Nn \l__pascal_cell_color_tl {gray}
+    % 记录绘制列数
+    \int_set:Nn \l_tmpa_int {#1}
+
+    % 使用TikZ绘制
+    \begin{tikzpicture}[font=\l__pascal_font_size_tl]
+      % 列循环
+      \int_step_inline:nn {\l_tmpa_int}
+        {
+          % 调整为从0计数，以便于后续计算
+          \int_set:Nn \l__pascal_col_idx_int { ##1 - 1 }
+
+          % 计算列变换坐标(极坐标)
+          \__pascal_shift_col_pt:n {\l__pascal_col_idx_int}
+
+          % 用scope环境变换各列到指定位置
+          \begin{scope}[shift={(\l__pascal_shift_col_pt_tl)}]
+            % 计算每列最多行数
+            \int_set:Nn \l__pascal_row_top_int {\l_tmpa_int - ##1 + 1}
+
+            % 行循环
+            \int_step_inline:nn { \l__pascal_row_top_int }
+            {
+              % 调整为从0计数，以便于后续计算
+              \int_set:Nn \l__pascal_row_idx_int { ####1 - 1 }
+
+              % 计算组合数计算中的行数
+              \int_zero:N \l__pascal_total_idx_int
+              \int_add:Nn \l__pascal_total_idx_int { \l__pascal_row_idx_int }
+              \int_add:Nn \l__pascal_total_idx_int { \l__pascal_col_idx_int }
+
+              % 为指定行设置绘制颜色
+              \int_case:nn { \l__pascal_col_idx_int }
+                {
+                  {0}{
+                    \tl_set:Nn \l__pascal_cell_color_tl { pink }
+                  }
+                  {1}{
+                    \tl_set:Nn \l__pascal_cell_color_tl { yellow }
+                  }
+                  {2}{
+                    \tl_set:Nn \l__pascal_cell_color_tl { blue }
+                  }
+                  {3}{
+                    \tl_set:Nn \l__pascal_cell_color_tl { green }
+                  }
+                  {\l__pascal_fill_col_int - 1}{
+                    \int_compare:nNnTF{\l__pascal_row_idx_int} < { \l__pascal_fill_row_int + 1 }
+                      {\tl_set:Nn \l__pascal_cell_color_tl { purple }}
+                      {\tl_set:Nn \l__pascal_cell_color_tl { gray }}
+                  }
+                  {\l__pascal_fill_col_int}{
+                    \int_compare:nNnTF{\l__pascal_row_idx_int} = { \l__pascal_fill_row_int }
+                      {\tl_set:Nn \l__pascal_cell_color_tl { purple }}
+                      {\tl_set:Nn \l__pascal_cell_color_tl { gray }}
+                  }
+                }
+
+              % 计算行变换坐标(极坐标)
+              \__pascal_shift_row_pt:n {\l__pascal_row_idx_int}
+              % 用scope环境变换各行到指定位置
+              \begin{scope}[shift={(\l__pascal_shift_row_pt_tl)}]
+                % 是否绘制行列编号
+                \bool_if:NT \l__pascal_num_cell_bool
+                  {
+                    \__pascal_num_draw:nnn { \l__pascal_col_idx_int }
+                                           { \l__pascal_row_idx_int }
+                                           { \l__pascal_row_top_int }
+                  }
+                % 绘制一个单元格
+                \__pascal_cell_draw:nn{\l__pascal_total_idx_int}{\l__pascal_col_idx_int}
+              \end{scope}
+            }
+          \end{scope}
+        }
+    \end{tikzpicture}
+  }
+
+%% 绘制Pascal三角形用户接口
+\NewDocumentCommand{\pascal}{O{} m}
+  {
+    \group_begin:
+      \keys_set:nn { pascal } {#1}
+      \__pascal_triangle_draw:n{#2}
+    \group_end:
+  }
+
+\endinput

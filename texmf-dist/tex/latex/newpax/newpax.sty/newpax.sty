@@ -1,0 +1,716 @@
+%%
+%% This is file `newpax.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% newpax.dtx  (with options: `package')
+%% 
+%% Copyright (C) 2021-2025 Ulrike Fischer
+%% 
+%% It may be distributed and/or modified under the conditions of
+%% the LaTeX Project Public License (LPPL), either version 1.3c of
+%% this license or (at your option) any later version.  The latest
+%% version of this license is in the file:
+%% 
+%%    https://www.latex-project.org/lppl.txt
+%% 
+%% This file is part of the "newpax bundle" (The Work in LPPL)
+%% and all files in that bundle must be distributed together.
+%% 
+\NeedsTeXFormat{LaTeX2e}[2022-11-01]
+\ProvidesPackage{newpax}%
+  [2025-09-24 v0.57 Annotation support for PDF graphics based on pax.sty adapted by (UF)]%
+\ExplSyntaxOn
+\IfPDFManagementActiveTF
+  {}
+  {  %error for now, perhaps warning later.
+    \PackageError{newpax}
+     {
+       PDF~resource~management~code~not~found!\MessageBreak
+       newpax~will~no~work.
+     }
+     {
+       Load~it~with \MessageBreak
+       \string\RequirePackage{pdfmanagement}\MessageBreak
+       before~loading~the~class
+     }
+  }
+
+\ExplSyntaxOff
+\RequirePackage{graphicx}
+\RequirePackage{etoolbox}
+
+\ExplSyntaxOn
+\box_new:N \l__newpax_tmpa_box
+\tl_new:N\g__newpax_tmpa_tl
+
+\bool_new:N \l__newpax_use_attributes_bool
+\bool_new:N \l__newpax_addannots_bool
+\bool_new:N \l__newpax_dests_all_bool
+
+\tl_new:N   \l__newpax_destsuffix_tl
+\tl_new:N \NEWPAX@fileextension
+\tl_new:N \NEWPAX@Gin@box@opts
+\newif\ifNEWPAX@Gin@clip
+\cs_set_eq:NN \newpax@str@if@eq@@nnT\str_if_eq:nnT
+\cs_generate_variant:Nn \pdfannot_dict_put:nnn {nnx,xnx,xnn}
+\cs_generate_variant:Nn \pdfannot_link_goto_begin:nw {xw}
+\cs_generate_variant:Nn \pdf_destination:nn {xx}
+\NewDocumentCommand\newpaxsetup { m }
+  {
+    \keys_set:nn {newpax}{ #1}
+  }
+
+\keys_define:nn {newpax}
+  {
+    usefileattributes .bool_set:N = \l__newpax_use_attributes_bool,
+    destsuffix        .code:n     = {\tl_set:Nn \l__newpax_destsuffix_tl{@#1}},
+    addannots         .bool_set:N = \l__newpax_addannots_bool,
+    addannots         .default:n  = true,
+    addannots         .initial:n  = true,
+    paxextension      .choices:nn =
+       {pax,newpax}
+       {\tl_set:Nn \NEWPAX@fileextension {#1}},
+    paxextension .initial:n = newpax,
+    dests             .choice:,
+    dests/all         .code:n = {\bool_set_true:N \l__newpax_dests_all_bool},
+    dests/used        .code:n = {\bool_set_false:N \l__newpax_dests_all_bool},
+    dests             .initial:n = used
+  }
+
+\cs_new_protected:Npn \@NEWPAX@setattributes@n #1 %link type
+  {
+    \bool_if:NT \l__newpax_use_attributes_bool
+      {
+        \tl_if_empty:NTF  \NEWPAX@key@C
+          {
+            \pdfannot_dict_remove:nn {link/#1} { C }
+          }
+          {
+            \pdfannot_dict_put:nnx
+              {link/#1}
+              { C }
+              { \NEWPAX@key@C }
+          }
+        \tl_if_empty:NTF \NEWPAX@key@Border
+          {
+            \pdfannot_dict_remove:nn {link/#1} { Border }
+          }
+          {
+            \pdfannot_dict_put:nnx
+              {link/#1}
+              { Border }
+              { \NEWPAX@key@Border }
+          }
+        \tl_if_empty:NTF \NEWPAX@key@BS
+          {
+            \pdfannot_dict_remove:nn {link/#1} { BS }
+          }
+          {
+            \pdfannot_dict_put:nnx
+              {link/#1}
+              { BS }
+              { \NEWPAX@key@BS }
+          }
+        \tl_if_empty:NTF \NEWPAX@key@H
+          {
+            \pdfannot_dict_remove:nn {link/#1} { H }
+          }
+          {
+            \pdfannot_dict_put:nnx
+              {link/#1}
+              { H }
+              { \NEWPAX@key@H }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \@NEWPAX@linkgoto@xnn #1 #2 #3  %#1 dest #2 width #3 height
+  {
+    \group_begin:
+      \@NEWPAX@setattributes@n {GoTo}
+      \leavevmode
+      \pdfannot_link_goto_begin:xw
+        { #1 }
+        \@NEWPAX@ensurelinkbox@n{\hbox_to_wd:nn {#2}{ { \rule{0pt}{#3} }\hfill}}
+      \pdfannot_link_goto_end:
+    \group_end:
+  }
+\cs_new_protected:Npn \@NEWPAX@link@setaction@nn #1 #2
+ {
+    \pdfannot_dict_put:nnn{link/#1}{Subtype}{/Link}
+    \pdfannot_dict_put:nnx{link/#1}{A}
+       {<</Type/Action/S/#1 #2>>}
+ }
+\cs_new_protected:Npn \@NEWPAX@annotboxlink@nnn #1 #2 #3   %#1 type, #2 width #3 height
+  {
+    \group_begin:
+      \@NEWPAX@setattributes@n {#1}
+      \leavevmode
+      \pdfannot_box:nnnx {#2}{#3}{0pt}
+         {\pdfannot_dict_use:n{link/#1}}
+    \group_end:
+  }
+\cs_new_protected:Npn \@NEWPAX@destination@xx #1 #2
+  {
+    \pdf_destination:xx {#1}{#2}
+  }
+\cs_new_eq:NN \@NEWPAX@ensurelinkbox@n \use:n
+\AddToHook{package/hyperref/after}
+  {
+    \sys_if_engine_xetex:T
+      {
+        \cs_set_eq:NN \@NEWPAX@ensurelinkbox@n \XeTeXLinkBox
+      }
+  }
+\NewCommandCopy\NEWPAX@ORG@includegraphics\includegraphics
+\RenewDocumentCommand\includegraphics{sO{}m}
+  {
+    \IfBooleanTF {#1}
+      {
+        \NEWPAX@includegraphics[clip,#2]{#3}
+      }
+      {
+        \NEWPAX@includegraphics[#2]{#3}
+      }
+  }
+\def\NEWPAX@includegraphics[#1]#2{%
+  \group_begin:
+    \hbox_set:Nn \l__newpax_tmpa_box {\NEWPAX@ORG@includegraphics[{#1}]{#2}}%
+    \tl_set:Nx \NEWPAX@inc@width
+      { \dim_eval:n { \box_wd:N \l__newpax_tmpa_box } }%
+    \tl_set:Nx \NEWPAX@inc@height
+      { \dim_eval:n { \box_dp:N \l__newpax_tmpa_box + \box_ht:N \l__newpax_tmpa_box } }%
+    \mode_leave_vertical:
+    \hbox_to_wd:nn
+     { \box_wd:N \l__newpax_tmpa_box }
+     {
+      \hbox_overlap_right:n { \box_use:N \l__newpax_tmpa_box }
+      \bool_if:nT
+        { \l__newpax_addannots_bool
+           &&
+           (
+            \int_compare_p:nNn
+             {
+               \cs_if_exist:NTF\pdfpages@includegraphics@status
+                 {
+                    \pdfpages@includegraphics@status
+                 }{0}
+             }
+             <
+             {2}
+           )
+        }
+        {
+          \box_move_down:nn
+           {\box_dp:N \l__newpax_tmpa_box }
+           {
+             \hbox:n
+               {
+                \NEWPAX@AddAnnots{#1}{#2}%
+               }
+           }
+        }
+      \hfill
+    }
+  \group_end:
+}
+\keys_define:nn {newpax/Gin}
+ {
+   ,page  .tl_set:N = \NEWPAX@Gin@page
+   ,page  .initial:n = 1
+   ,angle .tl_set:N = \NEWPAX@Gin@angle
+   ,angle .initial:n = 0
+   ,clip  .legacy_if_set:n = NEWPAX@Gin@clip
+   ,viewport .code:n =
+     {
+       \tl_put_right:Nn\NEWPAX@Gin@box@opts
+         {\NEWPAX@viewport#1\\}
+     }
+   ,trim .code:n =
+     {
+       \tl_put_right:Nn\NEWPAX@Gin@box@opts
+        {\NEWPAX@trim#1\\}
+     }
+   ,unknown .code:n = {}
+ }
+\ExplSyntaxOff
+
+\def\NEWPAX@viewport#1 #2 #3 #4\\{%
+  \NEWPAX@defaultbp\NEWPAX@vllx{#1}%
+  \NEWPAX@defaultbp\NEWPAX@vlly{#2}%
+  \NEWPAX@defaultbp\NEWPAX@vurx{#3}%
+  \NEWPAX@defaultbp\NEWPAX@vury{#4}%
+  \edef\NEWPAX@page@llx{\dimexpr\NEWPAX@page@llx+\NEWPAX@vllx\relax}%
+  \edef\NEWPAX@page@lly{\dimexpr\NEWPAX@page@lly+\NEWPAX@vlly\relax}%
+  \edef\NEWPAX@page@urx{\dimexpr\NEWPAX@page@llx+\NEWPAX@vlly\relax}%
+  \edef\NEWPAX@page@ury{\dimexpr\NEWPAX@page@lly+\NEWPAX@vury\relax}%
+}
+\def\NEWPAX@trim#1 #2 #3 #4\\{%
+  \NEWPAX@defaultbp\NEWPAX@tllx{#1}%
+  \NEWPAX@defaultbp\NEWPAX@tlly{#2}%
+  \NEWPAX@defaultbp\NEWPAX@turx{#3}%
+  \NEWPAX@defaultbp\NEWPAX@tury{#4}%
+  \edef\NEWPAX@page@llx{\dimexpr\NEWPAX@page@llx+\NEWPAX@tllx\relax}%
+  \edef\NEWPAX@page@lly{\dimexpr\NEWPAX@page@lly+\NEWPAX@tlly\relax}%
+  \edef\NEWPAX@page@urx{\dimexpr\NEWPAX@page@urx-\NEWPAX@turx\relax}%
+  \edef\NEWPAX@page@ury{\dimexpr\NEWPAX@page@ury-\NEWPAX@tury\relax}%
+}
+\def\NEWPAX@defaultbp#1#2{%
+  \afterassignment\NEWPAX@def@bp\dimen@#2bp\relax{#1}{#2}%
+}
+\def\NEWPAX@def@bp#1\relax#2#3{%
+  \if!#1!%
+    \edef#2{#3bp}%
+  \else
+    \edef#2{#3}%
+  \fi
+}
+\def\NEWPAX@AddAnnots#1#2{%
+  \SetKeys[newpax/Gin]{#1}%
+  \Grot@setangle{\NEWPAX@Gin@angle}%
+  % a little careful, is type of angle int or real?
+  \loop
+  \ifdim\NEWPAX@Gin@angle\p@<360\p@
+  \else
+    \edef\NEWPAX@Gin@angle{\the\numexpr-360+\number\NEWPAX@Gin@angle}%
+  \repeat
+  \loop
+  \ifdim\NEWPAX@Gin@angle\p@<\z@
+    \edef\NEWPAX@Gin@angle{\strip@pt\dimexpr\NEWPAX@Gin@angle\p@+360\p@}%
+  \repeat
+  \ifcase0\ifnum\NEWPAX@Gin@angle=0 1\fi
+          \ifnum\NEWPAX@Gin@angle=90 1\fi
+          \ifnum\NEWPAX@Gin@angle=180 1\fi
+          \ifnum\NEWPAX@Gin@angle=270 1\fi
+    \PackageWarning{newpax}{Unsupported value for option angle}%
+  \fi
+  \filename@parse{#2}%
+  \def\NEWPAX@file{%\filename@area
+  \filename@base.\NEWPAX@fileextension }%
+  \let\[\NEWPAX@parser
+  \def\<{<}%
+  \def\>{>}%
+  \endlinechar=-1 %
+  \begingroup
+  \catcode`\#=12 \catcode`\%=12
+  \InputIfFileExists\NEWPAX@file{}{\typeout{* Missing: \NEWPAX@file}}\endgroup
+}
+\def\NEWPAX@parser#1{\NEWPAX@call{cmd}{#1}{}}%
+\def\NEWPAX@call#1#2#3{%
+  \@ifundefined{NEWPAX@#1@#2}\NEWPAX@skip{#3\csname NEWPAX@#1@#2\endcsname}%
+}
+\def\NEWPAX@skip#1\\{}
+\def\NEWPAX@stop#1\\{}
+
+\def\NEWPAX@cmd@page#1#2{%
+  \NEWPAX@filter@page{#1}{%
+    \NEWPAX@getrect{page}#2\@nil
+    \NEWPAX@Gin@box@opts
+    \ifcase0\ifnum\NEWPAX@Gin@angle=90 1\fi
+            \ifnum\NEWPAX@Gin@angle=270 1\fi
+    \else
+      \let\NEWPAX@temp\NEWPAX@inc@width
+      \let\NEWPAX@inc@width\NEWPAX@inc@height
+      \let\NEWPAX@inc@height\NEWPAX@temp
+    \fi
+    \Gscale@div\NEWPAX@scale@x\NEWPAX@inc@width{%
+      \dimexpr\NEWPAX@page@urx-\NEWPAX@page@llx\relax
+    }%
+    \Gscale@div\NEWPAX@scale@y\NEWPAX@inc@height{%
+      \dimexpr\NEWPAX@page@ury-\NEWPAX@page@lly\relax
+    }%
+    \NEWPAX@skip
+  }%
+}
+\def\NEWPAX@filter@page#1{%
+  \ifnum\NEWPAX@Gin@page=#1 %
+    \expandafter\@firstofone
+  \else
+    \ifnum\NEWPAX@Gin@page<#1 %
+      \csname fi\endcsname
+      \csname fi\endcsname
+      \expandafter\NEWPAX@stop\@gobblefour
+    \fi
+    \expandafter\NEWPAX@skip
+  \fi
+}
+\def\NEWPAX@getrect#1#2 #3 #4 #5\@nil{%
+  \@namedef{NEWPAX@#1@llx}{#2bp}%
+  \@namedef{NEWPAX@#1@lly}{#3bp}%
+  \@namedef{NEWPAX@#1@urx}{#4bp}%
+  \@namedef{NEWPAX@#1@ury}{#5bp}%
+}
+
+\def\NEWPAX@cmd@annot#1#2{%
+  \NEWPAX@filter@page{#1}{%
+    \NEWPAX@call{annot}{#2}{}%
+  }%
+}
+\def\NEWPAX@annot@Link#1#2#3{%
+  \def\NEWPAX@link@type{#2}%
+  \NEWPAX@call{link}{#2}{%
+    \begingroup
+    \NEWPAX@getrect{annot}#1\@nil
+    \SetKeys[newpax/key]{#3}%
+  }%
+  \NEWPAX@skip
+}
+
+
+\newif\ifNEWPAX@ok
+\NEWPAX@oktrue
+
+\newif\ifNEWPAX@GoTo
+\def\NEWPAX@sanitize@destname{%
+    \edef\0{\string\0}%
+    \edef\1{\string\1}%
+    \edef\2{\string\2}%
+    \edef\3{\string\3}%
+    \edef\8{\string\8}%
+    \edef\9{\string\9}}
+
+\def\NEWPAX@pdf@annot#1{%
+  \ifNEWPAX@Gin@clip
+    \ifdim\NEWPAX@annot@llx<\NEWPAX@page@llx
+      \let\NEWPAX@annot@llx\NEWPAX@page@llx
+    \fi
+    \ifdim\NEWPAX@annot@lly<\NEWPAX@page@lly
+      \let\NEWPAX@annot@lly\NEWPAX@page@lly
+    \fi
+    \ifdim\NEWPAX@annot@urx>\NEWPAX@page@urx
+      \let\NEWPAX@annot@urx\NEWPAX@page@urx
+    \fi
+    \ifdim\NEWPAX@annot@ury>\NEWPAX@page@ury
+      \let\NEWPAX@annot@ury\NEWPAX@page@ury
+    \fi
+    \NEWPAX@okfalse
+    \ifdim\NEWPAX@annot@llx<\NEWPAX@annot@urx\relax
+      \ifdim\NEWPAX@annot@lly<\NEWPAX@annot@ury\relax
+        \NEWPAX@oktrue
+      \fi
+    \fi
+  \else
+    \NEWPAX@oktrue
+  \fi
+  \ifNEWPAX@ok
+    \ifcase 0\ifnum\NEWPAX@Gin@angle=90 1\fi
+             \ifnum\NEWPAX@Gin@angle=180 2\fi
+             \ifnum\NEWPAX@Gin@angle=270 3\fi\space
+      % angle = 0
+      \def\NEWPAX@raise{%
+        \NEWPAX@scale@y\dimexpr\NEWPAX@annot@lly-\NEWPAX@page@lly\relax
+      }%
+      \def\NEWPAX@right{%
+        \NEWPAX@scale@x\dimexpr\NEWPAX@annot@llx-\NEWPAX@page@llx\relax
+      }%
+    \or % angle = 90
+      \def\NEWPAX@raise{%
+        \NEWPAX@scale@x\dimexpr\NEWPAX@annot@llx-\NEWPAX@page@llx\relax
+      }%
+      \def\NEWPAX@right{%
+        \NEWPAX@scale@y\dimexpr\NEWPAX@page@ury-\NEWPAX@annot@ury\relax
+      }%
+    \or % angle = 180
+      \def\NEWPAX@raise{%
+        \NEWPAX@scale@y\dimexpr\NEWPAX@page@ury-\NEWPAX@annot@ury\relax
+      }%
+      \def\NEWPAX@right{%
+        \NEWPAX@scale@x\dimexpr\NEWPAX@page@urx-\NEWPAX@annot@urx\relax
+      }%
+    \or % angle = 270
+      \def\NEWPAX@raise{%
+        \NEWPAX@scale@x\dimexpr\NEWPAX@page@urx-\NEWPAX@annot@urx\relax
+      }%
+      \def\NEWPAX@right{%
+        \NEWPAX@scale@y\dimexpr\NEWPAX@annot@lly-\NEWPAX@page@lly\relax
+      }%
+    \fi
+    \@namedef{%
+      NEWPAX@%
+      \ifcase0\ifnum\NEWPAX@Gin@angle=90 1\fi
+              \ifnum\NEWPAX@Gin@angle=270 1\fi\space
+        width%
+      \else
+        height%
+      \fi
+    }{%
+      \NEWPAX@scale@x\dimexpr\NEWPAX@annot@urx-\NEWPAX@annot@llx\relax
+    }%
+    \@namedef{%
+      NEWPAX@%
+      \ifcase0\ifnum\NEWPAX@Gin@angle=90 1\fi
+              \ifnum\NEWPAX@Gin@angle=270 1\fi\space
+        height%
+      \else
+        width%
+      \fi
+    }{%
+      \NEWPAX@scale@y\dimexpr\NEWPAX@annot@ury-\NEWPAX@annot@lly\relax
+    }%
+    \raise\NEWPAX@raise\hb@xt@\z@{%
+      \kern\NEWPAX@right
+      \ifNEWPAX@GoTo
+        %additional box for lualatex ...
+        \hbox{%
+          \@NEWPAX@linkgoto@xnn
+            {\NEWPAX@file @\NEWPAX@DestName}%
+            {\NEWPAX@width}%
+            {\NEWPAX@height}%
+            }%
+      \else
+        \hbox{%
+        \expandafter\@NEWPAX@link@setaction@nn\expandafter{\NEWPAX@link@type}{#1}%
+        \expandafter
+         \@NEWPAX@annotboxlink@nnn
+         \expandafter {\NEWPAX@link@type}{\NEWPAX@width}{\NEWPAX@height}{}}%
+      \fi
+      \hss
+    }%
+  \fi
+  \endgroup
+}
+\def\NEWPAX@htype@GoToR{file}
+\def\NEWPAX@htype@GoTo{link}
+\def\NEWPAX@htype@Named{link}
+\def\NEWPAX@htype@URI{url}
+\ExplSyntaxOn
+\def\NEWPAX@link@URI{%
+  \NEWPAX@pdf@annot{%
+    /URI\tl_to_str:V\NEWPAX@key@URI
+  }%
+}
+\def\NEWPAX@link@Named{%
+  \NEWPAX@pdf@annot{%
+    /N \pdf_name_from_unicode_e:n{\NEWPAX@key@Name} %the value is from a pdf so we can assume it is correctly escaped??
+  }%
+}
+\ExplSyntaxOff
+\def\NEWPAX@link@GoToR{%
+  \NEWPAX@pdf@annot{%
+    /F\NEWPAX@key@File
+    /D%
+    \ifx\NEWPAX@key@DestName\@empty
+      [\NEWPAX@key@DestPage\space\NEWPAX@key@DestView]%
+    \else
+      \NEWPAX@key@DestName
+    \fi
+  }%
+}
+\AddToHook{begindocument}
+  {
+   \immediate\write\@mainaux{\string\providecommand{\string\NEWPAX@DestReq}[2]{}}
+   \immediate\write\@mainaux{\string\providecommand{\string\NEWPAX@DestProv}[2]{}}
+  }
+\AddToHook
+  {include/before}
+  {
+   \immediate\write\@partaux{\string\providecommand{\string\NEWPAX@DestReq}[2]{}}
+   \immediate\write\@partaux{\string\providecommand{\string\NEWPAX@DestProv}[2]{}}
+  }
+\AtBeginDocument{%
+  \let\NEWPAX@DestReq\@gobbletwo
+  \let\NEWPAX@DestProv\@gobbletwo
+}
+
+\def\NEWPAX@DestReq#1#2{{%
+  \NEWPAX@sanitize@destname
+  \expandafter\gdef\csname NEWPAX@REQ@#1@#2\endcsname{}%
+}}
+
+\def\NEWPAX@DestProv#1#2{{%
+  \NEWPAX@sanitize@destname
+  \expandafter\gdef\csname NEWPAX@PROV@#1@#2\endcsname{}%
+}}
+
+\ExplSyntaxOn
+\cs_new:Npn \NEWPAX@DestName
+  {
+    \tl_if_empty:eTF
+      { \NEWPAX@key@DestName }
+      { \NEWPAX@key@DestLabel}
+      { \NEWPAX@key@DestName }
+    \l__newpax_destsuffix_tl
+  }
+\def\NEWPAX@link@GoTo{%
+  \ifnum0<0\NEWPAX@key@DestLabel\relax
+    \expandafter\@firstofone
+  \else
+    \endgroup
+    \expandafter\@gobble
+  \fi
+  {%
+    \if@filesw
+      \protected@write\@auxout{}{%
+        \string\NEWPAX@DestReq{\NEWPAX@file}{\NEWPAX@DestName}%
+      }%
+    \fi
+    % Generate link, if destination exists
+    \@ifundefined{NEWPAX@PROV@\NEWPAX@file @\NEWPAX@DestName}{%
+      \endgroup
+    }{%
+      \NEWPAX@GoTotrue
+      \NEWPAX@pdf@annot{}%
+    }%
+  }%
+}
+\def\NEWPAX@cmd@dest#1#2#3#4{%
+  \def\NEWPAX@key@DestLabel{#2}%
+  \def\NEWPAX@key@DestName{}%
+  \keys_set_groups:nnn {newpax/key} {destinit} {#4}
+  \NEWPAX@filter@page{#1}{%
+    \if@filesw
+      \protected@write\@auxout{}{%
+        \string\NEWPAX@DestProv{\NEWPAX@file}{\NEWPAX@DestName}%
+      }%
+    \bool_if:NT\l__newpax_dests_all_bool
+     {
+       \protected@write\@auxout{}
+        {
+          \string\NEWPAX@DestReq{\NEWPAX@file}{\NEWPAX@DestName}%
+        }
+     }
+    \fi
+    \@ifundefined{NEWPAX@REQ@\NEWPAX@file @\NEWPAX@DestName}{%
+    }{%
+      \begingroup
+        \let\NEWPAX@key@DestY\NEWPAX@page@ury
+        \let\NEWPAX@key@DestX\NEWPAX@page@llx
+        \keys_set_filter:nnn {newpax/key} {destinit} {#4}
+        \let\NEWPAX@dest@llx\NEWPAX@key@DestX
+        \let\NEWPAX@dest@urx\NEWPAX@key@DestX
+        \let\NEWPAX@dest@lly\NEWPAX@key@DestY
+        \let\NEWPAX@dest@ury\NEWPAX@key@DestY
+        \ifx\NEWPAX@key@DestRect\@empty
+        \else
+          \def\NEWPAX@temp{dest}%
+          \expandafter\NEWPAX@getrect\expandafter\NEWPAX@temp
+          \NEWPAX@key@DestRect\@nil
+        \fi
+        \ifNEWPAX@Gin@clip
+          \ifx\NEWPAX@dest@llx<\NEWPAX@page@llx
+            \let\NEWPAX@dest@llx\NEWPAX@page@llx
+          \fi
+          \ifx\NEWPAX@dest@lly<\NEWPAX@page@lly
+            \let\NEWPAX@dest@lly\NEWPAX@page@lly
+          \fi
+          \ifx\NEWPAX@dest@urx>\NEWPAX@page@urx
+            \let\NEWPAX@dest@urx\NEWPAX@page@urx
+          \fi
+          \ifx\NEWPAX@dest@ury>\NEWPAX@page@ury
+            \let\NEWPAX@dest@ury\NEWPAX@page@ury
+          \fi
+          % at least prevent destinations outside the window
+          \ifx\NEWPAX@dest@llx>\NEWPAX@page@urx
+            \NEWPAX@dest@llx\NEWPAX@page@urx
+          \fi
+          \ifx\NEWPAX@dest@lly>\NEWPAX@page@ury
+            \NEWPAX@dest@lly\NEWPAX@page@ury
+          \fi
+          \ifx\NEWPAX@dest@urx<\NEWPAX@page@llx
+            \NEWPAX@dest@urx\NEWPAX@page@llx
+          \fi
+          \ifx\NEWPAX@dest@ury<\NEWPAX@page@lly
+            \NEWPAX@dest@ury\NEWPAX@page@lly
+          \fi
+        \fi
+        % I don't know, what is the best idea for rotated stuff,
+        % perhaps using the corner llx/ury
+        \ifcase 0\ifnum\NEWPAX@Gin@angle=90 1\fi
+                 \ifnum\NEWPAX@Gin@angle=180 2\fi
+                 \ifnum\NEWPAX@Gin@angle=270 3\fi\space
+          % angle = 0
+          \def\NEWPAX@raise{%
+            \NEWPAX@scale@y\dimexpr\NEWPAX@dest@lly-\NEWPAX@page@lly\relax
+          }%
+          \def\NEWPAX@right{%
+            \NEWPAX@scale@x\dimexpr\NEWPAX@dest@llx-\NEWPAX@page@llx\relax
+          }%
+        \or % angle = 90
+          \def\NEWPAX@raise{%
+            \NEWPAX@scale@x\dimexpr\NEWPAX@dest@llx-\NEWPAX@page@llx\relax
+          }%
+          \def\NEWPAX@right{%
+            \NEWPAX@scale@y\dimexpr\NEWPAX@page@ury-\NEWPAX@dest@ury\relax
+          }%
+        \or % angle = 180
+          \def\NEWPAX@raise{%
+            \NEWPAX@scale@y\dimexpr\NEWPAX@page@ury-\NEWPAX@dest@ury\relax
+          }%
+          \def\NEWPAX@right{%
+            \NEWPAX@scale@x\dimexpr\NEWPAX@page@urx-\NEWPAX@dest@urx\relax
+          }%
+        \or % angle = 270
+          \def\NEWPAX@raise{%
+            \NEWPAX@scale@x\dimexpr\NEWPAX@page@urx-\NEWPAX@dest@urx\relax
+          }%
+          \def\NEWPAX@right{%
+            \NEWPAX@scale@y\dimexpr\NEWPAX@dest@lly-\NEWPAX@page@lly\relax
+          }%
+        \fi
+        \edef\NEWPAX@name
+          {\NEWPAX@file @\NEWPAX@DestName}%
+        \let\NEWPAX@type\@empty
+        \newpax@str@if@eq@@nnT{#3}{FITR}{\def\NEWPAX@type{xyz}}%too lazy for now for better fitr
+        \newpax@str@if@eq@@nnT{#3}{XYZ}
+          {%
+            \def\NEWPAX@type{xyz}%
+            \ifx\NEWPAX@key@DestZoom\@empty
+            \else
+             \edef\NEWPAX@type{\fpeval{\NEWPAX@key@DestZoom *100}}%
+            \fi
+          }
+        \newpax@str@if@eq@@nnT{#3}{FIT}{\def\NEWPAX@type{fit}}
+        \newpax@str@if@eq@@nnT{#3}{FITB}{\def\NEWPAX@type{fitb}}
+        \newpax@str@if@eq@@nnT{#3}{FITH}{\def\NEWPAX@type{fith}}
+        \newpax@str@if@eq@@nnT{#3}{FITBH}{\def\NEWPAX@type{fitbh}}
+        \newpax@str@if@eq@@nnT{#3}{FITV}{\def\NEWPAX@type{fitv}}
+        \newpax@str@if@eq@@nnT{#3}{FITBV}{\def\NEWPAX@type{fitbv}}
+        \ifx\NEWPAX@type\@empty
+          \def\NEWPAX@type{xyz}%
+        \fi
+        \raise\NEWPAX@raise\hb@xt@\z@{%
+          \kern\NEWPAX@right
+          \hbox{\@NEWPAX@destination@xx {\NEWPAX@name}{\NEWPAX@type}}%
+          \hss
+        }%
+      \endgroup
+      \cs_undefine:c{NEWPAX@REQ@\NEWPAX@file @\NEWPAX@DestName}
+    }%
+    \NEWPAX@skip
+  }%
+}
+\def\NEWPAX@key@DestName{}
+\keys_define:nn {newpax/key}
+  {
+   ,URI      .tl_set:N = \NEWPAX@key@URI
+   ,Name     .tl_set:N = \NEWPAX@key@Name
+   ,DestName .code:n   =
+     {
+       \group_begin:
+       \NEWPAX@sanitize@destname
+       \tl_gset:Ne \g__newpax_tmpa_tl{#1}
+       \group_end:
+       \cs_set_eq:NN\NEWPAX@key@DestName\g__newpax_tmpa_tl
+     }
+   ,DestName .groups:n = {destinit}
+   ,DestPage .tl_set:N = \NEWPAX@key@DestPage
+   ,DestView .tl_set:N = \NEWPAX@key@DestView
+   ,File     .tl_set:N = \NEWPAX@key@File
+   ,C        .tl_set:N = \NEWPAX@key@C
+   ,Border   .tl_set:N = \NEWPAX@key@Border
+   ,BS       .tl_set:N = \NEWPAX@key@BS
+   ,H        .tl_set:N = \NEWPAX@key@H
+   ,DestLabel .tl_set:N = \NEWPAX@key@DestLabel
+   ,DestLabel .groups:n = {destinit}
+   ,DestRect .tl_set:N = \NEWPAX@key@DestRect
+   ,DestZoom .tl_set:N = \NEWPAX@key@DestZoom
+   ,DestX    .code:n = { \NEWPAX@defaultbp\NEWPAX@key@DestX{#1} }
+   ,DestY    .code:n = { \NEWPAX@defaultbp\NEWPAX@key@DestY{#1} }
+  }
+\ExplSyntaxOff
+
+%% 
+%%
+%% End of file `newpax.sty'.

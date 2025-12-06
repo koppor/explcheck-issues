@@ -1,0 +1,297 @@
+%
+% Copyright (c) 2021-2025 Zeping Lee
+% Released under the MIT License.
+% Repository: https://github.com/zepinglee/citeproc-lua
+%
+
+% ## Compatibilities with other packages
+
+% ### `babel`
+
+\hook_gput_code:nnn { package / babel / after } { . }
+  {
+    \RenewDocumentCommand \nocite { m }
+      {
+        % \@safe@activestrue\org@nocite{#1}\@safe@activesfalse
+        \@safe@activestrue
+        \__csl_no_cite:n {#1}
+        \@safe@activesfalse
+      }
+    \cs_set_eq:NN \bbl@cite@choice \relax
+    \cs_set_eq:NN \@lbibitem \__csl_lbibitem_plain:nn
+    \cs_set_eq:NN \@bibitem \__csl_bibitem_plain:n
+    %
+    \cs_set:Npn \__csl_get_locale_from_babel:
+      {
+        % `babel`'s main language
+        \tl_if_exist:NT \bbl@main@language
+          {
+            \prop_get:NVNTF \l__csl_language_code_map_prop \bbl@main@language
+              \l__csl_locale_tl
+              {
+                \msg_info:nnVV { citation-style-language }
+                  { locale-from-babel-language } \l__csl_locale_tl
+                  \bbl@main@language
+              }
+              {
+                \msg_warning:nnV { citation-style-language }
+                  { unrecognized-babel-language } \bbl@main@language
+                \tl_clear:N \l__csl_locale_tl
+              }
+          }
+      }
+    %
+    \msg_new:nnn { citation-style-language } { locale-from-babel-language }
+      { CSL~ locale~ "#1"~ from~ babel~ language~ "#2". }
+    \msg_new:nnn { citation-style-language } { unrecognized-babel-language }
+      { Unrecognized~ babel~ language~ "#1". }
+  }
+
+
+% ### `backref`
+
+\hook_gput_code:nnn { package / backref / after } { . }
+  {
+    \cs_set:Npn \__csl_add_back_ref_info:
+      { \seq_map_inline:Nn \l__csl_cite_keys_seq { \Hy@backout {##1} } }
+  }
+
+
+% ### `beamer`
+
+% `beamer` passes `implicit=false` to `hyperref` to skip its patch to LaTeX2e
+% internal bibliographic commands. Instead `beamer` refines those commands
+% in its own way.
+
+\cs_new:Npn \__csl_beamer_cite_item:nn #1#2
+  { \hyperlink { beamerbib #1 } { #2 } }
+
+\cs_new:Npn \__csl_beamer_lbibitem:nn [#1]#2
+  {
+    \exp_after:wN \item \beamer@bibstore [ \@biblabel {#1} \hfill ]
+    \cs_if_exist:cF { beamerbib@ #2 @ \int_use:N \c@framenumber }
+      {
+        \cs_gset:cpn { beamerbib@ #2 @ \int_use:N \c@framenumber } { \relax }
+        \hypertarget { beamerbib #2 } { }
+      }
+    \hbox { }
+    \ignorespaces
+  }
+
+\cs_new:Npn \__csl_beamer_bibitem:n #1
+  {
+    \exp_after:wN \item \beamer@bibstore
+    \cs_if_exist:cF { beamerbib@ #1 @ \int_use:N \c@framenumber }
+      {
+        \cs_gset:cpn { beamerbib@ #1 @ \int_use:N \c@framenumber } { \relax }
+        \hypertarget { beamerbib #1 } { }
+      }
+  }
+
+\hook_gput_code:nnn { class / beamer / after } { . }
+  {
+    \cs_gset_eq:NN \@lbibitem \__csl_beamer_lbibitem:nn
+    \cs_gset_eq:NN \@bibitem \__csl_beamer_bibitem:n
+    \cs_gset_eq:NN \cslcite \__csl_beamer_cite_item:nn
+  }
+
+
+% ### `biblatex`
+% The following doesn't really make `csl` compatible with `biblatex`.
+% It just provides commands to make it accepting `biblatex`'s database.
+
+\ProvideDocumentCommand { \hyphen } { }
+  {
+    \nobreak - \nobreak
+    \hskip \z@skip
+  }
+
+
+% ### `csquotes`
+
+\hook_gput_code:nnn { package / csquotes / after } { . }
+  {
+    \BlockquoteDisable
+      {
+        \cs_set_eq:NN \__csl_process_citation_info: \relax
+        \cs_set_eq:NN \__csl_make_citation: \relax
+      }
+  }
+
+
+% ### `hyperref`
+
+\clist_new:N \l__csl_ref_section_entry_ids_clist
+\clist_new:N \l__csl_ref_section_excluded_ids_clist
+
+\cs_new:Npn \__csl_hyperref_cite_item:nn #1#2
+  {
+    % \clist_show:N \l__csl_ref_section_excluded_ids_clist
+    % \clist_show:N \l__csl_ref_section_entry_ids_clist
+    \clist_if_in:NnTF \l__csl_ref_section_excluded_ids_clist {#1}
+      {
+        \clist_if_in:NnTF \l__csl_ref_section_entry_ids_clist {#1}
+          {
+            \hyper@@link [ cite ] { }
+              { cite \int_use:N \g__csl_ref_section_index_int . #1 \@extra@b@citeb } {#2}
+          }
+          {#2}
+      }
+      {
+        \hyper@@link [ cite ] { }
+          { cite \int_use:N \g__csl_ref_section_index_int . #1 \@extra@b@citeb } {#2}
+      }
+  }
+
+\cs_new:Npn \__csl_hyperref_lbibitem:nn [#1]#2
+  {
+    \@skiphyperreftrue
+    \H@item
+      [
+        \ifx \Hy@raisedlink \@empty
+          \hyper@anchorstart
+            { cite \int_use:N \g__csl_ref_section_index_int . #2 \@extra@b@citeb }
+          \@BIBLABEL {#1}
+          \hyper@anchorend
+        \else
+          \Hy@raisedlink
+            {
+              \hyper@anchorstart
+                { cite \int_use:N \g__csl_ref_section_index_int . #2 \@extra@b@citeb }
+              \hyper@anchorend
+            }
+          \@BIBLABEL {#1}
+        \fi
+        \hfill
+      ]
+    \@skiphyperreffalse
+    \ignorespaces
+  }
+
+\cs_new:Npn \__csl_hyperref_bibitem:n #1
+  {
+    \@skiphyperreftrue \H@item \@skiphyperreffalse
+    \Hy@raisedlink
+      {
+        \hyper@anchorstart
+          { cite \int_use:N \g__csl_ref_section_index_int . #1 \@extra@b@citeb }
+        \relax
+        \hyper@anchorend
+      }
+    \ignorespaces
+  }
+
+\prop_new:N \g__csl_entry_ids_prop
+\prop_new:N \g__csl_excluded_ids_prop
+
+\cs_new:Npn \__csl_hyperref_process_entry_ids:n #1
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \__csl_if_preamble:TF
+          {
+            % From `\csl@aux@options` commands in the `.aux` file
+            \exp_args:NNV \__csl_append_entry_ids:Nnn \g__csl_entry_ids_prop
+              \l__csl_ref_section_index_tl {#1}
+          }
+          {
+            % From `\csloptions` commands via `\printbibliography`
+            \__csl_write_aux_options:n { entry-ids = {#1} }
+          }
+      }
+      {
+        % Read by `\csloptions` commands from the `.bbl` file
+        \exp_args:NNV \__csl_append_entry_ids:Nnn \g__csl_entry_ids_prop
+          \l__csl_ref_section_index_tl {#1}
+      }
+  }
+
+\cs_new:Npn \__csl_hyperref_process_excluded_ids:n #1
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \__csl_if_preamble:TF
+          {
+            % From `\csl@aux@options` commands in the `.aux` file
+            \exp_args:NNV \__csl_append_entry_ids:Nnn \g__csl_excluded_ids_prop
+              \l__csl_ref_section_index_tl {#1}
+          }
+          {
+            % From `\csloptions` commands via `\printbibliography`
+            \__csl_write_aux_options:n { excluded-ids = {#1} }
+          }
+      }
+      {
+        % Read by `\csloptions` commands from the `.bbl` file
+        \exp_args:NNV \__csl_append_entry_ids:Nnn \g__csl_excluded_ids_prop
+          \l__csl_ref_section_index_tl {#1}
+      }
+  }
+
+\cs_new:Npn \__csl_append_entry_ids:Nnn #1#2#3
+  {
+    \clist_clear:N \l_tmpa_clist
+    \prop_get:NnNT #1 {#2} \l_tmpa_tl
+      { \clist_set:NV \l_tmpa_clist \l_tmpa_tl }
+    \clist_map_inline:nn {#3}
+      {
+        \clist_if_in:NnF \l_tmpa_clist {##1}
+          { \clist_put_right:Nn \l_tmpa_clist {##1} }
+      }
+    \prop_gput:Nne #1 {#2}
+      { \clist_use:Nn \l_tmpa_clist { , } }
+  }
+
+\cs_new:Npn \__csl_hyperref_read_entry_ids:
+  {
+    \prop_get:NeNT \g__csl_entry_ids_prop
+      { \int_use:N \g__csl_ref_section_index_int } \l_tmpa_tl
+      { \clist_set:NV \l__csl_ref_section_entry_ids_clist \l_tmpa_tl }
+    \prop_get:NeNT \g__csl_excluded_ids_prop
+      { \int_use:N \g__csl_ref_section_index_int } \l_tmpa_tl
+      { \clist_set:NV \l__csl_ref_section_excluded_ids_clist \l_tmpa_tl }
+  }
+
+\bool_new:N \l__csl_hyperref_loaded_bool
+
+% If `hyperref` is loaded before `csl`, the following code is executed
+% immediately via a one-time hook.
+% Thus we should put it after all of the previous definitions
+% (<https://github.com/zepinglee/citeproc-lua/issues/91>).
+\hook_gput_code:nnn { package / hyperref / after } { . }
+  {
+    \bool_set_true:N \l__csl_hyperref_loaded_bool
+    % Package `hyperref` redefines \@lbibitem and \bibitem and we need to
+    % recover them.
+    % In non-implicit mode (e.g., loaded by `beamer`), hyperref stops early
+    % (`\MaybeStopEarly`) and it doesn't redefine the cite internal commands.
+    \cs_if_exist:NT \@extra@b@citeb
+      {
+        \cs_gset_eq:NN \cslcite \__csl_hyperref_cite_item:nn
+        \cs_gset_eq:NN \@lbibitem \__csl_lbibitem:
+        \cs_gset_eq:NN \@bibitem \__csl_bibitem:
+        \cs_gset_eq:NN \__csl_lbibitem_plain:nn \__csl_hyperref_lbibitem:nn
+        \cs_gset_eq:NN \__csl_bibitem_plain:n \__csl_hyperref_bibitem:n
+        \cs_gset_eq:NN \__csl_process_entry_ids:n \__csl_hyperref_process_entry_ids:n
+        \cs_gset_eq:NN \__csl_process_excluded_ids:n \__csl_hyperref_process_excluded_ids:n
+        \cs_gset_eq:NN \__csl_read_entry_ids: \__csl_hyperref_read_entry_ids:
+      }
+  }
+
+
+% ### `perpage`
+
+\hook_gput_code:nnn { package / perpage / after } { . }
+  {
+    \hook_gput_code:nnn { begindocument } { . }
+      {
+        \cs_if_exist:cT { c@pchk@footnote }
+          {
+            \cs_set:Npn \__csl_make_chapter_property:
+              {
+                \prop_put:Nne \l__csl_citation_properties_prop { chapterIndex }
+                  { \int_use:N \c@page }
+              }
+          }
+      }
+  }

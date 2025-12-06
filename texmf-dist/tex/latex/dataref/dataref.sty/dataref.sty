@@ -1,0 +1,1036 @@
+%%  Copyright 2013-2022 Christian Dietrich
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3 or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%%
+%% The Current Maintainer of this work is Christian Dietrich
+%%
+%% This work consists of the files dataref.dtx and dataref.ins
+%% and the derived file dataref.sty.
+\NeedsTeXFormat{LaTeX2e}[1999/12/01]
+\ProvidesPackage{dataref}[2022/03/25 v0.7 dataref]
+
+\ifx\drefloaded\undefined
+  \let\drefloaded=\relax
+\else
+  \expandafter\endinput
+\fi
+
+\def\drefutil@packageerror#1#2#3{\errhelp{#3}\errmessage{Package #1 Error: #2}}
+\def\drefutil@packagewarning#1#2{\immediate\write17{Package #1: Warning! #2.}}
+\def\dref@error#1{\drefutil@packageerror{dref}{#1}{}}
+\def\dref@warning#1{\drefutil@packagewarning{dref}{#1}}
+
+\RequirePackage{pgf}
+\usepgflibrary{fpu}
+\RequirePackage{iftex}
+\RequirePackage{kvoptions}
+\RequirePackage{etoolbox}
+\RequirePackage{import}
+
+
+
+\SetupKeyvalOptions{
+  family=dref,
+  prefix=dref@
+}
+\DeclareStringOption[/data]{datapath}
+\DeclareStringOption[1]{defaultvalue}
+\DeclareStringOption[none]{annotate}
+\DeclareBoolOption{usagereport}
+\DeclareBoolOption{refall}
+\DeclareBoolOption{ignoremissing}
+\DeclareBoolOption{noassert}
+\ProcessKeyvalOptions*
+
+% Load & Store Layer
+
+% \dref@xdef is only used in \dref@set
+\let\dref@xdef=\xdef % \dref@xdef is overridden in case of listadd
+
+\def\dref@set#1#2#3{%
+  \edef\dref@set@path{#3}%
+  \edef\dref@set@value{#2}%
+  \expandafter\pgfkeys@temptoks\expandafter{\dref@set@value}%
+  \expandafter\dref@xdef%
+      \csname pgfk@\dref@datapath\dref@set@path\endcsname%
+  {\the\pgfkeys@temptoks}%
+  % Setting the Unit is a little bit more tricky
+  %% Unit Path Assembly
+  \expandafter\def%
+  \expandafter\dref@set@unitpath%
+  \expandafter{%
+  \csname pgfk@\dref@datapath\dref@set@path @unit\endcsname}%
+  \expandafter\gdef\dref@set@unitpath{#1}%
+  \ifdref@refall%
+     \expandafter\dref@found\expandafter{\dref@set@path}{0}
+     \expandafter\dref@referenced\expandafter{\dref@set@path}{0}%
+  \fi%
+  \dref@debug{\dref@set@path = \dref@set@value (\detokenize{#1})}%
+}
+
+\def\dref@load#1#2#3{%
+  \edef\dref@load@path{#1}%
+  \pgfkeysifdefined{\dref@datapath\dref@load@path}{%
+    \pgfkeysgetvalue{\dref@datapath\dref@load@path}{#2}%
+    \pgfkeysifdefined{\dref@datapath\dref@load@path @unit}{%
+      \pgfkeysgetvalue{\dref@datapath\dref@load@path @unit}{#3}%
+    }{%
+      \def#3{}%
+    }%
+  }{%
+    \edef#2{\dref@defaultvalue}%
+    \def#3{}%
+  }%
+}
+
+% List Looping. We define this upfront, as we have to build a pgfk@
+% name here. The @loop@do macro is a helper to invoke list/do with the
+% list element. dref@loop uses the etoolbox for looping feature.
+\def\dref@loop@do#1{\drefkeys{list/do={#1}}}
+\def\dref@loop#1{%
+  \forlistcsloop{\dref@loop@do}{%
+      pgfk@\dref@datapath #1%
+  }%
+}
+
+\def\drefifdefined#1{%
+  \pgfkeysifdefined{\dref@datapath\drefprefix #1}%{then}{else}
+}
+
+\def\dref@set@fromaux#1#2#3{%
+  \drefifdefined{#2}{%
+    \dref@warning{"\drefprefix #2" set before beginning of document, \string\drefsave{} is ignore}%
+  }{%
+    \dref@set{#1}{#2}{#3}%
+  }%
+}
+
+\def\drefkeys#1{\pgfkeys{/dref/.cd,#1}}
+\def\drefprefix{\pgfkeysvalueof{/dref/prefix}}
+\newif\ifdref@debug
+\def\dref@debug#1{\ifdref@debug \immediate\write17{Package dref: Debug: #1.}\fi}
+
+\drefkeys{
+  .is family,
+  .search also={/pgf/number format},
+  % The @init action is used to initialize all other actions
+  @[/.code={\begingroup%
+    % /pgf/fpu: \pgfkeys{/pgf/fpu,/pgf/fpu/output format=fixed}% No more dimensions too large
+    \def\drefunit{}% At first we are unitless
+    \aftergroup\edef%
+    \aftergroup\drefresult%
+    \aftergroup{%
+      \aftergroup\drefresult@smuggle%
+      \aftergroup}%
+    \aftergroup\expandafter%
+    \aftergroup\def%
+    \aftergroup\expandafter%
+    \aftergroup\drefunit%
+    \aftergroup\expandafter%
+    \aftergroup{%
+      \aftergroup\drefunit@smuggle%
+      \aftergroup}
+  },
+  @]/.code={% We smuggle \drefresult after the current group
+    \xdef\drefresult@smuggle{\drefresult}%
+    \xdef\drefunit@smuggle{\expandonce\drefunit}%
+    \endgroup%
+  },
+  @init/.style={},
+  % The \drefresult macro holds the current value,
+  % it can be set by value=
+  prefix/.initial={},
+  value/.code={\edef\drefresult{#1}\def\drefunit{}},
+  value=0,
+  path/.estore in={\drefcurrentpath},
+  @init/.append style={},
+  % \drefresult can be set by the @load action
+  @load key to/.code n args={3}{%
+    \dref@load{\drefprefix #1}{#2}{#3}%
+  },
+  @get key to/.style n args={3}{
+    @check key={#1},
+    @reference key={#1},
+    @load key to={#1}{#2}{#3},
+  },
+  @get/.style={%
+    @get key to={\drefcurrentpath}{\drefresult}{\drefunit},
+    unit/@format enable,
+  },
+  % For most commands, we want to check whether a key exists.
+  @check key/.code={%
+    \drefifdefined{#1}{}{%
+      \ifdref@ignoremissing%
+        \dref@warning{undefined key `\drefprefix #1'}%
+      \else%
+        \dref@error{undefined key `\drefprefix #1'}%
+      \fi%
+    }%
+  },
+  % The @set action is used to pipe out \drefresult, before we can
+  % print it. For example, we can use it to save the result to a new
+  % key.
+  @init/.append style={
+    @set/.code={},
+  },
+  set/.style={
+    @set/.append code={%
+      \expandafter\dref@set\expandafter{\drefunit}{\drefresult}{\drefprefix #1}%
+    }
+  },
+  save/.style={
+    set={#1},
+    @set/.append code={%
+      \immediate\write\@auxout{%
+        \noexpand\dref@set@fromaux{\expandonce\drefunit}{\drefresult}{\drefprefix #1}%
+      }%
+    }
+  },
+  to macro/.style={
+    @set/.append code={%
+      \aftergroup\edef%
+      \aftergroup#1%
+      \aftergroup{%
+        \aftergroup\drefresult%
+        \aftergroup}}
+  },
+  % List Keys
+  list/append/.code={\let\dref@xdef=\listxadd},
+  % Apply loop/do for every item
+  list/loop/.code={%
+    \dref@loop{\drefprefix #1}
+  },
+  % Various Keys
+  debug/.is if=dref@debug,
+  ignoremissing/.is if=dref@ignoremissing,
+  defaultvalue/.store in=\dref@defaultvalue,
+}
+
+\csdef{dref@ifnum@0}{}
+\csdef{dref@ifnum@1}{}
+\csdef{dref@ifnum@2}{}
+\csdef{dref@ifnum@3}{}
+\csdef{dref@ifnum@4}{}
+\csdef{dref@ifnum@5}{}
+\csdef{dref@ifnum@6}{}
+\csdef{dref@ifnum@7}{}
+\csdef{dref@ifnum@8}{}
+\csdef{dref@ifnum@9}{}
+\csdef{dref@ifnum@-}{}
+\csdef{dref@ifnum@.}{}
+\def\dref@load@ifkey@firstchar#1#2\@nnil{#1}
+\drefkeys{%
+  @get key or value to/.code n args={3}{%
+    \edef\dref@load@path{#1}%
+    \edef\dref@firstchar{\expandafter\dref@load@ifkey@firstchar \dref@load@path\@nnil}%
+    \ifcsdef{dref@ifnum@\dref@firstchar}{%
+      \edef#2{\dref@load@path}%
+    }{%
+      \drefkeys{@get key to={#1}{#2}{#3}}%
+    }%
+  },
+  @get key or value/.style={
+    @get key or value to={\drefcurrentpath}{\drefresult}{\drefunit},
+    unit/@format enable,
+  },
+}
+
+
+% Print layer
+\drefkeys{
+  @init/.append style={
+    @print result/.code={},
+    @print unit/.code={}
+  },
+  @print/.style={@print result, @print unit},
+  print default/.initial={pgf},
+  print/.is choice,
+  print/no/.style={
+    @print result/.code={},
+    @print unit/.code={}
+  },
+  print/default/.style={%
+    print default/.get=\dref@print@format,%
+    print/.expand once=\dref@print@format,
+  },
+  print/raw/.style={
+    @print result/.code={\drefresult}
+  },
+  print/typeout/.style={
+    @print result/.code={\typeout{#1\drefresult}},
+    @print unit/.code={\typeout{\expandonce\drefunit}},
+  },
+  print/show/.style={
+    @print result/.append code={\show\drefresult},
+  },
+  print/pgf/.style={
+    @print result/.code={%
+      \pgfmathprintnumber{\drefresult}%
+    }
+  },
+  print/siunitx/.style={
+    @print result/.code={%
+      \num{\drefresult}%
+    }
+  },
+}
+
+% Compatibility with underscore package
+\def\dref@normalunderscore{_}
+\edef\dref@catcode@underscore{\the\catcode`_}
+\catcode`_=13
+\def\dref@catcode@setup{%
+  \edef _{\dref@normalunderscore}%
+}
+\catcode`_=\dref@catcode@underscore
+
+
+\AtBeginDocument{%
+  \ifdim 13pt = \the\catcode`_pt%
+    % _ is an active character
+    \drefkeys{@[/.append code={%
+        \dref@catcode@setup%
+     }%
+   }%
+  \fi%
+}
+
+\newcommand{\drefset}[3][]{%
+  % I put this version here, since it
+  % provides a sped up mass setting of keys
+  \begingroup%
+    \ifdim 13pt = \the\catcode`_pt%
+      \dref@catcode@setup%
+    \fi%
+    \edef\drefresult{#3}%
+    \def\drefunit{}%
+    \drefkeys{#1}%
+    \expandafter\dref@set\expandafter{\drefunit}%
+       {\drefresult}{\drefprefix #2}%
+  \endgroup%
+}
+
+\newcommand{\drefsave}[3][]{%
+  \drefkeys{@[, @init, value={#3}, #1, save={#2}, @set, @]}%
+}
+
+\def\dref@splitpath@helper#1/#2\@nnil{%
+  \ifx&#2&% Basename found
+     \def\dref@basename{#1}\let\@next\relax%
+  \else% Another Dirname
+     \edef\dref@dirname{\dref@dirname #1/}%
+     \def\@next{\dref@splitpath@helper#2\@nnil}%
+  \fi%
+  \@next%
+}
+\def\dref@splitpath#1{%
+   % Splits path into \dref@dirname and \dref@basename
+   \def\dref@dirname{}%
+   \dref@splitpath@helper #1/\@nnil%
+}
+
+\newcommand{\drefinput}[2][]{%
+  \begingroup%
+  \drefkeys{prefix/.append={#1}}%
+  \dref@splitpath{#2}%
+  \subimport{\dref@dirname}{\dref@basename}%
+  \endgroup%
+}
+
+
+\def\drefref#1{\drefkeys{@reference key={#1}}}
+
+% From here on, everything should be implemented using pgfkeys
+\protected\def\dref{\@ifstar\dref@starred\dref@unstarred}
+\newcommand{\dref@unstarred}[2][]{%
+  \drefkeys{@[, @init, print=default, path={#2}, #1, @get, @calc, @print, @set,%
+    @annotate={\textbackslash dref[#1]\{#2\}}, @]%
+  }%
+}
+\newcommand{\dref@starred}[2][]{%
+  \drefkeys{@[, @init, print=raw,     path={#2}, #1, @get, @calc, @print, @set,%
+    @annotate={\textbackslash dref*[#1]\{#2\}}, @]%
+  }%
+}
+\def\drefgetvalue#1#2{%
+  \drefkeys{@[,@init, path={#1}, to macro={#2}, @get, @set, @]}%
+}
+\def\drefvalueof#1{%
+  \pgfkeysvalueof{\dref@datapath \drefprefix #1}%
+}
+
+%% dref@ifstrmatch is copied from etextools, but etextools is
+%% incompatible with etoolbox
+%% \ifstrmatch{ pattern }{ string }{ true }{ false }
+\ifPDFTeX%
+  \let\dref@strmatch\pdfmatch
+\fi
+\ifLuaTeX%
+ \newcommand{\dref@strmatch}[2]{%
+  \directlua{%
+    local match = string.find("\luaescapestring{#2}", "\luaescapestring{#1}");%
+    if match then
+      tex.print("1");
+    else
+      tex.print("0");
+    end
+  }%
+}
+\fi
+\long\def\dref@firstoftwo#1#2{\z@#1} %% for romannumeral
+\long\def\dref@secondoftwo#1#2{\z@#2}%% for romannumeral
+\newcommand{\dref@ifstrmatch}[2]{%
+  \romannumeral\csname dref@%
+  \ifnum\dref@strmatch{#1}{#2}=1 first\else second\fi oftwo\endcsname%
+}
+\newcommand{\dref@help@match}[2]{%
+  \dref@ifstrmatch{#1}{#2}%
+}
+\newcommand{\dref@help}[2][]{%
+  \pgfkeysifdefined{#2/help}{%
+    \pgfkeysvalueof{#2/help}%
+  }{#1}%
+}
+\csdef{dref@helps}{}
+\newcommand{\drefsethelp}[2]{
+  \csdef{dref@help@#1}{#2}%
+  \listcsadd{dref@helps}{#1}%
+}
+\newcommand{\drefhelp}[1]{
+  \renewcommand{\do}[1]{%
+    \dref@help@match{##1}{#1}{%
+      \csuse{dref@help@##1}%
+    \listbreak}{}%
+  }%
+  \ifcsvoid{dref@helps}{}{%
+    \dolistcsloop{dref@helps}%
+  }%
+}
+\drefkeys{
+  @reference key/.code={%
+    \edef\dref@thepage{\arabic{page}}%
+    \drefifdefined{#1}{%
+      \immediate\write\@auxout{%
+        \noexpand\dref@found{\drefprefix #1}{\dref@thepage}}%
+    }{%
+      \immediate\write\@auxout{%
+        \noexpand\dref@notfound{\drefprefix #1}{\dref@thepage}}%
+    }%
+    \immediate\write\@auxout{%
+      \noexpand\dref@referenced{\drefprefix #1}{\dref@thepage}}%
+  }
+}
+\def\dref@notfound#1#2{
+  \ifdref@usagereport%
+    \dref@usagereport@notfound{#1}{#2}%
+  \else\relax\fi%
+}
+\def\dref@found#1#2{
+  \ifdref@usagereport%
+    \dref@usagereport@found{#1}{#2}%
+  \else\relax\fi%
+}
+\def\dref@referenced#1#2{
+  \ifdref@usagereport%
+    \dref@usagereport@referenced{#1}{#2}%
+  \else\relax\fi%
+}
+
+
+% The data("") || d() Parser
+\def\dref@parser#1#2{%
+  \edef\@tempa{#1}%
+  \csdef{dref@parser@result}{}%
+  \csdef{dref@parser@state}{}%
+  \expandafter\dref@parser@parse\@tempa\@nnil%
+  \xdef#2{\csuse{dref@parser@result}}%
+}
+
+\def\dref@parser@parse#1#2\@nnil{%
+  %\typeout{#1 State: \csuse{dref@parser@state}}%
+  \ifblank{#1#2}{%
+    \csxdef{dref@parser@result}{\csuse{dref@parser@result}\csuse{dref@parser@state}}%
+  }{%
+    \ifcsdef{dref@parser@\csuse{dref@parser@state}@#1}{%
+      \csuse{dref@parser@\csuse{dref@parser@state}@#1}#2\@nnil%
+    }{%
+      \csxdef{dref@parser@result}{\csuse{dref@parser@result}\csuse{dref@parser@state}#1}%
+      \csdef{dref@parser@state}{}%
+      \ifblank{#2}{}{%
+        \dref@parser@parse#2\@nnil%
+      }%
+    }%
+  }%
+}
+
+\csdef{dref@parser@@d}{\csdef{dref@parser@state}{d}\dref@parser@parse}
+\csdef{dref@parser@d@a}{\csdef{dref@parser@state}{da}\dref@parser@parse}
+\csdef{dref@parser@da@t}{\csdef{dref@parser@state}{dat}\dref@parser@parse}
+\csdef{dref@parser@dat@a}{\csdef{dref@parser@state}{data}\dref@parser@parse}
+\csdef{dref@parser@data@(}{\csdef{dref@parser@state}{data(}\dref@parser@parse}
+\csdef{dref@parser@data(@"}{\dref@parser@tillquote}
+\csdef{dref@parser@d@(}{\dref@parser@tillparen}
+
+\def\dref@parser@tillquote#1")#2\@nnil{%
+  \drefkeys{
+    @get key to={#1}{\dref@math@value}{\dref@math@unit},
+    unit/@combine=\dref@math@unit,
+  }%
+  \csxdef{dref@parser@result}{\csuse{dref@parser@result}(\dref@math@value)}%
+  \csdef{dref@parser@state}{}%
+  \ifblank{#2}{}{\dref@parser@parse#2\@nnil}}
+
+\def\dref@parser@tillparen#1)#2\@nnil{%
+  \drefkeys{@get key to={#1}{\dref@math@value}{\dref@math@unit},
+            unit/@combine=\dref@math@unit}%
+  \csxdef{dref@parser@result}{\csuse{dref@parser@result}(\dref@math@value)}%
+  \csdef{dref@parser@state}{}%
+  \ifblank{#2}{}{\dref@parser@parse#2\@nnil}}%
+
+\def\dref@parser@end#1#2\@nnil{}
+\csdef{dref@parser@@}{\dref@parser@end}
+
+\newif\ifdrefbadmath
+\newif\ifdref@xfp
+\IfFileExists{xfp.sty}{\dref@xfptrue}{\dref@xfpfalse}
+
+% For LuaLaTeX: use the lua math engine
+\ifLuaTeX
+  \drefbadmathfalse%
+  \def\drefmathparse#1{%
+    \edef\pgfmathresult{\directlua{%
+      abs=math.abs ;
+      result = (#1);
+      if result == false then
+         tex.print(0);
+      elseif result == true then
+         tex.print(1);
+      else
+         tex.print(string.format(string.char(37).."s", result))
+      end
+    }}}%
+% We use the FP Library of expl3. This seems to work better for
+% floating numbers and for integers
+\else \ifdref@xfp
+  \RequirePackage{xfp}
+  \drefbadmathfalse%
+  \ExplSyntaxOn% we want to do tests % Usepackage xfp
+  \cs_set_eq:NN \dref@fpeval \fp_eval:n%
+  \ExplSyntaxOff%
+  \def\drefmathparse#1{%
+    \edef\pgfmathresult{\dref@fpeval{#1}}%
+  }%
+%% Fallback to PGFMath
+\else
+  \drefbadmathtrue%
+  \def\drefmathparse#1{%
+    \pgfkeys{/pgf/fpu,/pgf/fpu/output format=fixed}%
+    \pgfmathparse{#1}%
+  }%
+  \dref@warning{****************************************************}%
+  \dref@warning{Dataref will use bad math library (/pgf/fpu). Be aware%
+  of floating point rounding errors}%
+  \dref@warning{****************************************************}%
+  \fi
+\fi
+
+
+\drefkeys{
+  @init/.append style={%
+    @calc/.code={},%
+  },
+  @calc pgf/.style={
+    @calc/.append code={%
+      \dref@parser{#1}{\dref@calc@@ready}%
+      \drefmathparse{\dref@calc@@ready}%
+      \dref@debug{#1 -> \dref@calc@@ready = \pgfmathresult}%
+      \edef\drefresult{\pgfmathresult}%
+    }
+  }
+}
+
+
+\protected\def\drefcalc{\@ifstar\drefcalc@starred\drefcalc@unstarred}
+\newcommand{\drefcalc@unstarred}[2][]{% Unstarred
+  \drefkeys{@[,@init, print=default, @calc pgf={#2}, #1, @calc, @print, @set,%
+    @annotate={\textbackslash drefcalc[#1]\{#2\}},@]}%
+}
+\newcommand{\drefcalc@starred}[2][]{% Starred
+  \drefkeys{@[,@init, @calc pgf={#2}, #1, @calc, @set,%
+    @annotate={\textbackslash \drefcalc*[#1]\{#2\}},@]%
+  }%
+}
+
+\newcommand{\drefformat}[2][]{%
+  \drefkeys{@[,@init, print=default, value={#2}, #1, @calc, @print, @]}%
+}
+
+\long\def\drefprojection#1#2#3{%
+  \begingroup%
+  \def\rename##1##2{%
+    \drefkeys{@init, path={#1/##1}, set={#2/##2}, @get, @set}%
+  }%
+  \def\id##1{\rename{##1}{##1}}%
+  \def\calc##1##2{%
+    \edef\drefprojection@prefix{\drefprefix}%
+    \drefcalc[prefix={#1}]{##1}%
+    \edef\drefprefix{\drefprojection@prefix}%
+    \drefset{#2/##2}{\drefresult}%
+  }%
+  #3%
+  \endgroup%
+}
+
+
+\newtoks\dref@toks
+\newcount\drefcellcount
+
+\newcommand{\dref@makerow}[2]{%
+  {\global\dref@toks={}%
+    \drefcellcount=\z@%
+    \def\do##1{%
+      \advance\drefcellcount\@ne%
+      \def\@tempa{\doX{##1}}%
+      \expandafter\@tempa\expandafter{\the\drefcellcount}%
+    }%
+    \def\doX##1##2{%
+      \csxdef{@cell\the\drefcellcount}{\detokenize{%
+          #2%
+        }}%
+    }%
+    \expandafter\def\expandafter\arglist\expandafter{#1}%
+    \expandafter\docsvlist\expandafter{\arglist}%
+    \@tempcntb=0\relax%
+    {\loop\ifnum\@tempcntb<\drefcellcount%
+      \advance\@tempcntb by 1\relax%
+      \ifnum \@tempcntb = 1%
+        \edef\@@next{\csuse{@cell\the\@tempcntb}}%
+      \else%
+        \edef\@@next{&\csuse{@cell\the\@tempcntb}}%
+      \fi%
+      \global%
+      \dref@toks%
+      \expandafter=%
+      \expandafter{%
+        \the%
+        \expandafter\dref@toks%
+        \@@next}%
+      \repeat}%
+  }%
+  \expandafter\scantokens\expandafter{\the\dref@toks}%
+}
+
+\long\def\drefrow{\@ifstar{\drefrow@starred}{\drefrow@unstarred}}
+\newcommand{\drefrow@unstarred}[3][]{\dref@makerow{#2}{\dref[#1]{#3}}\ignorespaces}
+\def\drefrow@starred#1#2{\dref@makerow{#1}{#2}\ignorespaces}
+
+\expandafter\ifstrequal\expandafter{\dref@annotate}{pdfcomment}{
+  \RequirePackage{pdfcomment}
+}
+
+
+\drefkeys{
+  annotate/.is choice,
+  annotate/none/.style={@annotate/.code={\relax}},
+  annotate/footnote/.style={@annotate/.code={\footnote{\texttt{##1}}}},
+  annotate/pdfcomment/.style={@annotate/.code={\pdfcomment[opacity=0.4,voffset=2ex]{##1}}},
+  annotate/typeout/.style={@annotate/.code={\typeout{##1}}},
+  annotate=\dref@annotate,
+}
+
+%% Usagereport
+\ifdref@usagereport
+  \RequirePackage{xtab}
+  \RequirePackage{booktabs}
+\fi
+\newcommand{\dref@usagereport@notfound}[2]{}
+\newcommand{\dref@usagereport@found}[2]{}
+
+\csdef{pgfdat@usagereport@keys}{}
+\csdef{pgfdat@usagereport@matchedkeys}{}
+
+\newcommand{\dref@usagereport@referenced}[2]{
+  \ifinlistcs{#2}{dref@usagereport@referenced@#1}{}{
+    \listcsgadd{dref@usagereport@referenced@#1}{#2}
+  }
+  \ifinlistcs{#1}{dref@usagereport@keys}{}{
+    \listcsgadd{dref@usagereport@keys}{#1}
+  }
+}
+\expandafter\def\expandafter\dref@usagereport@strippath@\dref@datapath#1\blanktest{#1}
+
+\newcommand{\dref@usagereport@strippath}[1]{%
+  \expandafter\dref@ifstrmatch\expandafter{\expandafter^\dref@datapath.*$}{#1}%$
+    {\dref@usagereport@strippath@#1\blanktest}%
+    {#1}%
+}
+\newcommand{\dref@usagereport@formatreferencelist}[1]{%
+  \begingroup%
+  \def\sep{}%
+  \renewcommand{\do}[1]{\sep\ifdef{\hyperlink}{\hyperlink{page.##1}{##1}}{##1}\def\sep{, }}%
+  \dolistcsloop{dref@usagereport@referenced@#1}%
+  \endgroup%
+}
+\newif\ifdref@usagereport@keyheader@first
+\dref@usagereport@keyheader@firsttrue
+\newcommand{\dref@usagereport@keyheader}[1]{%
+  \ifdref@usagereport@keyheader@first%
+  \global\dref@usagereport@keyheader@firstfalse%
+  \else%
+    \\%
+  \fi%
+  \textbf{\ifdef{\hypertarget}%
+    {\hypertarget{#1}{\dref@usagereport@strippath{#1}}}%
+    {\dref@usagereport@strippath{#1}}}%
+  & \dref@usagereport@formatreferencelist{#1}%
+  & \drefifdefined{#1}{\dref*[@reference key/.code={}]{#1}}{\textbf{undefined}}%
+}
+
+\def\drefusagereportaftergroup{}
+
+\def\drefusagereportbeforerow{}
+\def\drefusagereportbeforetitle{}
+\def\drefusagereportaftertitle{}
+
+\def\drefusagereportbeforedescription{}
+
+
+\newif\ifdref@withhelp
+\errorcontextlines=23
+\newlength{\dreflinewidth}%
+\newcommand{\dref@usagereport@forhelp}[1]{%
+  \begingroup%
+  \dref@withhelpfalse%
+  \renewcommand{\do}[1]{%
+    \dref@help@match{#1}{##1}{%
+      \dref@withhelptrue%
+    }{}%
+  }%
+  \dolistcsloop{dref@usagereport@keys}%
+  \dref@usagereport@keyheader@firsttrue%
+  \renewcommand{\do}[1]{%
+    \dref@help@match{#1}{##1}{%
+      \drefusagereportbeforerow%
+      \dref@usagereport@keyheader{##1}%
+      \ifinlistcs{##1}{dref@usagereport@matchedkeys}{}{%
+        \listcsgadd{dref@usagereport@matchedkeys}{##1}%
+      }%
+    }{}%
+  }%
+  \ifdref@withhelp
+    \tablehead{\drefusagereportbeforetitle%
+      \hline      & Page  & Value %
+      \drefusagereportaftertitle\\\hline%
+    }%
+    \setlength\tabcolsep{3pt}%
+    \dreflinewidth=\linewidth%
+    \advance\dreflinewidth by -4\tabcolsep%
+    \advance\dreflinewidth by -2\arrayrulewidth%
+    \begin{xtabular}{|p{0.7\dreflinewidth}|p{0.15\dreflinewidth}|p{0.15\dreflinewidth}|}%
+      \dolistcsloop{dref@usagereport@keys}\\\hline
+      \drefusagereportbeforedescription%
+      \multicolumn{3}{|p{\linewidth}|}{\csuse{dref@help@#1}}\\\hline
+    \end{xtabular}%
+  \fi%
+  \drefusagereportaftergroup%
+
+  \endgroup%
+}
+\newif\ifdref@withouthelp
+\newcommand{\dref@usagereport@withouthelp}{%
+  \begingroup%
+  \dref@withouthelpfalse%
+  \renewcommand{\do}[1]{%
+    \ifinlistcs{##1}{dref@usagereport@matchedkeys}{}{%
+      \dref@withouthelptrue%
+    }%
+  }%
+  \dolistcsloop{dref@usagereport@keys}%
+  \dref@usagereport@keyheader@firsttrue%
+  \renewcommand{\do}[1]{%
+    \ifinlistcs{##1}{dref@usagereport@matchedkeys}{}{%
+      \drefusagereportbeforerow%
+      \dref@usagereport@keyheader{##1}%
+    }%
+  }%
+  \ifdref@withouthelp%
+    \tablehead{\drefusagereportbeforetitle%
+      \hline Keys without Description     & Page  & Value %
+      \drefusagereportaftertitle\\\hline%
+    }%
+    \setlength\tabcolsep{3pt}%
+    \dreflinewidth=\linewidth%
+    \advance\dreflinewidth by -4\tabcolsep%
+    \advance\dreflinewidth by -2\arrayrulewidth%
+    \begin{xtabular}{|p{0.7\dreflinewidth}|p{0.15\dreflinewidth}|p{0.15\dreflinewidth}|}%
+      \dolistcsloop{dref@usagereport@keys}\\\hline
+      \drefusagereportbeforedescription%
+      \multicolumn{3}{|p{\linewidth}|}{%
+        \emph{For these keys, no description was given}}\\\hline
+    \end{xtabular}%
+   \fi%
+   \endgroup%
+}
+\newcommand{\drefusagereport}{%
+  \ifdref@usagereport%
+  \ifcsvoid{dref@usagereport@keys}{}{%
+  \begingroup%
+  \renewcommand{\do}[1]{%
+    \ifinlistcs{##1}{dref@usagereport@matchedkeys}{}{%
+      \dref@usagereport@forhelp{##1}%
+    }%
+  }%
+  \dolistcsloop{dref@helps} % For all help text
+  \dref@usagereport@withouthelp\relax
+  \endgroup%
+  }% csempty @keys
+  \fi%
+}
+\drefkeys{
+  noassert/.is if=dref@noassert
+}
+\newcommand{\drefassert}[1]{%
+  \begingroup%
+    \drefcalc*{#1}%
+    \ifdim\drefresult pt = 0pt%
+      \ifdref@noassert%
+        \dref@warning{Assertion failed: #1}%
+      \else%
+        \dref@error{Assertion failed: #1}%
+        \fi%
+     \else%
+       \dref@warning{Assertion holds: #1}%
+     \fi%
+  \endgroup%
+}
+\drefkeys{%
+  factor of/.style={%
+    @get key or value to={#1}{\drefrel@tmp}{\drefrel@tmpunit},
+    unit/@assert compatible=\drefrel@tmpunit,
+    @calc pgf/.expanded={(\noexpand\drefresult)/(\drefrel@tmp)},
+    @calc/.append code={\def\drefunit{}},
+  },
+  percent/.style={
+    @calc pgf={100 * (\drefresult)},
+  },
+  percent of/.style={
+    factor of={#1}, percent,
+    @calc/.append code={\def\drefunit{}},
+  },
+  scale by/.style={
+    @get key or value to={#1}{\drefrel@tmp}{\drefrel@tmpunit},%
+    unit/@assert unitless=\drefrel@tmpunit,
+    @calc pgf/.expanded={(\drefrel@tmp) * (\noexpand\drefresult)},
+  },
+  product/.style={scale by={#1}},
+  divide by/.style={
+    @get key or value to={#1}{\drefrel@tmp}{\drefrel@tmpunit},%
+    unit/@assert unitless=\drefrel@tmpunit,
+    @calc pgf/.expanded={(\noexpand\drefresult) / (\drefrel@tmp)},
+  },
+  divide/.style={divide by},
+  product/.style={scale by={#1}},
+  increase factor from/.style={
+    @get key or value to={#1}{\drefrel@tmp}{\drefrel@tmpunit},
+    unit/@assert compatible=\drefrel@tmpunit,
+    @calc pgf/.expanded={((\noexpand\drefresult)-(\drefrel@tmp))/(\drefrel@tmp)},
+    @calc/.append code={\def\drefunit{}},
+  },
+  increase percent from/.style={increase factor from={#1}, percent},
+  decrease factor from/.style={increase factor from={#1}, negate},
+  decrease percent from/.style={increase factor from={#1}, negate, percent},
+  increase from/.style={
+    @get key or value to={#1}{\drefrel@tmp}{\drefrel@tmpunit},%
+    unit/@assert compatible=\drefrel@tmpunit,
+    @calc pgf/.expanded={((\noexpand\drefresult)-(\drefrel@tmp))},
+  },
+  decrease from/.style={increase from={#1}, negate},
+  abs/.style={
+    @calc pgf={abs(\drefresult)}
+  },
+  negate/.style={
+    @calc pgf={-1 * (\drefresult)}
+  },
+}
+
+\def\drefrel{\@ifstar\drefrel@starred\drefrel@unstarred}
+
+\newcommand{\drefrel@unstarred}[2][]{%
+  \drefkeys{@[,
+      @init,
+      path={#2}, print=default, #1,
+      @get key or value, @calc, @print, @set,
+    @],
+    @annotate={\textbackslash drefrel[#1]\{#2\}}}%
+}
+
+\newcommand{\drefrel@starred}[2][]{%
+  \drefkeys{
+    @[, @init,
+      path={#2}, #1,
+      @get key or value, @calc, @set,
+    @],
+    @annotate={\textbackslash drefrel[#1]\{#2\}},
+  }%
+}
+
+% Unit scaling
+
+\def\dref@unit@key#1#2{%
+  dref@unit@\expandafter\detokenize\expandafter{#1}@\expandafter\detokenize\expandafter{#2}}
+
+\def\dref@unit@new#1{%
+  \def\dref@unit@scala{}%
+  \def\dref@unit@new@outer##1/##2,##3\@nnil{%
+    \def\dref@outer{\dref@unit@new@outer##3\@nnil}%
+    \listadd{\dref@unit@scala}{##2}%
+    \ifx##3&&%
+       \def\dref@outer{}%
+    \fi%
+    \dref@outer%
+  }%
+  \dref@unit@new@outer#1,\@nnil%
+  \def\dref@unit@new@outer##1/##2,##3\@nnil{%
+    \def\dref@outer{\dref@unit@new@outer##3\@nnil}%
+    \pgfkeys{/dref/units/\detokenize{##2} to \detokenize{##2}/.initial={* 1},%
+      /dref/units/scala \detokenize{##2}/.initial/.expand once={\dref@unit@scala}}%
+    \ifx##3&&%
+       \def\dref@outer{}%
+    \else%
+       \def\dref@unit@factor{}%
+       \dref@unit@new@inner{##2}##3\@stop%
+    \fi%
+    \dref@outer%
+  }
+  \def\dref@unit@new@inner##1##2/##3,##4\@stop{%
+    \def\dref@inner{\dref@unit@new@inner{##1}##4\@stop}%
+    \ifx##4&&\def\dref@inner{}\else\fi%
+    \edef\dref@unit@factor{\dref@unit@factor * ##2}%
+    \pgfkeys{/dref/units/\detokenize{##1} to \detokenize{##3}/.initial/.expanded={* (1 \dref@unit@factor)},%
+             /dref/units/\detokenize{##3} to \detokenize{##1}/.initial/.expanded={/ (1 \dref@unit@factor)},%
+    }%
+    \dref@inner%
+  }%
+  \dref@unit@new@outer#1,\@nnil%
+}
+
+\drefkeys{
+  unit/new scala/.code={%
+     \dref@unit@new{#1}%
+  },
+  unit/.style={
+    unit/@load={#1},
+    unit/@format enable,
+    @get/.append style={unit/@load={#1}}, % Override Unit from loads
+  },
+  unit/@load/.code={% #1 Is plain unit
+    \def\drefunit{#1}%
+  },
+  unit/@try override/.code={% #1 must be unit holding macro
+    \ifx#1\empty#1\else%
+       \expandafter\def\expandafter\drefunit\expandafter{#1}%
+    \fi%
+  },
+  unit/@format enable/.code={%
+    \ifx\drefunit\empty\drefunit\else%
+      \drefkeys{unit/format=default}%
+    \fi%
+  },
+  unit/@assert unitless/.code={%
+    \ifx\drefunit\empty\drefunit\else% We are unit less: good
+    \ifx#1\empty#1\else% Other has no unit, also good
+    \dref@error{At least one should be unitless:
+      \expandafter\detokenize\expandafter{\drefunit},
+      \expandafter\detokenize\expandafter{#1}}
+      % There is some unit here. That is BAD
+    \fi\fi%
+  },
+  unit/@assert compatible/.code={%
+    \ifx\drefunit\empty\drefunit\else% We are unit less: good
+    \ifx#1\empty#1\else% Other has no unit, also good
+      \ifx\drefunit#1\else% Bot equal: also good
+         \dref@error{Incompatible Units:
+           \expandafter\detokenize\expandafter{\drefunit}
+           != \expandafter\detokenize\expandafter{#1}}
+         \fi%
+       \fi%
+    \fi%
+  },
+  unit/@combine/.style={
+    unit/@assert compatible={#1}, unit/@try override={#1}, unit/@format enable
+  },
+  unit/scale to/.code={%
+    \edef\dref@unit@key{/dref/units/\expandafter\detokenize\expandafter{\drefunit} to \detokenize{#1}}%
+    \drefkeys{%
+      \dref@unit@key/.get=\dref@unit@factor,%
+      @calc pgf/.expanded={((\noexpand\drefresult) \dref@unit@factor)},%
+      unit=#1%
+    }%
+  },
+  unit/scale to auto/.default=50,
+  unit/scale to auto/.style={% #1 is the optimal value
+    @calc/.append code={
+      \dref@ifunit{%Only do the scaling, if there is a unit
+      \edef\dref@unit@key{/dref/units/scala \expandafter\detokenize\expandafter{\drefunit}}%
+      % Get all other units in the same scala
+      \drefkeys{\dref@unit@key/.get=\dref@unit@scala}%
+      \expandafter\def\expandafter\drefunit@best\expandafter{\drefunit}%
+      \def\drefunit@bestvalue{\drefresult}%
+      \def\@@score####1{1 / ( abs(#1) - abs(####1))}%
+      \def\do####1{%
+        \edef\dref@unit@key{/dref/units/\expandafter\detokenize\expandafter{\drefunit} to \detokenize{####1}}%
+        \pgfkeys{\dref@unit@key/.get=\dref@unit@factor}%
+        \drefmathparse{\@@score{\drefunit@bestvalue} < \@@score{\drefresult \dref@unit@factor}}%
+        %\typeout{\drefunit \pgfmathresult \detokenize{####1}}%
+        \ifdim\pgfmathresult pt=1.0 pt%
+          \drefmathparse{(\drefresult) \dref@unit@factor}%
+          \edef\drefunit@bestvalue{\pgfmathresult}%
+          \def\drefunit@best{####1}%
+           %\typeout{\expandafter\detokenize\expandafter{\drefunit} to
+           %  \detokenize{####1} : \drefunit@bestvalue}%
+        \fi%
+      }%
+      \dolistloop\dref@unit@scala%
+      \edef\drefresult{\drefunit@bestvalue}%
+      \edef\drefunit{\expandonce{\drefunit@best}}%
+      }{}% ! \drefunit=\empty
+    }
+  },
+  unit/format default/.initial={plain},
+  unit/format/.is choice,
+  unit/format/no/.style={unit/format default=no, @print unit/.code={}},
+  unit/format/false/.style={unit/format default=no, @print unit/.code={}},
+  unit/format/plain/.style={
+    unit/format default=plain,
+    @print unit/.code={\dref@ifunit{\,\drefunit}{}}
+  },
+  unit/format/typeout/.style={
+    unit/format default=typeout,
+    @print unit/.code={\dref@ifunit{\expandafter\typeout\expandafter{\drefunit}}{}}
+ },
+  unit/format/siunitx/.style={
+    unit/format default=siunitx,
+    @print unit/.code={\dref@ifunit{\,\expandafter\si\expandafter{\drefunit}}{}}
+  },
+  unit/format/default/.style={%
+    unit/format default/.get=\dref@unit@format,
+    unit/format/.expand once=\dref@unit@format
+  },
+}
+
+\def\dref@ifunit#1#2{%
+  \expandafter\ifblank\expandafter{\drefunit}{#2}{#1}%
+}
+
+
+\endinput
+%%
+%% End of file `dataref.sty'.

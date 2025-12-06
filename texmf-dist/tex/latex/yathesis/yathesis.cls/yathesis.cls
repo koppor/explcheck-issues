@@ -1,0 +1,4489 @@
+%%
+%% This is file `yathesis.cls',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% yathesis.dtx  (with options: `class')
+%% -----------------------------------------------------------------------
+%% yathesis --- Yet Another Thesis Class
+%% E-mail: denis.bitouze@univ-littoral.fr
+%% Released under the LaTeX Project Public License v1.3c or later
+%% See http://www.latex-project.org/lppl.txt
+%% -----------------------------------------------------------------------
+\def\yathesisversion{1.0.12}
+\def\yathesisdate{2024-03-07}
+\NeedsTeXFormat{LaTeX2e}[1999/12/01]
+\ProvidesClass{yathesis}[\yathesisdate\space v\yathesisversion\space Yet another class for writing thesis (DB)]
+\ExplSyntaxOn
+\sys_if_engine_pdftex:T {\RequirePackage{morewrites}}
+\ExplSyntaxOff
+\RequirePackage{pgfopts}[2011/06/02]%
+\RequirePackage{etoolbox}[2011/01/03]%
+\RequirePackage{xpatch}[2012/10/02]%
+\RequirePackage{letltxmacro}[2010/09/02]%
+\RequirePackage{twoopt}[1999/04/12]%
+\RequirePackage{xifthen}[2009/04/17]%
+\newbool{YAD@cosupervisor@or@comonitor}
+\newbool{YAD@inprogress@work@star}
+\newbool{YAD@inprogress@work}
+\newbool{YAD@submitted@work}
+\newbool{YAD@submitted@work@star}
+\newbool{YAD@final@work}
+\newbool{YAD@draft}
+\newbool{YAD@output@paper}
+\newbool{YAD@output@paper@star}
+\newbool{YAD@in@footnote}
+\newbool{YAD@second@title}
+\newbool{YAD@second@abstract}
+\newbool{YAD@maketitle@used}
+\newbool{YAD@keywords@used}
+\newbool{YAD@introduction@used}
+\newbool{YAD@introduction@empty}
+\newbool{YAD@conclusion@used}
+\newbool{YAD@conclusion@empty}
+\newbool{YAD@makeabstract@used}
+\newbool{YAD@second@abstract@used}
+\newbool{YAD@abstract@used}
+\newbool{YAD@main@abstract@empty}
+\newbool{YAD@second@abstract@empty}
+\newbool{YAD@tableofcontents@used}
+\newbool{YAD@printbibliography@used}
+\newbool{YAD@two@titles}
+\newbool{YAD@cover@page}
+\newbool{YAD@supervisor@specified}
+\newbool{YAD@committeepresident@specified}
+\newbool{YAD@symbols@isolated}
+\newbool{YAD@logo@before}
+\newbool{YAD@valid@day}
+\newbool{YAD@valid@month}
+\newbool{YAD@valid@year}
+\newbool{YAD@mainmatter@used}
+\newbool{YAD@mainmatter}
+\newbool{YAD@backmatter}
+\newbool{YAD@localtocs}%
+\newbool{YAD@localbibs@used}%
+\newbool{YAD@nextwithlocaltoc}%
+\newbool{YAD@nonnumbered@chapter}%
+\newbool{YAD@nonnumbered@section}%
+\newbool{YAD@nonnumbered@subsection}%
+\newbool{YAD@nonnumbered@subsubsection}%
+\newbool{YAD@nonnumbered@paragraph}%
+\newbool{YAD@nonnumbered@subparagraph}%
+\newbool{YAD@colophon}%
+\newlength{\cmdKV@YAD@logoheight}
+\newlength{\YAD@max@logoheight}
+\newlength{\YAD@default@logoheight}
+\newlength{\YAD@titleboxheight}%
+\newlength{\YAD@titleboxwidth}%
+\newlength{\YAD@otherboxheight}%
+\newlength{\YAD@laboratory@width}%
+\setlength\YAD@default@logoheight{1.5cm}%
+\setlength\cmdKV@YAD@logoheight{\YAD@default@logoheight}%
+\setlength\YAD@max@logoheight{\cmdKV@YAD@logoheight}%
+\newsavebox{\YAD@titlebox}%
+\newsavebox{\YAD@beforetitlebox}%
+\newsavebox{\YAD@aftertitlebox}%
+\newsavebox{\YAD@abstract@mainlanguage}%
+\newsavebox{\YAD@abstract@secondarylanguage}%
+\newcounter{YAD@abstracts}%
+\newcounter{YAD@warnings}%
+\setcounter{YAD@abstracts}{0}%
+\setcounter{YAD@warnings}{0}%
+\def\YAD@mainlanguage{french}%
+\def\YAD@secondarylanguage{english}%
+\def\YAD@tocdepth{subsection}%
+\def\YAD@secnumdepth{subsection}%
+\def\YAD@mainkeywords{\YAD@generic@argument@translate{keywords}}%
+\def\YAD@secondarykeywords{\YAD@generic@argument@translate{keywords}}%
+\def\YAD@global@sepcorpaffil@french{}%
+\def\YAD@global@sepcorpaffil@english{}%
+\def\cmdKV@YAD@frametitle{fbox}%
+\newcommand{\YAD@generic@text}{%
+  Un texte générique risque d'être affiché à la place.\MessageBreak%
+}%
+\newcommand{\YAD@quiet@text}[1]{%
+  Pour ne plus être importuné(e) par la présente erreur,\MessageBreak%
+  on peut passer l'option\MessageBreak%
+  \space\space`#1'\MessageBreak%
+  à la classe `yathesis', mais cela peut sérieusement\MessageBreak%
+  altérer son fonctionnement : option à utiliser\MessageBreak%
+  \space\space\space\space/à ses risques et périls !/%
+}%
+\newcommand{\YAD@extra@help@text}{%
+  \MessageBreak%
+  Consulter la documentation de la classe `yathesis'\MessageBreak%
+  pour plus de precisions.%
+}%
+\newcommand{\YAD@ClassError}{\@ifstar{\@tempswatrue\@YAD@ClassError}{\@tempswafalse\@YAD@ClassError}}
+\newcommand{\@YAD@ClassError}[3][]{%
+  \ifbool{YAD@noerror}{%
+  }{%
+    \ifboolexpr{%
+      bool {YAD@inprogress@work}%
+      or bool {YAD@inprogress@work@star}%
+      or bool {YAD@draft}%
+      or bool {YAD@noerror}%
+    }{%
+    }{%
+      \ifthenelse{\isempty{#1}}{%
+        \ClassError{yathesis}{%
+          #2%
+        }{%
+          #3%
+          \MessageBreak
+          \if@tempswa%
+          \else%
+          \YAD@generic@text%
+          \fi%
+          \YAD@extra@help@text%
+        }%
+      }{%
+        \ClassError{yathesis}{%
+          #2%
+        }{%
+          #3%
+          \MessageBreak
+          \if@tempswa%
+          \else%
+          \YAD@generic@text%
+          \fi%
+          \YAD@quiet@text{#1}%
+          \YAD@extra@help@text%
+        }%
+      }%
+    }%
+  }%
+}%
+\newcommand{\YAD@ClassWarningNoLine}[1]{%
+  \ifboolexpr{%
+    bool {YAD@inprogress@work}%
+    or bool {YAD@inprogress@work@star}%
+    or bool {YAD@draft}%
+    or bool {YAD@nowarning}%
+  }{%
+    \stepcounter{YAD@warnings}%
+  }{%
+    \ClassWarningNoLine{yathesis}{%
+      #1%
+    }%
+  }%
+}%
+\pgfkeys{/yad/.is family}
+\pgfkeys{/yad/.cd}
+\def\yadsetup{\pgfqkeys{/yad}}
+\newcommand{\YAD@create@boolean}[1]{%
+  % \yadsetup{#1/.is if = #1}
+  \newbool{YAD@#1}%
+  \yadsetup{%
+    #1/.is choice,
+    #1/true/.code={%
+      \booltrue{YAD@#1}%
+    },
+    #1/false/.code={%
+      \boolfalse{YAD@#1}%
+    },
+    #1/.default=true,
+  }%
+  % }{%
+  %   \ClassWarningNoLine{yathesis}{%
+  %     Valeur passée à la clé `#1' non valide :\MessageBreak%
+  %     cette valeur ne peut être que `true' ou `false'%
+  %   }%
+  % }%
+}%
+\YAD@create@boolean{nonamelink}%
+\YAD@create@boolean{noerror}%
+\YAD@create@boolean{nowarning}%
+\YAD@create@boolean{noauthor}%
+\YAD@create@boolean{notitle}%
+\YAD@create@boolean{noacademicfield}%
+\YAD@create@boolean{noaim}%
+\YAD@create@boolean{nodate}%
+\YAD@create@boolean{noinstitute}%
+\YAD@create@boolean{nodoctoralschool}%
+\YAD@create@boolean{nolaboratory}%
+\YAD@create@boolean{nolaboratoryaddress}%
+\YAD@create@boolean{nosupervisor}%
+\YAD@create@boolean{nomaketitle}%
+\YAD@create@boolean{nokeywords}%
+\YAD@create@boolean{noabstract}%
+\YAD@create@boolean{nomakeabstract}%
+\YAD@create@boolean{notableofcontents}%
+\YAD@create@boolean{noprintbibliography}%
+\YAD@create@boolean{nofrontcover}%
+\YAD@create@boolean{hdr}%
+\YAD@create@boolean{localtocs@classoption}%
+\YAD@create@boolean{localbibs}%
+\yadsetup{noerror=true}%
+\booltrue{YAD@cover@page}%
+\YAD@create@boolean{nologo}%
+\YAD@create@boolean{professor}%
+\YAD@create@boolean{mcf}%
+\YAD@create@boolean{mcf*}%
+\YAD@create@boolean{associateprofessor}%
+\YAD@create@boolean{associateprofessor*}%
+\YAD@create@boolean{juniorresearcher}%
+\YAD@create@boolean{juniorresearcher*}%
+\YAD@create@boolean{seniorresearcher}%
+\YAD@create@boolean{male}%
+\YAD@create@boolean{female}%
+\yadsetup{%
+  nologo=false,%
+  professor=false,%
+  mcf=false,%
+  mcf*=false,%
+  associateprofessor=false,%
+  associateprofessor*=false,%
+  juniorresearcher=false,%
+  juniorresearcher*=false,%
+  seniorresearcher=false,%
+  male=true,%
+  female=false,%
+}%
+\yadsetup{%
+  version/.is choice,%
+  version/draft/.code={%
+    \booltrue{YAD@draft}%
+    \boolfalse{YAD@inprogress@work}%
+    \boolfalse{YAD@inprogress@work@star}%
+    \boolfalse{YAD@submitted@work}%
+    \boolfalse{YAD@submitted@work@star}%
+    \boolfalse{YAD@final@work}%
+    \ifthenelse{\equal{\@classoptionslist}{}}{%
+      \edef\@classoptionslist{draft}%
+    }{%
+      \edef\@classoptionslist{\@classoptionslist,draft}%
+    }%
+  },%
+  version/inprogress/.code={%
+    \boolfalse{YAD@draft}%
+    \booltrue{YAD@inprogress@work}%
+    \boolfalse{YAD@inprogress@work@star}%
+    \boolfalse{YAD@submitted@work}%
+    \boolfalse{YAD@submitted@work@star}%
+    \boolfalse{YAD@final@work}%
+  },%
+  version/inprogress*/.code={%
+    \boolfalse{YAD@draft}%
+    \boolfalse{YAD@inprogress@work}%
+    \booltrue{YAD@inprogress@work@star}%
+    \boolfalse{YAD@submitted@work}%
+    \boolfalse{YAD@submitted@work@star}%
+    \boolfalse{YAD@final@work}%
+  },%
+  version/submitted/.code={%
+    \boolfalse{YAD@nowarning}%
+    \boolfalse{YAD@noerror}%
+    \boolfalse{YAD@nowarning}%
+    \boolfalse{YAD@noerror}%
+    \boolfalse{YAD@draft}%
+    \boolfalse{YAD@inprogress@work}%
+    \boolfalse{YAD@inprogress@work@star}%
+    \booltrue{YAD@submitted@work}%
+    \boolfalse{YAD@submitted@work@star}%
+    \boolfalse{YAD@final@work}%
+  },%
+  version/submitted*/.code={%
+    \boolfalse{YAD@nowarning}%
+    \boolfalse{YAD@noerror}%
+    \boolfalse{YAD@draft}%
+    \boolfalse{YAD@inprogress@work}%
+    \boolfalse{YAD@inprogress@work@star}%
+    \boolfalse{YAD@submitted@work}%
+    \booltrue{YAD@submitted@work@star}%
+    \boolfalse{YAD@final@work}%
+  },%
+  version/final/.code={%
+    \boolfalse{YAD@nowarning}%
+    \boolfalse{YAD@noerror}%
+    \boolfalse{YAD@draft}%
+    \boolfalse{YAD@inprogress@work}%
+    \boolfalse{YAD@inprogress@work@star}%
+    \boolfalse{YAD@submitted@work}%
+    \boolfalse{YAD@submitted@work@star}%
+    \booltrue{YAD@final@work}%
+  },%
+}%
+\yadsetup{version=inprogress}%
+\yadsetup{%
+  output/.is choice,%
+  output/paper/.code={\booltrue{YAD@output@paper}},%
+  output/paper*/.code={%
+    \booltrue{YAD@output@paper}%
+    \booltrue{YAD@output@paper@star}%
+  },%
+  output/screen/.code={},%
+}%
+\yadsetup{output=screen}%
+\def\YAD@localtocsdepth{\YAD@tocdepth}%
+\yadsetup{%
+  localtocs/.is family,%
+  localtocs/.code={%
+    \booltrue{YAD@localtocs@classoption}%
+  },%
+  localtocs/depth/.code={%
+    \pgfkeysalso{localtocs}%
+    \ifboolexpr{%
+      test {\ifstrempty{#1}}
+      or %
+      test {\ifstrequal{#1}{part}}
+      or %
+      test {\ifstrequal{#1}{chapter}}
+    }{%
+      \def\YAD@localtocsdepth{\YAD@tocdepth}%
+    }{%
+      \def\YAD@localtocsdepth{#1}%
+    }%
+    \ifboolexpr{%
+      test {\etocifunknownlevelTF {\YAD@localtocsdepth}}
+      or %
+      test {\ifstrequal{#1}{part}}
+      or %
+      test {\ifstrequal{#1}{chapter}}
+    }{%
+      \YAD@ClassWarningNoLine{%
+        La valeur (`#1') passée à la cle\MessageBreak%
+         `localtocs/depth'\MessageBreak%
+        en option de classe n'est pas un des niveaux de\MessageBreak%
+        sectionnement acceptés :\MessageBreak%
+        `section', `subsection',`subsubsection',\MessageBreak%
+        `paragraph', `subparagraph'.\MessageBreak%
+        Le niveau `\YAD@tocdepth' va être utilisé à la place%
+      }%
+    }{%
+    }%
+  },%
+}%
+\newcommand\YAD@localbibs@common@code[1]{%
+  \booltrue{YAD@localbibs}%
+  \AddToHook{env/document/before}[YAD/loadcsquotesbiblatex]{%
+    \@ifpackageloaded{csquotes}{%
+    }{%
+      \RequirePackage{csquotes}%
+    }%
+    \@ifpackageloaded{biblatex}{%
+    }{%
+      \YAD@ClassWarningNoLine{%
+        L'ajout automatique des bibliographies locales en fin\MessageBreak%
+        de chapitres fourni par l'option de classe\MessageBreak%
+        `localbibs' repose sur le package `biblatex'\MessageBreak%
+        que vous n'avez pas chargé.\MessageBreak%
+        La classe `yathesis' va le faire pour vous mais\MessageBreak%
+        le recours à ce package pour la bibliographie sera\MessageBreak%
+        alors nécessaire et exclura tout autre outil\MessageBreak%
+        de production de la bibliographie\MessageBreak%
+        (notamment `BibTeX')%
+      }%
+      \RequirePackage{biblatex}%
+    }%
+    \ExecuteBibliographyOptions{%
+      refsegment=chapter,%
+      defernumbers=#1%
+    }%
+  }%
+  \DeclareHookRule{env/document/before}{YAD/loadcsquotesbiblatex}{before}{hyperref}%
+}
+\yadsetup{%
+  localbibs*/.code={%
+    \YAD@localbibs@common@code{true}%
+  },%
+  localbibs/.code={%
+    \YAD@localbibs@common@code{false}%
+    \AddToHook{begindocument/before}{\BiblatexSplitbibDefernumbersWarningOff}%
+  }%
+}
+\def\YAD@interligne{single}%
+\yadsetup{%
+  space/.is choice,%
+  space/single/.code={\def\YAD@interligne{single}},%
+  space/onehalf/.code={\def\YAD@interligne{onehalf}},%
+  space/double/.code={\def\YAD@interligne{double}},%
+}%
+\yadsetup{space=single}
+\newcommand{\cmdKV@YAD@numlaboratories}{1}%
+\yadsetup{%
+  numlaboratories/.store in=\cmdKV@YAD@numlaboratories%
+}%
+\def\YAD@colophon@location{verso-frontcover}%
+\yadsetup{%
+  colophon-location/.is choice,%
+  colophon-location/nowhere/.code={\def\YAD@colophon@location{nowhere}},%
+  colophon-location/verso-frontcover/.code={\def\YAD@colophon@location{verso-frontcover}},%
+  colophon-location/recto-backcover/.code={\def\YAD@colophon@location{recto-backcover}},%
+}%
+\yadsetup{colophon-location=verso-frontcover}
+\yadsetup{%
+  mainlanguage/.store in=\YAD@mainlanguage,%
+  secnumdepth/.store in=\YAD@secnumdepth,%
+  sepcorpaffilfrench/.store in=\YAD@global@sepcorpaffil@french,%
+  sepcorpaffilenglish/.store in=\YAD@global@sepcorpaffil@english,%
+  % frametitle/.store in=\cmdKV@YAD@frametitle,%
+  chap-style/.code={%
+    \def\YAD@fncychapstyle{#1}%
+    \PassOptionsToPackage{#1}{fncychap}%
+  },%
+}%
+\yadsetup{fncychap/.style={chap-style=#1}}
+\yadsetup{%
+  sepcorpaffilenglish={\ at\ },%
+  chap-style=PetersLenny,%
+}%
+\PassOptionsToPackage{a4paper}{geometry}%
+\PassOptionsToPackage{export}{adjustbox}%
+\PassOptionsToPackage{numbered}{bookmark}%
+\PassOptionsToPackage{%
+  final,%
+  unicode,%
+  hyperfootnotes=false,%
+  hyperindex=false,%
+  plainpages=false,%
+  breaklinks,%
+  pdfpagemode=UseOutlines,%
+  pdfpagelayout=TwoPageRight%
+}{hyperref}%
+\yadsetup{%
+  graphicx/.code={\PassOptionsToPackage{#1}{graphicx}},%
+  adjustbox/.code={\PassOptionsToPackage{#1}{adjustbox}},%
+  setspace/.code={\PassOptionsToPackage{#1}{setspace}},%
+  xcolor/.code={\PassOptionsToPackage{#1}{xcolor}},%
+  datatool/.code={\PassOptionsToPackage{#1}{datatool}},%
+  titlesec/.code={\PassOptionsToPackage{#1}{titlesec}},%
+  draftwatermark/.code={\PassOptionsToPackage{#1}{draftwatermark}},%
+  babel/.code={\PassOptionsToPackage{#1}{babel}},%
+  datetime2/.code={\PassOptionsToPackage{useregional,#1}{datetime2}}%
+}%
+\yadsetup{%
+  .unknown/.code ={\expandafter\PassOptionsToClass\expandafter{\pgfkeyscurrentname}{book}}%
+}%
+\@ifpackagelater{babel}{2013/04/15}{%
+  \PassOptionsToPackage{main=\YAD@mainlanguage}{babel}%
+}{%
+  \YAD@ClassWarningNoLine{%
+    La version de `babel' utilisée est obsolète.\MessageBreak%
+    La classe `yathesis' va essayer de faire son possible\MessageBreak%
+    mais il se peut qu'elle produise des resultats\MessageBreak%
+    non prévus. Il est conseillé de mettre à jour sa\MessageBreak%
+    distribution TeX%
+  }%
+}%
+\ProcessPgfOptions{/yad}%
+\ifthenelse{\equal{\YAD@mainlanguage}{english}}{%
+  \def\YAD@secondarylanguage{french}%
+}{%
+}%
+\ifthenelse{\equal{\YAD@mainlanguage}{french}}{%
+  \def\YAD@secondarylanguage{english}%
+}{%
+}%
+\ifthenelse{\equal{\@classoptionslist}{}}{%
+  \edef\@classoptionslist{\YAD@secondarylanguage,\YAD@mainlanguage}%
+}{%
+  \edef\@classoptionslist{\YAD@secondarylanguage,\YAD@mainlanguage,\@classoptionslist}%
+}%
+\LoadClass{book}%
+\RequirePackage{xkeyval}%
+\RequirePackage{geometry}[2010/09/12]%
+\RequirePackage{graphicx}[1999/02/16]%
+\RequirePackage{environ}[2013/04/01]%
+\RequirePackage{adjustbox}[2012/05/21]%
+\RequirePackage{array}[2008/09/09]%
+\RequirePackage{tabularx}[2020/01/15]%
+\RequirePackage{xstring}[2013/10/13]%
+\RequirePackage{iftex}[2013/04/04]%
+\RequirePackage{epigraph}[2009/09/02]%
+\RequirePackage{tcolorbox}[2014/03/31]%
+\RequirePackage{marvosym}[2011/07/20]%
+\RequirePackage{setspace}[2011/12/19]%
+\RequirePackage[noclrdblpg,nofullpage,aftertitle=1em]{colophon}[2018/04/01]%
+\RequirePackage{tocbibind}[2010/10/13]%
+\ifthenelse{\equal{\YAD@fncychapstyle}{none}}{%
+}{%
+  \RequirePackage{fncychap}[2007/07/30]%
+}%
+\RequirePackage[pagestyles]{titlesec}[2019/10/16]%
+\RequirePackage{nonumonpart}[2011/04/15]%
+\RequirePackage{xcolor}[2007/01/21]%
+\RequirePackage{datatool}[2014/03/08]%
+\RequirePackage{ifdraft}[2008/08/11]%
+\ifdraft{%
+  \RequirePackage{draftwatermark}[2006/06/30]%
+  \geometry{showframe}%
+  \setlength\overfullrule{5pt}%
+}{%
+  \ifbool{YAD@inprogress@work@star}{%
+    \RequirePackage{draftwatermark}[2006/06/30]%
+  }{%
+  }%
+}%
+\RequirePackage[\YAD@secondarylanguage,main=\YAD@mainlanguage]{babel}[2014/03/24]
+\RequirePackage{etoc}[2016/09/29]%
+\providecommand*\etocifunknownlevelTF[1]{\@ifundefined{Etoc@#1@@}}%
+\ifdefined\etockeeporiginaltableofcontents\etockeeporiginaltableofcontents\fi
+\RequirePackage{iflang}[2007/11/11]%
+\RequirePackage{translator}[2010/06/12]%
+\RequirePackage[useregional]{datetime2}[2020-03-02]%
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{hyperref}{%
+    \RequirePackage[all]{hypcap}[2011/02/16]%
+    \RequirePackage[numbered]{bookmark}[2011/12/02]%
+  }{%
+  }%
+}%
+\newlength{\YAD@vspace@before@localtoc@rule}
+\setlength{\YAD@vspace@before@localtoc@rule}{-1.25\baselineskip}
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{parskip}{%
+    \@ifpackagelater{parskip}{2.0a}{%
+      \setlength{\YAD@vspace@before@localtoc@rule}{-.775\baselineskip}%
+    }{%
+    }%
+  }{%
+  }%
+}
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{hyperref}{%
+    \newcommand{\YAD@href}[3][]{\href[#1]{#2}{#3}}%
+    \newcommand{\YAD@hypersetup}[1]{\hypersetup{#1}}%
+    \newcommand{\YAD@url}[1]{\url{#1}}%
+    \newcommand{\YAD@nolinkurl}[1]{\nolinkurl{#1}}%
+    \newcommand{\YAD@texorpdfstring}[2]{\texorpdfstring{#1}{#2}}%
+    \newcommand{\YAD@phantomsection}{\phantomsection}%
+  }{%
+    \newcommand{\YAD@href}[3][]{#3}%
+    \newcommand{\YAD@hypersetup}[1]{}%
+    \newcommand{\YAD@url}[1]{\texttt{#1}}%
+    \newcommand{\YAD@nolinkurl}[1]{\texttt{#1}}%
+    \newcommand{\YAD@texorpdfstring}[2]{#1}%
+    \newcommand{\YAD@phantomsection}{}%
+  }%
+  \@ifpackageloaded{bookmark}{%
+    \newcommand{\YAD@bookmarksetup}[1]{\bookmarksetup{#1}}%
+  }{%
+    \newcommand{\YAD@bookmarksetup}[1]{}%
+  }%
+}%
+\addto\captionsfrench{\def\tablename{{\scshape Tableau}}}%
+\colophonpreparhook{\normalsize}
+\colophonpretitlehook{\Large}
+\newcommand{\YAD@ifemptyorundef}[3]{%
+  \ifboolexpr{%
+    test {\ifundef{#1}} or %
+    test {\ifdefempty{#1}}%
+  }{%
+    #2%
+  }{%
+    #3%
+  }%
+}%
+\AfterEndDocument{%
+  \ifbool{YAD@nowarning}{%
+    \ifboolexpr{%
+      bool {YAD@inprogress@work}%
+      or bool {YAD@inprogress@work@star}%
+      or bool {YAD@draft}%
+    }{%
+    }{%
+      \ifnumgreater{\value{YAD@warnings}}{0}{%
+        % \immediate\write\YAD@file{%
+          \ClassWarningNoLine{yathesis}{%
+            L'option `nowarning' ayant été utilisée,\MessageBreak%
+            \theYAD@warnings\space warning%
+            \ifnumequal{\value{YAD@warnings}}{1}{%
+              \space propre%
+            }{%
+              s propres%
+            }
+            %
+            à la classe `yathesis'\MessageBreak%
+            \ifnumequal{\value{YAD@warnings}}{1}{%
+              a été masqué%
+            }{%
+              ont été masqués%
+            }
+            %
+            dans ce fichier de log.\MessageBreak%
+            Il est fortement conseillé de réactiver\MessageBreak%
+            l'affichage de ce%
+            \ifnumequal{\value{YAD@warnings}}{1}{%
+              \space warning%
+            }{%
+              s warnings%
+            }
+            %
+            en supprimant\MessageBreak%
+            l'option `nowarning'%
+          }%
+        % }%
+      }{%
+      }%
+    }%
+  }{%
+  }%
+}%
+  \tcbuselibrary{skins}%
+  \tcbsetforeverylayer{autoparskip}
+\def\YAD@clearspread{\clearpage\if@twoside \ifodd\c@page
+  \hbox{}\newpage\if@twocolumn\hbox{}\newpage\fi\fi\fi}
+\renewenvironment{titlepage}
+{%
+  \cleardoublepage
+  \if@twocolumn
+  \@restonecoltrue\onecolumn
+  \else
+  \@restonecolfalse\newpage
+  \fi
+  \thispagestyle{empty}%
+}%
+{\if@restonecol\twocolumn \else \newpage \fi
+}%
+\newcommand*{\YAD@configuration@directory}{configuration}
+\newcommand*{\YAD@configuration@file}{thesis.cfg}
+\newcommand*{\YAD@characteristics@file}{characteristics.tex}
+\newcommand*{\YAD@translations@file}{yathesis-translations.tex}
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{siunitx}{%
+    \sisetup{detect-all}%
+    \ifthenelse{\equal{\YAD@mainlanguage}{french}}{%
+      \sisetup{locale=FR}%
+    }{%
+      \sisetup{locale=UK}%
+    }%
+  }{%
+  }%
+}%
+\definecolor{YAD@configuration@file@color}{rgb}{0.5,0,0.5}%
+\definecolor{YAD@main@file@color}{rgb}{1,0.5,0}%
+\newcommand*{\YAD@reach@file}[2][\YAD@characteristics@file]{%
+  \ifdraft{%
+    \ifthenelse{\equal{\YAD@configuration@file}{#1}}{%
+      \YAD@hypersetup{%
+        urlbordercolor=YAD@configuration@file@color,%
+        urlcolor=YAD@configuration@file@color%
+      }%
+    }{%
+      \YAD@hypersetup{%
+        urlbordercolor=YAD@main@file@color,%
+        urlcolor=YAD@main@file@color%
+      }%
+    }%
+    \IfFileExists{\YAD@configuration@directory/#1}{%
+       \YAD@href{\YAD@configuration@directory/#1}{#2}%
+    }{%
+      \YAD@href{\jobname.tex}{#2}%
+    }%
+  }{%
+    #2%
+  }%
+}%
+\ifbool{YAD@output@paper}{%
+  \AddToHook{begindocument/before}{%
+    \@ifpackageloaded{hyperref}{%
+      \YAD@hypersetup{colorlinks=false}%
+      \renewcommand{\YAD@href}[3][]{#3}%
+      \let\YAD@ori@footnote\footnote%
+      \renewcommand{\footnote}[1]{\booltrue{YAD@in@footnote}\YAD@ori@footnote{#1}\boolfalse{YAD@in@footnote}}%
+      \renewcommand*\url[1]{\nolinkurl{#1}}%
+      \renewcommand*\href[3][]{%
+        \ifbool{YAD@in@footnote}{%
+          #3 (\url{#2}) }{%
+          #3\footnote{\url{#2}} }%
+      }%
+    }{%
+    }%
+  }%
+}{%
+}%
+\@ifpackageloaded{draftwatermark}{%
+  \SetWatermarkColor{gray!10}%
+}{%
+}%
+\ifbool{YAD@inprogress@work@star}{%
+  \SetWatermarkFontSize{3cm}%
+  \AfterEndPreamble{\translatelet\YAD@trinprogress{lbl-inprogress}}%
+  \SetWatermarkText{\MakeUppercase{\YAD@trinprogress}}%
+}{%
+}%
+\ifdraft{%
+  \AfterEndPreamble{\translatelet\YAD@trdraft{lbl-draft}}%
+  \SetWatermarkText{\MakeUppercase{\YAD@trdraft}}%
+}{%
+}%
+\newcommand*{\YAD@generic@argument}[1]{%
+  \bgroup\color{brown}\normalfont$\langle$\textsl{\texttt{#1}}$\rangle$\egroup%
+}%
+\newcommand*{\YAD@translation}[1]{%
+  \ifthenelse{\isempty{#1}}{%
+  }{%
+    \ifdraft{%
+      {%
+        \scriptsize%
+        \begin{tabular}{l}
+          {%
+            \normalfont\ttfamily\tiny%
+            (#1)%
+          }%
+          \\[-.3\baselineskip]
+          \YAD@reach@file[\YAD@configuration@file]{%
+            \translate{lbl-#1}%
+          }%
+        \end{tabular}%
+      }%
+    }{%
+    \translate{lbl-#1}%
+    }%
+  }%
+}%
+\newcommand{\YAD@astuce@expressioncle}{%
+  \ifdraft{%
+    \begin{center}
+      \footnotesize%
+      \fboxrule4pt%
+      \fcolorbox{red}{white}{%
+        \begin{minipage}{.9\linewidth}
+          \selectlanguage{french}%
+          Sur cette page, il est simple de (re)d\'efinir\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace}:
+          \begin{enumerate}
+          \item une
+            \YAD@reach@file[\YAD@configuration@file]{expression
+              cl\'e}\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace}:
+            il suffit de cliquer sur le cadre de couleur orange qui
+            l'entoure pour atteindre le fichier
+            \YAD@reach@file[\YAD@configuration@file]{\texttt{\YAD@configuration@file}}
+            et d'y ins\'erer
+            \begin{center}
+              \lstinline[morekeywords=expression]|\\expression\{|%
+              \YAD@meta{label}%
+              \lstinline|\}\{|%
+              \YAD@meta{valeur (en français)}%
+              \lstinline|\}\{|%
+              \YAD@meta{valeur (en anglais)}%
+              \lstinline|\}|
+            \end{center}
+            pour lui donner une (nouvelle) \YAD@meta{valeur} (\'eventuellement
+            vide), \YAD@meta{label} \'etant son identifiant indiqu\'e au-dessus et
+            entre parenth\`eses\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace};
+          \item une \YAD@reach@file{donn\'ee}\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace}: il
+            suffit de cliquer sur le cadre de couleur pourpre qui l'entoure
+            pour atteindre le fichier
+            \YAD@reach@file{\texttt{\YAD@configuration@file}} o\`u elle est
+            d\'efinie.
+          \end{enumerate}
+          Pour plus de d\'etails, consulter la documentation de la
+          classe \textsl{yathesis}.%
+        \end{minipage}%
+      }%
+    \end{center}
+  }{%
+  }%
+}%
+\newcommand{\YAD@expression}[3]{%
+  \AddToHook{begindocument}{%
+    \deftranslation[to=French]{lbl-#1}{#2}%
+    \deftranslation[to=English]{lbl-#1}{#3}%
+    \deftranslation[to=French]{#1}{#2}%
+    \deftranslation[to=English]{#1}{#3}%
+  }%
+}%
+\newcommand{\YAD@expression@alias}[5]{%
+  \ifthenelse{\equal{#1}{#4}}{%
+    \YAD@expression{#5}{#2}{#3}%
+  }{%
+  }%
+}%
+\newcommand{\expression}[3]{%
+  \YAD@expression@alias{#1}{#2}{#3}{juniorresearcherfem*}{juniorresearcher-female*}%
+  \YAD@expression@alias{#1}{#2}{#3}{mcf}{associateprofessor}%
+  \YAD@expression@alias{#1}{#2}{#3}{mcf*}{associateprofessor*}%
+  \renewcommand*{\do}[1]{\YAD@expression@alias{#1}{#2}{#3}{##1fem}{##1-female}}
+  \docsvlist{%
+    juniorresearcher,%
+    supervisor,%
+    cosupervisor,%
+    comonitor,%
+    seniorresearcher,%
+    committeepresident,%
+    professor,%
+  }
+  %
+  \YAD@expression{#1}{#2}{#3}%
+}
+\newcommand*{\YAD@generic@argument@translate}[1]{%
+  \YAD@texorpdfstring{\YAD@generic@argument{\translate{meta-#1}}}{<#1>}%
+}%
+\yadsetup{%
+  role/.store in=\cmdKV@YAD@role,%
+  corporation/.store in=\cmdKV@YAD@corps,%
+  corps/.store in=\cmdKV@YAD@corps,%
+  url/.store in=\cmdKV@YAD@url,%
+  logo/.store in=\cmdKV@YAD@logo,%
+  address/.store in=\cmdKV@YAD@address,%
+  telephone/.store in=\cmdKV@YAD@telephone,%
+  fax/.store in=\cmdKV@YAD@fax,%
+  email/.store in=\cmdKV@YAD@email,%
+  affiliation/.store in=\cmdKV@YAD@affiliation,%
+  affiliationsecondary/.store in=\cmdKV@YAD@affiliationsecondary,%
+  sepcorpaffilfrench/.store in=\cmdKV@YAD@sepcorpaffilfrench,%
+  sepcorpaffilenglish/.store in=\cmdKV@YAD@sepcorpaffilenglish,%
+  name/.store in=\cmdKV@YAD@name,%
+  depth/.store in=\cmdKV@YAD@depth,%
+  frametitle/.store in=\cmdKV@YAD@frametitle,%
+}%
+\yadsetup{%
+  logoheight/.code={%
+    \global\setlength\cmdKV@YAD@logoheight{#1}%
+    \ifdimgreater{\cmdKV@YAD@logoheight}{\YAD@max@logoheight}{%
+      \global\setlength\YAD@max@logoheight{\cmdKV@YAD@logoheight}%
+    }{%
+    }%
+  }%
+}%
+\yadsetup{sepcorpaffilfrench=\YAD@global@sepcorpaffil@french}%
+\yadsetup{sepcorpaffilenglish=\YAD@global@sepcorpaffil@english}%
+\yadsetup{name=\contentsname}%
+\yadsetup{depth=subsubsection}%
+\yadsetup{reset person/.style={%
+    corps=,%
+    role=,%
+    affiliation=,%
+    affiliationsecondary=,%
+    female=false,%
+    male=true,%
+    professor=false,%
+    mcf=false,%
+    mcf*=false,%
+    associateprofessor=false,%
+    associateprofessor*=false,%
+    juniorresearcher=false,%
+    juniorresearcher*=false,%
+    seniorresearcher=false,%
+  }%
+}%
+\DTLnewdb{YAD@staffs}%
+\DTLnewrow{YAD@staffs}%
+\DTLnewdbentry{YAD@staffs}{YAD@the@staff}{referees}%
+\DTLnewrow{YAD@staffs}%
+\DTLnewdbentry{YAD@staffs}{YAD@the@staff}{examiners}%
+\DTLnewrow{YAD@staffs}%
+\DTLnewdbentry{YAD@staffs}{YAD@the@staff}{guests}%
+\DTLnewrow{YAD@staffs}%
+\DTLnewdbentry{YAD@staffs}{YAD@the@staff}{supervisors-in-committee}%
+\DTLforeach{YAD@staffs}{%
+  \YAD@the@staff=YAD@the@staff}{%
+  \DTLnewdb{\YAD@the@staff}%
+}%
+\DTLnewdb{YAD@supervisors}%
+\DTLnewdb{dedications}%
+\DTLnewdb{frontepigraphs}%
+\DTLforeach{YAD@staffs}{%
+  \YAD@the@staff=YAD@the@staff}{%
+  \YAD@create@boolean{only@female@\YAD@the@staff}%
+  \global\booltrue{YAD@only@female@\YAD@the@staff}%
+}%
+\newcommand*{\YAD@staff}[4][]{%
+  \dtlexpandnewvalue%
+  %
+  \yadsetup{#1}%
+\DTLforeach{YAD@staffs}{%
+  \YAD@the@staff=YAD@the@staff}{%
+    \ifthenelse{\equal{#4}{\YAD@the@staff}}{%
+      \ifboolexpr{%
+        bool {YAD@female} or %
+        not bool {YAD@male}%
+      }{%
+      }{%
+        \global\boolfalse{YAD@only@female@#4}%
+      }%
+    }{%
+    }
+}%
+  \ifbool{YAD@professor}{%
+    \ifboolexpr{%
+      bool {YAD@female} or %
+      not bool {YAD@male}%
+    }{%
+      \yadsetup{corps=professor-female,#1}%
+    }{%
+      \yadsetup{corps=professor,#1}%
+    }%
+  }{%
+  }%
+  \ifboolexpr{
+    bool {YAD@mcf}
+    or
+    bool {YAD@associateprofessor}
+  }{%
+    \yadsetup{corps=associateprofessor,#1}%
+  }{%
+  }%
+  \ifboolexpr{
+    bool {YAD@mcf*}
+    or
+    bool {YAD@associateprofessor*}
+  }{%
+    \yadsetup{corps=associateprofessor*,#1}%
+  }{%
+  }%
+  \ifboolexpr{ bool {YAD@juniorresearcher} }{%
+    \ifboolexpr{%
+      bool {YAD@female} or %
+      not bool {YAD@male}%
+    }{%
+      \yadsetup{corps=juniorresearcher-female,#1}%
+    }{%
+      \yadsetup{corps=juniorresearcher,#1}%
+    }%
+  }{%
+  }%
+  \ifboolexpr{ bool {YAD@juniorresearcher*} }{%
+    \ifboolexpr{%
+      bool {YAD@female} or %
+      not bool {YAD@male}%
+    }{%
+      \yadsetup{corps=juniorresearcher-female*,#1}%
+    }{%
+      \yadsetup{corps=juniorresearcher*,#1}%
+    }%
+  }{%
+  }%
+  \ifboolexpr{ bool {YAD@seniorresearcher} }{%
+    \ifboolexpr{%
+      bool {YAD@female} or %
+      not bool {YAD@male}%
+    }{%
+      \yadsetup{corps=seniorresearcher-female,#1}%
+    }{%
+      \yadsetup{corps=seniorresearcher,#1}%
+    }%
+  }{%
+  }%
+  %
+  % \YAD@ifemptyorundef{\cmdKV@YAD@corporation}{%
+  % }{%
+  %   \YAD@ifemptyorundef{\cmdKV@YAD@corps}{%
+  %     \yadsetup{#1,corps=\cmdKV@YAD@corporation}%
+  %   }{%
+  %   }%
+  % }%
+  \DTLnewrow{#4}%
+  \DTLnewdbentry{#4}{firstname}{#2}%
+  \DTLnewdbentry{#4}{lastname}{#3}%
+  \YAD@ifemptyorundef{\cmdKV@YAD@role}{%
+    \DTLnewdbentry{#4}{role}{}%
+  }{%
+    \DTLnewdbentry{#4}{role}{\cmdKV@YAD@role}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@corps}{%
+    \DTLnewdbentry{#4}{corps}{}%
+  }{%
+    \DTLnewdbentry{#4}{corps}{\cmdKV@YAD@corps}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@sepcorpaffilfrench}{%
+    \DTLnewdbentry{#4}{sepcorpaffilfrench}{\YAD@global@sepcorpaffil@french}%
+  }{%
+    \DTLnewdbentry{#4}{sepcorpaffilfrench}{\cmdKV@YAD@sepcorpaffilfrench}%
+    \def\cmdKV@YAD@sepcorpaffilfrench{}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@sepcorpaffilenglish}{%
+    \DTLnewdbentry{#4}{sepcorpaffilenglish}{\YAD@global@sepcorpaffil@english}%
+  }{%
+    \DTLnewdbentry{#4}{sepcorpaffilenglish}{\cmdKV@YAD@sepcorpaffilenglish}%
+    \def\cmdKV@YAD@sepcorpaffilenglish{}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@affiliation}{%
+    \DTLnewdbentry{#4}{affiliation}{}%
+  }{%
+    \DTLnewdbentry{#4}{affiliation}{\cmdKV@YAD@affiliation}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@affiliationsecondary}{%
+    \YAD@ifemptyorundef{\cmdKV@YAD@affiliation}{%
+      \DTLnewdbentry{#4}{affiliationsecondary}{}%
+    }{%
+      \DTLnewdbentry{#4}{affiliationsecondary}{\cmdKV@YAD@affiliation}%
+    }%
+  }{%
+    \DTLnewdbentry{#4}{affiliationsecondary}{\cmdKV@YAD@affiliationsecondary}%
+  }%
+  \yadsetup{reset person}%
+}%
+\newcommand{\YAD@error@firstlastnames@empty}[4]{%
+  \ifthenelse{\isempty{#2}}{%
+    \YAD@ClassError{%
+      Prénom #1 non spécifié%
+    }{%
+      Le 1er argument obligatoire de la commande \string#4\MessageBreak%
+      est vide (celui-ci doit être renseigné).%
+    }%
+  }{%
+  }%
+  \ifthenelse{\isempty{#3}}{%
+    \YAD@ClassError{%
+      Nom #1 non spécifié%
+    }{%
+      Le 2e argument obligatoire de la commande \string#4\MessageBreak%
+      est vide (celui-ci doit être renseigné).%
+    }%
+  }{%
+  }%
+}
+\newcommand*{\YAD@supervisors@in@committee}[3][]{%
+  \YAD@staff[#1]{#2}{#3}{supervisors-in-committee}%
+}%
+\newcommand{\supervisor}{%
+  \@ifstar{\@tempswafalse\YAD@supervisor}{\@tempswatrue\YAD@supervisor}%
+}
+\newcommand*{\YAD@supervisor}[3][]{%
+  \booltrue{YAD@supervisor@specified}%
+  \yadsetup{#1}%
+  \ifboolexpr{%
+    bool {YAD@female} or %
+    not bool {YAD@male}%
+  }{%
+    \YAD@error@firstlastnames@empty{de la directrice de thèse}{#2}{#3}{\supervisor}%
+    \YAD@staff[role=supervisor-female,#1]{#2}{#3}{YAD@supervisors}%
+  }{%
+    \YAD@error@firstlastnames@empty{du directeur de thèse}{#2}{#3}{\supervisor}%
+    \YAD@staff[role=supervisor,#1]{#2}{#3}{YAD@supervisors}%
+  }%
+  \if@tempswa%
+  \YAD@staff[role=supervisor,#1]{#2}{#3}{supervisors-in-committee}%
+  \fi%
+}%
+\newcommand{\cosupervisor}{%
+  \@ifstar{\@tempswatrue\YAD@cosupervisor}{\@tempswafalse\YAD@cosupervisor}%
+}
+\newcommand*{\YAD@cosupervisor}[3][]{%
+  \booltrue{YAD@supervisor@specified}%
+  \booltrue{YAD@cosupervisor@or@comonitor}%
+  \yadsetup{#1}%
+  \ifboolexpr{%
+    bool {YAD@female} or %
+    not bool {YAD@male}%
+  }{%
+    \YAD@error@firstlastnames@empty{de la co-directrice de thèse}{#2}{#3}{\cosupervisor}%
+    \YAD@staff[role=cosupervisor-female,#1]{#2}{#3}{YAD@supervisors}%
+  }{%
+    \YAD@error@firstlastnames@empty{du co-directeur de thèse}{#2}{#3}{\cosupervisor}%
+    \YAD@staff[role=cosupervisor,#1]{#2}{#3}{YAD@supervisors}%
+  }%
+  \if@tempswa%
+  \else%
+  \YAD@staff[role=cosupervisor,#1]{#2}{#3}{supervisors-in-committee}%
+  \fi%
+}%
+\newcommand{\comonitor}{%
+  \@ifstar{\@tempswatrue\YAD@comonitor}{\@tempswafalse\YAD@comonitor}%
+}
+\newcommand*{\YAD@comonitor}[3][]{%
+  \booltrue{YAD@supervisor@specified}%
+  \booltrue{YAD@cosupervisor@or@comonitor}%
+  \yadsetup{#1}%
+  \ifboolexpr{%
+    bool {YAD@female} or %
+    not bool {YAD@male}%
+  }{%
+    \YAD@error@firstlastnames@empty{de la co-encadrante de thèse}{#2}{#3}{\comonitor}%
+    \YAD@staff[role=comonitor-female,#1]{#2}{#3}{YAD@supervisors}%
+  }{%
+    \YAD@error@firstlastnames@empty{de co-encadrant de thèse}{#2}{#3}{\comonitor}%
+    \YAD@staff[role=comonitor,#1]{#2}{#3}{YAD@supervisors}%
+  }%
+  \if@tempswa%
+  \else%
+  \YAD@staff[role=comonitor,#1]{#2}{#3}{supervisors-in-committee}%
+  \fi%
+}%
+\newcommand*{\guest}[3][]{%
+  \YAD@staff[#1]{#2}{#3}{guests}%
+  \YAD@error@firstlastnames@empty{de l'invite}{#2}{#3}{\guest}%
+}%
+\newcommand*{\referee}[3][]{%
+  \yadsetup{#1}%
+  \ifboolexpr{%
+    bool {YAD@female} or %
+    not bool {YAD@male}%
+  }{%
+    \YAD@error@firstlastnames@empty{de la rapportrice}{#2}{#3}{\referee}%
+  }{%
+    \YAD@error@firstlastnames@empty{du rapporteur}{#2}{#3}{\referee}%
+  }%
+  \YAD@staff[#1]{#2}{#3}{referees}%
+}%
+\newcommand*{\examiner}[3][]{%
+  \yadsetup{#1}%
+  \YAD@staff[#1]{#2}{#3}{examiners}%
+  \ifboolexpr{%
+    test {\ifdefstring{\cmdKV@YAD@role}{committeepresident}} or %
+    test {\ifdefstring{\cmdKV@YAD@role}{committeepresident-female}}%
+  }{%
+  }{%
+    \ifboolexpr{%
+      bool {YAD@female} or %
+      not bool {YAD@male} or %
+    }{%
+      \YAD@error@firstlastnames@empty{de l'examinatrice}{#2}{#3}{\examiner}%
+    }{%
+      \YAD@error@firstlastnames@empty{de l'examinateur}{#2}{#3}{\examiner}%
+    }%
+  }%
+}%
+\newcommand*{\committeepresident}[3][]{%
+  \booltrue{YAD@committeepresident@specified}
+  \yadsetup{#1}%
+  \ifboolexpr{%
+    bool {YAD@female} or %
+    not bool {YAD@male}%
+  }{%
+    \YAD@error@firstlastnames@empty{de la presidente du jury}{#2}{#3}{\committeepresident}%
+    \examiner[role=committeepresident-female,#1]{#2}{#3}%
+  }{%
+    \YAD@error@firstlastnames@empty{du president du jury}{#2}{#3}{\committeepresident}%
+    \examiner[role=committeepresident,#1]{#2}{#3}%
+  }%
+}%
+\newcommand*{\YAD@al}{ \`a l'}%
+\newcommand*{\YAD@au}{ au }%
+\newcommand*{\YAD@del}{ de l'}%
+\newcommand*{\YAD@du}{ du }%
+\newcommand*{\YAD@if@starts@with@vowel}[3]{%
+  \ifboolexpr{%
+    test {\IfBeginWith{#1}{a}} or %
+    test {\IfBeginWith{#1}{e}} or %
+    test {\IfBeginWith{#1}{i}} or %
+    test {\IfBeginWith{#1}{o}} or %
+    test {\IfBeginWith{#1}{u}} or %
+    test {\IfBeginWith{#1}{y}} or %
+    test {\IfBeginWith{#1}{\`a}} or %
+    test {\IfBeginWith{#1}{\^a}} or %
+    test {\IfBeginWith{#1}{\"a}} or %
+    test {\IfBeginWith{#1}{\'e}} or %
+    test {\IfBeginWith{#1}{\`e}} or %
+    test {\IfBeginWith{#1}{\^e}} or %
+    test {\IfBeginWith{#1}{\"e}} or %
+    test {\IfBeginWith{#1}{\^i}} or %
+    test {\IfBeginWith{#1}{\"i}} or %
+    test {\IfBeginWith{#1}{\^o}} or %
+    test {\IfBeginWith{#1}{\"o}} or %
+    test {\IfBeginWith{#1}{\`u}} or %
+    test {\IfBeginWith{#1}{\^u}} or %
+    test {\IfBeginWith{#1}{\"u}} or %
+    test {\IfBeginWith{#1}{\"y}} or %
+    test {\IfBeginWith{#1}{A}} or %
+    test {\IfBeginWith{#1}{E}} or %
+    test {\IfBeginWith{#1}{I}} or %
+    test {\IfBeginWith{#1}{O}} or %
+    test {\IfBeginWith{#1}{U}} or %
+    test {\IfBeginWith{#1}{Y}} or %
+    test {\IfBeginWith{#1}{\`A}} or %
+    test {\IfBeginWith{#1}{\^A}} or %
+    test {\IfBeginWith{#1}{\"A}} or %
+    test {\IfBeginWith{#1}{\'E}} or %
+    test {\IfBeginWith{#1}{\`E}} or %
+    test {\IfBeginWith{#1}{\^E}} or %
+    test {\IfBeginWith{#1}{\"E}} or %
+    test {\IfBeginWith{#1}{\^I}} or %
+    test {\IfBeginWith{#1}{\"I}} or %
+    test {\IfBeginWith{#1}{\^O}} or %
+    test {\IfBeginWith{#1}{\"O}} or %
+    test {\IfBeginWith{#1}{\`U}} or %
+    test {\IfBeginWith{#1}{\^U}} or %
+    test {\IfBeginWith{#1}{\"U}} or %
+    test {\IfBeginWith{#1}{\"Y}} or %
+    test {\IfBeginWith{#1}{\ae}} or %
+    test {\IfBeginWith{#1}{\oe}} or %
+    test {\IfBeginWith{#1}{\AE}} or %
+    test {\IfBeginWith{#1}{\OE}}%
+  }{%
+    #2%
+  }{%
+    #3%
+  }%
+}%
+\newcommand{\YAD@display@staff}[1]{%
+  \DTLforeach*{#1}{%
+    \YAD@committeemember@lastname=lastname,%
+    \YAD@committeemember@firstname=firstname,%
+    \YAD@committeemember@role=role,%
+    \YAD@committeemember@corps=corps,%
+    \YAD@committeemember@sepcorpaffil=%
+    \expandafter\IfLanguageName{french}{%
+      sepcorpaffilfrench%
+    }{%
+      sepcorpaffilenglish%
+    }%
+    ,%
+    \YAD@committeemember@affiliation=%
+    \IfLanguageName{french}{%
+      affiliation%
+    }{%
+      affiliationsecondary%
+    }%
+  }{%
+    % Nature des membres du jury
+    \DTLiffirstrow{%
+      \ifthenelse{\DTLrowcount{\YAD@the@staff}>1}{%
+        \ifboolexpr{%
+          bool {YAD@hdr} and test {\ifdefstring{\YAD@the@staff}{supervisors-in-committee}}%
+        }{%
+          \ifboolexpr{%
+            bool {YAD@only@female@\YAD@the@staff}%
+          }{%
+            \YAD@translation{\YAD@the@staff-pl-hdr-female}%
+          }{%
+            \YAD@translation{\YAD@the@staff-pl-hdr}%
+          }%
+        }{%
+          \ifboolexpr{%
+            bool {YAD@only@female@\YAD@the@staff}%
+          }{%
+            \YAD@translation{\YAD@the@staff-pl-female}%
+          }{%
+            \YAD@translation{\YAD@the@staff-pl}%
+          }%
+        }%
+      }{%
+        \ifboolexpr{%
+          bool {YAD@hdr} and test {\ifdefstring{\YAD@the@staff}{supervisors-in-committee}}%
+        }{%
+          \ifboolexpr{%
+            bool {YAD@only@female@\YAD@the@staff}%
+          }{%
+            \YAD@translation{\YAD@the@staff-hdr-female}%
+          }{%
+            \YAD@translation{\YAD@the@staff-hdr}%
+          }%
+        }{%
+          \ifboolexpr{%
+            bool {YAD@only@female@\YAD@the@staff}%
+          }{%
+            \YAD@translation{\YAD@the@staff-female}%
+          }{%
+            \YAD@translation{\YAD@the@staff}%
+          }%
+        }%
+      }%
+    }{%
+    }%
+    &
+    % Prénom
+    \YAD@reach@file{%
+      %
+      \ifthenelse{\DTLiseq{\YAD@committeemember@firstname}{}}{%
+        \YAD@generic@argument@translate{firstname}%
+      }{%
+        \YAD@committeemember@firstname%
+      }%
+    }
+    \YAD@reach@file{%
+      \ifthenelse{\DTLiseq{\YAD@committeemember@lastname}{}}{%
+        \YAD@generic@argument@translate{lastname}%
+      }{%
+        \textsc{\YAD@committeemember@lastname}%
+      }%
+    }%
+    &
+    \YAD@reach@file{%
+      \ifthenelse{\DTLiseq{\YAD@committeemember@corps}{}}{%
+        \ifdraft{%
+          \YAD@generic@argument@translate{corps}%
+        }{%
+        }%
+      }{%
+        \YAD@translation{%
+          \YAD@committeemember@corps%
+        }%
+      }%
+    }%
+    \YAD@reach@file{%
+      \ifthenelse{\DTLiseq{\YAD@committeemember@affiliation}{}}{%
+        \ifdraft{%
+          \YAD@generic@argument@translate{affiliation}%
+        }{%
+        }%
+      }{%
+        \ifthenelse{\DTLiseq{\YAD@committeemember@corps}{}}{%
+          \YAD@committeemember@affiliation%
+        }{%
+          \YAD@ifemptyorundef{\YAD@committeemember@sepcorpaffil}{%
+            \YAD@if@starts@with@vowel{\YAD@committeemember@affiliation}{\YAD@al}{\YAD@au}\YAD@committeemember@affiliation%
+          }{%
+            \YAD@committeemember@sepcorpaffil\YAD@committeemember@affiliation%
+          }%
+        }%
+      }%
+    }%
+  \ifbool{YAD@committeepresident@specified}{%
+    &
+    % Fonction
+    \YAD@reach@file{%
+      \ifthenelse{\DTLiseq{\YAD@committeemember@role}{}}{%
+        \ifdraft{%
+          \YAD@generic@argument@translate{role}%
+        }{%
+        }%
+      }{%
+        \ifthenelse{\equal{\YAD@the@staff}{supervisors-in-committee}}{%
+        }{%
+          \YAD@translation{\YAD@committeemember@role}%
+        }%
+      }%
+    }%
+  }{%
+  }%
+  \DTLiflastrow{%
+    \\[.15cm]
+  }{%
+      \\
+    }%
+  }%
+}%
+\newcommand*{\YAD@supervisors@tabular}{%
+  \small%
+  \DTLifdbempty{YAD@staffs}{}{%
+    \ifthenelse{\DTLrowcount{YAD@supervisors}>1}{%
+      \begin{tabular}[t]{>{\itshape}lll}
+    }{%
+      \begin{tabular}[t]{>{\itshape}l@{ }ll}
+    }%
+      \DTLforeach*{YAD@supervisors}{%
+          \YAD@committeemember@lastname=lastname,%
+          \YAD@committeemember@firstname=firstname,%
+          \YAD@committeemember@role=role%
+        }{%
+          % Nature des membres du jury
+          \DTLiffirstrow{%
+            \hspace{-\tabcolsep}%
+            \normalfont\bfseries%
+            \ifYAD@hdr%
+            \YAD@translation{supervisedby-hdr} %
+            \else%
+            \YAD@translation{supervisedby}%
+            \fi%
+          }{%
+          }%
+          &
+          % Prénom
+          \YAD@reach@file{%
+            %
+            \ifthenelse{\DTLiseq{\YAD@committeemember@firstname}{}}{%
+              \YAD@generic@argument@translate{firstname}%
+            }{%
+              \YAD@committeemember@firstname%
+            }%
+          }
+          % Nom
+          \YAD@reach@file{%
+            \ifthenelse{\DTLiseq{\YAD@committeemember@lastname}{}}{%
+              \YAD@generic@argument@translate{lastname}%
+            }{%
+              \textsc{\YAD@committeemember@lastname}%
+            }%
+          }%
+          &
+          % Fonction
+          \YAD@reach@file{%
+            \ifthenelse{\DTLiseq{\YAD@committeemember@role}{}}{%
+              \ifdraft{%
+                \YAD@generic@argument@translate{role}%
+              }{%
+              }%
+            }{%
+              \ifthenelse{\DTLrowcount{YAD@supervisors}>1}{%
+                \ifbool{YAD@cosupervisor@or@comonitor}{%
+                  \YAD@translation{\YAD@committeemember@role}%
+                }{%
+                }%
+              }{%
+              }%
+            }%
+          }%
+          % &
+          \DTLiflastrow{%
+            \\[.5cm]
+          }{%
+            \\
+          }%
+        }%
+      \end{tabular}%
+    }{%
+    }%
+  }%
+\newcommand*{\YAD@committee@tabular}{%
+  \small%
+  \ifbool{YAD@committeepresident@specified}{%
+    \begin{tabularx}{\textwidth}[t]{>{\itshape}ll>{\raggedright\arraybackslash}Xl}
+  }{%
+    \begin{tabularx}{\textwidth}[t]{>{\itshape}ll>{\raggedright\arraybackslash}X}
+  }%
+    \ifbool{YAD@committeepresident@specified}{%
+      \multicolumn{4}{@{}l}{\bfseries\YAD@translation{committeemembers}}%
+    }{%
+      \multicolumn{3}{@{}l}{\bfseries\YAD@translation{committeemembers}}%
+    }%
+    \\[.25cm]
+    \DTLforeach*{YAD@staffs}{%
+      \YAD@the@staff=YAD@the@staff%
+    }{%
+      %
+      \YAD@display@staff{\YAD@the@staff}%
+    }%
+  \end{tabularx}%
+}%
+\DeclareRobustCommand*\YAD@meta{\YAD@generic@argument}%
+\newcommand*\YAD@logo{}%
+\newcommand*{\YAD@create@macro}[2][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \csdef{#2}##1{%
+      \csdef{print#2}{%
+        \YAD@reach@file{%
+          \ifthenelse{\isempty{##1}}{%
+            \YAD@generic@argument@translate{#2}%
+          }{%
+            ##1%
+          }%
+        }%
+      }%
+    }%
+  }{%
+  }%
+  \ifthenelse{\equal{#1}{email}}{%
+    \csdef{#1#2}##1{%
+      \csdef{print#1#2}{%
+        \YAD@reach@file{%
+          \ifthenelse{\isempty{##1}}{%
+            % \ifbool{YAD@nolink}{%
+            %   \YAD@generic@argument@translate{#1#2}%
+            % }{%
+              \YAD@href{mailto:#1.#2@institute.fr}{\YAD@generic@argument@translate{#1#2}}%
+            % }%
+          }{%
+            % \ifbool{YAD@nolink}{%
+            %   \YAD@nolinkurl{##1}%
+            % }{%
+              \YAD@href{mailto:##1}{\YAD@nolinkurl{##1}}%
+            % }%
+          }%
+        }%
+      }%
+    }%
+  }{%
+  }%
+  \ifthenelse{\equal{#1}{url}}{%
+    \csdef{#1#2}##1{%
+      \csdef{print#1#2}{%
+        \YAD@reach@file{%
+          \ifthenelse{\isempty{##1}}{%
+            % \ifbool{YAD@nolink}{%
+            %   \YAD@generic@argument@translate{#1#2}%
+            % }{%
+              \YAD@url{%
+                \YAD@generic@argument@translate{#1#2}%
+              }%
+            % }%
+          }{%
+            % \ifbool{YAD@nolink}{%
+            %   \YAD@nolinkurl{##1}%
+            % }{%
+              \YAD@url{##1}%
+            % }%
+          }%
+        }%
+      }%
+    }%
+  }{%
+  }%
+  \ifthenelse{\equal{#1}{entite}}{%
+    \expandafter\newcommand\expandafter{\csname #2\endcsname}[2][]{%
+     \csdef{YAD@#2}{##2}%
+     \ifthenelse{\isempty{##2}}{%
+       \YAD@ClassError[no#2]{%
+         Argument obligatoire de \csuse{#2}\space vide%
+       }{%
+         L'argument obligatoire de la commande \csuse{#2}\MessageBreak%
+         est vide (celui-ci doit être renseigné).%
+       }%
+     }{%
+     }%
+\csdef{print#2}{%
+  \@ifstar{\csuse{YAD@print#2@star}}{\csuse{YAD@print#2@nostar}}%
+}%
+\csdef{YAD@print#2@star}{%
+  \ifthenelse{\isempty{##2}}{%
+    \YAD@reach@file{\YAD@generic@argument@translate{#2}}%
+  }{%
+    \YAD@reach@file{##2}%
+  }%
+}%
+\csdef{YAD@print#2@nostar}{%
+  \let\YAD@texte\relax%
+  \csdef{YAD@texte}{%
+    \ifthenelse{\isempty{##2}}{%
+      \YAD@reach@file{\YAD@generic@argument@translate{#2}}%
+    }{%
+      ##2%
+    }%
+  }%
+  % \boolfalse{YAD@nolink}%
+  \yadsetup{##1}%
+  \YAD@ifemptyorundef{\cmdKV@YAD@url}{%
+    \ifdraft{%
+      \YAD@reach@file{%
+        \YAD@texte%
+      }%
+    }{%
+      % \ifbool{YAD@nolink}{%
+      \YAD@texte%
+      % }{%
+      %   \YAD@href{www.#2.fr}{\YAD@texte}%
+      % }%
+    }%
+  }{%
+    \ifdraft{%
+      \YAD@reach@file{%
+        \YAD@texte%
+      }%
+    }{%
+      % \ifbool{YAD@nolink}{%
+      %   \YAD@texte%
+      % }{%
+        \YAD@href{\cmdKV@YAD@url}{\YAD@texte}%
+      % }%
+    }%
+  }%
+}%
+      \csdef{print#2address}{%
+        \yadsetup{##1}%
+        \YAD@ifemptyorundef{\cmdKV@YAD@address}{%
+          \YAD@reach@file{\YAD@generic@argument@translate{address#2}}%
+        }{%
+          \YAD@reach@file{\cmdKV@YAD@address}%
+        }%
+        %
+      }%
+      \csdef{print#2telephone}{%
+        \yadsetup{##1}%
+        \YAD@ifemptyorundef{\cmdKV@YAD@telephone}{%
+          \YAD@reach@file{\YAD@generic@argument@translate{telephone#2}}%
+        }{%
+          \YAD@reach@file{\cmdKV@YAD@telephone}%
+        }%
+        %
+      }%
+      \csdef{print#2fax}{%
+        \yadsetup{##1}%
+        \YAD@ifemptyorundef{\cmdKV@YAD@fax}{%
+          \YAD@reach@file{\YAD@generic@argument@translate{fax#2}}%
+        }{%
+          \YAD@reach@file{\cmdKV@YAD@fax}%
+        }%
+        %
+      }%
+\csdef{print#2email}{%
+  \YAD@reach@file{%
+    \YAD@ifemptyorundef{\cmdKV@YAD@email}{%
+      % \ifbool{YAD@nolink}{%
+      %   \YAD@generic@argument@translate{#2email}%
+      % }{%
+        \YAD@href{mailto:#2@institute.fr}{\YAD@generic@argument@translate{#2email}}%
+      % }%
+    }{%
+      % \ifbool{YAD@nolink}{%
+      %   \YAD@nolinkurl{\cmdKV@YAD@email}%
+      % }{%
+        \YAD@href{mailto:\cmdKV@YAD@email}{\YAD@nolinkurl{\cmdKV@YAD@email}}%
+      % }%
+    }%
+  }%
+}%
+\ifbool{YAD@nologo}{%
+      }{%
+        \csdef{print#2logo}{%
+        \@ifstar{%
+        \@tempswatrue%
+        \csuse{YAD@starnostar@print#2logo}%
+        }{%
+        \@tempswafalse%
+        \csuse{YAD@starnostar@print#2logo}%
+        }%
+      }%
+      \csdef{YAD@starnostar@print#2logo}{%
+        \yadsetup{url=,nologo=false,##1}%
+        \ifbool{YAD@nologo}{%
+        }{%
+          \ifbool{YAD@logo@before}{%
+            \hspace{\stretch{1}}%
+          }{%
+          }%
+          \renewcommand*\YAD@logo{%
+            \YAD@ifemptyorundef{\cmdKV@YAD@logo}{%
+              \YAD@reach@file{\YAD@generic@argument@translate{logo#2}}%
+            }{%
+              \YAD@reach@file{%
+                \includegraphics[height=\cmdKV@YAD@logoheight]{\cmdKV@YAD@logo}%
+                \renewcommand*\cmdKV@YAD@logo{}%
+              }%
+            }%
+          }%
+          \if@tempswa%
+          \else%
+          % \ifbool{YAD@nolink}{%
+          % \YAD@logo%
+          % }{%
+          \YAD@ifemptyorundef{\cmdKV@YAD@url}{%
+            % \YAD@href{www.#2.fr}{
+            \YAD@logo%
+            % }%
+          }{%
+            \YAD@href{\cmdKV@YAD@url}{\YAD@logo}%
+          }%
+          % }%
+          \fi%
+          \setlength\cmdKV@YAD@logoheight{\YAD@default@logoheight}%
+          \boolfalse{YAD@nologo}%
+          \booltrue{YAD@logo@before}%
+        }%
+      }%
+    }%
+  }%
+}{%
+}%
+\ifthenelse{\equal{#1}{bilingue}}{%
+  \ifthenelse{\isnamedefined{#2}}{%
+  }{%
+    \csdef{#2}{}%
+  }%
+  \expandafter\renewcommand\expandafter{\csname #2\endcsname}[2][]{%
+\ifthenelse{\isempty{##1}}{%
+  \csdef{YAD@meta#2}{%
+    ##2%
+  }%
+}{%
+  \csdef{YAD@meta#2}{%
+    ##2 (##1)%
+  }%
+}%
+\ifthenelse{\isempty{##2}}{%
+  \YAD@ClassError[no#2]{%
+    Argument obligatoire de \csuse{#2}\space vide%
+  }{%
+    L'argument obligatoire de la commande \csuse{#2}\MessageBreak%
+    est vide (celui-ci doit être renseigné).%
+  }%
+}{%
+}%
+\ifthenelse{\equal{#2}{title}}{%
+  \AddToHook{begindocument/before}{\YAD@hypersetup{pdftitle=\YAD@metatitle}}%
+}{%
+}%
+\ifundef{\YAD@metasubject}{%
+  \ifundef{\YAD@metaacademicfield}{%
+  }{%
+    \AddToHook{begindocument/before}{\YAD@hypersetup{pdfsubject=\YAD@metaacademicfield}}%
+  }%
+}{%
+  \AddToHook{begindocument/before}{\YAD@hypersetup{pdfsubject=\YAD@metasubject}}%
+}%
+\csdef{print#2}{%
+        \YAD@reach@file{%
+          \expandafter\IfLanguageName{\YAD@mainlanguage}{%
+            \ifthenelse{\isempty{##2}}{%
+              \YAD@reach@file{\YAD@generic@argument@translate{#2}}%
+            }{%
+              \YAD@reach@file{##2}%
+            }%
+          }{%
+            \ifthenelse{\isempty{##1}}{%
+              \ifbool{YAD@two@titles}{%
+                \YAD@ClassError[no#2]{%
+                  Argument optionnel de \csuse{#2}\space vide%
+                }{%
+                  La commande \csuse{#2}\space a été utilisée\MessageBreak%
+                  mais avec un argument optionnel vide : celui-ci doit\MessageBreak%
+                  être soit non vide soit pas utilisé%
+                }%
+                \YAD@reach@file{\YAD@generic@argument@translate{#2}}%
+              }{%
+              }%
+            }{%
+              \YAD@reach@file{##1}%
+            }%
+          }%
+        }%
+      }%
+      \ifthenelse{\isempty{##1}}{%
+      }{%
+        \ifthenelse{\equal{#2}{subject}}{%
+        }{%
+          \booltrue{YAD@two@titles}%
+        }%
+      }%
+    }%
+  }{%
+  }%
+}%
+\YAD@create@macro[entite]{pres}%
+\YAD@create@macro[entite]{comue}%
+\YAD@create@macro[entite]{institute}%
+\YAD@create@macro[entite]{coinstitute}%
+\YAD@create@macro[entite]{company}%
+\YAD@create@macro[entite]{cocompany}%
+\YAD@create@macro[entite]{doctoralschool}%
+\YAD@create@macro{colophontext}%
+\YAD@create@macro[bilingue]{academicfield}%
+\YAD@create@macro[bilingue]{speciality}%
+\YAD@create@macro[bilingue]{title}%
+\YAD@create@macro[bilingue]{subtitle}%
+\YAD@create@macro[bilingue]{subject}%
+\YAD@create@macro{disclaimertext}%
+\newcommand{\ordernumber}{%
+  \@ifnextchar[{%
+    \YAD@ordernumber@with@argument%
+  }{%
+    \YAD@ordernumber@without@argument%
+  }%]
+}%
+\newcommand{\YAD@ordernumber@with@argument}[1][]{%
+  \csdef{printordernumber}{%
+    \ifthenelse{\isempty{#1}}{%
+      \YAD@reach@file{%
+        \YAD@generic@argument@translate{ordernumber}%
+      }%
+      \YAD@ClassError{%
+        Argument optionnel de \protect\ordernumber\space vide%
+      }{%
+        La commande \protect\ordernumber\space a été
+        utilisée\MessageBreak%
+        mais avec un argument optionnel vide : celui-ci doit\MessageBreak%
+        être soit non vide soit pas utilisé.%
+      }%
+    }{%
+      #1%
+    }%
+  }%
+}%
+\newcommand{\YAD@ordernumber@without@argument}{%
+  \csdef{printordernumber}{%
+    \hspace{2cm}%
+  }%
+}%
+\renewcommand*{\author}[3][]{%
+  \ifthenelse{\isempty{#2}}{%
+    \newcommand*\YAD@firstname@author{%
+      \YAD@generic@argument@translate{firstname}%
+    }%
+  }{%
+    \newcommand*\YAD@firstname@author{%
+      #2%
+    }%
+  }%
+  \ifthenelse{\isempty{#3}}{%
+    \newcommand*\YAD@lastname@author{%
+      \YAD@generic@argument@translate{lastname}%
+    }%
+  }{%
+    \newcommand*\YAD@lastname@author{%
+      #3%
+    }%
+  }%
+  \YAD@error@firstlastnames@empty{de l'auteur de la thèse}{#2}{#3}{\author}%
+  \AddToHook{begindocument/before}{\YAD@hypersetup{pdfauthor=\YAD@firstname@author{} \YAD@lastname@author}}%
+  \newcommand*\YAD@email@author{%
+    #1%
+  }%
+  \ifthenelse{\isempty{#2}\AND\isempty{#3}}{%
+    \newcommand*{\printauthor}{%
+      \ifdraft{%
+        \YAD@reach@file{%
+          \YAD@generic@argument@translate{firstname}
+          \YAD@generic@argument@translate{lastname}%
+        }%
+      }{%
+        \ifthenelse{\isempty{#1}}{%
+          \YAD@generic@argument@translate{firstname}
+          \YAD@generic@argument@translate{lastname}%
+        }{%
+          \YAD@href{mailto:\YAD@email@author}{%
+            \YAD@generic@argument@translate{firstname}
+            \YAD@generic@argument@translate{lastname}%
+          }%
+        }%
+      }%
+    }%
+  }{%
+    \newcommand*{\printauthor}{%
+      \ifdraft{%
+        \YAD@reach@file{\YAD@firstname@author{} \bsc{\YAD@lastname@author}}%
+      }{%
+        % \ifbool{YAD@nolink}{%
+        % \YAD@firstname@author{} \bsc{\YAD@lastname@author}%
+        % }{%
+        \ifthenelse{\isempty{#1}}{%
+          \YAD@firstname@author{} \bsc{\YAD@lastname@author}%
+        }{%
+          \YAD@href{mailto:\YAD@email@author}{\YAD@firstname@author{} \bsc{\YAD@lastname@author}}%
+        }%
+        % }%
+      }%
+    }%
+  }%
+}%
+\csdef{YAD@checkdate}#1#2#3#4#5{%
+  \boolfalse{YAD@valid@day}%
+  \boolfalse{YAD@valid@month}%
+  \boolfalse{YAD@valid@year}%
+  %
+  \csxdef{YAD@daydate}{#1}%
+  \csxdef{YAD@monthdate}{#2}%
+  \csxdef{YAD@yeardate}{#3}%
+  % \ifboolexpr{%
+  %   bool {YAD@submitted@work}%
+  %   or bool {YAD@submitted@work@star}%
+  % }{%
+  % }{%
+    \ifboolexpr{%
+      not (test {\IfInteger{\YAD@daydate}})%
+    }{%
+      \YAD@ClassError[nodate]{%
+        Jour de la date de #5 non valide%
+      }{%
+        La commande \string#4{\YAD@daydate}{\YAD@monthdate}{\YAD@yeardate}\space\MessageBreak%
+        n'a pas été correctement saisie car le\MessageBreak%
+        numéro de jour (`\YAD@daydate') n'est pas valide :\MessageBreak%
+        ce doit être un nombre entier entre 1 et 31.%
+      }%
+    }{%
+      \IfDecimal{\YAD@daydate}{%
+        \csxdef{YAD@daydate}{\number\integerpart}%
+      }{%
+      }%
+      \ifboolexpr{%
+        test {\ifnumless{\YAD@daydate}{1}}%
+        or test {\ifnumgreater{\YAD@daydate}{31}}%
+      }{%
+        \YAD@ClassError[nodate]{%
+          Jour de la date de #5 non valide%
+        }{%
+          La commande \string#4{\YAD@daydate}{\YAD@monthdate}{\YAD@yeardate}\space\MessageBreak%
+          n'a pas été correctement saisie car le\MessageBreak%
+          numéro de jour (`\YAD@daydate') n'est pas valide :\MessageBreak%
+          ce doit être un nombre entier entre 1 et 31.%
+        }%
+      }{%
+        \global\booltrue{YAD@valid@day}%
+      }%
+    }%
+    % month
+    \ifboolexpr{%
+      not (test {\IfInteger{\YAD@monthdate}})%
+    }{%
+      \YAD@ClassError[nodate]{%
+        Mois de la date de #5 non valide%
+      }{%
+        La commande \string#4{\YAD@daydate}{\YAD@monthdate}{\YAD@yeardate}\space\MessageBreak%
+        n'a pas été correctement saisie car le\MessageBreak%
+        numéro de mois (`\YAD@monthdate') n'est pas valide :\MessageBreak%
+        ce doit être un nombre entier entre\MessageBreak%
+        1 (janvier) et 12 (décembre).%
+      }%
+    }{%
+      \IfDecimal{\YAD@monthdate}{%
+        \csxdef{YAD@monthdate}{\number\integerpart}%
+      }{%
+      }%
+      \ifboolexpr{%
+        test {\ifnumless{\YAD@monthdate}{1}}%
+        or test {\ifnumgreater{\YAD@monthdate}{12}}%
+      }{%
+        \YAD@ClassError[nodate]{%
+          Mois de la date de #5 non valide%
+        }{%
+          La commande \string#4{\YAD@daydate}{\YAD@monthdate}{\YAD@yeardate}\space\MessageBreak%
+          n'a pas été correctement saisie car le\MessageBreak%
+          numéro de mois (`\YAD@monthdate') n'est pas valide :\MessageBreak%
+          ce doit être un nombre entier entre\MessageBreak%
+          1 (janvier) et 12 (décembre).%
+        }%
+      }{%
+        \global\booltrue{YAD@valid@month}%
+      }%
+    }%
+    % year
+    \ifboolexpr{%
+      not (test {\IfInteger{\YAD@yeardate}})%
+    }{%
+      \YAD@ClassError[nodate]{%
+        Année de la date de #5 non valide%
+      }{%
+        La commande \string#4{\YAD@daydate}{\YAD@monthdate}{\YAD@yeardate}\space\MessageBreak%
+        n'a pas été correctement saisie car l'année\MessageBreak%
+        (`\YAD@yeardate') n'est pas valide : ce doit être\MessageBreak%
+        un nombre entier.%
+      }%
+    }{%
+      \global\booltrue{YAD@valid@year}%
+    }%
+  % }%
+}%
+\csdef{date}#1#2#3{%
+  \YAD@checkdate{#1}{#2}{#3}{\date}{soutenance}%
+  \ifboolexpr{%
+      bool {YAD@valid@day}%
+      and bool {YAD@valid@month}%
+      and bool {YAD@valid@year}%
+    }{%
+      \csdef{printdate}{%
+        \DTMdisplaydate{#3}{#2}{#1}{}%
+      }%
+    }{%
+      \csdef{printdate}{%
+        \YAD@generic@argument@translate{date}%
+      }%
+    }%
+}%
+\csdef{submissiondate}#1#2#3{%
+  \YAD@checkdate{#1}{#2}{#3}{\submissiondate}{soumission}%
+  \ifboolexpr{%
+      bool {YAD@valid@day}%
+      and bool {YAD@valid@month}%
+      and bool {YAD@valid@year}%
+    }{%
+      \csdef{printsubmissiondate}{%
+        \DTMdisplaydate{#3}{#2}{#1}{}%
+      }%
+    }{%
+      \csdef{printsubmissiondate}{%
+        \YAD@generic@argument@translate{submissiondate}%
+      }%
+    }%
+}%
+\AddToHook{enddocument}{%
+  \YAD@ifemptyorundef{\printdate}{%
+    \ifbool{YAD@nodate}{%
+    }{%
+      \ifboolexpr{%
+        bool {YAD@submitted@work}%
+        or bool {YAD@submitted@work@star}%
+      }{%
+      }{%
+        \YAD@ClassError[nodate]{%
+          Date de soutenance non spécifiée%
+        }{%
+          La commande \protect\date\space n'a pas été utilisée\MessageBreak%
+          (celle-ci est requise).%
+        }%
+      }%
+    }%
+  }{%
+  }%
+}%
+\newcommand{\dedication}[1]{%
+  \DTLnewrow{dedications}%
+  \DTLnewdbentry{dedications}{dedication}{#1}%
+}%
+\newcommand{\frontepigraph}[3][\YAD@mainlanguage]{%
+  \DTLnewrow{frontepigraphs}%
+  \DTLnewdbentry{frontepigraphs}{epigraphlanguage}{#1}%
+  \DTLnewdbentry{frontepigraphs}{epigraph}{#2}%
+  \DTLnewdbentry{frontepigraphs}{epigraphauthor}{#3}%
+}%
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{nomencl}{%
+    \let\YAD@ORI@printnomenclature\printnomenclature%
+    \renewcommand{\printnomenclature}{%
+      \cleardoublepage%
+      \sethead[\thepage][][\nomname]{\nomname}{}{\thepage}\headrule%
+      \YAD@ORI@printnomenclature%
+    }%
+  }{%
+  }%
+}%
+\ifboolexpr{%
+  bool {YAD@inprogress@work}%
+  or bool {YAD@inprogress@work@star}%
+}{%
+  \newcommand*{\YAD@setfoot}{%
+    \footrule%
+    \setfoot{}{\textsc{\translate{lbl-inprogressfoottext} \today}}{}%
+  }%
+}{%
+  \ifbool{YAD@submitted@work@star}{%
+    \newcommand*{\YAD@setfoot}{%
+      \footrule%
+      \YAD@ifemptyorundef{\printsubmissiondate}{%
+        \setfoot{}{\textsc{\translate{lbl-submittedfoottext} \today}}{}%
+      }{%
+        \setfoot{}{\textsc{\translate{lbl-submittedfoottext} \printsubmissiondate}}{}%
+      }%
+    }%
+  }{%
+    \newcommand*{\YAD@setfoot}{}%
+  }%
+}%
+\pretocmd{\pagestyle}{\cleardoublepage}{}{}%
+        \AfterEndPreamble{%
+          \let\YAD@ORI@tableofcontents\tableofcontents%
+          \let\YAD@ORI@etoctableofcontents\etoctableofcontents%
+          \let\YAD@ORI@localtableofcontents\localtableofcontents%
+          \renewcommand{\tableofcontents}{%
+            \booltrue{YAD@tableofcontents@used}%
+            \pagestyle{preliminary}%
+            \YAD@phantomsection%
+            % \renewcommand{\contentsname}{\cmdKV@YAD@name}
+            \@ifnextchar[{\tableofcontents@YAD@with@argument}{\tableofcontents@YAD@without@argument}%]
+          }%
+          \newcommand\tableofcontents@YAD@without@argument{%
+            \YAD@globalstyle
+            \YAD@computenumwidths\relax%
+            \etoctableofcontents%
+            \etocsetnexttocdepth{\YAD@tocdepth}%
+            \let\cmdKV@YAD@depth\YAD@tocdepth%
+            \let\cmdKV@YAD@name\contentsname%
+            \YAD@localstyle % pour les local TOCs qui suivent
+            \ifbool{YAD@mainmatter}%
+            {%
+              \pagestyle{mainmatter}%
+            }{%
+            }%
+            \ifbool{YAD@backmatter}%
+            {%
+              \pagestyle{backmatter}%
+            }{%
+            }%
+          }%
+          \newcommand\tableofcontents@YAD@with@argument[1][]{%
+            \yadsetup{#1}%
+            \etocifunknownlevelTF {\cmdKV@YAD@depth}
+            {%
+              \YAD@ClassWarningNoLine{%
+                La valeur (`\cmdKV@YAD@depth') passée à la clé `depth'\MessageBreak%
+                en argument de la commande \string\tableofcontents\space n'est pas\MessageBreak%
+                un des niveaux de sectionnement connus :\MessageBreak%
+                `part', `chapter', `section', `subsection',\MessageBreak%
+                `subsubsection', `paragraph', `subparagraph', `none' et `all'.\MessageBreak%
+                Le niveau `\YAD@tocdepth' va être utilisé à la place%
+              }%
+              \let\cmdKV@YAD@depth\YAD@tocdepth
+            }{%
+            }%
+            \YAD@globalstyle
+            \etocsetnexttocdepth{\cmdKV@YAD@depth}%
+            \YAD@computenumwidths\relax% note: à effet global
+            \etocsetnexttocdepth{\cmdKV@YAD@depth}% on doit le répéter, car c'est un truc à un coup seulement
+            \etoctableofcontents%
+            \etocsettocdepth{\YAD@tocdepth}%
+            \let\cmdKV@YAD@depth\YAD@tocdepth%
+            \let\cmdKV@YAD@name\contentsname%
+            \YAD@localstyle % pour les local TOCs qui suivent
+            \ifbool{YAD@mainmatter}%
+            {%
+              \pagestyle{mainmatter}%
+            }{%
+            }%
+            \ifbool{YAD@backmatter}%
+            {%
+              \pagestyle{backmatter}%
+            }{%
+            }%
+          }%
+        }%
+        \newcommand{\YAD@setsecnumdepth}[1]{%
+        \newif\if@YAD@knownsect%
+        \ifthenelse{\equal{#1}{none}}{%
+        \setcounter{secnumdepth}{-10}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{part}}{%
+        \setcounter{secnumdepth}{-1}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{chapter}}{%
+        \setcounter{secnumdepth}{0}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{section}}{%
+        \setcounter{secnumdepth}{1}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{subsection}}{%
+        \setcounter{secnumdepth}{2}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{subsubsection}}{%
+        \setcounter{secnumdepth}{3}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{paragraph}}{%
+        \setcounter{secnumdepth}{4}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{subparagraph}}{%
+        \setcounter{secnumdepth}{5}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \ifthenelse{\equal{#1}{all}}{%
+        \setcounter{secnumdepth}{100}%
+        \@YAD@knownsecttrue%
+        }{%
+        }%
+        \if@YAD@knownsect%
+        \else%
+        \setcounter{secnumdepth}{3}%
+        \YAD@ClassWarningNoLine{%
+        La valeur (`\YAD@secnumdepth') passée à la clé `secnumdepth'\MessageBreak%
+        en argument de la commande \string\documentclass\space n'est
+        pas\MessageBreak%
+        un des niveaux de sectionnement connus (`part', `chapter',\MessageBreak%
+        `section', `subsection', `subsubsection', `paragraph',\MessageBreak%
+        `subparagraph', `none' et `all').\MessageBreak%
+        Le niveau `subsection' va être utilisé\MessageBreak%
+        à la place%
+        }%
+        \fi%
+        }
+      \etocsettocdepth{\YAD@tocdepth}%
+      \AddToHook{begindocument}{%
+        % \yadsetup{#1}%
+      \YAD@setsecnumdepth{\YAD@secnumdepth}%
+      }
+      % \renewcommand{\setcounter}[2]{}%
+      %
+\DeclareRobustCommand{\YAD@chapter@header}{%
+  \ifthechapter{%
+    \MakeUppercase\chaptertitlename\ \thechapter.
+  }{%
+  }%
+  \chaptertitle%
+}%
+\DeclareRobustCommand{\YAD@section@header}{%
+  \ifthesection{%
+    \thesection.
+  }{%
+  }%
+  \sectiontitle%
+}%
+  \AddToHook{begindocument}{%
+    \setcounter{secnumdepth}{-10}%
+    \frontmatter%
+    \boolfalse{YAD@localtocs}%
+  }%
+\newpagestyle{titles}[]{%
+  % \settocdepth{none}%
+  \setcounter{secnumdepth}{-10}%
+  \ifdraft{%
+      \newgeometry{
+      centering,
+      nomarginpar,
+      bottom=1cm,
+      top=1cm,
+      headheight=\YAD@max@logoheight,
+      margin=0.5cm,
+      tmargin=\YAD@max@logoheight+1cm
+      }%
+  }{%
+      \newgeometry{
+      centering,
+      nomarginpar,
+      bottom=1cm,
+      top=1cm,
+      headheight=\YAD@max@logoheight,
+      hmargin=2cm,
+      includeall
+      }%
+  }%
+  \sethead[]%
+  []%
+  []%
+  {%
+    \ifdef{\printpreslogo}{%
+      \printpreslogo%
+    }{%
+    }%
+    \ifdef{\printcomuelogo}{%
+      \printcomuelogo%
+    }{%
+    }%
+    \ifdef{\printinstitutelogo}{%
+      \printinstitutelogo%
+    }{%
+    }%
+    \ifdef{\printcoinstitutelogo}{%
+      \printcoinstitutelogo%
+    }{%
+    }%
+    \ifdef{\printcompanylogo}{%
+      \printcompanylogo%
+    }{%
+    }%
+  }%
+  {}%
+  {}%
+  \setfootrule{0pt}%
+  \setfoot{}{}{}%
+}%
+\newpagestyle{prepreliminary}[]{%
+  \sethead{}{}{}%
+  \setfoot{}{}{}%
+  \setheadrule{0pt}%
+  \setfootrule{0pt}%
+  \setcounter{secnumdepth}{-10}%
+  % \YAD@setfoot%
+}%
+\newpagestyle{preliminary}[]{%
+  \sethead[\thepage]%
+  []%
+  [\YAD@chapter@header]%
+  {%
+    \ifthenelse{%
+      \equal{\sectiontitle}{}%
+    }{%
+      \YAD@chapter@header%
+    }{%
+      \YAD@section@header%
+    }%
+  }%
+  {}%
+  {\thepage}%
+  \headrule%
+  \setcounter{secnumdepth}{-10}%
+  \YAD@setfoot%
+}%
+\newpagestyle{mainmatter}[]{%
+  \sethead[\thepage]%
+  []%
+  [\YAD@chapter@header]%
+  {%
+    \ifthenelse{%
+      \equal{\sectiontitle}{}%
+    }{%
+      \YAD@chapter@header%
+    }{%
+      \YAD@section@header%
+    }%
+  }%
+  {}%
+  {\thepage}%
+  \headrule%
+  \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  \YAD@setfoot%
+}%
+\xapptocmd{\mainmatter}{%
+  \booltrue{YAD@mainmatter@used}%
+  \booltrue{YAD@mainmatter}%
+  \pagestyle{mainmatter}%
+  \ifbool{YAD@localtocs@classoption}%
+  {%
+    \booltrue{YAD@localtocs}%
+  }{%
+  }%
+  \ifthenelse{\equal{\YAD@interligne}{single}}{%
+    \singlespacing%
+  }{%
+    \ifthenelse{\equal{\YAD@interligne}{double}}{%
+      \doublespacing%
+    }{%
+      \onehalfspacing%
+    }%
+  }%
+}{}{}%
+\AddToHook{enddocument}{%
+  \ifboolexpr{%
+    bool {YAD@mainmatter@used}%
+  }{%
+  }{%
+    \YAD@ClassError*{%
+      Commande \protect\mainmatter\space non utilisée%
+    }{%
+      La commande \protect\mainmatter\space introduisant la partie principale
+      du document\MessageBreak%
+      n'a pas été utilisée. Celle-ci est requise.%
+    }%
+  }%
+}%
+\AddToHook{begindocument/before}{%
+  \xpretocmd{\part}{%
+    \printlocalbibs{}%
+  }{}{}%
+  \pretocmd{\mainmatter}{%
+    \printlocalbibs{}%
+    \cleardoublepage%
+  }{}{}%
+  \pretocmd{\appendix}{%
+    \printlocalbibs{}%
+    \cleardoublepage%
+  }{}{}%
+  \pretocmd{\backmatter}{%
+    \printlocalbibs{}%
+    \cleardoublepage%
+  }{}{}%
+  \pretocmd{\enddocument}{%
+    \printlocalbibs{}%
+  }{}{}%
+}
+  \apptocmd{\appendix}{%
+    \renewcommand\chaptername{\appendixname}%
+    \singlespacing%
+  }{}{}%
+\newpagestyle{backmatter}[]{%
+  \singlespacing%
+  \sethead[\thepage]%
+  []%
+  [\YAD@chapter@header]%
+  {%
+    \ifthenelse{%
+      \equal{\sectiontitle}{}%
+    }{%
+      \YAD@chapter@header%
+    }{%
+      \YAD@section@header%
+    }%
+  }%
+  {}%
+  {\thepage}%
+  \headrule%
+  \YAD@phantomsection%
+  \setcounter{secnumdepth}{-10}%
+  \YAD@bookmarksetup{startatroot}%
+  \YAD@setfoot%
+}%
+\xapptocmd{\backmatter}{%
+  \pagestyle{backmatter}%
+  \booltrue{YAD@backmatter}%
+  \boolfalse{YAD@localtocs}%
+}{}{}%
+\newpagestyle{backcover}[]{%
+  \singlespacing%
+  \setlength{\footskip}{35pt}%
+  \setfootrule{0pt}%
+  \setfoot[%
+  \YAD@laboratory@abstract@page%
+  ][][]{}{}{}%
+  \sethead[]%
+  []%
+  []%
+  {}%
+  {}%
+  {}%
+  \setcounter{secnumdepth}{-10}%
+}%
+\newcommand*{\printlaboratory}[2][]{%
+  \YAD@ifemptyorundef{#2}{%
+    \YAD@reach@file{\YAD@generic@argument@translate{laboratory}}%
+    \ifbool{YAD@nolaboratory}{%
+    }{%
+      \YAD@ClassError[nolaboratory]{%
+        Nom du laboratoire de la thèse non spécifié ou vide%
+      }{%
+        La commande \protect\laboratory\space n'a pas été utilisée\MessageBreak%
+        (celle-ci est requise) ou son 1er argument est vide\MessageBreak%
+        (celui-ci doit être renseigné).%
+      }%
+    }%
+  }{%
+    \ifdraft{%
+      \YAD@reach@file{%
+        #2%
+      }%
+    }{%
+      \ifboolexpr{%
+        test {\expandafter\ifstrempty\expandafter{#1}}
+        or %
+        test {\ifdefstring{\YAD@laboratory@nonamelink}{true}}%
+      }{%
+        #2%
+      }{%
+        \YAD@href{#1}{#2}%
+      }%
+    }%
+  }%
+}%
+\newcommand*{\printlaboratoryaddress}[1]{%
+  \ifundef{#1}{%
+    \YAD@reach@file{\YAD@generic@argument@translate{laboratoryaddress}}%
+    \ifbool{YAD@nolaboratoryaddress}{%
+    }{%
+      \YAD@ClassError[nolaboratoryaddress]{%
+        Adresse du laboratoire non spécifiée ou vide%
+      }{%
+        La commande \protect\laboratory\space n'a pas été utilisée\MessageBreak%
+        (celle-ci est requise) ou son 2e argument est vide\MessageBreak%
+        (celui-ci doit être renseigné).%
+      }%
+    }%
+  }{%
+    \YAD@reach@file{#1}%
+  }%
+}%
+\renewcommand{\maketitle}[1][]{%
+  \booltrue{YAD@maketitle@used}%
+  \yadsetup{#1}%
+  \setlength{\fboxsep}{10pt}%
+  \setlength{\YAD@titleboxwidth}{\linewidth-2\fboxsep-2\fboxrule}%
+  \pagestyle{titles}%
+  \renewcommand*{\do}[1]{%
+    \cleardoublepage%
+\begingroup%
+\expandafter\selectlanguage\expandafter{##1}%
+  \begin{lrbox}{\YAD@titlebox}
+    \ifthenelse{\equal{\cmdKV@YAD@frametitle}{none}}{%
+    }{%
+      \tcbset{colback=white,boxsep=3pt,boxrule=0.4pt,arc=0mm}%
+      \ifthenelse{\equal{\cmdKV@YAD@frametitle}{shadowbox}}{%
+        \tcbset{enhanced,drop shadow southeast={black,opacity=1}}%
+      }{%
+        \ifthenelse{\equal{\cmdKV@YAD@frametitle}{ovalbox}}{%
+          \tcbset{arc=3mm}%
+        }{%
+          \ifthenelse{\equal{\cmdKV@YAD@frametitle}{fbox}}{%
+          }{%
+            \tcbset{code={\expandafter\pgfkeysalsofrom{\cmdKV@YAD@frametitle}}}%
+          }%
+        }%
+      }%
+      \begin{tcolorbox}
+    }%
+    \noindent%
+    \centering%
+    \begin{minipage}{\linewidth-2\fboxsep-2\fboxrule}
+      % \onehalfspacing%
+      \noindent%
+      \ifthenelse{\equal{\cmdKV@YAD@frametitle}{none}}{%
+      }{%
+        \ifYAD@hdr
+        \YAD@translation{thesistitle-hdr}%
+        \else%
+        \YAD@translation{thesistitle}%
+        \fi
+      }%
+      \par%
+      \centering%
+      \Huge\bfseries%
+      \YAD@ifemptyorundef{\printtitle}{%
+        \YAD@generic@argument@translate{title}%
+        \ifbool{YAD@notitle}{%
+        }{%
+          \YAD@ClassError[notitle]{%
+            Titre de la thèse non spécifié%
+          }{%
+            La commande \protect\title\space n'a pas été utilisée\MessageBreak%
+            (celle-ci est requise) ou son argument obligatoire est vide\MessageBreak%
+            (celui-ci doit être renseigné).%
+          }%
+        }%
+      }{%
+        \printtitle%
+      }%
+      \ifundef{\printsubtitle}{%
+      }{%
+        \ifdraft{}{%
+          \vskip0.5em%
+          % \vspace*{\stretch{.15}}%
+        }%
+        \par%
+        \centering%
+        \Large\printsubtitle%
+      }%
+    \end{minipage}%
+    \ifthenelse{\equal{\cmdKV@YAD@frametitle}{none}}{%
+    }{%
+    \end{tcolorbox}%
+  }%
+  \end{lrbox}%
+  \settototalheight{\YAD@titleboxheight}{\YAD@titlebox}%
+  \setlength{\YAD@otherboxheight}{0.3\paperheight-\YAD@titleboxheight}%
+  %\YAD@astuce@expressioncle%
+  \noindent%
+  \ifcsdef{printordernumber}{%
+  \newcommand\YAD@printedordernumber{%
+    \itshape%
+    \sffamily%
+    \YAD@translation{ordernumber}%
+    \IfLanguageName{french}{%
+      \FBcolonspace%
+    }{%
+    }: \printordernumber%
+  }
+  \ifdraft{}{\vspace*{\stretch{1}}}%
+  \ifboolexpr{%
+    bool {YAD@cover@page}%
+    or (bool {YAD@nofrontcover} and test {\IfLanguageName{\YAD@mainlanguage}})%
+  }{%
+    % \vspace*{\stretch{1}}%
+    \raggedleft{%
+      \YAD@printedordernumber%
+    }%
+  }{%
+  }%
+  \ifdraft{}{\vspace*{\stretch{.5}}}%
+  % \vspace*{\stretch{.5}}%
+  \par%
+}{%
+}%
+    % \begin{minipage}[c][\YAD@otherboxheight][c]{\YAD@titleboxwidth}
+    %   \ifdraft{}{\vspace*{\stretch{.25}}}%
+    \begin{center}
+      \ifbool{YAD@noinstitute}{%
+      }{%
+        \YAD@ifemptyorundef{\printinstitute}{%
+          \YAD@generic@argument@translate{institute}%
+          \YAD@ClassError[noinstitute]{%
+            Institut de la thèse non spécifié%
+          }{%
+            La commande \protect\institute\space n'a pas été
+            utilisée\MessageBreak%
+            (celle-ci est requise) ou son argument obligatoire est
+            vide\MessageBreak%
+            (celui-ci doit être renseigné).%
+          }%
+        }{%
+          \YAD@translation{institute} \textbf{\textsc{\Large\printinstitute}}%
+        }%
+        \ifundef{\printcoinstitute}{%
+        }{%
+          \ifdraft{}{\vspace*{\stretch{.5}}}%
+          % \vspace*{\stretch{.5}}%
+          \par%
+          \YAD@translation{coinstitute} \textbf{\textsc{\Large\printcoinstitute}}%
+        }%
+      }%
+      \ifundef{\printcompany}{%
+      }{%
+        \ifdraft{}{\vspace*{\stretch{.5}}}%
+        % \vspace*{\stretch{.5}}%
+        \par%
+        \YAD@translation{company} \textbf{\textsc{\Large\printcompany}}%
+      }%
+      \ifboolexpr{%
+        bool {YAD@nodoctoralschool}%
+        or bool {YAD@hdr}%
+      }{%
+      }{%
+        \ifdraft{}{\vspace*{\stretch{1.5}}}%
+        % \vspace*{\stretch{1.5}}%
+        \par%
+        \YAD@translation{doctoralschool}
+        \YAD@ifemptyorundef{\printdoctoralschool}{%
+          \YAD@generic@argument@translate{doctoralschool}%
+          \YAD@ClassError[nodoctoralschool]{%
+            École doctorale de la thèse non spécifiée%
+          }{%
+            la commande \protect\doctoralschool\space n'a pas été
+            utilisée\MessageBreak%
+            (celle-ci est requise) ou son argument obligatoire est
+            vide\MessageBreak%
+            (celui-ci doit être renseigné).%
+          }%
+        }{%
+          \textbf{\printdoctoralschool}%
+        }%
+      }%
+      \ifbool{YAD@hdr}{%
+        \YAD@ifemptyorundef{\printdoctoralschool}{%
+        }{%
+          \YAD@ClassWarningNoLine{%
+            Une école doctorale a été spécifiée mais elle ne\MessageBreak%
+            figurera nulle part : les HDR ne sont pas préparées\MessageBreak%
+            sous l'égide d'écoles doctorales (cf. \MessageBreak%
+            https://www.legifrance.gouv.fr/loda/id/JORFTEXT000000298904)%
+          }%
+        }%
+      }{%
+      }%
+      \ifbool{YAD@nolaboratory}{%
+      }{%
+        \ifdraft{}{\vspace*{\stretch{.5}}}%
+        % \vspace*{\stretch{.5}}%
+        \par%
+        \YAD@translation{universitydepartment}
+        \ifdefstring{\YAD@main@laboratory@nonamelink}{true}{%
+          \textbf{\printlaboratory{\YAD@main@laboratory@name}}%
+        }{%
+          \textbf{\printlaboratory[\YAD@main@laboratory@url]{\YAD@main@laboratory@name}}%
+        }%
+      }%
+      \ifdraft{}{\vspace*{\stretch{1.5}}}%
+      % \vspace*{\stretch{1.5}}%
+      \par%
+      {\large%
+        \ifYAD@hdr%
+        \YAD@translation{thesisdefendedby-hdr} %
+        \else%
+        \YAD@translation{thesisdefendedby} %
+        \fi%
+        \YAD@ifemptyorundef{\printauthor}{%
+          \YAD@generic@argument@translate{author}%
+          \ifbool{YAD@noauthor}{%
+          }{%
+            \YAD@ClassError[noauthor]{%
+              Auteur de la thèse non spécifié%
+            }{%
+              La commande \protect\author\space n'a pas été utilisée (celle-ci
+              est requise)\MessageBreak%
+              ou ses 2 premiers arguments obligatoires sont vides\MessageBreak%
+              (ceux-ci doivent être renseignés).%
+            }%
+          }%
+        }{%
+          \textbf{\printauthor}%
+        }%
+        \ifboolexpr{%
+          bool {YAD@submitted@work}%
+          or bool {YAD@submitted@work@star}%
+        }{%
+          % \ifdraft{}{\vspace*{\stretch{1}}}%
+          % \par%
+          % \YAD@translation{estimateddefensedate}
+          % \YAD@ifemptyorundef{\printdate}{%
+          %   \YAD@generic@argument@translate{date}%
+          % }{%
+          %   \textbf{\printdate}%
+          % }%
+        }{%
+          \ifbool{YAD@nodate}{%
+          }{%
+            \ifdraft{}{\vspace*{\stretch{1}}}%
+            % \vspace*{\stretch{1}}%
+            \par%
+            \YAD@translation{defendedon}
+            \YAD@ifemptyorundef{\printdate}{%
+              \YAD@generic@argument@translate{date}%
+            }{%
+              \textbf{\printdate}%
+            }%
+          }%
+        }%
+      }%
+      \ifYAD@hdr%
+      \else%
+      \ifbool{YAD@noaim}{%
+      }{%
+        \ifdraft{}{\vspace*{\stretch{1}}}%
+        % \vspace*{\stretch{1}}%
+        \par%
+        \YAD@translation{aim}%
+        \ifundef{\printinstitute}{%
+          \YAD@generic@argument@translate{institute}%
+        }{%
+          \printinstitute*%
+        }%
+        \ifundef{\printcoinstitute}{%
+        }{%
+          \YAD@translation{aimand}%
+          \printcoinstitute*%
+        }%
+      }%
+      \fi%
+      \ifdraft{}{\vspace*{\stretch{1}}}%
+      % \vspace*{\stretch{1}}%
+      \ifbool{YAD@noacademicfield}{%
+      }{%
+        \par%
+        \large%
+        \YAD@translation{academicfield}
+        %
+        \YAD@ifemptyorundef{\printacademicfield}{%
+          \YAD@generic@argument@translate{academicfield}%
+          \ifbool{YAD@noacademicfield}{%
+          }{%
+            \YAD@ClassError[noacademicfield]{%
+              Champ disciplinaire de la thèse non spécifié%
+            }{%
+              La commande \protect\academicfield\space n'a pas été utilisée
+              (celle-ci est requise)\MessageBreak%
+              ou son argument obligatoire est vide (celui-ci doit être renseigné).%
+            }%
+          }%
+        }{%
+          \textbf{\printacademicfield}%
+        }%
+        \ifundef{\printspeciality}{%
+        }{%
+          \ifdraft{}{\vspace*{\stretch{.5}}}%
+          % \vspace*{\stretch{.5}}%
+          \par%
+          \large%
+          \YAD@translation{speciality} \textbf{\printspeciality}%
+        }%
+      }%
+    \end{center}
+  % \end{minipage}%
+  \vspace*{\stretch{1}}%
+  \begin{center}
+    \ifthenelse{\equal{\cmdKV@YAD@frametitle}{none}}{%
+    }{%
+      \ifdraft{}{\vspace*{\stretch{2}}}%
+      % \vspace*{\stretch{2}}%
+    }{%
+      \ifdraft{}{\vspace*{\stretch{.25}}}%
+      % \vspace*{\stretch{.25}}%
+    }%
+    \usebox{\YAD@titlebox}%
+    % \ifdraft{}{\vspace*{\stretch{2}}}%
+    \vspace*{\stretch{2}}%
+  \end{center}
+  \noindent%
+  \begin{minipage}[c][\YAD@otherboxheight][c]{\textwidth}
+    \YAD@supervisors@tabular%
+    \par%
+    \ifboolexpr{%
+      bool {YAD@submitted@work}%
+      or bool {YAD@submitted@work@star}%
+    }{%
+      \vphantom{\YAD@committee@tabular}%
+    }{%
+      \YAD@committee@tabular%
+    }%
+    \ifdraft{}{\vspace*{\stretch{.1}}}%
+    % \vspace*{\stretch{.1}}%
+  \end{minipage}%
+  \ifthenelse{\equal{\cmdKV@YAD@frametitle}{none}}{%
+  }{%
+    % \ifdraft{}{\vspace*{\stretch{2}}}%
+    \vspace*{\stretch{2}}%
+  }{%
+  }%
+  \ifbool{YAD@supervisor@specified}{%
+  }{%
+    \ifbool{YAD@nosupervisor}{%
+    }{%
+      \YAD@ClassError*[nosupervisor]{%
+        Directeur de thèse non spécifié%
+      }{%
+        La commande \protect\supervisor\space n'a pas été utilisée\MessageBreak%
+        (celle-ci est requise) ou ses arguments obligatoires sont
+        vides\MessageBreak%
+        (ceux-ci doivent être renseignés).%
+      }%
+    }%
+  }%
+\endgroup%
+\ifthenelse{\equal{\YAD@colophon@location}{verso-frontcover}}{%
+  \YAD@insert@colophon%
+}{%
+}%
+\boolfalse{YAD@cover@page}%
+}%
+\expandafter\docsvlist{\YAD@mainlanguage}%
+\ifbool{YAD@two@titles}{%
+  \booltrue{YAD@second@title}%
+  \ifthenelse{\equal{\YAD@mainlanguage}{french}}{%
+    \ifbool{YAD@nofrontcover}{%
+      \docsvlist{english}%
+    }{%
+      \docsvlist{french,english}%
+    }%
+  }{%
+    \ifbool{YAD@nofrontcover}{%
+      \docsvlist{french}%
+    }{%
+      \docsvlist{english,french}%
+    }%
+  }%
+}{%
+}%
+\ifthenelse{\equal{\cmdKV@YAD@frametitle}{shadowbox}}{%
+  \let\tcb@shadow@prepare=\origtcb@shadow@prepare%
+}{%
+}%
+\expandafter\selectlanguage\expandafter{\YAD@mainlanguage}%
+\restoregeometry%
+\pagestyle{preliminary}%
+}%
+\AddToHook{enddocument}{%
+  \ifboolexpr{%
+    bool {YAD@maketitle@used}%
+    or bool {YAD@nomaketitle}%
+  }{%
+  }{%
+    \YAD@ClassError*[nomaketitle]{%
+      Commande \protect\maketitle\space non utilisée%
+    }{%
+      La commande \protect\maketitle\space n'a pas été utilisée. Celle-ci est
+      requise.%
+    }%
+  }%
+}%
+\AfterEndPreamble{\pagestyle{preliminary}}%
+\newcommand{\YAD@insert@colophon}{%
+  \ifthenelse{\equal{\YAD@colophon@location}{nowhere}}{%
+  }{%
+    \ifbool{YAD@colophon}{%
+    }{%
+      \clearpage
+      \vspace*{\stretch{1}}%
+      \begin{minipage}{\linewidth}
+        \expandafter\selectlanguage\expandafter{\YAD@mainlanguage}%
+        \begin{colophon}
+          \printcolophontext%
+        \end{colophon}
+      \end{minipage}
+      \vspace*{\stretch{1}}%
+      \newpage
+      \booltrue{YAD@colophon}%
+    }%
+  }%
+}
+\newcommand{\keywords}[2]{%
+  \booltrue{YAD@keywords@used}%
+  \def\YAD@mainkeywords{#1}%
+  \def\YAD@secondarykeywords{#2}%
+  \ifthenelse{\isempty{#1}}{%
+  }{%
+    \ifthenelse{\isempty{#2}}{%
+      \AddToHook{begindocument/before}{\YAD@hypersetup{pdfkeywords={#1}}}%
+    }{%
+      \AddToHook{begindocument/before}{\YAD@hypersetup{pdfkeywords={#1} ({#2})}}%
+    }%
+  }%
+}%
+\csdef{printkeywords}{%
+  \expandafter\IfLanguageName{\YAD@mainlanguage}{%
+    \YAD@ifemptyorundef{\YAD@mainkeywords}{%
+      \YAD@generic@argument@translate{keywords}%
+    }{%
+      \MakeLowercase{\YAD@mainkeywords}%
+    }%
+  }{%
+    \YAD@ifemptyorundef{\YAD@secondarykeywords}{%
+      \YAD@generic@argument@translate{keywords}%
+    }{%
+      \MakeLowercase{\YAD@secondarykeywords}%
+    }%
+  }%
+}%
+\AddToHook{enddocument}{%
+  \notbool{YAD@keywords@used}{%
+    \ifbool{YAD@nokeywords}{%
+    }{%
+      \YAD@ClassError[nokeywords]{%
+        Commande \protect\keywords\space non utilisée%
+      }{%
+        La commande \protect\keywords\space n'a pas été utilisée. Celle-ci est
+        requise.%
+      }%
+    }%
+  }{%
+    \ifdefempty{\YAD@mainkeywords}{%
+      \YAD@ClassError[nokeywords]{%
+        Mots clés dans la langue principale non spécifiés%
+      }{%
+        Les mots clés dans la langue principale\MessageBreak%
+        (1er argument de la commande \protect\keywords) n'ont\MessageBreak%
+        pas été spécifiés. Ceux-ci sont requis.%
+      }%
+    }{%
+      \csdef{YAD@metakeywords}{\YAD@mainkeywords} }%
+    \ifdefempty{\YAD@secondarykeywords}{%
+      \YAD@ClassError[nokeywords]{%
+        Mots clés dans la langue secondaire non spécifiés%
+      }{%
+        Les mots clés dans la langue secondaire\MessageBreak%
+        (2e argument de la commande \protect\keywords) n'ont\MessageBreak%
+        pas été spécifiés. Ceux-ci sont requis.%
+      }%
+    }{%
+      \csdef{YAD@metakeywords}{\YAD@mainkeywords (\YAD@secondarykeywords)}%
+    }%
+  }%
+}%
+\csdef{makekeywords}{%
+  \@ifstar{\@tempswatrue\csuse{YAD@starnostar@makekeywords}}{\@tempswafalse\csuse{YAD@starnostar@makekeywords}}%
+}%
+\csdef{YAD@starnostar@makekeywords}{%
+  \pagestyle{prepreliminary}%
+  % \YAD@astuce@expressioncle%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{1}}%
+  \fi
+  \begin{flushleft}
+    \begin{description}
+      \renewcommand*{\do}[1]{%
+        \expandafter\selectlanguage\expandafter{##1}%
+      \item[\YAD@translation{keywords}\IfLanguageName{french}{\,}{}:]
+        \YAD@ifemptyorundef{\printkeywords}{%
+          \YAD@generic@argument@translate{keywords}%
+        }{%
+          \printkeywords%
+        }%
+      }%
+      \expandafter\docsvlist{\YAD@mainlanguage}%
+      \ifthenelse{\equal{\YAD@mainlanguage}{french}}{%
+        \docsvlist{english}%
+      }{%
+        \docsvlist{french}%
+      }%
+    \end{description}
+  \end{flushleft}
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{1}}%
+  \fi
+  \pagestyle{preliminary}%
+  \expandafter\selectlanguage\expandafter{\YAD@mainlanguage}%
+}%
+\DTLnewdb{laboratories}%
+\newcommand{\laboratory}[3][]{%
+  \DTLnewrow{laboratories}%
+  \dtlexpandnewvalue%
+  \yadsetup{%
+    #1%
+  }%
+  \DTLnewdbentry{laboratories}{name}{#2}%
+  \DTLnewdbentry{laboratories}{address}{#3}%
+  \ifbool{YAD@nolaboratory}{%
+  }{%
+    \ifthenelse{\isempty{#2}}{%
+      \YAD@ClassError[nolaboratory]{%
+        Nom du laboratoire de la thèse vide%
+      }{%
+        Le 1er argument obligatoire de la commande
+        \protect\laboratory\MessageBreak%
+        est vide (celui-ci doit être renseigné).%
+      }%
+    }{%
+    }%
+    \ifthenelse{\isempty{#3}}{%
+      \YAD@ClassError[nolaboratory]{%
+        Adresse du laboratoire de la thèse vide%
+      }{%
+        Le 2e argument obligatoire de la commande
+        \protect\laboratory\MessageBreak%
+        est vide (celui-ci doit être renseigné).%
+      }%
+    }{%
+    }%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@logo}{%
+    \DTLnewdbentry{laboratories}{logo}{}%
+  }{%
+    \DTLnewdbentry{laboratories}{logo}{\cmdKV@YAD@logo}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@logoheight}{%
+    \DTLnewdbentry{laboratories}{logoheight}{\YAD@default@logoheight}%
+  }{%
+    \DTLnewdbentry{laboratories}{logoheight}{\the\cmdKV@YAD@logoheight}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@url}{%
+    \DTLnewdbentry{laboratories}{url}{}%
+  }{%
+    \DTLnewdbentry{laboratories}{url}{\cmdKV@YAD@url}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@telephone}{%
+    \DTLnewdbentry{laboratories}{telephone}{}%
+  }{%
+    \DTLnewdbentry{laboratories}{telephone}{\cmdKV@YAD@telephone}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@fax}{%
+    \DTLnewdbentry{laboratories}{fax}{}%
+  }{%
+    \DTLnewdbentry{laboratories}{fax}{\cmdKV@YAD@fax}%
+  }%
+  \YAD@ifemptyorundef{\cmdKV@YAD@email}{%
+    \DTLnewdbentry{laboratories}{email}{}%
+  }{%
+    \DTLnewdbentry{laboratories}{email}{\cmdKV@YAD@email}%
+  }%
+  \ifbool{YAD@nonamelink}{%
+    \DTLnewdbentry{laboratories}{nonamelink}{true}%
+  }{%
+    \DTLnewdbentry{laboratories}{nonamelink}{false}%
+  }%
+  %
+  \DTLgetvalue{\YAD@main@laboratory@name}{laboratories}{1}{\dtlcolumnindex{laboratories}{name}}%
+  \DTLgetvalue{\YAD@main@laboratory@address}{laboratories}{1}{\dtlcolumnindex{laboratories}{address}}%
+  \DTLgetvalue{\YAD@main@laboratory@url}{laboratories}{1}{\dtlcolumnindex{laboratories}{url}}%
+  \DTLgetvalue{\YAD@main@laboratory@nonamelink}{laboratories}{1}{\dtlcolumnindex{laboratories}{nonamelink}}%
+  %
+  \boolfalse{YAD@nonamelink}%
+  \yadsetup{%
+    logo=,%
+    url=,%
+    telephone=,%
+    fax=,%
+    email=,%
+  }%
+}%
+\csdef{makelaboratory}{%
+  \@ifstar{\@tempswatrue\csuse{YAD@starnostar@makelaboratory}}{\@tempswafalse\csuse{YAD@starnostar@makelaboratory}}%
+}%
+\csdef{YAD@starnostar@makelaboratory}{%
+  \pagestyle{prepreliminary}%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{1}}%
+  \fi
+  \noindent%
+  \ifthenelse{\DTLrowcount{laboratories}>1}{%
+    \ifYAD@hdr
+    \YAD@translation{prepared-at-pl-hdr}%
+    \else%
+    \YAD@translation{prepared-at-pl}%
+    \fi
+  }{%
+    \ifYAD@hdr
+    \YAD@translation{prepared-at-hdr}%
+    \else%
+    \YAD@translation{prepared-at}%
+    \fi
+  }%
+  \if@tempswa%
+  \vspace*{\baselineskip}%
+  \else%
+  \vspace*{\stretch{.25}}%
+  \fi
+  \par%
+  \ifthenelse{\DTLrowcount{laboratories}<1}{%
+    \begin{minipage}[t]{\linewidth-\parindent}
+      \YAD@reach@file{\YAD@generic@argument@translate{laboratory}}%
+      \\[.1cm]
+      \YAD@reach@file{\YAD@generic@argument@translate{laboratoryaddress}}%
+    \end{minipage}%
+  }{%
+  }%
+  \DTLforeach*{laboratories}{%
+    \YAD@laboratory@name=name,%
+    \YAD@laboratory@address=address,%
+    \YAD@laboratory@url=url,%
+    \YAD@laboratory@logo=logo,%
+    \YAD@laboratory@logoheight=logoheight,%
+    \YAD@laboratory@telephone=telephone,%
+    \YAD@laboratory@fax=fax,%
+    \YAD@laboratory@email=email,%
+    \YAD@laboratory@nonamelink=nonamelink%
+  }{%
+    \ifthenelse{\DTLiseq{\YAD@laboratory@logo}{}}{%
+      \setlength{\YAD@laboratory@width}{\linewidth-\parindent}%
+    }{%
+      \setlength{\YAD@laboratory@width}{.625\linewidth-\parindent}%
+    }%
+    \begin{minipage}[t]{\YAD@laboratory@width}
+      \textbf{\printlaboratory[\YAD@laboratory@url]{\YAD@laboratory@name}}%
+      \\[.1cm]
+      \printlaboratoryaddress{\YAD@laboratory@address}%
+      \\[.25cm]
+      \begin{tabular}{@{}ll}
+        \ifthenelse{\DTLiseq{\YAD@laboratory@telephone}{}}{%
+        }{%
+          \YAD@translation{phone} & \YAD@reach@file{\YAD@laboratory@telephone} \\%
+        }%
+        \ifthenelse{\DTLiseq{\YAD@laboratory@fax}{}}{%
+        }{%
+          \YAD@translation{fax}  & \YAD@reach@file{\YAD@laboratory@fax}      \\%
+        }%
+        \ifthenelse{\DTLiseq{\YAD@laboratory@email}{}}{%
+        }{%
+          \YAD@translation{email} &
+          \YAD@reach@file{%
+            \YAD@ifemptyorundef{\YAD@laboratory@email}{%
+              % \ifbool{YAD@nolink}{%
+                \YAD@generic@argument@translate{laboratoryemail}%
+              % }{%
+              %   \YAD@href{mailto:laboratory@institute.fr}{\YAD@generic@argument@translate{laboratoryemail}}%
+              % }%
+            }{%
+              % \ifbool{YAD@nolink}{%
+              %   \YAD@nolinkurl{\YAD@laboratory@email}%
+              % }{%
+                \YAD@href{mailto:\YAD@laboratory@email}{\YAD@nolinkurl{\YAD@laboratory@email}}%
+              % }%
+            }%
+          }%
+          \\%
+        }%
+        \ifthenelse{\DTLiseq{\YAD@laboratory@url}{}}{%
+        }{%
+          \YAD@translation{website} & % \printlaboratoryurl
+          \def\YAD@texteurl{%
+            \YAD@ifemptyorundef{\YAD@laboratory@url}{%
+              \YAD@reach@file{\YAD@generic@argument@translate{urllaboratory}}%
+            }{%
+              \YAD@reach@file{\YAD@nolinkurl{\YAD@laboratory@url}}%
+            }%
+          }%
+          \YAD@ifemptyorundef{\YAD@laboratory@url}{%
+            % \ifbool{YAD@nolink}{%
+            %   \YAD@texteurl%
+            % }{%
+              % \YAD@href{www.laboratory.fr}{%
+                \YAD@texteurl%
+              % }%
+            % }%
+          }{%
+            \ifdraft{%
+              \YAD@texteurl%
+            }{%
+              % \ifbool{YAD@nolink}{%
+              %   \YAD@nolinkurl{\YAD@laboratory@url}%
+              % }{%
+                \YAD@url{%
+                  \YAD@laboratory@url%
+                }%
+              % }%
+            }%
+          }%
+        }%
+      \end{tabular}%
+    \end{minipage}%
+    \ifthenelse{\DTLiseq{\YAD@laboratory@logo}{}}{%
+    }{%
+      \hspace{\stretch{1}}%
+      \adjustbox{right=.325\linewidth}{%
+        \def\YAD@logo{%
+          \YAD@ifemptyorundef{\YAD@laboratory@logo}{%
+            \YAD@reach@file{\YAD@generic@argument@translate{logolaboratory}}%
+          }{%
+            \YAD@reach@file{%
+              \includegraphics[height=\YAD@laboratory@logoheight,valign=t]{\YAD@laboratory@logo}%
+            }%
+          }%
+        }%
+        \if@tempswa%
+        \else%
+        % \ifbool{YAD@nolink}{%
+        %   \YAD@logo%
+        % }{%
+        \YAD@ifemptyorundef{\YAD@laboratory@url}{%
+          % \YAD@href{www.laboratory.fr}{%
+          \YAD@logo%
+          % }%
+        }{%
+          \YAD@href{\YAD@laboratory@url}{\YAD@logo}%
+        }%
+        % }%
+        \fi%
+      }%
+    }%
+    \par%
+    \DTLiflastrow{%
+      \vspace*{\stretch{1}}%
+    }{%
+      \if@tempswa%
+      \vspace*{\baselineskip}%
+      \else%
+      \vspace*{\stretch{.25}}%
+      \fi%
+    }%
+    \setlength\cmdKV@YAD@logoheight{\YAD@default@logoheight}%
+  }%
+  \ifthenelse{\DTLrowcount{laboratories}<1}{%
+    \vspace*{\stretch{1}}%
+  }{%
+  }%
+  \pagestyle{preliminary}%
+}%
+\csgdef{YAD@abstractname@mainlanguage}{\abstractname}%
+\csgdef{YAD@abstractname@secondarylanguage}{\abstractname}%
+\newcommand{\YAD@abstract}[1]{%
+  \ifstrempty{#1}{%
+    \ifnumcomp{\value{YAD@abstracts}}{>}{0}{%
+      \global\booltrue{YAD@second@abstract@empty}%
+    }{%
+      \global\booltrue{YAD@main@abstract@empty}%
+    }%
+  }{%
+    \begin{minipage}{\linewidth}
+      \small%
+      #1%
+    \end{minipage}%
+  }%
+}
+\newenvironment{abstract}[1][\abstractname]{%
+  \global\booltrue{YAD@abstract@used}%
+  \ifnumcomp{\value{YAD@abstracts}}{>}{0}{%
+    \global\booltrue{YAD@second@abstract@used}%
+    \csgdef{YAD@abstractname@secondarylanguage}{#1}%
+    \lrbox{\YAD@abstract@secondarylanguage}%
+    \expandafter\selectlanguage\expandafter{\YAD@secondarylanguage}%
+  }{%
+    \csgdef{YAD@abstractname@mainlanguage}{#1}%
+    \lrbox{\YAD@abstract@mainlanguage}%
+  }%
+  \Collect@Body\YAD@abstract%
+}{%
+  \endlrbox%
+  \stepcounter{YAD@abstracts}%
+}%
+\newcommand{\YAD@abstract@page}{%
+  \bgroup%
+  \enlargethispage{2cm}%
+  \setlength{\parindent}{0pt}%
+  \begin{minipage}{\linewidth}
+    \small%
+    {%
+      \bfseries%
+      \YAD@ifemptyorundef{\printtitle}{%
+        \YAD@generic@argument@translate{title}%
+      }{%
+        \textsc{\printtitle}%
+      }%
+      \ifundef{\printsubtitle}{%
+      }{%
+        \newline%
+        \printsubtitle%
+      }%
+      \vspace{-.5em}%
+      \vspace{\z@}%
+      \begin{center}%
+        \YAD@abstractname@mainlanguage%
+      \end{center}%
+    }%
+    \par%
+    \ifboolexpr{%
+      bool {YAD@abstract@used}%
+      and not bool {YAD@main@abstract@empty}%
+    }{%
+      \usebox{\YAD@abstract@mainlanguage}%
+    }{%
+      \YAD@generic@argument@translate{abstract}%
+    }%
+    \ifundef{\printkeywords}{%
+    }{%
+      \vspace{.5em}%
+      \begin{description}
+      \item[\YAD@translation{keywords}\IfLanguageName{french}{\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace}}{}:]
+        \printkeywords
+      \end{description}
+    }%
+  \end{minipage}%
+  \ifbool{YAD@second@abstract@used}{%
+    \expandafter\selectlanguage\expandafter{\YAD@secondarylanguage}%
+    \\[.5\baselineskip]%
+    \YAD@abstract@page@rule%
+    \\[.5\baselineskip]%
+    \begin{minipage}{\linewidth}
+      \small%
+      {%
+        \bfseries%
+        \YAD@ifemptyorundef{\printtitle}{%
+          \YAD@generic@argument@translate{title}%
+        }{%
+          \textsc{\printtitle}%
+        }%
+        \ifundef{\printsubtitle}{%
+        }{%
+          \newline%
+          \printsubtitle%
+        }%
+        \vspace{-.5em}%
+        \vspace{\z@}%
+        \begin{center}%
+          \YAD@abstractname@secondarylanguage%
+        \end{center}%
+      }%
+      \par%
+      \ifboolexpr{%
+        bool {YAD@abstract@used}%
+        and not bool {YAD@second@abstract@empty}%
+      }{%
+        \usebox{\YAD@abstract@secondarylanguage}%
+      }{%
+        \YAD@generic@argument@translate{abstract}%
+      }%
+      \ifundef{\printkeywords}{%
+      }{%
+        \vspace{.5em}%
+        \begin{description}
+        \item[\YAD@translation{keywords}\IfLanguageName{french}{\ifundef{\Fcolonspace}{\FBcolonspace}{\Fcolonspace}}{}:]
+          \textnormal{\printkeywords}
+        \end{description}
+      }%
+    \end{minipage}%
+  }{%
+  }%
+    \\[.5\baselineskip]%
+  \YAD@abstract@page@rule%
+  % \par%
+  % \textbf{\printlaboratory*}%
+  % \\%
+  % \let\YAD@ORI@doublebackslash\\%
+  % \renewcommand{\\}{ -- }%
+  % \printlaboratoryaddress%
+  % \let\\\YAD@ORI@doublebackslash%
+  \egroup%
+}%
+\newcommand{\YAD@laboratory@abstract@page}{%
+  \ifnumgreater{\cmdKV@YAD@numlaboratories}{0}{%
+    \begin{minipage}[t]{\linewidth}
+      \let\YAD@ORI@doublebackslash\\%
+      \renewcommand{\\}{ -- }%
+      \DTLforeach*{laboratories}{%
+        \YAD@laboratory@name=name,%
+        \YAD@laboratory@address=address%
+      }{%
+        \DTLiffirstrow{}{\newline}%
+        \textbf{\printlaboratory{\YAD@laboratory@name}}%
+        \ifnumgreater{\cmdKV@YAD@numlaboratories}{1}{%
+          \\%
+        }{%
+          \newline%
+        }%
+        \printlaboratoryaddress{\YAD@laboratory@address}%
+        \ifthenelse{\value{DTLrowi}=\cmdKV@YAD@numlaboratories}{\dtlbreak}{}%
+      }%
+    \end{minipage}%
+  }{%
+  }%
+}%
+\newcommand{\makeabstract}{%
+  \pagestyle{preliminary}%
+  \bgroup%
+  \ifbool{YAD@nomakeabstract}{%
+  }{%
+    \YAD@alarm@noabstract%
+  }%
+  \YAD@phantomsection%
+  \addcontentsline{toc}{chapter}{\abstractname}%
+  \addtolength{\footskip}{6pt minus 6pt}%
+  \setfootrule{0pt}%
+  \setfoot[][][]{%
+    \YAD@laboratory@abstract@page%
+  }{}{}%
+  \renewcommand{\YAD@chapter@header}{\abstractname}%
+  \renewcommand{\YAD@section@header}{\abstractname}%
+  \YAD@abstract@page%
+  \cleardoublepage%
+  \egroup%
+  \YAD@nolaboratorytrue%
+  \YAD@nolaboratoryaddresstrue%
+  \booltrue{YAD@makeabstract@used}%
+}%
+\newcommand{\YAD@abstract@page@rule}[1][black]{\bgroup\color{#1}\noindent\rule[2pt]{\linewidth}{2pt}\egroup}
+\AddToHook{enddocument}{%
+  \ifbool{YAD@makeabstract@used}{%
+  }{%
+    \ifbool{YAD@nomakeabstract}{%
+    }{%
+      \YAD@ClassError*[nomakeabstract]{%
+        Commande \protect\makeabstract\space non utilisée%
+      }{%
+        La commande \protect\makeabstract\space n'a pas été\MessageBreak%
+        utilisée. Celle-ci est requise.%
+      }%
+    }%
+  }%
+}%
+\newcommand{\YAD@alarm@noabstract}{%
+  \ifbool{YAD@abstract@used}{%
+    \ifbool{YAD@main@abstract@empty}{%
+      \ifnumcomp{\value{YAD@abstracts}}{>}{1}{%
+        \YAD@ClassError[noabstract]{%
+          Contenu de la 1re occurrence de `abstract' vide%
+        }{%
+          La 1re occurrence de l'environnement `abstract' a été
+          utilisée\MessageBreak%
+          avec un contenu vide. Un contenu non vide est requis.%
+        }%
+      }{%
+        \YAD@ClassError[noabstract]{%
+          Contenu de l'environnement `abstract' vide%
+        }{%
+          L'environnement `abstract' a été utilisé mais avec un contenu
+          vide.\MessageBreak%
+          Un contenu non vide est requis.%
+        }%
+      }%
+    }{%
+    }%
+    \ifbool{YAD@second@abstract@empty}{%
+      \YAD@ClassError[noabstract]{%
+        Contenu de la 2e occurrence de `abstract' vide%
+      }{%
+        La 2e occurrence de l'environnement `abstract' a été
+        utilisée\MessageBreak%
+        avec un contenu vide. Un contenu non vide est requis.%
+      }%
+    }{%
+    }%
+  }{%
+    \ifbool{YAD@noabstract}{%
+    }{%
+      \YAD@ClassError[noabstract]{%
+        Environnement `abstract' non utilisé%
+      }{%
+        L'environnement `abstract' n'a pas été utilisé. Celui-ci est requis.%
+      }%
+    }%
+  }%
+}%
+\newcommand{\makebackcover}{%
+  \printlocalbibs{}%
+  \pagestyle{backcover}%
+  \ifthenelse{\equal{\YAD@colophon@location}{recto-backcover}}{%
+    \newgeometry{centering,nomarginpar,bottom=1cm,top=1cm,headheight=\YAD@max@logoheight,hmargin=2cm,includeall}%
+    \YAD@insert@colophon%
+    \restoregeometry%
+  }{%
+    \YAD@clearspread%
+  }%
+  \YAD@abstract@page%
+}%
+      \csdef{makededications}{%
+        \@ifstar{%
+          \@tempswatrue\csuse{YAD@starnostar@makededications}%
+        }{%
+          \@tempswafalse\csuse{YAD@starnostar@makededications}%
+        }%
+      }%
+      \csdef{YAD@starnostar@makededications}{%
+      \pagestyle{prepreliminary}%
+      \if@tempswa%
+      \else%
+      \vspace*{\stretch{2}}%
+      \fi%
+      \DTLifdbempty{dedications}{%
+      \YAD@generic@argument@translate{dedications}%
+      \YAD@ClassError{%
+      \protect\makededications\space utilisée/\protect\dedication\space non
+      utilisée%
+      }{%
+      La commande \protect\makededications\space a été utilisée mais la
+      commande \protect\dedication,\MessageBreak%
+      permettant de préparer des dédicaces, n'a pas été utilisée.%
+      }%
+      }{%
+      \begin{flushright}
+        \itshape%
+        \DTLforeach*{dedications}{%
+          \YAD@dedication=dedication%
+        }{%
+          \YAD@ifemptyorundef{\YAD@dedication}{%
+            \YAD@generic@argument@translate{dedication}%
+            \YAD@ClassError{%
+              Dédicace vide%
+            }{%
+              L'argument obligatoire d'une commande \protect\dedication\space est
+              vide\MessageBreak%
+              (celui-ci doit être renseigné).%
+            }%
+          }{%
+            \YAD@dedication%
+          }%
+          \par%
+          \DTLiflastrow{%
+          }{%
+            \if@tempswa%
+            \vspace*{\baselineskip}%
+            \else%
+            \vspace*{\stretch{1}}%
+            \fi
+          }%
+        }%
+      \end{flushright}
+      }%
+      \if@tempswa%
+      \else%
+      \vspace*{\stretch{2}}%
+      \fi
+      \pagestyle{preliminary}%
+      }%
+      \csdef{makefrontepigraphs}{%
+        \@ifstar{%
+          \@tempswatrue\csuse{YAD@starnostar@makefrontepigraphs}%
+        }{%
+          \@tempswafalse\csuse{YAD@starnostar@makefrontepigraphs}%
+        }%
+      }%
+\csdef{YAD@starnostar@makefrontepigraphs}{%
+  \patchcmd{\epigraphs}{\qitemlabel}{\qitemlabel\itemsep=1.5\baselineskip}{}{}%
+  \pagestyle{prepreliminary}%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{2}}%
+  \fi
+  \DTLifdbempty{frontepigraphs}{%
+    \setlength\epigraphrule{0pt}%
+    \begin{epigraphs}
+      \qitem{\YAD@generic@argument@translate{epigraphs}}{}%
+    \end{epigraphs}%
+    \YAD@ClassError{%
+      \protect\makefrontepigraphs\space utilisée/\protect\frontepigraph\space
+      non utilisée%
+    }{%
+      La commande \protect\makefrontepigraphs\space a été utilisée mais la
+      commande\MessageBreak%
+      \protect\frontepigraph, permettant de préparer des épigraphes, n'a pas
+      été utilisée.%
+    }{%
+    }%
+  }{%
+    \begin{epigraphs}
+      \DTLforeach*{frontepigraphs}{%
+        \YAD@epigraphlanguage=epigraphlanguage,%
+        \YAD@epigraph=epigraph,%
+        \YAD@epigraphauthor=epigraphauthor%
+      }{%
+        \YAD@ifemptyorundef{\YAD@epigraph}{%
+          \renewcommand{\YAD@epigraph}{%
+            \YAD@generic@argument@translate{epigraph}%
+          }%
+          \YAD@ClassError{%
+            Épigraphe vide%
+          }{%
+            L'argument obligatoire d'une commande \protect\frontepigraph\space
+            est vide\MessageBreak%
+            (celui-ci doit être renseigné).%
+          }%
+        }{%
+        }%
+        \ifthenelse{\equal{\YAD@mainlanguage}{\YAD@epigraphlanguage}}{%
+          \qitem{\YAD@epigraph}{\YAD@epigraphauthor}%
+        }{%
+          \bgroup%
+          \expandafter\selectlanguage\expandafter{\YAD@epigraphlanguage}%
+          \qitem{\YAD@epigraph}{\YAD@epigraphauthor}%
+          \egroup%
+        }%
+        \DTLiflastrow{%
+        }{%
+          \if@tempswa%
+          % \vspace*{2cm}%
+          \else%
+          % \vspace*{\stretch{1}}%
+          \fi
+        }%
+      }%
+    \end{epigraphs}
+  }%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{2}}%
+  \fi
+  \pagestyle{preliminary}%
+}%
+      %
+\def\YAD@leftmargin {0pt}
+\def\YAD@rightmargin {2.55em}% like LaTeX’s \@tocrmarg
+\newbox\YAD@leaderbox
+\def\YAD@leaderboxwidth {0.7777em}% about like what standard classes do
+\def\YAD@verysmallvskip {0pt plus .2pt}
+\def\YAD@globalmedvskip {1em plus 1pt}
+\def\YAD@localmedvskip {.25em plus .25pt}
+\def\YAD@bigvskip {2.25em plus 1pt}
+\def\YAD@numwidthB {1.5em} % chapter
+\def\YAD@numwidthC {2.278em}% section, I think default is 2.3em
+\def\YAD@numwidthD {3.056em}% analog in standard class is 3.2em
+\def\YAD@numwidthE {3.833em}% analog in standard class is 4.1em
+\def\YAD@numwidthF {4.611em}% analog in standard class is 5em
+\def\YAD@numwidthG {5.389em}% analog in standard class is 6em
+\newcommand\YAD@setlinestyle [2]{% #1= unit, #2= numwidth as macro
+  \etocsetstyle{#1}
+  {\advance\leftskip#2\relax}
+  {%
+    \vskip
+    \YAD@verysmallvskip\relax
+    \leavevmode%
+    {\interlinepenalty\@M
+      \etocifnumbered
+      {%
+        \llap{%
+          \makebox[#2][l]{%
+            \etocnumber%
+          }%
+        }%
+      }{\advance\leftskip-#2\relax}%
+      \etocname
+      \nobreak\leaders \copy\YAD@leaderbox
+      \hfil\makebox[-\parfillskip][r]{\etocpage}%
+      \par }%
+  }
+  {}
+  {\advance\leftskip-#2\relax}%
+}
+\newcommand\YAD@globalstyle {% encapsule le style pour les global TOCs
+  \etocsettocstyle {%
+    \if@twocolumn
+    \@restonecoltrue
+    \onecolumn
+    \else
+    \@restonecolfalse
+    \fi
+    \parindent\z@
+    \leftskip\z@skip
+    \rightskip\z@skip
+    \setbox\YAD@leaderbox\hbox to \YAD@leaderboxwidth{\hss.\hss}%
+    \chapter *[\cmdKV@YAD@name]{\noindent\kern\YAD@leftmargin\relax % utilise "pt"...
+      \cmdKV@YAD@name%
+    }%
+    \rightskip \YAD@rightmargin\relax
+    \parfillskip -\rightskip % ou une valeur plus petite si désiré
+    \leftskip \YAD@leftmargin \relax%
+  }{%
+    \if@restonecol
+    \twocolumn
+    \fi
+    \cleardoublepage%
+  }%
+  %
+  \etocsetstyle{part} {} {\addpenalty {-\@highpenalty}%
+    \addvspace \YAD@bigvskip \leavevmode {\large
+      \bfseries % utilisation d'un groupe pour limiter le changement de police
+      \interlinepenalty\@M \etocifnumbered{\etocnumber\hspace{1em}}{}%
+      \etocname \nobreak\hfil\makebox[-\parfillskip][r]{\etocpage}}\par
+    \nobreak } {} {}
+  %
+  \etocsetstyle{chapter} {\advance\leftskip\YAD@numwidthB\relax} {\addpenalty
+    {-\@highpenalty }%
+    \vskip \YAD@globalmedvskip\relax
+    \leavevmode%
+    {\interlinepenalty\@M \etocifnumbered
+      {\llap{\makebox[\YAD@numwidthB][l]{\bfseries\etocnumber}}}
+      {\advance\leftskip-\YAD@numwidthB\relax}%
+      \bfseries\etocname
+      \nobreak\hfil\makebox[-\parfillskip][r]{\etocpage}\par }%
+    \penalty \@highpenalty } {} {\advance\leftskip-\YAD@numwidthB\relax}
+  %
+  \YAD@setlinestyle {section}{\YAD@numwidthC}%
+  \YAD@setlinestyle {subsection}{\YAD@numwidthD}%
+  \YAD@setlinestyle {subsubsection}{\YAD@numwidthE}%
+  \YAD@setlinestyle {paragraph}{\YAD@numwidthF}%
+  \YAD@setlinestyle {subparagraph}{\YAD@numwidthG}%
+}
+\let\YAD@addcontentsline\addcontentsline
+\newcommand\YAD@localstyle {%
+  \etocsettocstyle {%
+    \if@twocolumn
+    \@restonecoltrue
+    \onecolumn
+    \else
+    \@restonecolfalse
+    \fi%
+    \setbox\YAD@leaderbox\hbox to \YAD@leaderboxwidth{\hss.\hss}%
+    \parindent\z@
+    \dimen@ 2.25em % soon to be \leftskip
+    \renewcommand\addcontentsline[3]{}%
+    \begingroup
+    \vspace{3.5ex plus 1ex minus .2ex}%
+      \noindent\hspace{\dimen@}%
+      {%
+        \normalfont\large\bfseries%
+        \translate{lbl-localtocname}%
+      }
+    \vspace{2.3ex plus .2ex}%
+    \par%
+    \endgroup
+    \sectionmark{}%
+    \let\addcontentsline\YAD@addcontentsline
+    \parskip \z@skip
+    \vspace{\YAD@vspace@before@localtoc@rule}% somewhat ad hoc
+    \leftskip 2.25em \rightskip 4.5em \advance\rightskip-\YAD@rightmargin\relax
+    \leavevmode\leaders\hrule\@height\p@\hfill\kern\z@\par
+    \rightskip 4.5em
+    \parfillskip -\YAD@rightmargin\relax%
+  }{%
+    \nobreak\vskip-.5\baselineskip
+    \leavevmode\leaders\hrule\@height\p@\hfill\kern\z@\par
+    \bigskip \if@restonecol \twocolumn \fi
+  }
+  % %
+  \etocsetstyle{section} {%
+    \advance\leftskip\YAD@numwidthC\relax%
+  } {%
+    \addpenalty
+    \@secpenalty \etociffirst{}{\addvspace{\YAD@localmedvskip}}%
+    \leavevmode {%
+      \interlinepenalty\@M \bfseries%
+      \etocifnumbered
+      {%
+        \llap{%
+          \makebox[\YAD@numwidthC][l]{\etocnumber}%
+        }%
+      }
+      {%
+        \advance\leftskip-\YAD@numwidthC%
+      }%
+      \etocname\nobreak\hfil\makebox[-\parfillskip][r]{\etocpage}\par%
+    }%
+    \penalty \@highpenalty%
+  }
+  {} {%
+    \advance\leftskip-\YAD@numwidthC\relax%
+  }
+  % %
+  \YAD@setlinestyle {subsection}{\YAD@numwidthD}%
+  \YAD@setlinestyle {subsubsection}{\YAD@numwidthE}%
+  \YAD@setlinestyle {paragraph}{\YAD@numwidthF}%
+  \YAD@setlinestyle {subparagraph}{\YAD@numwidthG}%
+}
+\newcommand*{\etoc@tocidautorefname}{\MakeLowercase{\chaptername}}%
+\newcommand*\YAD@computenumwidths@ [2] {% #1 pour `etoc' ou `local', #2=pour le \kern
+  \begingroup
+  \def\YAD@numwidthB {0pt}%
+  \def\YAD@numwidthC {0pt}%
+  \def\YAD@numwidthD {0pt}%
+  \def\YAD@numwidthE {0pt}%
+  \def\YAD@numwidthF {0pt}%
+  \def\YAD@numwidthG {0pt}%
+  \etocsetstyle{part}{}{}{}{}%
+  \etocsetstyle{chapter}{}
+  {\setbox0\hbox{\bfseries\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthB\edef\YAD@numwidthB{\the\wd0}\fi}{}%
+  \etocsetstyle{section}{}
+  {\setbox0\hbox{\bfseries\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthC\edef\YAD@numwidthC{\the\wd0}\fi}{}%
+  \etocsetstyle{subsection}{}
+  {\setbox0\hbox{\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthD\edef\YAD@numwidthD{\the\wd0}\fi}{}%
+  \etocsetstyle{subsubsection}{}
+  {\setbox0\hbox{\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthE\edef\YAD@numwidthE{\the\wd0}\fi}{}%
+  \etocsetstyle{paragraph}{}
+  {\setbox0\hbox{\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthF\edef\YAD@numwidthF{\the\wd0}\fi}{}%
+  \etocsetstyle{subparagraph}{}
+  {\setbox0\hbox{\etocthenumber\kern#2}}
+  {\ifdim\wd0>\YAD@numwidthG\edef\YAD@numwidthG{\the\wd0}\fi}{}%
+  %
+  \etocsettocstyle{}
+  {\global\let\YAD@numwidthB\YAD@numwidthB
+    \global\let\YAD@numwidthC\YAD@numwidthC
+    \global\let\YAD@numwidthD\YAD@numwidthD
+    \global\let\YAD@numwidthE\YAD@numwidthE
+    \global\let\YAD@numwidthF\YAD@numwidthF
+    \global\let\YAD@numwidthG\YAD@numwidthG}%
+  \etocnopar
+  \csname YAD@ORI@#1tableofcontents\endcsname
+  \endgroup
+}%
+\newcommand*\YAD@computenumwidths [1][0.5em]{%
+  \YAD@computenumwidths@ {etoc}{#1}%
+}
+\newcommand*\YAD@computelocalnumwidths [1][0.5em]{%
+  \YAD@computenumwidths@ {local}{#1}%
+}
+\newcommand{\leadchapter}[1]{%
+  \def\YAD@leadchapter{#1}%
+}
+\etocchecksemptiness
+\newcommand{\YAD@default@localtoc}{%
+  \ifbool{YAD@localtocs}%
+  {%
+    \bgroup
+    \YAD@localstyle%
+    \etocifunknownlevelTF {\YAD@localtocsdepth}
+    {%
+    }{%
+      \etocsetnexttocdepth{\YAD@localtocsdepth}%
+    }
+    \YAD@computelocalnumwidths\relax%
+    \etocifunknownlevelTF {\YAD@localtocsdepth}
+    {%
+    }{%
+      \etocsetnexttocdepth{\YAD@localtocsdepth}%
+    }
+    \localtableofcontents%
+    \YAD@globalstyle
+    \egroup
+  }{%
+  }%
+}
+\newcommand{\YAD@localtoc}{\YAD@default@localtoc}
+\newcommand{\stoplocaltocs}{%
+  \boolfalse{YAD@localtocs}%
+}
+\newcommand{\startlocaltocs}{%
+  \booltrue{YAD@localtocs}%
+}
+\newcommand{\nextwithoutlocaltoc}{%
+  \renewcommand{\YAD@localtoc}{}%
+}
+\newcommand{\nextwithlocaltoc}{%
+  \renewcommand{\YAD@localtoc}{\YAD@default@localtoc}%
+  \booltrue{YAD@localtocs}%
+  \booltrue{YAD@nextwithlocaltoc}%
+}
+\apptocmd{\@makechapterhead}{%
+      \YAD@ifemptyorundef{\YAD@leadchapter}{%
+      }{%
+      \YAD@leadchapter%
+      \let\YAD@leadchapter\relax
+      }
+  \ifbool{YAD@localtocs}%
+   {%
+    \YAD@localtoc%
+    \renewcommand{\YAD@localtoc}{\YAD@default@localtoc}%
+    \ifbool{YAD@nextwithlocaltoc}%
+    {%
+      \boolfalse{YAD@localtocs}%
+      \boolfalse{YAD@nextwithlocaltoc}%
+      % \boolfalse{YAD@localtocs@classoption}%
+    }{%
+    }%
+  }{%
+  }%
+}{}{}%
+\newcommand{\printlocalbibs}{%
+  \ifbool{YAD@localbibs}{%
+    \ifbool{YAD@localbibs@used}{%
+    }{%
+      \ifnumcomp{\value{refsegment}}{=}{0}{%
+      }{%
+        \let\YAD@ORI@blx@warn@bibempty\blx@warn@bibempty%
+        \def\blx@warn@bibempty{}%
+        \bgroup
+        \par%
+        \singlespacing%
+        \YAD@printbibliography@ORI[segment=\therefsegment,heading=YAD@localbibs@heading]%
+        \par%
+        \egroup%
+        \let\blx@warn@bibempty\YAD@ORI@blx@warn@bibempty%
+        \booltrue{YAD@localbibs@used}%
+      }%
+    }%
+  }{%
+  }%
+}%
+      \AddToHook{begindocument/before}{%
+      \ifbool{YAD@localbibs}{%
+      \let\include\input%
+      \if@partsw
+      \ClassWarningNoLine{yathesis}{%
+      Commande \string\includeonly\space inopérante lorsque l'option\MessageBreak
+      `localbibs' est utilisée. Le seul moyen de\MessageBreak
+      temporairement ne compiler que certains fichiers\MessageBreak
+      inclus est alors de temporairement commenter\MessageBreak
+      l'inclusion des autres%
+      }%
+      \fi
+      }{%
+      }
+      }
+\LetLtxMacro{\YAD@ORI@chapter}{\chapter}%
+\AfterPreamble{% delay the redefinition when titlesec has done its own
+  \renewcommand\chapter{%
+    \printlocalbibs{}%
+    \boolfalse{YAD@localbibs@used}%
+    \cleardoublepage%
+    \renewcommand{\sectiontitle}{}%
+    \YAD@phantomsection%
+    \ifbool{YAD@output@paper}{%
+    }{%
+      \YAD@bookmarksetup{startatroot}%
+    }%
+    \@ifstar{\YAD@starred@chapter}{\YAD@unstarred@chapter}%
+  }%
+  \newcommandtwoopt{\YAD@tmp@chapter}[3][][]{%
+    \ifthenelse{\isempty{#1}}{%
+      \ifthenelse{\isempty{#2}}{%
+        \YAD@ORI@chapter{#3}%
+      }{%
+        \YAD@ORI@chapter{#3}%
+        \chaptermark{#2}%
+      }%
+    }{%
+      \ifthenelse{\isempty{#2}}{%
+        \YAD@ORI@chapter[#1]{#3}%
+      }{%
+        \YAD@ORI@chapter[#1]{#3}%
+        \chaptermark{#2}%
+      }%
+    }%
+  }%
+  \newcommandtwoopt{\YAD@starred@chapter}[3][][]{%
+    \booltrue{YAD@nonnumbered@chapter}%
+    \booltrue{YAD@nonnumbered@section}%
+    \booltrue{YAD@nonnumbered@subsection}%
+    \booltrue{YAD@nonnumbered@subsubsection}%
+    \booltrue{YAD@nonnumbered@paragraph}%
+    \booltrue{YAD@nonnumbered@subparagraph}%
+    \YAD@setsecnumdepth{none}%
+    \YAD@tmp@chapter[#1][#2]{#3}%
+  }%
+  \newcommandtwoopt{\YAD@unstarred@chapter}[3][][]{%
+    \boolfalse{YAD@nonnumbered@chapter}%
+    \boolfalse{YAD@nonnumbered@section}%
+    \boolfalse{YAD@nonnumbered@subsection}%
+    \boolfalse{YAD@nonnumbered@subsubsection}%
+    \boolfalse{YAD@nonnumbered@paragraph}%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+    \if@mainmatter%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+    \fi%
+    \YAD@tmp@chapter[#1][#2]{#3}%
+  }%
+\xpretocmd{\tableofcontents}{\renewcommand{\YAD@localtoc}{}}{}{}%
+\xapptocmd{\tableofcontents}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+\xpretocmd{\listoftables}{\renewcommand{\YAD@localtoc}{}}{}{}%
+\xapptocmd{\listoftables}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+\xpretocmd{\listoffigures}{\renewcommand{\YAD@localtoc}{}}{}{}%
+\xapptocmd{\listoffigures}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+\ifcsdef{printbibliography}{%
+  \xpretocmd{\printbibliography}{\renewcommand{\YAD@localtoc}{}}{}{}%
+  \xapptocmd{\printbibliography}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+  }{}%
+\ifcsdef{printglossary}{%
+  \xpretocmd{\printglossary}{\renewcommand{\YAD@localtoc}{}}{}{}%
+  \xapptocmd{\printglossary}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+  }{}%
+\ifcsdef{printindex}{%
+  \xpretocmd{\printindex}{\renewcommand{\YAD@localtoc}{}}{}{}%
+  \xapptocmd{\printindex}{\renewcommand{\YAD@localtoc}{\YAD@default@localtoc}}{}{}%
+}{}%
+\LetLtxMacro{\YAD@ORI@section}{\section}%
+\renewcommand\section{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@chapter}{%
+  }{%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  }%
+  \fi%
+  \@ifstar{\YAD@starred@section}{\YAD@unstarred@section}%
+}%
+\newcommandtwoopt*{\YAD@tmp@section}[3][][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \ifthenelse{\isempty{#2}}{%
+      \YAD@ORI@section{#3}%
+    }{%
+      \let\YAD@ORI@sectionmark\sectionmark%
+      \renewcommand\sectionmark[1]{}%
+      \YAD@ORI@section{#3}%
+      \ifbool{YAD@nonnumbered@section}{%
+        \YAD@ORI@sectionmark{#2}%
+      }{%
+        \YAD@ORI@sectionmark{\thesection. #2}%
+      }%
+      \let\sectionmark\YAD@ORI@sectionmark%
+    }%
+  }{%
+    \ifthenelse{\isempty{#2}}{%
+      \YAD@ORI@section[#1]{#3}%
+    }{%
+      \let\YAD@ORI@sectionmark\sectionmark%
+      \renewcommand\sectionmark[1]{}%
+      \YAD@ORI@section[#1]{#3}%
+      \ifbool{YAD@nonnumbered@section}{%
+        \YAD@ORI@sectionmark{#2}%
+      }{%
+        \YAD@ORI@sectionmark{\thesection. #2}%
+      }%
+      \let\sectionmark\YAD@ORI@sectionmark%
+    }%
+  }%
+}%
+\newcommandtwoopt{\YAD@starred@section}[3][][]{%
+  \booltrue{YAD@nonnumbered@section}%
+  \booltrue{YAD@nonnumbered@subsection}%
+  \booltrue{YAD@nonnumbered@subsubsection}%
+  \booltrue{YAD@nonnumbered@paragraph}%
+  \booltrue{YAD@nonnumbered@subparagraph}%
+  \YAD@setsecnumdepth{none}%
+  \YAD@tmp@section[#1][#2]{#3}%
+}%
+\newcommandtwoopt{\YAD@unstarred@section}[3][][]{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@chapter}{%
+  }{%
+    \boolfalse{YAD@nonnumbered@section}%
+    \boolfalse{YAD@nonnumbered@subsection}%
+    \boolfalse{YAD@nonnumbered@subsubsection}%
+    \boolfalse{YAD@nonnumbered@paragraph}%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+  }%
+  \fi%
+  \YAD@tmp@section[#1][#2]{#3}%
+}%
+\LetLtxMacro{\YAD@ORI@subsection}{\subsection}%
+\renewcommand\subsection{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@section}{%
+  }{%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  }%
+  \fi%
+  \@ifstar{\YAD@starred@subsection}{\YAD@unstarred@subsection}%
+}%
+\newcommand*{\YAD@tmp@subsection}[2][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \YAD@ORI@subsection{#2}%
+  }{%
+    \YAD@ORI@subsection[#1]{#2}%
+  }%
+}%
+\newcommand{\YAD@starred@subsection}[2][]{%
+  \booltrue{YAD@nonnumbered@subsection}%
+  \booltrue{YAD@nonnumbered@subsubsection}%
+  \booltrue{YAD@nonnumbered@paragraph}%
+  \booltrue{YAD@nonnumbered@subparagraph}%
+  \YAD@setsecnumdepth{none}%
+  \YAD@tmp@subsection[#1]{#2}%
+}%
+\newcommand{\YAD@unstarred@subsection}[2][]{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@section}{%
+  }{%
+    \boolfalse{YAD@nonnumbered@subsection}%
+    \boolfalse{YAD@nonnumbered@subsubsection}%
+    \boolfalse{YAD@nonnumbered@paragraph}%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+  }%
+  \fi%
+  \YAD@tmp@subsection[#1]{#2}%
+}%
+\LetLtxMacro{\YAD@ORI@subsubsection}{\subsubsection}%
+\renewcommand\subsubsection{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@subsection}{%
+  }{%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  }%
+  \fi%
+  \@ifstar{\YAD@starred@subsubsection}{\YAD@unstarred@subsubsection}%
+}%
+\newcommand*{\YAD@tmp@subsubsection}[2][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \YAD@ORI@subsubsection{#2}%
+  }{%
+    \YAD@ORI@subsubsection[#1]{#2}%
+  }%
+}%
+\newcommand{\YAD@starred@subsubsection}[2][]{%
+  \booltrue{YAD@nonnumbered@subsubsection}%
+  \booltrue{YAD@nonnumbered@paragraph}%
+  \booltrue{YAD@nonnumbered@subparagraph}%
+  \YAD@setsecnumdepth{none}%
+  \YAD@tmp@subsubsection[#1]{#2}%
+}%
+\newcommand{\YAD@unstarred@subsubsection}[2][]{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@subsection}{%
+  }{%
+    \boolfalse{YAD@nonnumbered@subsubsection}%
+    \boolfalse{YAD@nonnumbered@paragraph}%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+  }%
+  \fi%
+  \YAD@tmp@subsubsection[#1]{#2}%
+}%
+\LetLtxMacro{\YAD@ORI@paragraph}{\paragraph}%
+\renewcommand\paragraph{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@subsubsection}{%
+  }{%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  }%
+  \fi%
+  \@ifstar{\YAD@starred@paragraph}{\YAD@unstarred@paragraph}%
+}%
+\newcommand*{\YAD@tmp@paragraph}[2][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \YAD@ORI@paragraph{#2}%
+  }{%
+    \YAD@ORI@paragraph[#1]{#2}%
+  }%
+}%
+\newcommand{\YAD@starred@paragraph}[2][]{%
+  \booltrue{YAD@nonnumbered@paragraph}%
+  \booltrue{YAD@nonnumbered@subparagraph}%
+  \YAD@setsecnumdepth{none}%
+  \YAD@tmp@paragraph[#1]{#2}%
+}%
+\newcommand{\YAD@unstarred@paragraph}[2][]{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@subsubsection}{%
+  }{%
+    \boolfalse{YAD@nonnumbered@paragraph}%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+  }%
+  \fi%
+  \YAD@tmp@paragraph[#1]{#2}%
+}%
+\LetLtxMacro{\YAD@ORI@subparagraph}{\subparagraph}%
+\renewcommand\subparagraph{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@paragraph}{%
+  }{%
+    \YAD@setsecnumdepth{\YAD@secnumdepth}%
+  }%
+  \fi%
+  \@ifstar{\YAD@starred@subparagraph}{\YAD@unstarred@subparagraph}%
+}%
+\newcommand*{\YAD@tmp@subparagraph}[2][]{%
+  \ifthenelse{\isempty{#1}}{%
+    \YAD@ORI@subparagraph{#2}%
+  }{%
+    \YAD@ORI@subparagraph[#1]{#2}%
+  }%
+}%
+\newcommand{\YAD@starred@subparagraph}[2][]{%
+  \booltrue{YAD@nonnumbered@subparagraph}%
+  \YAD@setsecnumdepth{none}%
+  \YAD@tmp@subparagraph[#1]{#2}%
+}%
+\newcommand{\YAD@unstarred@subparagraph}[2][]{%
+  \if@mainmatter%
+  \ifbool{YAD@nonnumbered@paragraph}{%
+  }{%
+    \boolfalse{YAD@nonnumbered@subparagraph}%
+  }%
+  \fi%
+  \YAD@tmp@subparagraph[#1]{#2}%
+}%
+  \@ifpackageloaded{floatrow}{%
+    \xpatchcmd{\float@listhead}{\chapter}{\YAD@ORI@chapter}{}{}%
+  }{%
+  }%
+  \@ifpackageloaded{tocbibind}{%
+    \renewcommand{\toc@chapter}[1]{%
+      \chapter*{#1}\prw@mkboth{#1}%
+      % \addcontentsline{toc}{chapter}{#1}% < Suppression par rapport à l'original
+    }%
+  }{%
+  }%
+      \@ifpackageloaded{listings}{%
+      \lst@UserCommand\lstlistoflistings{\bgroup
+      \let\contentsname\lstlistlistingname
+      \let\lst@temp\@starttoc \def\@starttoc##1{\lst@temp{lol}}%
+      \YAD@ORI@tableofcontents \egroup}
+      }{%
+      }%
+    }%
+\xpretocmd{\part}{\YAD@setsecnumdepth{\YAD@secnumdepth}}{}{}%
+\disclaimertext{%
+  \IfLanguageName{french}{%
+    \ifundef{\printinstitute}{%
+      L'\YAD@generic@argument@translate{institute}
+    }{%
+      \YAD@if@starts@with@vowel{\YAD@institute}{L'}{Le }\printinstitute*
+    }%
+    %
+    \ifundef{\printcoinstitute}{%
+      n'entend
+    }{%
+      et
+      \YAD@if@starts@with@vowel{\YAD@coinstitute}{l'}{le }\printcoinstitute*
+      n'entendent
+    }%
+    %
+    donner aucune approbation ni improbation aux opinions \'emises dans les
+    th\`eses : ces opinions devront \^etre consid\'er\'ees comme propres \`a
+    leurs auteurs.%
+  }{%
+    The \printinstitute{}
+    %
+    \ifundef{\printcoinstitute}{}{and the \printcoinstitute{}}
+    %
+    neither endorse nor censure authors' opinions expressed in the theses:
+    these opinions must be considered to be those of their authors.%
+  }%
+}%
+\newcommand{\disclaimer}[1]{\disclaimertext{#1}}
+\csdef{makedisclaimer}{%
+  \@ifstar{\@tempswatrue\csuse{YAD@starnostar@makedisclaimer}}{\@tempswafalse\csuse{YAD@starnostar@makedisclaimer}}%
+}%
+\csdef{YAD@starnostar@makedisclaimer}{%
+  \pagestyle{prepreliminary}%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{1}}%
+  \fi%
+  \printdisclaimertext%
+  \if@tempswa%
+  \else%
+  \vspace*{\stretch{1}}%
+  \fi%
+  \pagestyle{preliminary}%
+}%
+\AddToHook{begindocument/before}{%
+  \colophontext{%
+    \IfLanguageName{french}{%
+      Mémoire de thèse intitulé \YAD@ifemptyorundef{\printtitle}{%
+        \YAD@generic@argument@translate{title}%
+      }{%
+        \frquote{\printtitle}%
+      }, écrit par \YAD@ifemptyorundef{\printauthor}{%
+        \YAD@generic@argument@translate{author}%
+      }{%
+        \printauthor%
+      }, achevé le \today{}, composé au moyen du système de préparation de
+      document \YAD@href{https://fr.wikipedia.org/wiki/LaTeX}{\LaTeX{}} et de la
+      classe \YAD@href{https://ctan.org/pkg/yathesis}{\textsf{yathesis}}
+      dédiée aux thèses préparées en France.%
+    }{%
+      Doctoral dissertation entitled \YAD@ifemptyorundef{\printtitle}{%
+        \YAD@generic@argument@translate{title}%
+      }{%
+        “\printtitle”%
+      }, written by \YAD@ifemptyorundef{\printauthor}{%
+        \YAD@generic@argument@translate{author}%
+      }{%
+        \printauthor%
+      }, completed on \today{}, typeset with the document preparation system
+      \YAD@href{https://en.wikipedia.org/wiki/LaTeX}{\LaTeX{}} and the
+      \YAD@href{https://ctan.org/pkg/yathesis}{\textsf{yathesis}} class
+      dedicated to theses prepared in France.%
+    }%
+  }%
+}
+\AddToHook{begindocument}{%
+  \ifthenelse{\equal{\YAD@mainlanguage}{french}}{%
+    \YAD@hypersetup{pdflang=fr}%
+  }{%
+    \YAD@hypersetup{pdflang=en}%
+  }%
+}%
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{biblatex}{%
+    \defbibheading{YAD@localbibs@heading}[\translate{lbl-localbibname} % (\therefsegment)
+    ]{%
+      \renewcommand\addcontentsline[3]{}%
+      \section*{#1}%
+      \let\addcontentsline\YAD@addcontentsline%
+    }%
+    \@ifpackageloaded{csquotes}{%
+      \SetCiteCommand{\autocite}%
+    }{%
+    }%
+    \let\YAD@printbibliography@ORI\printbibliography%
+    \renewcommand{\printbibliography}[1][]{%
+      \booltrue{YAD@printbibliography@used}%
+      \bgroup
+      \par%
+      \singlespacing%
+      \YAD@printbibliography@ORI[#1]%
+      \newrefsegment%
+      \endrefsegment%
+      \egroup%
+    }%
+  }{%
+    \BeforeBeginEnvironment{thebibliography}{%
+      \singlespacing%
+    }%
+    \AddToHook{env/thebibliography/end}{%
+      \clearpage%
+    }%
+  }%
+}%
+\AddToHook{enddocument}{%
+  \booltrue{YAD@nonnumbered@chapter}%
+  \booltrue{YAD@nonnumbered@section}%
+}
+\AddToHook{enddocument}{%
+  \ifbool{YAD@printbibliography@used}{%
+  }{%
+    \ifbool{YAD@noprintbibliography}{%
+    }{%
+      \YAD@ClassError*[noprintbibliography]{%
+        Commande \protect\printbibliography\space non utilisée%
+      }{%
+        La commande \protect\printbibliography\space n'a pas été utilisée. Celle-ci est
+        requise.%
+      }%
+    }%
+  }%
+}%
+\AddToHook{package/glossaries/after}{%
+  \ifbool{YAD@output@paper}{%
+    \ifbool{YAD@output@paper@star}{%
+    }{%
+      \renewcommand{\glsnavigation}{}%
+    }%
+  }{%
+  }%
+  \newcommand{\newglssymbol}[5][]{%
+    \@ifpackageloaded{glossaries}{%
+      \ifthenelse{\isempty{#1}}{%
+        \newglossaryentry{#2}{%
+          type=symbols,%
+          symbol={#3},%
+          name={#4},%
+          description={#5},%
+          sort={#2}%
+        }%
+}{%
+  \newglossaryentry{#2}{%
+    type=symbols,%
+    symbol={#3},%
+    name={#4},%
+    description={#5},%
+    sort={#1}%
+  }%
+}%
+}{%
+  \ClassError{yathesis}{}{%
+    Commande \protect\newglssymbol\space utilisée sans que 'glossaries' soit
+    chargé%
+  }{%
+    La commande \protect\newglssymbol ne peut être\MessageBreak%
+    utilisée que si le package 'glossaries' est chargé%
+  }%
+}%
+}%
+\newglossarystyle{yadsymbolstyle}{%
+  % put the glossary in the itemize environment:
+  \renewenvironment{theglossary}%
+  {\begin{description}}{\end{description}}%
+  % have nothing after \begin{theglossary}:
+  \renewcommand*{\glossaryheader}{}%
+  % have nothing between glossary groups:
+  \renewcommand*{\glsgroupheading}[1]{}%
+  \renewcommand*{\glsgroupskip}{}%
+  % set how each entry should appear:
+  \renewcommand*{\glossentry}[2]{%
+  \item[\textmd{\glossentrysymbol{##1}}]
+    \glstarget{##1}{\glossentryname{##1}}% the entry name
+    \ifthenelse{\equal{\glossentrydesc{##1}}{}}{%
+    }{%
+      \space (\glossentrydesc{##1})% the description
+    }%
+    \hfill ##2% the number list in square brackets
+  }%
+  % set how sub-entries appear:
+  \renewcommand*{\subglossentry}[3]{%
+    \glossentry{##2}{##3}}%
+}%
+\ifundef{\printsymbols}{%
+  \newcommand{\printsymbols}[1][]{%
+    \printglossary[type=symbols,style=yadsymbolstyle,#1]%
+  }%
+}{%
+  \renewcommand{\printsymbols}[1][]{%
+    \printglossary[type=symbols,style=yadsymbolstyle,#1]%
+  }%
+}%
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{glossaries}{%
+    \RequirePackage{glossaries-babel}%
+  }{%
+  }%
+}%
+}%
+\AddToHook{begindocument/before}{%
+  \@ifpackageloaded{glossaries}{%
+    \IfLanguageName{english}{%
+      \makeatletter
+      \let\glossariescaptionsenglish\undefined
+      \input{glossaries-english.ldf}
+      \makeatother
+    }{%
+    }%
+  }{%
+  }%
+}%
+\AddToHook{begindocument/before}{%
+  \ifPDFTeX
+  \shorthandon{;:!?}%
+  \fi
+  \InputIfFileExists{\YAD@configuration@directory/\YAD@configuration@file}%
+  {\ClassInfo{yathesis}{%
+    Fichier de configuration local \YAD@configuration@file\space
+    trouvé%
+    }%
+  }{%
+    % \YAD@ClassWarningNoLine{%
+    %   Fichier de configuration local
+    %   \YAD@configuration@file\space introuvable%
+    % }%
+  }%
+  \ifPDFTeX
+  \shorthandoff{;:!?}%
+  \fi
+}%
+\AddToHook{begindocument/before}{%
+  \ifPDFTeX
+  \shorthandon{;:!?}%
+  \fi
+  \InputIfFileExists{\YAD@configuration@directory/\YAD@characteristics@file}%
+  {%
+    \ClassInfo{yathesis}{%
+      Fichier \YAD@characteristics@file\space des donnees du document trouvé%
+    }%
+  }%
+  {%
+    % \YAD@ClassWarningNoLine{%
+    %   Fichier \YAD@characteristics@file\space des donnees du titre
+    %   introuvable.\MessageBreak%
+    %   Le fichier \YAD@characteristics@file\space n'a pas été trouvé\MessageBreak%
+    %   dans le dossier `\YAD@configuration@directory'.\MessageBreak Ce fichier
+    %   \YAD@characteristics@file\space peut faciliter l'usage\MessageBreak de la classe%
+    % }%
+  }%
+  \ifPDFTeX
+  \shorthandoff{;:!?}%
+  \fi
+}%
+\AddToHook{enddocument}{%
+  \ifbool{YAD@tableofcontents@used}{%
+  }{%
+    \ifbool{YAD@notableofcontents}{%
+    }{%
+      \YAD@ClassError*[notableofcontents]{%
+        Commande \protect\tableofcontents\space non utilisée%
+      }{%
+        La commande \protect\tableofcontents\space n'a pas été utilisée. Celle-ci
+        est requise.%
+      }%
+    }%
+  }%
+}%
+\expression{meta-logopres}{logo PRES}{logo PRES}
+\expression{meta-logocomue}{logo ComUE}{logo ComUE}
+\expression{meta-logoinstitute}{logo de l'institut}{logo de l'institut}
+\expression{meta-institute}{institut principal}{institut principal}
+\expression{meta-coinstitute}{institut de cotutelle}{institut de cotutelle}
+\expression{meta-logocoinstitute}{logo de l'institut de cotutelle}{logo de l'institut de cotutelle}
+\expression{meta-logocompany}{logo de l'entreprise}{logo de l'entreprise}
+\expression{meta-doctoralschool}{\'ecole doctorale}{\'ecole doctorale}
+\expression{meta-laboratory}{nom du laboratoire}{nom du laboratoire}
+\expression{meta-logolaboratory}{logo du laboratoire}{logo du laboratoire}
+\expression{meta-author}{pr\'enom et nom de l'auteur}{pr\'enom et nom de l'auteur}
+\expression{meta-date}{date de la soutenance}{defense date}
+\expression{meta-submissiondate}{date de la soumission}{submission date}
+\expression{meta-academicfield}{discipline}{academic field}
+\expression{meta-speciality}{sp\'ecialit\'e}{speciality}
+\expression{meta-title}{titre du m\'emoire de th\`ese}{thesis title}
+\expression{meta-subtitle}{sous-titre du m\'emoire de th\`ese}{thesis subtitle}
+\expression{meta-firstname}{Pr\'enom}{Pr\'enom}
+\expression{meta-lastname}{Nom}{Nom}
+\expression{meta-role}{fonction}{fonction}
+\expression{meta-corporation}{corporation}{corporation}
+\expression{meta-corps}{corps}{corps}
+\expression{meta-affiliation}{affiliation}{affiliation}
+\expression{meta-introduction}{introduction}{introduction}%
+\expression{meta-conclusion}{conclusion}{conclusion}%
+\expression{meta-keywords}{mot(s) cl\'e(s) de la th\`ese}{thesis keyword(s)}
+\expression{meta-laboratoryaddress}{adresse du laboratoire}{adresse du laboratoire}
+\expression{meta-laboratorytelephone}{t\'el\'ephone du laboratoire}{t\'el\'ephone du laboratoire}
+\expression{meta-laboratoryfax}{fax du laboratoire}{fax du laboratoire}
+\expression{meta-laboratoryemail}{email du laboratoire}{email du laboratoire}
+\expression{meta-urllaboratory}{URL du laboratoire}{URL du laboratoire}
+\expression{meta-dedication}{d\'edicace}{dedication}
+\expression{meta-dedications}{d\'edicaces}{dedications}
+\expression{meta-epigraph}{\'epigraphe}{epigraph}
+\expression{meta-epigraphs}{\'epigraphes}{epigraphs}
+\expression{meta-abstract}{r\'esum\'e}{abstract}%
+\expression{meta-ordernumber}{num\'ero d'ordre}{order number}%
+\InputIfFileExists{\YAD@translations@file}{}{%
+  \ClassError{%
+    Fichier \`YAD@translations@file' non trouvé%
+  }{%
+    Le fichier \`YAD@translations@file' n'a pas été trouvé.\MessageBreak%
+    Veuillez vérifier votre installation de la classe `yathesis'.%
+  }%
+}
+%% ----------------------------------------------------------------------------------
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%% 
+%% This work has the LPPL maintenance status `maintained'.
+%% 
+%% The Current Maintainer of this work is Denis Bitouzé.
+%% 
+%% This work consists of the file  yathesis.dtx
+%%           and the derived files yathesis.cls,
+%%                                 yathesis.ins,
+%%                                 yathesis.pdf,
+%%                                 and a number of configuration files.
+%%
+%% End of file `yathesis.cls'.
