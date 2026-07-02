@@ -1,0 +1,1428 @@
+% --------------------------------------------------------------------------
+% the FNPCT package
+% 
+%   footnotes' interaction with punctuation
+% 
+% --------------------------------------------------------------------------
+% Clemens Niederberger
+% Web:    https://github.com/cgnieder/fnpct/
+% E-Mail: clemens@cnltx.de
+% --------------------------------------------------------------------------
+% Copyright 2012--2022 Clemens Niederberger
+% 
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2008/05/04 or later.
+% 
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Clemens Niederberger.
+% --------------------------------------------------------------------------
+\RequirePackage {l3keys2e}
+\ExplSyntaxOn
+
+\DeclareRelease {v0} {2019-10-05} {fnpct-2019-10-05.sty}
+
+\DeclareHookRule {begindocument} {fnpct} {after} {hyperref}
+
+\tl_const:Nn \c_fnpct_date_tl                 {2022/02/27}
+\tl_const:Nn \c_fnpct_version_major_number_tl {1}
+\tl_const:Nn \c_fnpct_version_minor_number_tl {1}
+\tl_const:Nn \c_fnpct_version_subrelease_tl   {a}
+\tl_const:Nx \c_fnpct_version_number_tl
+  {
+    \c_fnpct_version_major_number_tl .
+    \c_fnpct_version_minor_number_tl
+  }
+\tl_const:Nx \c_fnpct_version_tl
+  {
+    \c_fnpct_version_number_tl
+    \c_fnpct_version_subrelease_tl
+  }
+\tl_const:Nn \c_fnpct_info_tl {footnotes'~ interaction~ with~ punctuation}
+
+\ProvidesExplPackage
+  {fnpct}
+  {\c_fnpct_date_tl}
+  {\c_fnpct_version_tl}
+  {\c_fnpct_info_tl}
+
+\DeclareCurrentRelease {v1} {\c_fnpct_date_tl}
+
+% --------------------------------------------------------------------------
+% scratch variables and variants of kernel functions:
+\tl_new:N  \l__fnpct_tmpa_tl
+
+\seq_new:N \l__fnpct_tmpa_seq
+
+\cs_generate_variant:Nn \tl_remove_all:Nn {NV}
+\cs_generate_variant:Nn \prop_item:Nn {NV}
+\cs_generate_variant:Nn \prop_get:NnN {NV}
+\cs_generate_variant:Nn \prop_put:Nnn {Nx,Nnx,Nxx}
+\cs_generate_variant:Nn \seq_put_right:Nn {Nx}
+\cs_generate_variant:Nn \seq_set_split:Nnn {NV}
+\cs_generate_variant:Nn \regex_replace_all:nnN {nx}
+\cs_generate_variant:Nn \str_remove_once:Nn {NV}
+\cs_generate_variant:Nn \msg_warning:nnn {nnV}
+\cs_generate_variant:Nn \msg_warning:nnnn {nnV}
+\cs_generate_variant:Nn \msg_error:nnn {nnV}
+
+\prg_generate_conditional_variant:Nnn \tl_if_eq:nn {v,V} {T,F,TF}
+
+% --------------------------------------------------------------------------
+% variables
+\bool_new:N \l_fnpct_trailing_action_bool
+\bool_new:N \l__fnpct_trailing_tokens_bool
+\bool_new:N \l__fnpct_dont_mess_around_bool
+\bool_new:N \l__fnpct_ranges_bool
+\bool_new:N \l__fnpct_inside_range_bool
+\bool_new:N \l__fnpct_collection_bool
+\bool_new:N \l__fnpct_switched_bool
+\bool_new:N \l__fnpct_end_collection_bool
+\bool_new:N \l__fnpct_automatic_adaption_bool
+\bool_new:N \l__fnpct_reverse_bool
+\bool_new:N \l__fnpct_keep_ranges_bool
+\bool_new:N \g__fnpct_multiple_bool
+\bool_new:N \g__fnpct_text_bool
+\bool_new:N \l__fnpct_debug_bool
+\bool_new:N \l__fnpct_unspace_bool
+
+\tl_new:N \l_fnpct_action_tl
+\tl_new:N \l_fnpct_last_action_tl
+\tl_new:N \l_fnpct_trailing_token_tl
+\tl_new:N \l__fnpct_trailing_tokens_tl
+\tl_new:N \l__fnpct_range_tl
+\tl_new:N \l__fnpct_separate_tl
+\tl_new:N \l__fnpct_multiple_footnotes_delimiter_tl
+\tl_new:N \l__fnpct_mult_variant_prefix_tl
+\tl_new:N \g__fnpct_this_note_tl
+
+\prop_new:N \l__fnpct_trailing_tokens_prop
+\prop_new:N \l__fnpct_trailing_actions_prop
+\prop_new:N \l__fnpct_trailing_classes_prop
+\prop_new:N \g__fnpct_actions_prop
+\prop_new:N \g__fnpct_action_classes_prop
+
+\seq_new:N \l__fnpct_trailing_tokens_seq
+\seq_new:N \l__fnpct_classes_seq
+\seq_new:N \g__fnpct_actions_seq
+\seq_new:N \l__fnpct_footnote_class_seq
+\seq_new:N \l__fnpct_collection_seq
+\seq_new:N \g__fnpct_inner_seq
+\seq_new:N \l__fnpct_adapted_commands_seq
+
+\int_new:N \l__fnpct_collection_int
+
+\dim_new:N \l__fnpct_before_footnote_dim
+
+% --------------------------------------------------------------------------
+% messages:
+\msg_new:nnn {fnpct} {load-time-option}
+  {
+    `#1'~ is~ a~ load-time~ option! \\
+    You~ cannot~ set~ it~ with~ \token_to_str:N \setfnpct ! \\
+    You~ need~ to~ use~ \token_to_str:N \usepackage [#1] {fnpct} .
+  }
+
+\msg_new:nnn {fnpct} {unknown-load-time-option}
+  {
+    Unknown~ option~ `#1'! \\
+    I~ don't~ know~ the~ option~ `#1'.~ Please~ make~ sure~ there~ is~ no~
+    typo.~ Check~ the~ manual~ for~ help.~ Did~ you~ mean~ to~ use~ it~ in~
+    \token_to_str:N \setfnpct ?
+  }
+
+\msg_new:nnn {fnpct} {dont-mess-around}
+  {
+    All~ right,~ not~ messing~ around.~ :( \\
+    I'd~ really~ love~ to,~ though! \\
+    https://www.youtube.com/results?search_query=mess+around+ray+charles
+  }
+
+\msg_new:nnn {fnpct} {class-not-defined}
+  { The~ action~ class~ `#1'~ is~ not~ defined~ \msg_line_context: }
+
+\msg_new:nnn {fnpct} {command-not-adapted}
+  { The~ command~ `#1'~ doesn't~ seem~ to~ be~ adapted,~ yet,~ \msg_line_context: }
+
+\msg_new:nnn {fnpct} {cannot-adapt}
+  {
+    Due~ to~ the~ implementation~ of~ the~ `#1'~ package~ I~ am~ not~ yet~
+    able~ to~ adapt~ its~ commands.
+  }
+
+\msg_new:nnn {fnpct} {cannot-adapt-with-ranges}
+  {
+    Due~ to~ the~ implementation~ of~ the~ `#1'~ package~ I~ am~ not~ yet~
+    able~ to~ adapt~ its~ commands~ while~ also~ using~ the~ option~ `ranges~
+    =~ true'.~ #2
+  }
+
+\msg_new:nnn {fnpct} {ranges-hyperref}
+  {
+    Using~ the~ option~ `ranges~ =~ true'~ together~ with~ package~
+    `hyperref'~ does~ not~ work~ well.~ Disabling~ ranges.~ If~ you~ insist~
+    then~ set~ `keep-ranges~ =~ true'.
+  }
+
+\msg_new:nnn {fnpct} {keep-ranges-hyperref}
+  {
+    Using~ the~ option~ `ranges~ =~ true'~ together~ with~ package~
+    `hyperref'~ does~ not~ work~ well.~ Keeping~ them~ anyway.~ But~ don't~
+    say~ you~ haven't~ been~ warned.
+  }
+
+\msg_new:nnn {fnpct} {ranges-disabled}
+  { Using~ ranges~ is~ disabled~ \msg_line_context: . }
+  
+\msg_new:nnn {fnpct} {pagenote}
+  {
+    If~ you~ use~ the~ `pagenote'~ package~ with~ `fnpct'~ please~ make~ sure~
+    to~ use~ \token_to_str:N \makepagenote \c_space_tl  after~ loading~
+    `fnpct'!
+  }
+
+\msg_new:nnn {fnpct} {option-deprecated}
+  {
+    The~ option~ `#1'~ is~ deprecated
+    \tl_if_blank:nF {#2}
+      { .~ Please~ use~ option~ `#2'~ instead }
+    \c_space_tl \msg_line_context: .
+  }
+
+\msg_new:nnn {fnpct} {command-removed}
+  { The~ command~ #1~ has~ been~ removed~ from~ fnpct. }
+
+% --------------------------------------------------------------------------  
+\cs_new_protected:Npn \__fnpct_loadtime_error:n #1
+   { \msg_error:nnV {fnpct} {#1} \l_keys_key_str }
+
+\cs_new_protected:Npn \__fnpct_loadtime_warning:n #1
+   { \msg_warning:nnV {fnpct} {#1} \l_keys_key_str }
+
+\keys_define:nn {fnpct/load-time}
+  {
+    multiple                 .bool_gset:N = \g__fnpct_multiple_bool ,
+    multiple                 .initial:n = false ,
+    debug                    .bool_gset:N = \g__fnpct_debug_bool ,
+    debug                    .initial:n = false ,
+    dont-mess-around         .choice: ,
+    dont-mess-around / true  .code:n =
+      \bool_set_true:N \l__fnpct_dont_mess_around_bool
+      \msg_info:nn {fnpct} {dont-mess-around} ,
+    dont-mess-around / false .code:n =
+      \bool_set_false:N \l__fnpct_dont_mess_around_bool ,
+    dont-mess-around         .default:n = true ,
+    dont-mess-around         .initial:n = false ,
+    unknown                  .code:n =
+      \__fnpct_loadtime_warning:n {unknown-load-time-option}
+  }
+
+\ProcessKeysPackageOptions {fnpct/load-time}
+
+\keys_define:nn {fnpct/load-time}
+  {
+    multiple         .code:n = \__fnpct_loadtime_error:n {load-time-option} ,
+    debug            .code:n = \__fnpct_loadtime_error:n {load-time-option} ,
+    dont-mess-around .code:n = \__fnpct_loadtime_error:n {load-time-option}
+  }
+
+% --------------------------------------------------------------------------
+\prg_new_conditional:Npnn \fnpct_if_multiple: {T,F,TF}
+  {
+    \bool_if:NTF \g__fnpct_multiple_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_new_conditional:Npnn \fnpct_if_debug: {T,F,TF}
+  {
+    \bool_if:NTF \g__fnpct_debug_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+% --------------------------------------------------------------------------
+\prg_new_conditional:Npnn \fnpct_if_package_loaded:n #1 {p,T,F,TF}
+  {
+    \@ifpackageloaded {#1}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_new_conditional:Npnn \fnpct_if_class_loaded:n #1 {p,T,F,TF}
+  {
+    \@ifclassloaded {#1}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+% --------------------------------------------------------------------------
+% #1: cs
+\prg_new_conditional:Npnn \fnpct_if_adapted:N #1 {T,F,TF}
+  {
+    \seq_if_in:NnTF \l__fnpct_adapted_commands_seq {#1}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_generate_conditional_variant:Nnn \fnpct_if_adapted:N {c} {T,F,TF}
+
+% --------------------------------------------------------------------------
+\cs_new_protected:Npn \fnpct_nobreak: { \tex_penalty:D 10000 \scan_stop: }
+\cs_new_protected:Npn \fnpct_skip_nobreak:N #1
+  {
+    \fnpct_nobreak:
+    \skip_horizontal:N #1
+    \fnpct_nobreak:
+  }
+\cs_generate_variant:Nn \fnpct_skip_nobreak:N {c}
+
+% --------------------------------------------------------------------------
+% checking for trailing tokens - reuse an idea from `acro'
+% #1: name
+\cs_new_protected:Npn \fnpct_new_class:n #1
+  {
+    \seq_put_right:Nn \l__fnpct_classes_seq {#1}
+    \seq_new:c {g__fnpct_class_#1_seq}
+  }
+
+\prg_new_conditional:Npnn \fnpct_class_if_exist:n #1 {p,T,F,TF}
+  {
+    \seq_if_in:NnTF \l__fnpct_classes_seq {#1}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+  
+% #1: name
+% #2: code
+\cs_new_protected:Npn \__fnpct_do_action:nnw #1#2 \fnpct_end:
+  {
+    \prop_if_in:NnTF \g__fnpct_actions_prop {#1}
+      { \fnpct_end: \prop_item:Nn \g__fnpct_actions_prop {#1} }
+      { \fnpct_end: \use:n }
+    {#2}
+  }  
+\cs_generate_variant:Nn \__fnpct_do_action:nnw {V}
+
+% #1: name
+% #2: class
+% #3: default before dim
+% #4: default after dim
+% #5: code requiring two n-type arguments (code and token)
+\cs_new_protected:Npn \fnpct_new_action:nnnnn #1#2#3#4#5
+  {
+    \fnpct_class_if_exist:nTF {#2}
+      {
+        \seq_if_in:NnTF \g__fnpct_actions_seq {#1}
+          {
+            \keys_set:nn {fnpct}
+              {
+                before-#1-space = #3 ,
+                after-#1-space  = #4
+              }
+          }
+          {
+            \seq_gput_right:Nn \g__fnpct_actions_seq {#1}
+            \prop_gput:Nnn \g__fnpct_action_classes_prop {#1} {#2}
+            \prop_gput:Nnn \g__fnpct_actions_prop {#1} {#5}
+            \seq_gput_right:cn {g__fnpct_class_#2_seq} {#1}
+            \dim_new:c {l__fnpct_before_#1_dim}
+            \dim_new:c {l__fnpct_after_#1_dim}
+            \keys_define:nn {fnpct}
+              {
+                before-#1-space      .dim_set:c = {l__fnpct_before_#1_dim} ,
+                before-#1-space      .initial:n = #3 ,
+                after-#1-space       .dim_set:c = {l__fnpct_after_#1_dim} ,
+                after-#1-space       .initial:n = #4
+              }
+          }
+      }
+      { \msg_error:nnn {fnpct} {class-not-defined} {#2} }
+  }
+
+\prg_new_conditional:Npnn \fnpct_action_if_exist:n #1 {p,T,F,TF}
+  {
+    \seq_if_in:NnTF \g__fnpct_actions_seq {#1}
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+% register a new token but don't activate its action:
+% #1: token
+% #2: action
+\cs_new_protected:Npn \fnpct_new_trailing_token:Nn #1#2
+  {
+    \prop_put:Nnn \l__fnpct_trailing_tokens_prop {#1} {#1}
+    \prop_put:Nnn \l__fnpct_trailing_actions_prop {#1} {#2}
+    \prop_put:Nnx \l__fnpct_trailing_classes_prop {#1}
+      { \prop_item:Nn \g__fnpct_action_classes_prop {#2} }
+    \seq_put_right:Nn \l__fnpct_trailing_tokens_seq {#1}
+  }
+
+% #1: class
+% #2: code where `#1' refers to the action name
+\cs_new:Npn \fnpct_foreach_action:nn #1#2
+  {
+    \fnpct_class_if_exist:nT {#1}
+      { \seq_map_inline:cn {g__fnpct_class_#1_seq} {#2} }
+  }
+
+\cs_new_eq:NN \fnpct_action_break: \seq_map_break:
+
+% #1: token
+\cs_new_protected:Npn \fnpct_remove_trailing_token:N #1
+  {
+    \seq_remove_all:Nn \l__fnpct_trailing_tokens_seq {#1}
+    \prop_remove:Nn \l__fnpct_trailing_tokens_prop {#1}
+    \prop_remove:Nn \l__fnpct_trailing_actions_prop {#1}
+    \prop_remove:Nn \l__fnpct_trailing_classes_prop {#1}
+  }
+
+\cs_new_protected:Npn \fnpct_for_all_trailing_tokens_do:n #1
+  { \seq_map_inline:Nn \l__fnpct_trailing_tokens_seq {#1} }
+
+% activate a token:
+\cs_new_protected:Npn \fnpct_activate_trailing_token:n #1
+  {
+    \prop_get:NnN \l__fnpct_trailing_tokens_prop {#1} \l__fnpct_tmpa_tl
+    \tl_put_right:NV \l__fnpct_trailing_tokens_tl \l__fnpct_tmpa_tl
+  }
+
+% deactivate a token:
+\cs_new_protected:Npn \fnpct_deactivate_trailing_token:n #1
+  {
+    \prop_get:NnN \l__fnpct_trailing_tokens_prop {#1} \l__fnpct_tmpa_tl
+    \tl_remove_all:NV \l__fnpct_trailing_tokens_tl \l__fnpct_tmpa_tl
+  }
+
+% #1: tokenlist
+\prg_new_protected_conditional:Npnn \fnpct_if_trailing_tokens:n #1 {T,F,TF}
+  {
+    \bool_set_false:N \l__fnpct_trailing_tokens_bool
+    \tl_map_inline:nn {#1}
+      {
+        \bool_if:cT {l__fnpct_trailing_##1_bool}
+          {
+            \bool_set_true:N \l__fnpct_trailing_tokens_bool
+            \tl_map_break:
+          }
+      }
+    \bool_if:NTF \l__fnpct_trailing_tokens_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+% --------------------------------------------------------------------------
+% #1: token
+\prg_new_protected_conditional:Npnn \__fnpct_check_trail:N #1 {T,F,TF}
+  {
+    \bool_set_false:N \l_fnpct_trailing_action_bool
+    \tl_clear:N \l_fnpct_trailing_token_tl
+    \bool_if:NTF \l__fnpct_dont_mess_around_bool
+      { \prg_return_false: }
+      {
+        \tl_if_empty:NTF \l__fnpct_trailing_tokens_tl
+          { \prg_return_false: }
+          {
+            \tl_map_inline:Nn \l__fnpct_trailing_tokens_tl
+              {
+                \token_if_eq_meaning:NNT #1 ##1
+                  {
+                    \bool_set_true:N \l_fnpct_trailing_action_bool
+                    \tl_set:Nn \l_fnpct_trailing_token_tl {##1}
+                    \tl_map_break:
+                  }
+              }
+            \bool_if:NTF \l_fnpct_trailing_action_bool
+              { \prg_return_true: }
+              { \prg_return_false: }
+          }
+      }
+  }
+
+% #1: class name
+\prg_new_protected_conditional:Npnn \fnpct_if_class:n #1 {T,F,TF}
+  {
+    \bool_if:NTF \l_fnpct_trailing_action_bool
+      {
+        \prop_get:NVN \l__fnpct_trailing_classes_prop
+          \l_fnpct_trailing_token_tl
+          \l__fnpct_tmpa_tl
+        \tl_if_eq:VnTF \l__fnpct_tmpa_tl {#1}
+          { \prg_return_true: }
+          { \prg_return_false: }
+      }
+      { \prg_return_false: }
+  }
+
+% #1: action name
+\prg_new_protected_conditional:Npnn \fnpct_if_action:n #1 {T,F,TF}
+  {
+    \bool_if:NTF \l_fnpct_trailing_action_bool
+      {
+        \prop_get:NVN \l__fnpct_trailing_actions_prop
+          \l_fnpct_trailing_token_tl
+          \l__fnpct_tmpa_tl
+        \tl_if_eq:VnTF \l__fnpct_tmpa_tl {#1}
+          { \prg_return_true: }
+          { \prg_return_false: }
+      }
+      { \prg_return_false: }
+  }
+
+% --------------------------------------------------------------------------
+% saving and using the note commands:
+\cs_new:Npn \__fnpct_remove_backslash:N #1
+  { \exp_after:wN \use_none:n \token_to_str:N #1 }
+
+% this is dangerous - it relies on undocumented innards of xparse - however,
+% it should probably be rather safe, anyway:
+\cs_new_protected:Npn \fnpct_save_note_command:N #1
+  {
+    \cs_undefine:c {fnpct_original_ \__fnpct_remove_backslash:N #1 :w}
+    \exp_args:Nc \DeclareCommandCopy
+      { fnpct_original_ \__fnpct_remove_backslash:N #1 :w }
+      #1
+    \seq_put_right:Nn \l__fnpct_adapted_commands_seq {#1}
+    \fnpct_set_counter_name:Nx #1 { \__fnpct_remove_backslash:N #1 }
+  }
+
+\cs_new_protected:Npn \fnpct_set_counter_name:Nn #1#2
+  { \cs_set:cpn { fnpct_ \__fnpct_remove_backslash:N #1 _counter: } {#2} }
+\cs_generate_variant:Nn \fnpct_set_counter_name:Nn {c,Nx}
+  
+\cs_new:Npn \__fnpct_counter:N #1
+  { \use:c { fnpct_ \__fnpct_remove_backslash:N #1 _counter: } }
+
+\hook_new:n {fnpct/rangesetup}
+  
+\cs_new_protected:Npn \fnpct_use_note_command:N #1
+  {
+    \fnpct_if_debug:T
+      { \iow_term:x { fnpct~ info:~ \exp_not:N #1  \msg_line_context:} }
+    \tl_gset:Nx \g__fnpct_this_note_tl { \__fnpct_remove_backslash:N #1 }
+    \cs_if_exist:cTF {fnpct_original_ \__fnpct_remove_backslash:N #1 :w}
+      {
+        \fnpct_inside_range:TF
+          {
+            \refstepcounter { \__fnpct_counter:N #1 }
+            \tl_set_eq:NN \l__fnpct_current_tl #1
+            \hook_use:n {fnpct/rangesetup}
+            \use:c { \__fnpct_remove_backslash:N #1 text }
+          }
+          { \use:c {fnpct_original_ \__fnpct_remove_backslash:N #1 :w} }
+      }
+      { \msg_error:nnn {fnpct} {command-not-adapted} {#1} }
+  }
+\cs_generate_variant:Nn \fnpct_use_note_command:N {c}
+
+\prg_new_conditional:Npnn \fnpct_if_current:N #1 {T,F,TF}
+  {
+    \tl_if_eq:NNTF \l__fnpct_current_tl #1
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+\prg_generate_conditional_variant:Nnn \fnpct_if_current:N {c} {T}
+  
+% --------------------------------------------------------------------------
+% action macros
+\prg_new_conditional:Npnn \fnpct_if_collection: {p,T,F,TF}
+  {
+    \bool_if:NTF \l__fnpct_collection_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_new_conditional:Npnn \fnpct_if_ranges: {T,F,TF}
+  {
+    \bool_if:NTF \l__fnpct_ranges_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_new_conditional:Npnn \fnpct_inside_range: {T,F,TF}
+  {
+    \bool_if:NTF \l__fnpct_inside_range_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }  
+
+% swapping:
+% #1: all the new footnote code, arguments already read
+% #2: the trailing punctuation
+\cs_new_protected:Npn \fnpct_swap:nn #1#2
+  {
+    \fnpct_if_collection:TF
+      {
+        \__fnpct_swap:nn
+          {
+            \fnpct_before:
+            \fnpct_print_collection:
+            \fnpct_print_note:w #1
+            \fnpct_after:
+          }
+          {#2}
+      }
+      { \__fnpct_swap:nn {#1} {#2} }
+  }
+
+\cs_new_protected:Npn \__fnpct_swap:nn #1#2
+  {
+    \fnpct_if_switched:TF
+      {
+        \use:nn
+          { \fnpct_skip_nobreak:N \l__fnpct_before_footnote_dim #1 }
+          { \fnpct_add_punctuation_space:n {before} #2 }
+      }
+      { \use_ii_i:nn {#1} {#2} }
+  }
+
+\cs_new:Npn \fnpct_print_note:w \fnpct_before: #1 \fnpct_after:
+{ \exp_not:n { #1 } }
+
+% multiple footnotes and ranges:
+\cs_new_protected:Npn \__fnpct_collect:n #1
+  {
+    \int_incr:N \l__fnpct_collection_int
+    \seq_put_right:Nx \l__fnpct_collection_seq { \fnpct_print_note:w #1 }
+  }
+
+% #1: all the new footnote code, arguments already read
+% #2: e.g. the token \footnote
+\cs_new_protected:Npn \fnpct_collect:nn #1#2
+  {
+    \fnpct_if_collection:F
+      {
+        % we're starting a collection
+        \seq_clear:N \l__fnpct_collection_seq
+        \int_set:Nn \l__fnpct_collection_int {1}
+        \bool_set_true:N \l__fnpct_collection_bool
+      }
+    \__fnpct_collect:n {#1}
+    #2
+  }
+
+\cs_new_protected:Npn \fnpct_print_collection:
+  {
+    \bool_set_false:N \l__fnpct_collection_bool
+    \bool_set_true:N \l__fnpct_end_collection_bool
+    % DEBUG:
+    \fnpct_if_ranges:TF
+      {
+        \seq_item:Nn \l__fnpct_collection_seq {1}
+        \seq_pop_left:NN \l__fnpct_collection_seq \l__fnpct_tmpa_tl
+        \tl_clear:N \l__fnpct_tmpa_tl
+        \bool_set_true:N \l__fnpct_inside_range_bool
+        \seq_use:Nn \l__fnpct_collection_seq { }
+        \bool_set_false:N \l__fnpct_inside_range_bool
+        \int_compare:nNnTF \l__fnpct_collection_int = {2}
+          { \__fnpct_separate: }
+          { \l__fnpct_range_tl }
+      }
+      {
+        \seq_use:Nn \l__fnpct_collection_seq { \__fnpct_separate: }
+        \__fnpct_separate:
+      }
+  }
+
+\cs_new_protected:Npn \__fnpct_separate:
+  {
+    \bool_if:NTF \g__fnpct_text_bool
+      { \bool_gset_false:N \g__fnpct_text_bool }
+      { \l__fnpct_separate_tl }
+  }
+
+% --------------------------------------------------------------------------
+% define some classes and actions:
+\fnpct_new_class:n {punctuation}
+\fnpct_new_class:n {note}
+
+\fnpct_new_action:nnnnn {dot}   {punctuation} {-.16em} {-0.06em} { \fnpct_swap:nn }
+\fnpct_new_action:nnnnn {comma} {punctuation} {-.16em} {-0.06em} { \fnpct_swap:nn }
+\fnpct_new_action:nnnnn {collect} {note} {0pt} {0pt} { \fnpct_collect:nn }
+
+\fnpct_new_trailing_token:Nn . {dot}
+\fnpct_new_trailing_token:Nn , {comma}
+
+% #1: default before dim
+% #2: token
+% #3: default after dim
+% #4: name
+\NewDocumentCommand \AddPunctuation {O{0pt}mO{0pt}m}
+  {
+    \fnpct_new_action:nnnnn {#4} {punctuation} {#1} {#3} { \fnpct_swap:nn }
+    \fnpct_new_trailing_token:Nn #2 {#4}
+    \keys_set:nn {fnpct} { activate-trailing-tokens = #2 }
+  }
+
+% --------------------------------------------------------------------------
+% build up the frame for the adapted note commands:
+
+\prg_new_conditional:Npnn \fnpct_if_switched: {p,T,F,TF}
+  {
+    \bool_if:NTF \l__fnpct_switched_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\cs_new_protected:Npn \__fnpct_execute: {}
+
+\hook_gput_code:nnn {begindocument} {fnpct}
+  {
+    \bool_lazy_or:nnTF
+      { \fnpct_if_package_loaded_p:n {biblatex} }
+      { \fnpct_if_package_loaded_p:n {csquotes} }
+      {
+        \cs_new_protected:Npn \fnpct_unspace:
+          { \bool_if:NT \l__fnpct_unspace_bool { \unspace } }
+      }
+      {
+        \cs_new_protected:Npn \fnpct_unspace:
+          {
+            \bool_if:NT \l__fnpct_unspace_bool
+              {
+                \mode_if_horizontal:T
+                  {
+                    \dim_compare:nNnTF {\lastskip} > {0pt}
+                      { \tex_unskip:D \fnpct_unspace: }
+                      {
+                        \int_compare:nNnT {\lastpenalty} > {0}
+                          { \tex_unpenalty:D \fnpct_unspace: }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+% #1: boolean
+\cs_new_protected:Npn \fnpct_begin:
+  { \fnpct_unspace: \__fnpct_check_after_end:w }
+
+% #1: code
+\cs_new_protected:Npn \__fnpct_check_after_end:w #1 \fnpct_end:
+  {
+    \cs_set_protected:Npn \__fnpct_execute:
+      {
+        \__fnpct_check_trail:NTF \l_peek_token
+          {
+            \prop_get:NVN \l__fnpct_trailing_actions_prop
+              \l_fnpct_trailing_token_tl
+              \l_fnpct_action_tl
+            \__fnpct_do_action:Vnw \l_fnpct_action_tl {#1}
+          }
+          {
+            % no trailing punctuation
+            \bool_lazy_or:nnT
+              { \fnpct_if_collection_p: }
+              { \fnpct_if_switched_p: }
+              {
+                \fnpct_skip_nobreak:N \l__fnpct_before_footnote_dim
+                \fnpct_if_collection:T { \fnpct_print_collection: }
+              }
+              #1
+          }
+        \fnpct_end:
+      }
+    \peek_after:Nw \__fnpct_execute:
+  }
+
+\cs_new_protected:Npn \fnpct_end: { }
+
+\cs_new_protected:Npn \fnpct_before:
+  {
+    \bool_if:NF \l__fnpct_dont_mess_around_bool 
+      {
+        \fnpct_if_switched:F { \fnpct_add_punctuation_space:n {after} }
+         \bool_if:NF \l_fnpct_trailing_action_bool
+           { % no punctiation following
+             \bool_if:NF \l__fnpct_end_collection_bool
+               { \fnpct_skip_nobreak:N \l__fnpct_before_footnote_dim }
+           }
+      }
+  }
+
+\cs_new_protected:Npn \fnpct_add_punctuation_space:n #1
+  {
+    \fnpct_if_class:nT {punctuation}
+      {
+        \fnpct_foreach_action:nn {punctuation}
+          {
+            \fnpct_if_action:nT {##1}
+              {
+                \fnpct_skip_nobreak:c {l__fnpct_#1_##1_dim}
+                \fnpct_action_break:
+              }
+          }
+      }
+  }
+  
+\cs_new_protected:Npn \fnpct_after:
+  {
+    \bool_if:NF \l__fnpct_dont_mess_around_bool
+      {
+        \fnpct_if_switched:T
+          {
+            \fnpct_if_class:nT {punctuation}
+              { \bool_set_false:N \l__fnpct_collection_bool }
+            \bool_set_false:N \l__fnpct_end_collection_bool
+            \bool_set_false:N \l__fnpct_switched_bool
+          }
+      }
+  }
+
+% #1: command
+% #2: argument spec
+% #3: code where #NOTE refers to the original note
+\cs_new_protected:Npn \fnpct_adapt_note:Nnn #1#2#3
+  {
+    \fnpct_if_adapted:NF #1
+      {
+        \fnpct_save_note_command:N #1
+        \fnpct_new_trailing_token:Nn #1 {collect}
+        \keys_set:nn {fnpct} { activate-trailing-tokens = {#1} }
+      }
+    \tl_set:Nn \l__fnpct_tmpa_tl {#3}
+    \regex_replace_all:nnN {\cP\#\cP\#} {$$$$} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#8} {\cP\#9} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#7} {\cP\#8} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#6} {\cP\#7} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#5} {\cP\#6} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#4} {\cP\#5} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#3} {\cP\#4} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#2} {\cP\#3} \l__fnpct_tmpa_tl
+    \regex_replace_all:nnN {\cP\#1} {\cP\#2} \l__fnpct_tmpa_tl
+    \regex_replace_all:nxN
+      {\cP\#NOTE}
+      {
+        \exp_not:N \c{fnpct_use_note_command:N}
+        \exp_not:N \c{\__fnpct_remove_backslash:N #1}
+      }
+      \l__fnpct_tmpa_tl
+    % we need to double inner arguments yet one more, so it can appear inside
+    % the replacement text of \__fnpct_execute:
+    \regex_replace_all:nnN {\$\$\$\$} {\cP\#\cP\#\cP\#\cP\#} \l__fnpct_tmpa_tl
+    \tl_put_left:Nn  \l__fnpct_tmpa_tl { \fnpct_start:w }
+    \tl_put_right:Nn \l__fnpct_tmpa_tl { \fnpct_stop: }
+    \use:x
+      {
+        \exp_not:n { \RenewDocumentCommand #1 {s#2} }
+          {
+            \exp_not:n { \fnpct_reverse:n {##1} }
+            \exp_not:V \l__fnpct_tmpa_tl
+          }
+      }
+  }
+\cs_generate_variant:Nn \fnpct_adapt_note:Nnn {c}
+
+\cs_new_protected:Npn \fnpct_reverse:n #1
+  {
+    \bool_if:NTF \l__fnpct_reverse_bool
+      { \bool_if:nF }
+      { \bool_if:nT }
+    {#1} { \bool_set_true:N \l__fnpct_switched_bool }
+  }
+
+% #1: code
+\cs_new_protected:Npn \fnpct_start:w #1 \fnpct_stop:
+  {
+    \fnpct_begin:
+    \fnpct_before:
+    \group_begin:
+    #1
+    \group_end:
+    \fnpct_after:
+    \fnpct_end:
+  }
+
+\cs_new_protected:Npn \fnpct_text:
+  {
+    \bool_set_false:N \l__fnpct_inside_range_bool
+    \bool_gset_true:N \g__fnpct_text_bool
+  }
+
+% --------------------------------------------------------------------------
+% #1: note command
+% #2: arguments
+% #3: counter name
+% #4: code
+\NewDocumentCommand \AdaptNote {mmom}
+  {
+    \fnpct_adapt_note:Nnn #1 {#2} {#4}
+    \IfNoValueF {#3} { \fnpct_set_counter_name:Nn #1 {#3} }
+  }
+
+\NewDocumentCommand \AdaptNoteName {mmom}
+  {
+    \fnpct_adapt_note:cnn {#1} {#2} {#4}
+    \IfNoValueF {#3} { \fnpct_set_counter_name:cn {#1} {#3} }
+  }
+
+\NewDocumentCommand \AdaptText {mmm}
+  { \fnpct_adapt_note:Nnn #1 {#2} { \fnpct_text: #3 } }
+
+\NewDocumentCommand \innernote {+m}
+  { \msg_warning:nn {fnpct} {command-removed} \use:n {#1} }
+
+\NewExpandableDocumentCommand \ifcurrentnoteTF {m}
+  { \fnpct_if_current:NTF #1 }
+
+\NewExpandableDocumentCommand \ifcurrentnoteT {m}
+  { \fnpct_if_current:NT #1 }
+
+\NewExpandableDocumentCommand \ifcurrentnoteF {m}
+  { \fnpct_if_current:NF #1 }
+
+% --------------------------------------------------------------------------
+% OPTIONS
+\NewDocumentCommand \setfnpct {m}
+  { \keys_set:nn {fnpct} {#1} }
+
+\cs_new_protected:Npn \fnpct_deprecate_option:n #1
+  { \msg_warning:nnVn {fnpct} {option-deprecated} \l_keys_key_str {#1} }
+
+\cs_new_protected:Npn \fnpct_deprecate_option:
+  { \msg_warning:nnV {fnpct} {option-deprecated} \l_keys_key_str }
+  
+\keys_define:nn {fnpct}
+  {
+    add-trailing-token         .code:n = \AddPunctuation #1 ,
+    activate-trailing-tokens   .code:n =
+      \tl_map_inline:nn {#1} { \fnpct_activate_trailing_token:n {##1} } ,
+    activate-trailing-tokens   .initial:n = {.,} ,
+    deactivate-trailing-tokens .code:n =
+      \tl_map_inline:nn {#1} { \fnpct_deactivate_trailing_token:n {##1} } ,
+    before-footnote-space      .dim_set:N = \l__fnpct_before_footnote_dim ,
+    before-footnote-space      .initial:n =  .06em ,
+    ranges                     .bool_set:N = \l__fnpct_ranges_bool ,
+    ranges                     .initial:n = false ,
+    keep-ranges                .bool_set:N = \l__fnpct_keep_ranges_bool ,
+    keep-ranges                .initial:n = false ,
+    dont-mess-around           .bool_set:N = \l__fnpct_dont_mess_around_bool ,
+    dont-mess-around           .initial:n = false ,
+    unspace                    .bool_set:N = \l__fnpct_unspace_bool ,
+    unspace                    .initial:n = true ,
+    mult-fn-delim              .tl_set:N = \l__fnpct_multiple_footnotes_delimiter_tl ,
+    mult-fn-delim              .initial:n = {;} ,
+    mult-variant-prefix        .tl_set:N  = \l__fnpct_mult_variant_prefix_tl ,
+    mult-variant-prefix        .initial:n = mult ,
+    separation-symbol          .code:n = \renewcommand* \multfootsep {#1} ,
+    range-symbol               .code:n = \renewcommand* \multfootrange {#1} ,
+    print-separation           .tl_set:N = \l__fnpct_separate_tl ,
+    print-separation           .initial:n = \textsuperscript { \multfootsep } ,
+    print-range                .tl_set:N = \l__fnpct_range_tl ,
+    print-range                .initial:n = \textsuperscript { \multfootrange } ,
+    reverse                    .bool_set:N = \l__fnpct_reverse_bool ,
+    punct-after                .code:n = \fnpct_deprecate_option:n {reverse} ,
+    after-punct-space          .code:n =
+      \fnpct_foreach_action:nn {punctuation}
+        { \keys_set:nn {fnpct} { after-##1-space = #1 } } ,
+    before-punct-space         .code:n =
+      \fnpct_foreach_action:nn {punctuation}
+        { \keys_set:nn {fnpct} { before-##1-space = #1 } }
+  }
+
+% deprecate options of earlier version unless it still exists:
+\clist_map_inline:nn
+  {
+    bigfoot-default-top ,
+    strict ,
+    after-comma-space ,
+    after-dot-space ,
+    before-comma-space ,
+    before-dot-space ,
+    after-punct-space ,
+    before-punct-space ,
+    before-footnote-space ,
+    french-before-footnote-space ,
+    punct-after ,
+    dont-mess-around ,
+    mult-fn-delim ,
+    mult-fn-sep ,
+    multiple ,
+    normal-marks ,
+    normal-mark-width ,
+    normal-indent ,
+    normal-parindent ,
+    verb-format ,
+    add-punct-marks ,
+    remove-punct-marks ,
+  }
+  {
+    \keys_if_exist:nnF {fnpct} {#1}
+      { \keys_define:nn {fnpct} { #1 .code:n = \fnpct_deprecate_option: } }
+  }
+
+% --------------------------------------------------------------------------
+% define \multfootnote and friends for some transition period
+
+\cs_new_protected:Npn \fnpct_create_mult_variant:N #1
+  {
+    \exp_args:Nc \NewDocumentCommand
+      { \l__fnpct_mult_variant_prefix_tl \__fnpct_remove_backslash:N #1 }
+      { sm }
+      {
+        \seq_set_split:NVn \l__fnpct_tmpa_seq
+          \l__fnpct_multiple_footnotes_delimiter_tl
+          {##2}
+        \tl_clear:N \l__fnpct_tmpa_tl
+        \seq_map_inline:Nn \l__fnpct_tmpa_seq
+          {
+            \tl_put_right:Nx \l__fnpct_tmpa_tl
+              { \exp_not:n {#1} \IfBooleanT{##1}{*} \exp_not:n {{####1}} }
+          }
+        \l__fnpct_tmpa_tl
+      }
+  }
+\cs_generate_variant:Nn \fnpct_create_mult_variant:N {c}
+
+\NewDocumentCommand \MultVariant {m}
+  { \fnpct_create_mult_variant:N #1 }
+
+\NewDocumentCommand \MultVariantName {m}
+  { \fnpct_create_mult_variant:c {#1} }
+
+% --------------------------------------------------------------------------
+% TAKE CARE OF FRENCH SETTINGS  
+\RequirePackage {translations}
+\hook_gput_code:nnn {begindocument/end} {fnpct}
+  {
+    \ifcurrentbaselanguage {French}
+      {
+        \cs_if_exist:NT \StandardFootnotes
+          {
+            \cs_set_eq:NN \@footnotemark \@footnotemarkORI
+            \StandardFootnotes
+          }
+        \keys_set:nn {fnpct} { before-footnote-space = .16667em }
+      }
+      {}
+  }
+
+% --------------------------------------------------------------------------
+
+\hook_gput_code:nnn {begindocument} {fnpct}
+  {
+    \fnpct_if_class_loaded:nTF {memoir}
+      { \renewcommand* }
+      { \providecommand* }
+    \multfootsep {,}
+    \providecommand* \multfootrange {--}
+    \tl_set:Nn \l__fnpct_range_tl { \textsuperscript { \multfootrange } }
+  }
+
+% --------------------------------------------------------------------------
+% DO THE REDEFINING:
+%
+% before we start make the testing more comfortable:
+\cs_new_protected:Npn \fnpct_treatment:nn #1#2
+  { \fnpct_if_package_loaded:nT {#1} {#2} }
+
+\cs_new_protected:Npn \fnpct_special_treatment:nn #1#2
+  {
+    \fnpct_if_package_loaded:nTF {#1} {#2}
+      { \hook_gput_code:nnn {package/#1/after} {fnpct} {#2} }
+  }
+
+% `manyfoot' (loaded by `bigfoot') saves its footnote classes in a 2e list:
+\str_new:N \l__fnpct_footins_str
+\str_set:Nn \l__fnpct_footins_str {\footins}
+\str_remove_once:Nn \l__fnpct_footins_str {~}
+\cs_new_protected:Npn \__fnpct_grab_second:Nnw #1#2#3 \q_stop
+  {
+    \str_set:Nn \l__fnpct_tmpa_str {#3}
+    \str_remove_once:Nn \l__fnpct_tmpa_str {~}
+    \str_remove_once:NV \l__fnpct_tmpa_str \l__fnpct_footins_str
+    \seq_put_right:Nx #1 { \l__fnpct_tmpa_str }
+  }
+
+\cs_new_protected:Npn \__fnpct_get_fnclasses:NN #1#2
+  {
+    \seq_set_split:NnV \l__fnpct_tmpa_seq { \@elt } #1
+    \seq_pop_left:NN \l__fnpct_tmpa_seq \l__fnpct_tmpa_tl
+    \seq_map_inline:Nn \l__fnpct_tmpa_seq
+      { \__fnpct_grab_second:Nnw #2 ##1 \q_stop }
+    \seq_remove_duplicates:N #2
+  }
+
+% `fixfoot' package
+\fnpct_special_treatment:nn {fixfoot}
+  {
+    % hook into \DeclareFixedFootnote so we can redefine all fixed footnotes
+    % defined be users
+    \seq_new:N \l__fnpct_footnote_fixfoot_seq
+    \cs_new_eq:NN \fnpct_new_fixnote:w \DeclareFixedFootnote
+    \RenewDocumentCommand \DeclareFixedFootnote {smm}
+      {
+        \seq_put_right:Nn \l__fnpct_footnote_fixfoot_seq {#2}
+        \IfBooleanTF {#1}
+          { \fnpct_new_fixnote:w * {#2} {#3} }
+          { \fnpct_new_fixnote:w {#2} {#3} }
+      }
+  }
+
+% `pagenote' package:
+\fnpct_special_treatment:nn {pagenote}
+  {
+    \bool_new:N \l__fnpct_makepagenote_bool
+    \tl_put_left:Nn \makepagenote
+      { \bool_set_true:N \l__fnpct_makepagenote_bool }
+  }
+
+% `sepfootnotes' package:
+\fnpct_special_treatment:nn {sepfootnotes}
+  {
+    \cs_new_eq:NN \fnpct_sepfootnote_new:n \sep@new
+    \seq_new:N \l__fnpct_sepfootnotes_seq
+    \cs_set_protected:Npn \sep@new #1 {
+      \seq_put_right:Nn \l__fnpct_sepfootnotes_seq {#1}
+      \fnpct_sepfootnote_new:n {#1}
+    }
+  }
+
+\hook_gput_code:nnn {begindocument/end} {fnpct}
+  {
+    \fnpct_if_package_loaded:nT {hyperref}
+      {
+        \fnpct_if_ranges:T
+          {
+            \bool_if:NTF \l__fnpct_keep_ranges_bool
+              { \msg_warning:nn {fnpct} {keep-ranges-hyperref} }
+              {
+                \msg_warning:nn {fnpct} {ranges-hyperref}
+                \bool_set_false:N \l__fnpct_ranges_bool
+                \keys_define:nn {fnpct}
+                  { ranges .code:n = \msg_warning:nn {fnpct} {ranges-disabled} }
+              }
+          }
+      }
+    %% LaTeX's defaults:
+    \fnpct_if_class_loaded:nTF {beamer}
+      {
+        \AdaptNote \footnote{d<>o+m} [\beamer@mpfn]
+          {
+            \IfNoValueTF{#1}
+              {\IfNoValueTF{#2}{#NOTE{#3}}{#NOTE[#2]{#3}}}
+              {\IfNoValueTF{#2}{#NOTE<#1>{#3}}{#NOTE<#1>[#2]{#3}}}
+          }
+        \AdaptNote \footnotemark {o} [\beamer@mpfn]
+          { \IfNoValueTF {#1} {#NOTE} {#NOTE[#1]} }
+      }
+      {
+        \AdaptNote  \footnote {o+m} [\@mpfn]
+          { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+        \AdaptNote \footnotemark {o} [\@mpfn]
+          { \IfNoValueTF {#1} {#NOTE} {#NOTE[#1]} }
+      }
+    \fnpct_if_multiple:T { \MultVariant \footnote }
+    % TODO: should we adapt \thanks? Not with memoir, though...
+    % \AdaptNote \thanks {+m} { \cs_set_eq:NN \rlap \use:n #NOTE{#1} }
+    \AdaptNote \footref {m} { #NOTE{#1} }
+    %% snotez:
+    \fnpct_treatment:nn {snotez}
+      {
+        \AdaptNote \sidenote {d()oo+m}
+          {
+            \IfNoValueTF {#1}
+              {
+                \IfNoValueTF {#2}
+                  {#NOTE{#4}}
+                  { \IfNoValueTF {#3} {#NOTE[#2]{#4}} {#NOTE[#2][#3]{#4}} }
+              }
+              { \IfNoValueTF {#2} {#NOTE(#1){#4}} {#NOTE(#1)[#2]{#4}} }
+          }
+        \AdaptNote \sidenotemark {o} [sidenote]
+          { \IfNoValueTF {#1} {#NOTE} {#NOTE[#1]} }
+        \fnpct_if_multiple:T { \MultVariant \sidenote }
+      }
+    %% sidenotes:
+    \fnpct_treatment:nn {sidenotes}
+      {
+        % `sidenotes' implements its \sidenote in terms of the user
+        % commands \sidenotemark and \sidenotetext; this makes it quite
+        % difficult if not impossible to adapt its commands
+        \msg_warning:nnn {fnpct} {cannot-adapt} {sidenotes}
+      }
+    %% tufte-latex:
+    \bool_lazy_or:nnT
+      { \fnpct_if_class_loaded_p:n {tufte-handout} }
+      { \fnpct_if_class_loaded_p:n {tufte-book} }
+      {
+        \fnpct_if_ranges:TF
+          {
+            \msg_warning:nnnn {fnpct} {cannot-adapt-with-ranges}
+              {tufte-latex}
+              {
+                The~ command~ \sidenote~ misses~ a~ suitable~ \sidenotetext~
+                version.
+              }
+          }
+          {
+            \AdaptNote \sidenote {oo+m} [\@mpfn]
+              {
+                \IfNoValueTF {#1}
+                  {#NOTE{#3}}
+                  { \IfNoValueTF {#2} {#NOTE[#1]{#3}} {#NOTE[#1][#2]{#3}} }
+              }
+          }
+      }
+    %% endnotes:
+    \fnpct_treatment:nn {endnotes}
+      {
+        \AdaptNote \endnote {o+m}
+          { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+        \AdaptNote \endnotemark {o} [endnote]
+          { \IfNoValueTF {#1} {#NOTE} {#NOTE[#1]} }
+        \fnpct_if_multiple:T { \MultVariant \endnote }
+      }
+    % enotez:
+    \fnpct_treatment:nn {enotez}
+      {
+        \AdaptNote \endnote {o+m} { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+        \AdaptNote \endnotemark {o} [endnote] { \IfNoValueTF {#1} {#NOTE} {#NOTE{#1}} }
+        \fnpct_if_multiple:T { \MultVariant \endnote }
+        \hook_gput_code:nnn {fnpct/rangesetup} {enotez}
+          {
+             \fnpct_if_current:NT \endnote
+              { \int_gincr:N \g__enotez_endnote_id_int }
+          }
+      }
+    %% manyfoot/bigfoot
+    \fnpct_treatment:nn {manyfoot}
+      {
+        \__fnpct_get_fnclasses:NN \MFL@list \l__fnpct_footnote_class_seq
+        \seq_map_inline:Nn \l__fnpct_footnote_class_seq
+          {
+            \str_if_eq:nnTF {#1} {default}
+              {
+                \cs_if_exist:NT \footnotedefault
+                  {
+                    \AdaptNoteName {footnote#1} {o+m}
+                      { \IfNoValueTF {##1} {##NOTE{##2}} {##NOTE[##1]{##2}} }
+                    \AdaptNoteName {footnotemark#1} {o} [footnote#1]
+                      { \IfNoValueTF {##1} {##NOTE} {##NOTE[##1]} }
+                    \fnpct_if_multiple:T { \MultVariantName {footnote#1} }
+                  }
+              }
+              {
+                \AdaptNoteName {footnote#1} {o+m}
+                  { \IfNoValueTF {##1} {##NOTE{##2}} {##NOTE[##1]{##2}} }
+                \AdaptNoteName {footnotemark#1} {o} [footnote#1]
+                  { \IfNoValueTF {##1} {##NOTE} {##NOTE[##1]} }
+                \fnpct_if_multiple:T { \MultVariantName {footnote#1} }
+              }
+          }
+      }
+    %% fixfoot
+    \fnpct_treatment:nn {fixfoot}
+      {
+        \fnpct_if_ranges:TF
+          {
+            \msg_warning:nnnn {fnpct} {cannot-adapt-with-ranges}
+              {fixfoot}
+              {
+                There~ cannot~ be~ suitable~ \..text~ versions~ for~ the~
+                fixed~ notes.
+              }
+          }
+          {
+            \seq_map_inline:Nn \l__fnpct_footnote_fixfoot_seq
+              { \AdaptNote #1 {} { ##NOTE } }
+          }
+      }
+    %% pagenote
+    \fnpct_treatment:nn {pagenote}
+      {
+        \fnpct_if_ranges:TF
+          {
+            \msg_warning:nnnn {fnpct} {cannot-adapt-with-ranges}
+              {pagenote}
+              {
+                The~ command~ \pagenote~ misses~ a~ suitable~ \pagenotetext~
+                version.
+              }
+          }
+          {
+            \bool_if:NTF \l__fnpct_makepagenote_bool
+              {
+                \AdaptNote \pagenote {o+m}
+                  { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+                \fnpct_if_multiple:T { \MultVariant \pagenote }
+              }
+              { \msg_warning:nn {fnpct} {pagenote} }
+          }
+      }
+    %% parnotes
+    \fnpct_treatment:nn {parnotes}
+      {
+        \fnpct_if_ranges:TF
+          {
+            \msg_warning:nnnn {fnpct} {cannot-adapt-with-ranges}
+              {parnotes}
+              {
+                The~ command~ \parnote~ misses~ a~ suitable~ \parnotetext~
+                version.
+              }
+          }
+          {
+            \AdaptNote \parnote {o+m}
+              { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+            \fnpct_if_multiple:T { \MultVariant \parnote }
+          }
+      }
+    %% tablefootnote
+    \fnpct_treatment:nn {tablefootnote}
+      {
+        \fnpct_if_ranges:TF
+          {
+            \msg_warning:nnnn {fnpct} {cannot-adapt-with-ranges}
+              {tablefootnote}
+              {
+                The~ command~ \tablefootnote~ misses~ a~ suitable~
+                \tablefootnotetext~ version.
+              }
+          }
+          {
+            \AdaptNote \tablefootnote {o+m} [footnote]
+              { \IfNoValueTF {#1} {#NOTE{#2}} {#NOTE[#1]{#2}} }
+          }
+      }
+    %% sepfootnotes
+    \fnpct_treatment:nn {sepfootnotes}
+      {
+        \cs_set:Nn \__fnpct_sep_mark:n {\footnotemark}
+        \AdaptNote \sepfootnote {m} [\@mpfn] {#NOTE{#1}}
+        \seq_map_inline:Nn \l__fnpct_sepfootnotes_seq
+          {
+            \cs_if_eq:cNTF {#1notemark} \__fnpct_sep_mark:n
+              {% defined with \newfootnotes
+                \AdaptNoteName {#1note} {m} [\@mpfn] {##NOTE{##1}}
+              }
+              {% defined with \newfootnotes* or \newendnotes
+                \AdaptNoteName {#1note} {m} {##NOTE{##1}}
+                \hook_gput_code:nnn {fnpct/rangesetup} {sepfootnotes}
+                  {
+                    \fnpct_if_current:cT {#1note}
+                      {
+                        \addtocounter {#1note} {-1}
+                        \sep@refstepcounter {#1note}
+                      }
+                  }
+              }
+            \AdaptNoteName {#1notemark} {m} {##NOTE{##1}}
+            \AdaptNoteName {#1quicknote} {m} {##NOTE{##1}}
+            \fnpct_if_multiple:T { \MultVariantName {#1note} }
+            \fnpct_if_multiple:T { \MultVariantName {#1quicknote} }
+          }
+      }
+  }
+
+\file_input_stop:
+
+% --------------------------------------------------------------------------
+% OTHER PACKAGES:
+# should just work:
+footnpag
+ednotes
+yafoot
+
+# cannot be adapted for the time being:
+sidenotes
+
+# works:
+endnotes
+snotez
+footmisc
+footnote (not the environment)
+manyfoot
+bigfoot
+enotez
+sepfootnotes
+
+# works, but not with ranges:
+fixfoot
+pagenote
+parnotes
+tablefootnote
+
+% --------------------------------------------------------------------------
+% HISTORY:
+2012/05/22 v0.1       - ready for CTAN
+2012/05/23 v0.1a      - \AdaptNoteNoMult, \AdaptNoteOpt, \AdaptNoteOptNoMult
+                      - support `sidenotes' package
+                      - better support for citing commands
+                      - error checking in the \AdaptNote<sth> commands
+                      - package option `strict'
+2012/05/26 v0.2       - added possibility to add punctuation marks to the
+                        switching/kerning mechansim (or remove them)
+2012/06/01 v0.2a      - * switches behaviour also with `punct-after=true'
+                      - `dont-mess-around' disables *
+2012/06/07 v0.2b      - bugfix: \kfp and \kfc now get the updated values if
+                        add-punctuation was added. They also won't allow line
+                        breaks any more  
+2012/06/28 v0.2c      - bugfix: works now flawless together with `bigfoot'
+2012/07/07 v0.2d      - check for all sorts of following footnotes to insert
+                        \l__fnpct_multiple_footnote_separator_tl
+2012/07/24 v0.2e      - improved scanning ahead for punctuation marks, adapted
+                        to deprecated functions in l3kernel and l3packages
+2012/08/27 v0.2f      - switched to internal scratch variables
+2012/11/14 v0.2g      - adapt changes in `sidenotes' package
+2013/01/18 v0.2h      - bug fixed: \l__fnpct_multiple_footnote_separator_tl
+                        should be {,} when `memoir' is loaded
+2013/01/21 v0.2i      - adapted to changes of sepfootnotes, bug fix in reading
+                        of multiple notes
+2013/02/22 v0.2j      - adaption of `enotez' \endnote command
+2013/04/07 v0.2k      - bug fix: suppress possible break point between footnote
+                        mark and punctuation mark if `punct-after=true' has
+                        been set
+2013/04/16 v0.3       - adapt \footref if it exists
+                      - new: \AdaptNoteNoOpt, \AdaptNoteNoOptNoMult
+2013/06/14 v0.3a      - various internal commands needed to be defined
+                        protected
+2013/12/22 v0.4       - when biblatex's \autocite is adapted a fix was needed:
+                        it calls \footnote eventually which inserted
+                        `before-footnote-space' when it shouldn't
+                      - adapt to French language settings
+                      - clearer distinction between internal commands and
+                        document commands
+2013/12/23 v0.4a      - fix bug introcuded in v0.4 due to a typo
+2014/03/10 v0.4b      - adapt to version 1.2 of package `translations'
+                      - adapt to update to `tablefootnote'
+                      - bug fix: add missing penalty that caused a footnote
+                        marker to be placed on the following line in some
+                        instances
+2015/02/20 v0.4c      - adapt to update to `sepfootnotes' (quicknotes)
+                      - bug fix (looking ahead for known note commands works
+                        again)
+2015/04/23 v0.4d      - fix for issue #7: polyglossia and french
+2016/03/25 v0.4e      - fix for issue #9
+2019/02/17 v0.4f      - fix for issues #13 and #19
+2019/09/30 v0.4g      - update for expl3 deprecations
+2019/10/05 v0.5       - fix issue 18
+                      - remove option `bigfoot-default-top'
+                      - support `manyfoot' package
+2020/01/12 v0.5a      - support `snotez' with `dblrg=false'
+2021/01/21 v1.0       - new implementation:
+                        * support footnote ranges when possible
+                        * support more packages
+                        * more flexible way to adapt unknown note commands
+                          with less commands
+                        * drop support of \innernote (maybe re-implement it in
+                          future versions, depending on user feedback)
+2022/01/04 v1.0a      - correct file hooks
+2022/01/29 v1.0b      - remove erroneously inserted horizontal skip
+2022/02/03 v1.1       - add \fnpct_unspace: (similar/equal to biblatex's \unspace),
+                        see https://tex.stackexchange.com/questions/467561/
+                      - new option `mult-variant-prefix'
+                      - new option `unspace'
+2022/02/27 v1.1a      - fix bug in \fnpct_unspace:
+                      - fix bug in sepfootnotes adaption
+                      - add package check file
+                      - use \DeclareCommandCopy for saving the original note
+                        commands
+                      - use LaTeX's release mechanism

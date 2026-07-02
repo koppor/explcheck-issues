@@ -1,0 +1,128 @@
+%% $Id: unitconv.sty 1177 2020-05-07 15:38:43Z herbert $
+%%
+%% This file is distributed under the terms of the LaTeX Project Public
+%% License from CTAN archives in directory  macros/latex/base/lppl.txt.
+%% Either version 1.3 or, at your option, any later version.
+%%
+%
+% Copyright 2020 Herbert Voss hvoss@tug.org
+%
+\RequirePackage{iftex,xparse,luacode}
+\ProvidesPackage{unitconv}[%
+  2020/05/07 v. 0.01 (Herbert Voss) Supports unit conversion of a length (only lualatex)] 
+
+\ifluatex
+\else
+  \ExplSyntaxOn
+  \msg_new:nnn {unitconv} {need-lualatex}
+  {
+    The~ unitconv~ package~ requires~ LuaLaTeX.\\\\
+    You~ must~ change~ your~ typesetting~ engine~ to,~
+    "lualatex" instead~ of~ "latex", ~"pdflatex",~ or~
+    "xelatex".
+  }
+  \msg_fatal:nn {unitconv} {need-lualatex}
+  \ExpSyntaxOff
+  \endinput
+\fi
+
+\newif\ifconv@Scientific
+
+\providecommand\text{\mbox}
+
+\begin{luacode}
+  convList = { ["bp"] = 1.00374,    -- 1bp = 1.00374pt
+	       ["cc"] = 12.8401,
+	       ["cm"] = 28.45274,   -- 1cm = 28.45274pt
+	       ["dd"] = 1.07,
+	       ["em"] = 10,
+	       ["ex"] = 4.37,
+	       ["in"] = 72.27,
+	       ["km"] = 2.845274e6,
+	       ["m"]  = 2845.274,
+	       ["mm"] = 2.84526,
+	       ["mu"] = 0.05554,
+	       ["pc"] = 12.0,
+	       ["pt"] = 1.0,
+	       ["px"] = 1.00374,
+	       ["sp"] = 0.00005 }
+\end{luacode}
+
+\def\convLength{\@ifnextchar*{\global\conv@Scientifictrue\conv@Length}{\global\conv@Scientificfalse\conv@Length*}}
+\def\conv@Length*{\@ifnextchar[\convLength@i{\convLength@i[cm]}}% [unit]
+\def\convLength@i[#1]{\@ifnextchar[{\convLength@ii[#1]}{\convLength@ii[#1][-1]}}
+\def\convLength@ii[#1][#2]#3{\convLen@iii{#3}{#1}{#2}}
+
+\def\convTeXLength{\@ifnextchar*{\global\conv@Scientifictrue\conv@TeXLength}{\global\conv@Scientificfalse\conv@TeXLength*}}
+\def\conv@TeXLength*{\@ifnextchar[\convTeXLength@i{\convTeXLength@i[cm]}}% [unit]
+\def\convTeXLength@i[#1]{\@ifnextchar[{\convTeXLength@ii[#1]}{\convTeXLength@ii[#1][-1]}}
+\def\convTeXLength@ii[#1][#2]#3{%
+  \conv@setlength\@tempdima{#3}%
+  \expandafter\convLen@iii\expandafter{\expandafter\rem@pt\the\@tempdima}{#1}{#2}}
+
+\def\convLen@iii#1#2#3{%  #1 length; #2 unit; #3 decimals
+  \@ifnextchar[{\convLen@v{#1}{#2}{#3}}{\convLen@iv{#1}{#2}{#3}}}
+
+\def\convLen@iv#1#2#3{%
+   \@tempdima=1em \@tempdimb=1ex
+    \directlua{%
+	convList["em"]=\strip@pt\@tempdima;
+        convList["ex"]=\strip@pt\@tempdimb;
+        convList["mu"]=convList["em"]/18  
+    }%
+    \ifconv@Scientific
+      \luaexec{%     
+        div0 = convList["#2"]
+        if (#3 < 0) then
+          tex.print(string.format("\%e",#1/div0))
+        else
+          tex.print(string.format("\%#3e",#1/div0))
+        end}%
+  \else
+      \luaexec{% 
+        div0 = convList["#2"]
+        if (#3 < 0) then
+          tex.print(string.format(#1/div0))
+        else
+          tex.print(string.format("\%.#3f",#1/div0))
+        end}%
+  \fi
+  \text{\,#2}}%
+
+\def\convLen@v#1#2#3[#4]{%  #1 length; #2 unit; #3 decimals; #4 orig unit
+  \@tempdima=1em \@tempdimb=1ex
+  \directlua{convList["em"]=\strip@pt\@tempdima; convList["ex"]=\strip@pt\@tempdimb; convList["mu"]=convList["em"]/18;}%
+  \ifconv@Scientific
+    \luaexec{% 
+      divOrig = convList["#4"]
+      div0 = convList["#2"]
+      if (#3 < 0) then
+        tex.print(string.format("\%e",#1*divOrig/div0))
+      else
+        tex.print(string.format("\%#3e",#1*divOrig/div0))
+      end}%
+  \else
+    \luaexec{% 
+      divOrig = convList["#4"]
+      div0 = convList["#2"]
+      if (#3 < 0) then
+        tex.print(string.format(#1*divOrig/div0))
+      else
+        tex.print(string.format("\%.#3f",#1*divOrig/div0))
+      end}%
+  \fi
+  \text{\,#2}}%
+
+
+\newdimen\conv@unit \conv@unit 1cm
+\def\conv@unit@off{\let\@conv@unit\ignorespaces\ignorespaces}
+%
+\def\conv@setlength#1#2{%
+  \let\@conv@unit\conv@unit
+  \afterassignment\conv@unit@off
+  #1 #2\@conv@unit%
+}
+
+
+\endinput
+

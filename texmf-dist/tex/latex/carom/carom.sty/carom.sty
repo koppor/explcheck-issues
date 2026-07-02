@@ -1,0 +1,494 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{carom}[2026/06/30]
+\RequirePackage{tikz}
+\usetikzlibrary{calc}
+\usetikzlibrary{arrows.meta}
+\RequirePackage[dvipsnames]{xcolor}
+\ExplSyntaxOn
+
+% init vars
+\bool_new:N \l__billiards_centering_bool
+\bool_new:N \l__billiards_portrait_bool
+\bool_new:N \l__billiards_gridlines_bool
+\bool_new:N \l__billiards_cadre_bool
+\bool_new:N \l__billiards_ancres_bool
+\bool_new:N \l__billiards_mouches_bool
+\bool_new:N \l__billiards_guidelines_bool
+\fp_new:N   \l__billiards_qtyscale_fp
+\bool_new:N \l__billiards_qtyguidelines_bool
+\fp_new:N   \l__billiards_scale_fp
+\dim_new:N  \l__billiards_ballsize_dim
+\tl_new:N   \l__billiards_balls_tl
+\tl_new:N   \l__billiards_shadedboxes_tl
+\tl_new:N   \l__billiards_boxes_tl
+\tl_new:N   \l__billiards_drawcalls_tl
+\fp_new:N   \l__billiards_angle_fp
+
+% argspec variants
+\cs_generate_variant:Nn \dim_to_decimal_in_cm:n { V }
+
+% create the key/value pairs
+\keys_define:nn { billiards/table-options }
+{
+    centering .bool_set:N  = \l__billiards_centering_bool,
+    portrait .bool_set:N   = \l__billiards_portrait_bool,
+    gridlines .bool_set:N  = \l__billiards_gridlines_bool,
+    cadre .bool_set:N      = \l__billiards_cadre_bool,
+    ancres .bool_set:N     = \l__billiards_ancres_bool,
+    mouches .bool_set:N    = \l__billiards_mouches_bool,
+    scale .fp_set:N        = \l__billiards_scale_fp,
+    ballsize .dim_set:N    = \l__billiards_ballsize_dim,
+    guidelines .bool_set:N = \l__billiards_guidelines_bool,
+}
+
+\keys_define:nn { billiards/qty-options }
+{
+    scale .fp_set:N        = \l__billiards_qtyscale_fp,
+    guidelines .bool_set:N = \l__billiards_qtyguidelines_bool,
+}
+
+% ball quantity macro
+\exp_args:NNe
+\NewDocumentCommand \__Qty_cs: { D<>{} >{\SplitArgument{1}{\c_colon_str}}o m }
+{
+    % default values
+    \fp_set:Nn \l__billiards_qtyscale_fp { 1 }
+    \bool_set_false:N \l__billiards_qtyguidelines_bool
+    
+    % set the values to the user's choices
+    \keys_set:nn { billiards/qty-options } { #1 }
+    
+    % draw the cue and object balls
+    \begin{tikzpicture}
+    [
+        scale = \fp_to_decimal:N \l__billiards_qtyscale_fp,
+    ]
+        % red ball
+        \draw[fill=red] (0,0) circle (1);
+        % x-axis
+        \draw ({min(-1.2,2*#3-1.2)},0)--({max(2*#3+1.2,1.2)},0);
+        % cue ball
+        \draw[fill=white] (2*#3,0) circle(1);
+        % dotted arc
+        \draw[densely~dashed] ({#3},{-sign(#3)*sin(acos(#3))}) arc[start~angle={90*(1-sign(#3))-acos(abs(#3))},end~angle={90*(1-sign(#3))+acos(abs(#3))},radius=1];
+        % y-axis
+        \draw ({2*#3},-1.2)--({2*#3},1.2);
+        % cue tip placement
+        \tl_if_novalue:nF { #2 }
+        {
+            \draw[fill=black] ({2*#3+\@secondoftwo #2*cos(\@firstoftwo #2)},{\@secondoftwo #2*sin(\@firstoftwo #2)}) circle (1/6);
+        }
+        % guidelines
+        \bool_if:NT \l__billiards_qtyguidelines_bool
+        {
+            \foreach \i in {0, 30, ..., 330}
+            {
+                \draw[blue] ({2*#3+cos(\i)},{sin(\i)}) -- ({2*#3+1.3*cos(\i)},{1.3*sin(\i)});
+                \draw[blue,densely~dashed] ({2*#3},0) -- ({2*#3+cos(\i)},{sin(\i)});
+                \draw[blue] ({2*#3+1.5*cos(\i)},{1.5*sin(\i)}) node {\footnotesize$\i^\circ$};
+            }
+            \foreach \i in {.25, .5, .75}
+            {
+                \draw[blue,densely~dashed] ({2*#3},0) circle (\i);
+            }
+            \draw[blue] ({(min(-1.2,2*#3-1.2)+max(2*#3+1.2,1.2))/2},-2) node {\footnotesize\tl_if_novalue:nF { #2 } {$\theta=\@firstoftwo #2^\circ$,~$R=\fp_eval:n{round(100*\@secondoftwo #2)}\%$,~}$\mathrm{qty}={\fp_eval:n{round(100*abs(#3))}}\%$};
+        }
+    \end{tikzpicture}
+}
+
+\cs_set_eq:NN \Qty \__Qty_cs:
+
+% the bTable environment
+\NewDocumentEnvironment{bTable}{ O{} }
+{
+    
+    % default values
+    \bool_set_false:N \l__billiards_centering_bool
+    \bool_set_false:N \l__billiards_portrait_bool
+    \bool_set_true:N \l__billiards_gridlines_bool
+    \bool_set_false:N \l__billiards_cadre_bool
+    \bool_set_false:N \l__billiards_ancres_bool
+    \bool_set_true:N \l__billiards_mouches_bool
+    \fp_set:Nn \l__billiards_scale_fp { 1 }
+    \dim_set:Nn \l__billiards_ballsize_dim { 3pt }
+    \bool_set_false:N \l__billiards_guidelines_bool
+    
+    % set the values to the user's choices
+    \keys_set:nn { billiards/table-options } { #1 }
+
+    % centering?
+    \bool_if:NT \l__billiards_centering_bool { \par }
+    \group_begin:
+    
+    % table orientation
+    \bool_if:NTF \l__billiards_portrait_bool
+        { \fp_set:Nn \l__billiards_angle_fp { 90 } }
+        { \fp_set:Nn \l__billiards_angle_fp { 0 } }
+
+    % define the ball drawing macros
+    \tl_set_eq:NN \l__billiards_balls_tl \c_empty_tl
+
+    % red
+    \cs_set:Npn \RBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=red] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \rpos { (##1) }
+        \cs_set:Npn \rbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % white
+    \cs_set:Npn \WBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=white] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \wpos { (##1) }
+        \cs_set:Npn \wbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % yellow
+    \cs_set:Npn \YBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=yellow] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \ypos { (##1) }
+        \cs_set:Npn \ybdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % blue
+    \cs_set:Npn \BBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=blue] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \bpos { (##1) }
+        \cs_set:Npn \bbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % shadow
+    \cs_set:Npn \SBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[densely~dashed] (##1) circle (\l__billiards_ballsize_dim);
+        }
+    }
+
+    % green
+    \cs_set:Npn \GBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=Green] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \gpos { (##1) }
+        \cs_set:Npn \gbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % black
+    \cs_set:Npn \KBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=Black] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \kpos { (##1) }
+        \cs_set:Npn \kbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % purple
+    \cs_set:Npn \VBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=Purple] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \vpos { (##1) }
+        \cs_set:Npn \vbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % orange
+    \cs_set:Npn \OBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=orange] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \opos { (##1) }
+        \cs_set:Npn \obdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % pink
+    \cs_set:Npn \PBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=CarnationPink] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \ppos { (##1) }
+        \cs_set:Npn \pbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % maroon
+    \cs_set:Npn \MBall (##1)##2;
+    {
+        \tl_set:Nf \l__billiards_balls_tl
+        {
+            \l__billiards_balls_tl
+            \l__old_draw_cs:[fill=RawSienna] (##1) circle (\l__billiards_ballsize_dim);
+        }
+        \tl_set:Nn \mpos { (##1) }
+        \cs_set:Npn \mbdry [####1] { ($(##1)+({\br*cos(####1)},{\br*sin(####1)})$) }
+    }
+
+    % define the shaded region macro
+    \tl_set_eq:NN \l__billiards_shadedboxes_tl \c_empty_tl
+    \cs_set:Npn \ShadedRegion (##1)##2--##3(##4)##5;
+    {
+        \tl_set:Nf \l__billiards_shadedboxes_tl
+        {
+            \l__billiards_shadedboxes_tl
+            \l__old_draw_cs:[draw=none,fill=black!25] (##1) rectangle (##4);
+        }
+    }
+
+    % define the boxed region macro
+    \tl_set_eq:NN \l__billiards_boxes_tl \c_empty_tl
+    \cs_set:Npn \Box (##1)##2--##3(##4)##5;
+    {
+        \tl_set:Nf \l__billiards_boxes_tl
+        {
+            \l__billiards_boxes_tl
+            \l__old_draw_cs:[ultra~thick] (##1) rectangle (##4);
+        }
+    }
+
+    \cs_set:Npn \blBox ; { \Box (0,0)--(8/6,4/3); }
+    \cs_set:Npn \brBox ; { \Box (8-8/6,0)--(8,4/3); }
+    \cs_set:Npn \tlBox ; { \Box (0,4-4/3)--(8/6,4); }
+    \cs_set:Npn \trBox ; { \Box (8-8/6,4-4/3)--(8,4); }
+
+    % define the shaded box macro
+    \cs_set:Npn \ShadedBox (##1)##2--##3(##4)##5;
+    {
+        \ShadedRegion (##1)--(##4);
+        \Box (##1)--(##4);
+    }
+    
+    % \draw[densely dashed] alias
+    \cs_set:Npn \dash { \draw[densely~dashed] }
+
+    % \To to draw mid arrows
+    \tl_set:Nn \To { -- node[midway,sloped,allow~upside~down] {\tikz{\draw[-Stealth,arrows={[scale=1.75]}](-.01,0)--(.01,0);}} }
+
+    % centering?
+    \bool_if:NT \l__billiards_centering_bool { \centering }
+    
+    % begin the tikz picture env
+    \begin{tikzpicture}
+    [
+        scale = \fp_to_decimal:N \l__billiards_scale_fp,
+        rotate = \fp_to_decimal:N \l__billiards_angle_fp
+    ]
+
+    % define the \br macro
+    \cs_set:Npe \br { \dim_to_decimal_in_cm:V \l__billiards_ballsize_dim }
+
+    % hack the \draw macro for some control
+    \tl_set_eq:NN \l__billiards_drawcalls_tl \c_empty_tl
+    \cs_set_eq:NN \l__old_draw_cs: \draw
+    \cs_set:Npn \draw ##1;
+    {
+        \tl_set:Nf \l__billiards_drawcalls_tl
+        {
+            \l__billiards_drawcalls_tl
+            \l__old_draw_cs: ##1 ;
+        }
+    }
+
+    % locally renew the definition of the \Qty macro
+    \RenewDocumentCommand{\Qty}{ o m }
+    {
+        \tl_if_novalue:nTF { ##1 }
+        {
+            \bool_if:NTF \l__billiards_portrait_bool
+            {
+                \bool_if:NTF \l__billiards_guidelines_bool
+                {
+                    \l__old_draw_cs: (4,-4) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp,guidelines>{##2}}
+                }
+                {
+                    \l__old_draw_cs: (4,-4) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp>{##2}}
+                }
+            }
+            {
+                \bool_if:NTF \l__billiards_guidelines_bool
+                {
+                    \l__old_draw_cs: (11,2) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp,guidelines>{##2}}
+                }
+                {
+                    \l__old_draw_cs: (11,2) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp>{##2}}
+                }
+            }
+        }
+        {
+            \bool_if:NTF \l__billiards_portrait_bool
+            {
+                \bool_if:NTF \l__billiards_guidelines_bool
+                {
+                    \l__old_draw_cs: (4,-4) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp,guidelines>[##1]{##2}}
+                }
+                {
+                    \l__old_draw_cs: (4,-4) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp>[##1]{##2}}
+                }
+            }
+            {
+                \bool_if:NTF \l__billiards_guidelines_bool
+                {
+                    \l__old_draw_cs: (11,2) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp,guidelines>[##1]{##2}}
+                }
+                {
+                    \l__old_draw_cs: (11,2) node {\__Qty_cs:<scale=\fp_to_decimal:N \l__billiards_scale_fp>[##1]{##2}}
+                }
+            }
+        }
+    }
+}
+{
+    % draw the table
+    \l__old_draw_cs:[rounded~corners,line~width=6pt,black!30] (-.4,-.4) rectangle ++(8.8,4.8);
+    \l__old_draw_cs:[rounded~corners,thick,fill=white] (-.4,-.4) rectangle ++(8.8,4.8);
+    \tl_use:N \l__billiards_shadedboxes_tl
+    \l__old_draw_cs: (0,0) rectangle ++(8,4);
+    \l__old_draw_cs:[thick] (-.15,-.15) rectangle ++(8.3,4.3);
+    \l__old_draw_cs: (-.15,-.15) -- (0,0);
+    \l__old_draw_cs: (8.15,-.15) -- (8,0);
+    \l__old_draw_cs: (-.15,4.15) -- (0,4);
+    \l__old_draw_cs: (8.15,4.15) -- (8,4);
+
+    % draw the mouches
+    \bool_if:NT \l__billiards_mouches_bool
+    {
+        \foreach \i in {1, ..., 7}
+        {
+            \l__old_draw_cs:[fill] (\i,-.275) circle (.5pt);
+            \l__old_draw_cs:[fill] (\i,4.275) circle (.5pt);
+        }
+        \foreach \j in {1, ..., 3}
+        {
+            \l__old_draw_cs:[fill] (-.275,\j) circle (.5pt);
+            \l__old_draw_cs:[fill] (8.275,\j) circle (.5pt);
+        }
+    }
+
+    % draw the gridlines
+    \bool_if:NT \l__billiards_gridlines_bool
+    {
+        \foreach \i in {1, ..., 7}
+        {
+            \l__old_draw_cs:[densely~dotted,thin] (\i,.1) -- (\i,3.9);
+        }
+        \foreach \j in {1, ..., 3}
+        {
+            \l__old_draw_cs:[densely~dotted,thin] (.1,\j) -- (7.9,\j);
+        }
+    }
+
+    % draw the cadre
+    \bool_if:NT \l__billiards_cadre_bool
+    {
+        \l__old_draw_cs: (0,1.33) -- (8,1.33) (0,2.66) -- (8,2.66)(1.33,0) -- (1.33,4) (6.66,0) -- (6.66,4);
+    }
+
+    % draw the ancres
+    \bool_if:NT \l__billiards_ancres_bool
+    {
+        \foreach \i/\j in { 0/1.08, 0/2.41, 7.5/1.08, 7.5/2.41, 1.08/0, 1.08/3.5, 6.41/0, 6.41/3.5 }
+        {
+            \l__old_draw_cs: (\i,\j) rectangle ++(.5,.5);
+        }
+    }
+    
+    % all the draw calls
+    \tl_use:N \l__billiards_drawcalls_tl
+    \tl_use:N \l__billiards_boxes_tl
+    \tl_use:N \l__billiards_balls_tl
+    
+    % show the guidelines
+    \bool_if:NT \l__billiards_guidelines_bool
+    {
+        % axes
+        \bool_if:NTF \l__billiards_portrait_bool
+        {
+            \l__old_draw_cs:[blue,->] (-1.5,-1)--(9,-1) node[above] {$x$};
+            \l__old_draw_cs:[blue,->] (-1,-1.5)--(-1,5) node[left] {$y$};
+        }
+        {
+            \l__old_draw_cs:[blue,->] (-1.5,-1)--(9,-1) node[right] {$x$};
+            \l__old_draw_cs:[blue,->] (-1,-1.5)--(-1,5) node[above] {$y$};
+        }
+
+        % xticks
+        \foreach \i in {0,...,8}
+        {
+            \bool_if:NTF \l__billiards_portrait_bool
+            {
+                \l__old_draw_cs:[blue] (\i,-1) node[right] {$\i$} node {$+$};
+            }
+            {
+                \l__old_draw_cs:[blue] (\i,-1) node[below] {$\i$} node {$+$};
+            }
+        }
+
+        % yticks
+        \foreach \i in {0,...,4}
+        {
+            \bool_if:NTF \l__billiards_portrait_bool
+            {
+                \l__old_draw_cs:[blue] (-1,\i) node[below] {$\i$} node {$+$};
+            }
+            {
+                \l__old_draw_cs:[blue] (-1,\i) node[left] {$\i$} node {$+$};
+            }
+        }
+
+        % gridlines
+        \foreach \i in {0,...,8}
+        {
+            \l__old_draw_cs:[densely~dashed,blue] (\i,-1) -- (\i,5);
+        }
+        \foreach \i in {0,...,4}
+        {
+            \l__old_draw_cs:[densely~dashed,blue] (-1,\i) -- (9,\i);
+        }
+
+        % corner indicators
+        \l__old_draw_cs:[blue] (-.5,-.5) node {\footnotesize\texttt{BL}};
+        \l__old_draw_cs:[blue] (8.5,-.5) node {\footnotesize\texttt{BR}};
+        \l__old_draw_cs:[blue] (-.5,4.5) node {\footnotesize\texttt{TL}};
+        \l__old_draw_cs:[blue] (8.5,4.5) node {\footnotesize\texttt{TR}};
+    }
+    
+    % end the tikz picture env
+    \end{tikzpicture}
+    \bool_if:NT \l__billiards_centering_bool { \par }
+    
+    \group_end:
+}

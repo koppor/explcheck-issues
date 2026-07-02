@@ -1,0 +1,2410 @@
+%%
+%% This is file `numodel.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% numodel.dtx  (with options: `package')
+%% 
+%% This is a generated file.
+%% 
+%% Copyright (C) 2026 Paul Zuurbier <mail@paulzuurbier.nl>
+%% 
+%% This work may be distributed and/or modified under the conditions
+%% of the LaTeX Project Public License, either version 1.3c of this
+%% license or (at your option) any later version.  The latest version
+%% of this license is in https://www.latex-project.org/lppl.txt
+%% 
+%% This work has the LPPL maintenance status 'maintained'.
+%% The Current Maintainer of this work is Paul Zuurbier.
+%% 
+%% This work consists of the files numodel.dtx and numodel.ins, the
+%% derived files numodel.sty, numodel-EN.def and numodel-NL.def, and the
+%% companion Lua module numodel.lua.
+%% 
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{numodel}[2026/05/30 v0.7.0
+  Numerical physics models with Euler integration and Forrester diagrams]
+
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+\RequirePackage{l3keys2e}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}      % \leqslant / \geqslant in rendered <= / >=
+\RequirePackage{xfrac}        % \sfrac for slashed fractions in \textmodel
+\RequirePackage{tikz}
+\usetikzlibrary{shapes.symbols}
+\usetikzlibrary{arrows.meta}
+\pgfdeclarearrow{
+  name = Cloud,
+  parameters = { \the\pgfarrowlength \the\pgfarrowwidth },
+  setup code = {
+    \pgfarrowssettipend{\pgfarrowlength}
+    \pgfarrowssetbackend{-0.5\pgfarrowlength}
+    \pgfarrowssetlineend{-0.5\pgfarrowlength}
+    \pgfarrowssetvisualbackend{-0.5\pgfarrowlength}
+    \pgfarrowssetvisualtipend{\pgfarrowlength}
+  },
+  defaults = { length = 1em, width = 1em },
+  drawing code = {
+    \def\puffscale{0.22}
+    \edef\puffrx{\puffscale\pgfarrowlength}
+    \edef\puffry{\puffscale\pgfarrowwidth}
+    \pgfsetlinewidth{0.3pt}
+    \pgfpathmoveto{\pgfqpoint{-0.5\pgfarrowlength}{0pt}}
+    \pgfpatharc{180}{ 90}{\puffrx\space and \puffry}
+    \pgfpatharc{225}{ 45}{\puffrx\space and \puffry}
+    \pgfpatharc{180}{  0}{\puffrx\space and \puffry}
+    \pgfpatharc{135}{-45}{\puffrx\space and \puffry}
+    \pgfpatharc{ 90}{-90}{\puffrx\space and \puffry}
+    \pgfpatharc{ 45}{-135}{\puffrx\space and \puffry}
+    \pgfpatharc{  0}{-180}{\puffrx\space and \puffry}
+    \pgfpatharc{-45}{-225}{\puffrx\space and \puffry}
+    \pgfpatharc{-90}{-180}{\puffrx\space and \puffry}
+    \pgfpathclose
+    \pgfusepathqfillstroke
+  },
+}
+\RequirePackage{luacode}
+\RequirePackage{siunitx}
+\RequirePackage{float}        % \diagrammodel uses [H] placement
+\RequirePackage{tabularray}   % \textmodel uses longtblr (page-breakable,
+                              % works inside floats/subfigure)
+\DefTblrTemplate {firsthead}            {numodel} {}
+\DefTblrTemplate {middlehead, lasthead} {numodel} { \UseTblrTemplate {conthead} {default} }
+\DefTblrTemplate {firstfoot, middlefoot}{numodel} { \UseTblrTemplate {contfoot} {default} }
+\DefTblrTemplate {lastfoot}             {numodel} {}
+\NewTblrTheme {numodel}
+  {
+    \SetTblrTemplate {firsthead}            {numodel}
+    \SetTblrTemplate {middlehead, lasthead} {numodel}
+    \SetTblrTemplate {firstfoot, middlefoot}{numodel}
+    \SetTblrTemplate {lastfoot}             {numodel}
+  }
+\SetTblrInner{rowsep=0pt}
+\RequirePackage{numodel-plot}
+
+\newcommand{\NumodelDefNumCs}[3]{% #1 = fullname, #2 = start expr, #3 = sigfigs
+  \expandafter\gdef\csname #1num\endcsname{%
+    \num[evaluate-expression=true,
+         round-mode=figures, round-precision=#3,
+         exponent-mode=threshold, exponent-thresholds=-3:#3]
+        {#2}\relax
+  }%
+}
+\newcommand{\NumodelDefQtyCs}[4]{% #1 = fullname, #2 = expr, #3 = sigfigs, #4 = unit
+  \expandafter\gdef\csname #1qty\endcsname{%
+    \qty[evaluate-expression=true,
+         round-mode=figures, round-precision=#3,
+         exponent-mode=threshold, exponent-thresholds=-3:#3]
+        {#2}{#4}\relax
+  }%
+}
+\newcommand{\NumodelDefPreCs}[4]{% same parameters as above
+  \expandafter\gdef\csname #1pre\endcsname{%
+    \qty[evaluate-expression=true,
+         round-mode=figures, round-precision=#3,
+         prefix-mode=combine-exponent,
+         exponent-mode=engineering,
+         exponent-thresholds=-0:0]
+        {#2}{#4}\relax
+  }%
+}
+
+\ExplSyntaxOn
+
+
+\begin{luacode*}
+local f = kpse.find_file("numodel.lua", "tex")
+if f and f ~= "" then
+  dofile(f)
+else
+  tex.error("numodel: cannot find companion Lua module numodel.lua."
+         .. " Install it in a directory searched by kpse"
+         .. " (e.g. TEXMFHOME/tex/lualatex/numodel/).")
+end
+\end{luacode*}
+
+
+\seq_new:N  \g_mvar_names_seq      % all model variable names
+\seq_new:N  \g_mvar_start_seq      % names with an initial value (for the table)
+\seq_new:N  \g_mrule_seq           % model rules (display strings)
+\seq_new:N  \g_mrule_type_seq      % type per display row: rule | cont
+\seq_new:N  \g_mrule_calc_seq      % model rules for execution: {name}{expr}
+\int_new:N  \g_mrule_counter_int   % rule counter (display numbering)
+\tl_new:N   \g_numodel_stop_expr_tl  % stop-condition expression for execution
+\int_new:N  \g_numodel_steps_int     % number of executed steps
+\int_new:N  \g_numodel_maxiter_int   % safety limit (init via \numodelsetup)
+\int_new:N  \g_numodel_gridmaxx_int  % \graphicmodel wrap threshold (0 = off)
+
+\tl_new:N   \l__numodel_tmp_tl       % temporary helper
+\tl_new:N   \l__numodel_scratch_tl   % scratch for type/text checks
+\tl_new:N   \l__numodel_scratch_y_tl % scratch y-coord (svgy lookup)
+
+\tl_new:N \g__numodel_diagram_style_tl
+
+\tl_new:N \g__numodel_flowarrow_style_tl
+\tl_new:N \g__numodel_valve_style_tl
+\tl_new:N \g__numodel_flowcloud_tl
+
+\bool_new:N \g__numodel_units_bool
+
+\tl_new:N \g__numodel_tblrenv_tl
+
+\tl_new:N   \g__numodel_dsep_tl
+\bool_new:N \g__numodel_dsep_explicit_bool
+
+
+\tl_new:N \g__numodel_syntax_tl
+
+\cs_new:Npn \__numodel_kw:n #1
+  { \use:c { __numodel_kw_ \g__numodel_syntax_tl _ #1 : } }
+
+\tl_new:N \g__numodel_kw_if_tl
+\tl_new:N \g__numodel_kw_then_tl
+\tl_new:N \g__numodel_kw_then_nl_tl
+\tl_new:N \g__numodel_kw_else_tl
+\tl_new:N \g__numodel_kw_else_nl_tl
+\tl_new:N \g__numodel_kw_endif_tl
+\tl_new:N \g__numodel_kw_endif_nl_tl
+\tl_new:N \g__numodel_kw_and_tl
+\tl_new:N \g__numodel_kw_or_tl
+\tl_new:N \g__numodel_kw_not_tl
+\tl_new:N \g__numodel_kw_sign_tl
+\tl_new:N \g__numodel_kw_abs_tl
+\tl_new:N \g__numodel_kw_sqrt_tl
+\tl_new:N \g__numodel_kw_exp_tl
+\tl_new:N \g__numodel_kw_ln_tl
+\tl_new:N \g__numodel_kw_sin_tl
+\tl_new:N \g__numodel_kw_cos_tl
+\tl_new:N \g__numodel_kw_tan_tl
+\tl_new:N \g__numodel_kw_asin_tl
+\tl_new:N \g__numodel_kw_acos_tl
+\tl_new:N \g__numodel_kw_atan_tl
+\tl_new:N \g__numodel_kw_min_tl
+\tl_new:N \g__numodel_kw_max_tl
+\tl_new:N \g__numodel_kw_floor_tl
+\tl_new:N \g__numodel_kw_stop_tl
+
+\cs_new_protected:Npn \__numodel_refresh_kw:
+  {
+    \tl_gset:Ne \g__numodel_kw_if_tl       { \__numodel_kw:n {if}       }
+    \tl_gset:Ne \g__numodel_kw_then_tl     { \__numodel_kw:n {then}     }
+    \tl_gset:Ne \g__numodel_kw_then_nl_tl  { \__numodel_kw:n {then_nl}  }
+    \tl_gset:Ne \g__numodel_kw_else_tl     { \__numodel_kw:n {else}     }
+    \tl_gset:Ne \g__numodel_kw_else_nl_tl  { \__numodel_kw:n {else_nl}  }
+    \tl_gset:Ne \g__numodel_kw_endif_tl    { \__numodel_kw:n {endif}    }
+    \tl_gset:Ne \g__numodel_kw_endif_nl_tl { \__numodel_kw:n {endif_nl} }
+    \tl_gset:Ne \g__numodel_kw_and_tl      { \__numodel_kw:n {and}      }
+    \tl_gset:Ne \g__numodel_kw_or_tl       { \__numodel_kw:n {or}       }
+    \tl_gset:Ne \g__numodel_kw_not_tl      { \__numodel_kw:n {not}      }
+    \tl_gset:Ne \g__numodel_kw_sign_tl     { \__numodel_kw:n {sign}     }
+    \tl_gset:Ne \g__numodel_kw_abs_tl      { \__numodel_kw:n {abs}      }
+    \tl_gset:Ne \g__numodel_kw_sqrt_tl     { \__numodel_kw:n {sqrt}     }
+    \tl_gset:Ne \g__numodel_kw_exp_tl      { \__numodel_kw:n {exp}      }
+    \tl_gset:Ne \g__numodel_kw_ln_tl       { \__numodel_kw:n {ln}       }
+    \tl_gset:Ne \g__numodel_kw_sin_tl      { \__numodel_kw:n {sin}      }
+    \tl_gset:Ne \g__numodel_kw_cos_tl      { \__numodel_kw:n {cos}      }
+    \tl_gset:Ne \g__numodel_kw_tan_tl      { \__numodel_kw:n {tan}      }
+    \tl_gset:Ne \g__numodel_kw_asin_tl     { \__numodel_kw:n {asin}     }
+    \tl_gset:Ne \g__numodel_kw_acos_tl     { \__numodel_kw:n {acos}     }
+    \tl_gset:Ne \g__numodel_kw_atan_tl     { \__numodel_kw:n {atan}     }
+    \tl_gset:Ne \g__numodel_kw_min_tl      { \__numodel_kw:n {min}      }
+    \tl_gset:Ne \g__numodel_kw_max_tl      { \__numodel_kw:n {max}      }
+    \tl_gset:Ne \g__numodel_kw_floor_tl    { \__numodel_kw:n {floor}    }
+    \tl_gset:Ne \g__numodel_kw_stop_tl     { \__numodel_kw:n {stop}     }
+    % tabularray continuation markers (used by longtblr in \textmodel)
+    \tl_gset:Ne \tblrcontfootname { \__numodel_kw:n {contfoot} }
+    \tl_gset:Ne \tblrcontheadname { \__numodel_kw:n {conthead} }
+  }
+
+\cs_new:Npn \__numodel_kwt:n #1 { \text { \__numodel_kw:n {#1} } }
+
+\prop_new:N \g__numodel_syntax_aliases_prop
+\prop_gput:Nnn \g__numodel_syntax_aliases_prop { english }   { EN }
+\prop_gput:Nnn \g__numodel_syntax_aliases_prop { coachtaal } { NL }
+\prop_gput:Nnn \g__numodel_syntax_aliases_prop { dutch }     { NL }
+
+\seq_new:N \g__numodel_loaded_syntax_seq
+
+\msg_new:nnn { numodel } { unknown-syntax }
+  {
+    Cannot~load~syntax~'#1':~file~'numodel-#1.def'~not~found~by~
+    kpse.~The~package~ships~with~EN~(English)~and~NL~(Dutch~
+    CoachTaal);~drop~your~own~numodel-<LANG>.def~in~
+    TEXMFHOME/tex/latex/numodel/~to~add~more~languages.
+  }
+
+\cs_new_protected:Npn \__numodel_load_syntax_def:n #1
+  {
+    \seq_if_in:NnF \g__numodel_loaded_syntax_seq {#1}
+      {
+        \InputIfFileExists { numodel-#1.def }
+          { \seq_gput_right:Nn \g__numodel_loaded_syntax_seq {#1} }
+          { \msg_error:nnn { numodel } { unknown-syntax } {#1} }
+      }
+  }
+
+\tl_new:N \l__numodel_syntax_tag_tl
+
+\cs_new_protected:Npn \__numodel_set_syntax:n #1
+  {
+    \prop_get:NnNF \g__numodel_syntax_aliases_prop {#1}
+      \l__numodel_syntax_tag_tl
+      { \tl_set:Nn \l__numodel_syntax_tag_tl {#1} }
+    \exp_args:NV \__numodel_load_syntax_def:n \l__numodel_syntax_tag_tl
+    \tl_gset_eq:NN \g__numodel_syntax_tl \l__numodel_syntax_tag_tl
+    \__numodel_refresh_kw:
+    \bool_if:NF \g__numodel_dsep_explicit_bool
+      {
+        \cs_if_exist:cTF
+          { __numodel_kw_ \g__numodel_syntax_tl _dsep_default: }
+          { \tl_gset:Ne \g__numodel_dsep_tl { \__numodel_kw:n {dsep_default} } }
+          { \tl_gset:Nn \g__numodel_dsep_tl { point } }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_apply_dsep:
+  {
+    \str_if_eq:VnTF \g__numodel_dsep_tl { comma }
+      {
+        \sisetup{ output-decimal-marker = {,} }
+        % Append behind the existing numodel/axis style so our
+        % xticklabel-style replaces what numodel-plot hard-codes.
+        % The \pgfplotsset mutation is \def-based and hence
+        % group-local.
+        \pgfplotsset
+          {
+            numodel/axis/.append~style=
+              {
+                xticklabel~style=
+                  { /pgf/number~format/.cd, use~comma, /tikz/.cd } ,
+                yticklabel~style=
+                  { /pgf/number~format/.cd, use~comma, /tikz/.cd } ,
+              }
+          }
+      }
+      {
+        \sisetup{ output-decimal-marker = {.} }
+        \pgfplotsset
+          {
+            numodel/axis/.append~style=
+              {
+                xticklabel~style=
+                  { /pgf/number~format/.cd, use~period, /tikz/.cd } ,
+                yticklabel~style=
+                  { /pgf/number~format/.cd, use~period, /tikz/.cd } ,
+              }
+          }
+      }
+  }
+
+
+\msg_new:nnn { numodel } { bad-choice }
+  { Key~'#1'~accepts~only~#2,~or~empty~to~reset.~Got:~'#3'. }
+
+\cs_new_protected:Npn \__numodel_setup_choice:Nnnn #1 #2 #3 #4
+  {
+    \tl_if_blank:nTF {#4}
+      { \tl_gclear:N #1 }
+      {
+        \clist_if_in:nnTF {#3} {#4}
+          { \tl_gset:Nn #1 {#4} }
+          { \msg_warning:nnnnn { numodel } { bad-choice } {#2} {#3} {#4} }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_local_choice:Nnnn #1 #2 #3 #4
+  {
+    \tl_if_blank:nTF {#4}
+      { \tl_clear:N #1 }
+      {
+        \clist_if_in:nnTF {#3} {#4}
+          { \tl_set:Nn #1 {#4} }
+          { \msg_warning:nnnnn { numodel } { bad-choice } {#2} {#3} {#4} }
+      }
+  }
+
+\keys_define:nn { numodel / setup }
+  {
+    syntax              .code:n =
+      { \__numodel_set_syntax:n {#1} },
+    maxiter             .int_gset:N = \g_numodel_maxiter_int,
+    graphscalex         .code:n = { \tl_gset:Nn \dgridx {#1} },
+    graphscaley         .code:n = { \tl_gset:Nn \dgridy {#1} },
+    gridmaxx            .int_gset:N = \g_numodel_gridmaxx_int,
+    diagram-style              .choice:,
+    diagram-style / tight      .code:n =
+      { \tl_gset:Nn \g__numodel_diagram_style_tl { tight } },
+    diagram-style / forrester  .code:n =
+      { \tl_gset:Nn \g__numodel_diagram_style_tl { forrester } },
+    diagram-style / edu        .code:n =
+      { \tl_gset:Nn \g__numodel_diagram_style_tl { edu } },
+    flowarrow-style     .code:n =
+      { \__numodel_setup_choice:Nnnn \g__numodel_flowarrow_style_tl
+          { flowarrow-style } { hollow , filled } {#1} },
+    valve-style         .code:n =
+      { \__numodel_setup_choice:Nnnn \g__numodel_valve_style_tl
+          { valve-style } { valve , circle , edu } {#1} },
+    flowarrow-cloud-tip .code:n =
+      { \__numodel_setup_choice:Nnnn \g__numodel_flowcloud_tl
+          { flowarrow-cloud-tip } { true , false } {#1} },
+    units                      .choice:,
+    units / true               .code:n =
+      { \bool_gset_true:N  \g__numodel_units_bool },
+    units / false              .code:n =
+      { \bool_gset_false:N \g__numodel_units_bool },
+    tblrenv                    .choice:,
+    tblrenv / tblr             .code:n =
+      { \tl_gset:Nn \g__numodel_tblrenv_tl { tblr } },
+    tblrenv / longtblr         .code:n =
+      { \tl_gset:Nn \g__numodel_tblrenv_tl { longtblr } },
+    tblrenv / talltblr         .code:n =
+      { \tl_gset:Nn \g__numodel_tblrenv_tl { talltblr } },
+    decimal-separator          .choice:,
+    decimal-separator / comma  .code:n =
+      {
+        \tl_gset:Nn \g__numodel_dsep_tl { comma }
+        \bool_gset_true:N \g__numodel_dsep_explicit_bool
+      },
+    decimal-separator / point  .code:n =
+      {
+        \tl_gset:Nn \g__numodel_dsep_tl { point }
+        \bool_gset_true:N \g__numodel_dsep_explicit_bool
+      },
+  }
+
+\NewDocumentCommand{\numodelsetup}{ m }
+  { \keys_set:nn { numodel / setup } {#1} }
+
+\numodelsetup
+  {
+    syntax        = EN,
+    maxiter       = 20000,
+    graphscalex   = 2,
+    graphscaley   = 2,
+    diagram-style = tight,
+    units         = true,
+    tblrenv       = longtblr,
+  }
+
+\keys_define:nn { numodel / pkg }
+  {
+    syntax              .meta:nn = { numodel / setup }{ syntax              = #1 },
+    maxiter             .meta:nn = { numodel / setup }{ maxiter             = #1 },
+    graphscalex         .meta:nn = { numodel / setup }{ graphscalex         = #1 },
+    graphscaley         .meta:nn = { numodel / setup }{ graphscaley         = #1 },
+    gridmaxx            .meta:nn = { numodel / setup }{ gridmaxx            = #1 },
+    diagram-style       .meta:nn = { numodel / setup }{ diagram-style       = #1 },
+    flowarrow-style     .meta:nn = { numodel / setup }{ flowarrow-style     = #1 },
+    valve-style         .meta:nn = { numodel / setup }{ valve-style         = #1 },
+    flowarrow-cloud-tip .meta:nn = { numodel / setup }{ flowarrow-cloud-tip = #1 },
+    units               .meta:nn = { numodel / setup }{ units               = #1 },
+    tblrenv             .meta:nn = { numodel / setup }{ tblrenv             = #1 },
+    decimal-separator   .meta:nn = { numodel / setup }{ decimal-separator   = #1 },
+  }
+\ProcessKeyOptions [ numodel / pkg ]
+
+
+\tl_new:N  \g_numodel_current_prefix_tl
+\seq_new:N \g_numodel_prefixes_seq
+\tl_new:N  \l__numodel_cmd_prefix_tl
+\tl_new:N  \l__numodel_eff_prefix_tl
+\tl_new:N  \l__numodel_fullname_tl
+
+\cs_new_protected:Npn \__numodel_save_state:n #1
+  {
+    \seq_gset_eq:cN { g__numodel_ #1 _vars_seq      } \g_mvar_names_seq
+    \seq_gset_eq:cN { g__numodel_ #1 _starts_seq    } \g_mvar_start_seq
+    \seq_gset_eq:cN { g__numodel_ #1 _rules_seq     } \g_mrule_seq
+    \seq_gset_eq:cN { g__numodel_ #1 _ruletypes_seq } \g_mrule_type_seq
+    \seq_gset_eq:cN { g__numodel_ #1 _rulecalc_seq  } \g_mrule_calc_seq
+    \int_gset:cn    { g__numodel_ #1 _rulecounter_int }
+      { \int_use:N \g_mrule_counter_int }
+    \tl_gset_eq:cN  { g__numodel_ #1 _stopexpr_tl   } \g_numodel_stop_expr_tl
+    \int_gset:cn    { g__numodel_ #1 _steps_int     }
+      { \int_use:N \g_numodel_steps_int }
+  }
+
+\cs_new_protected:Npn \__numodel_load_state:n #1
+  {
+    \seq_gset_eq:Nc \g_mvar_names_seq  { g__numodel_ #1 _vars_seq      }
+    \seq_gset_eq:Nc \g_mvar_start_seq  { g__numodel_ #1 _starts_seq    }
+    \seq_gset_eq:Nc \g_mrule_seq       { g__numodel_ #1 _rules_seq     }
+    \seq_gset_eq:Nc \g_mrule_type_seq  { g__numodel_ #1 _ruletypes_seq }
+    \seq_gset_eq:Nc \g_mrule_calc_seq  { g__numodel_ #1 _rulecalc_seq  }
+    \int_gset:Nn \g_mrule_counter_int
+      { \int_use:c { g__numodel_ #1 _rulecounter_int } }
+    \tl_gset_eq:Nc \g_numodel_stop_expr_tl  { g__numodel_ #1 _stopexpr_tl }
+    \int_gset:Nn \g_numodel_steps_int
+      { \int_use:c { g__numodel_ #1 _steps_int } }
+  }
+
+\cs_new_protected:Npn \__numodel_clear_state:
+  {
+    \seq_gclear:N  \g_mvar_names_seq
+    \seq_gclear:N  \g_mvar_start_seq
+    \seq_gclear:N  \g_mrule_seq
+    \seq_gclear:N  \g_mrule_type_seq
+    \seq_gclear:N  \g_mrule_calc_seq
+    \int_gzero:N   \g_mrule_counter_int
+    \tl_gclear:N   \g_numodel_stop_expr_tl
+    \int_gzero:N   \g_numodel_steps_int
+  }
+
+\cs_new_protected:Npn \__numodel_init_backup:n #1
+  {
+    \seq_new:c  { g__numodel_ #1 _vars_seq      }
+    \seq_new:c  { g__numodel_ #1 _starts_seq    }
+    \seq_new:c  { g__numodel_ #1 _rules_seq     }
+    \seq_new:c  { g__numodel_ #1 _ruletypes_seq }
+    \seq_new:c  { g__numodel_ #1 _rulecalc_seq  }
+    \int_new:c  { g__numodel_ #1 _rulecounter_int }
+    \tl_new:c   { g__numodel_ #1 _stopexpr_tl   }
+    \int_new:c  { g__numodel_ #1 _steps_int     }
+  }
+
+\NewDocumentCommand{\newmodelprefix}{ m }
+  {
+    \typeout{NEWPREFIX~start:~#1}
+    \seq_if_in:NnTF \g_numodel_prefixes_seq {#1}
+      { \msg_error:nnn { numodel } { prefix-exists } {#1} }
+      {
+        \typeout{NEWPREFIX~save~current:~\g_numodel_current_prefix_tl}
+        % Save current state under the previous prefix (if any)
+        \tl_if_empty:NF \g_numodel_current_prefix_tl
+          { \exp_args:NV \__numodel_save_state:n \g_numodel_current_prefix_tl }
+        \typeout{NEWPREFIX~register}
+        % Register new prefix + init backup vars + Lua state
+        \seq_gput_right:Nn \g_numodel_prefixes_seq {#1}
+        \typeout{NEWPREFIX~init_backup}
+        \__numodel_init_backup:n {#1}
+        \typeout{NEWPREFIX~lua_init}
+        \directlua{ numodel.init_prefix("#1") }
+        \typeout{NEWPREFIX~clear_state}
+        % Clear current state and set the prefix
+        \__numodel_clear_state:
+        \typeout{NEWPREFIX~set_current}
+        \tl_gset:Nn \g_numodel_current_prefix_tl {#1}
+        \typeout{NEWPREFIX~done:~#1}
+      }
+  }
+
+\NewDocumentCommand{\switchmodelprefix}{ m }
+  {
+    \seq_if_in:NnTF \g_numodel_prefixes_seq {#1}
+      {
+        % Save current state (if any), load the new one
+        \tl_if_empty:NF \g_numodel_current_prefix_tl
+          { \exp_args:NV \__numodel_save_state:n \g_numodel_current_prefix_tl }
+        \__numodel_load_state:n {#1}
+        \tl_gset:Nn \g_numodel_current_prefix_tl {#1}
+      }
+      { \msg_error:nnn { numodel } { prefix-unknown } {#1} }
+  }
+
+\NewDocumentCommand{\NumodelForEachVar}{ +m }
+  {
+    \seq_map_inline:Nn \g_numodel_prefixes_seq
+      {
+        \seq_map_inline:cn { g__numodel_ ##1 _vars_seq } {#1}
+      }
+  }
+
+\keys_define:nn { numodel / cmd }
+  {
+    prefix        .tl_set:N = \l__numodel_cmd_prefix_tl,
+    % \graphicmodel-only: temporary override of the global
+    % diagram-style.  Cleared after every \graphicmodel call.
+    diagram-style              .choice:,
+    diagram-style / tight      .code:n =
+      { \tl_set:Nn \l__numodel_cmd_diagstyle_tl { tight } },
+    diagram-style / forrester  .code:n =
+      { \tl_set:Nn \l__numodel_cmd_diagstyle_tl { forrester } },
+    diagram-style / edu        .code:n =
+      { \tl_set:Nn \l__numodel_cmd_diagstyle_tl { edu } },
+    % \graphicmodel-only: temporary overrides of the corresponding
+    % global flowarrow/valve/cloud keys.  Empty after every call.
+    flowarrow-style     .code:n =
+      { \__numodel_local_choice:Nnnn \l__numodel_cmd_flowarrow_tl
+          { flowarrow-style } { hollow , filled } {#1} },
+    valve-style         .code:n =
+      { \__numodel_local_choice:Nnnn \l__numodel_cmd_valve_tl
+          { valve-style } { valve , circle , edu } {#1} },
+    flowarrow-cloud-tip .code:n =
+      { \__numodel_local_choice:Nnnn \l__numodel_cmd_flowcloud_tl
+          { flowarrow-cloud-tip } { true , false } {#1} },
+    % \textmodel-only: temporary override of the global units bool.
+    % Cleared after every \textmodel call.
+    units                      .choice:,
+    units / true               .code:n =
+      { \tl_set:Nn \l__numodel_cmd_units_tl { true  } },
+    units / false              .code:n =
+      { \tl_set:Nn \l__numodel_cmd_units_tl { false } },
+    % \textmodel-only: temporary override of the global tblrenv tl.
+    % Cleared after every \textmodel call.
+    tblrenv                    .choice:,
+    tblrenv / tblr             .code:n =
+      { \tl_set:Nn \l__numodel_cmd_tblrenv_tl { tblr } },
+    tblrenv / longtblr         .code:n =
+      { \tl_set:Nn \l__numodel_cmd_tblrenv_tl { longtblr } },
+    tblrenv / talltblr         .code:n =
+      { \tl_set:Nn \l__numodel_cmd_tblrenv_tl { talltblr } },
+  }
+\tl_new:N \l__numodel_cmd_diagstyle_tl
+\tl_new:N \l__numodel_cmd_flowarrow_tl
+\tl_new:N \l__numodel_cmd_valve_tl
+\tl_new:N \l__numodel_cmd_flowcloud_tl
+\tl_new:N \l__numodel_cmd_units_tl
+\tl_new:N \l__numodel_cmd_tblrenv_tl
+
+\cs_new_protected:Npn \__numodel_resolve_prefix:n #1
+  {
+    \tl_clear:N \l__numodel_cmd_prefix_tl
+    \keys_set:nn { numodel / cmd } {#1}
+    \tl_if_empty:NTF \l__numodel_cmd_prefix_tl
+      { \tl_set_eq:NN \l__numodel_eff_prefix_tl \g_numodel_current_prefix_tl }
+      { \tl_set_eq:NN \l__numodel_eff_prefix_tl \l__numodel_cmd_prefix_tl }
+  }
+
+\cs_new_protected:Npn \__numodel_with_prefix:Nn #1 #2
+  {
+    \tl_if_eq:NNTF #1 \g_numodel_current_prefix_tl
+      { #2 }    % already the current prefix; no swap needed
+      {
+        \tl_set_eq:NN \l__numodel_saved_prefix_tl \g_numodel_current_prefix_tl
+        \exp_args:NV \switchmodelprefix #1
+        #2
+        \exp_args:NV \switchmodelprefix \l__numodel_saved_prefix_tl
+      }
+  }
+\tl_new:N \l__numodel_saved_prefix_tl
+
+\cs_new_protected:Npn \__numodel_set_fullname:n #1
+  {
+    \tl_set:Ne \l__numodel_fullname_tl { \l__numodel_eff_prefix_tl #1 }
+  }
+
+\tl_new:N \l__numodel_alias_tl
+\tl_new:N \l__numodel_aliasleft_tl
+\tl_new:N \l__numodel_aliasright_tl
+
+\keys_define:nn { numodel / mvar }
+  {
+    prefix      .tl_set:N = \l__numodel_cmd_prefix_tl ,
+    gridx       .tl_set:N = \l__numodel_gridx_tl ,
+    gridy       .tl_set:N = \l__numodel_gridy_tl ,
+    alias       .tl_set:N = \l__numodel_alias_tl ,
+    aliasleft   .tl_set:N = \l__numodel_aliasleft_tl ,
+    aliasright  .tl_set:N = \l__numodel_aliasright_tl ,
+    flowarrow-cloud-tip .code:n =
+      { \__numodel_local_choice:Nnnn \l__numodel_mvar_flowcloud_tl
+          { flowarrow-cloud-tip } { true , false } {#1} },
+  }
+\tl_new:N \l__numodel_mvar_flowcloud_tl
+
+
+\tl_new:N \l__numodel_type_tl
+\cs_new_protected:Npn \__numodel_normalize_type:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        { stock     } { \tl_set:Nn \l__numodel_type_tl { stock    } }
+        { constant  } { \tl_set:Nn \l__numodel_type_tl { constant } }
+        { aux       } { \tl_set:Nn \l__numodel_type_tl { aux      } }
+        { system    } { \tl_set:Nn \l__numodel_type_tl { system   } }
+        { voorraad  } { \tl_set:Nn \l__numodel_type_tl { stock    } }
+        { constante } { \tl_set:Nn \l__numodel_type_tl { constant } }
+        { hulp      } { \tl_set:Nn \l__numodel_type_tl { aux      } }
+        { systeem   } { \tl_set:Nn \l__numodel_type_tl { system   } }
+      }
+      {
+        \msg_warning:nne { numodel } { unknown-type } {#1}
+        \tl_set:Nn \l__numodel_type_tl {#1}
+      }
+  }
+
+\makeatletter
+\NewDocumentCommand{\mvar}{ O{} m m m m m m }{%
+  \typeout{MVAR~start:~#2}
+  % Parse optional keys (prefix, gridx, gridy, alias, aliasleft, aliasright,
+  % flowarrow-cloud-tip)
+  \tl_set:Nn \l__numodel_gridx_tl { -1 }
+  \tl_set:Nn \l__numodel_gridy_tl { -1 }
+  \tl_clear:N \l__numodel_alias_tl
+  \tl_clear:N \l__numodel_aliasleft_tl
+  \tl_clear:N \l__numodel_aliasright_tl
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \tl_clear:N \l__numodel_mvar_flowcloud_tl
+  \typeout{MVAR~before-keys-set}
+  \keys_set:nn { numodel / mvar } {#1}
+  \typeout{MVAR~after-keys-set}
+  \__numodel_resolve_eff_prefix:
+  \typeout{MVAR~eff:~\l__numodel_eff_prefix_tl}
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    { \__numodel_mvar_body:nnnnnn {#2}{#3}{#4}{#5}{#6}{#7} }%
+  \typeout{MVAR~done:~#2}
+}
+\makeatother
+
+\cs_new_protected:Npn \__numodel_resolve_eff_prefix:
+  {
+    \tl_if_empty:NTF \l__numodel_cmd_prefix_tl
+      { \tl_set_eq:NN \l__numodel_eff_prefix_tl \g_numodel_current_prefix_tl }
+      { \tl_set_eq:NN \l__numodel_eff_prefix_tl \l__numodel_cmd_prefix_tl }
+  }
+
+\cs_new_protected:Npn \__numodel_mvar_body:nnnnnn #1 #2 #3 #4 #5 #6
+  {
+    % Guard: current prefix must not be empty (\newmodelprefix required)
+    \tl_if_empty:NT \g_numodel_current_prefix_tl
+      { \msg_error:nn { numodel } { no-prefix } }
+    % Full name = current prefix + short name (#1)
+    \tl_set:Ne \l__numodel_fullname_tl { \g_numodel_current_prefix_tl #1 }
+    \typeout{MVAR~body~fullname:~\l__numodel_fullname_tl}
+    % Register in the per-prefix seq.  The defqty registration is
+    % optional: it only fires when the user has loaded the project-
+    % specific 'defqty' system (used for worksheet expansion).
+    % Standalone, the package works without that seq.
+    \seq_gput_right:NV \g_mvar_names_seq   \l__numodel_fullname_tl
+    \cs_if_exist:NT \g_defqty_names_seq
+      { \seq_gput_right:NV \g_defqty_names_seq \l__numodel_fullname_tl }
+    \directlua{ numodel.register(
+      "\g_numodel_current_prefix_tl",
+      "\l__numodel_fullname_tl") }
+    \cs_if_exist:cT { \l__numodel_fullname_tl }
+      { \msg_warning:nne { numodel } { redef } { \l__numodel_fullname_tl } }
+    \tl_if_blank:nTF {#3}
+      { \cs_gset:cpe { \l__numodel_fullname_tl } { \fp_eval:n { 0 } } }
+      {
+        \cs_gset:cpe { \l__numodel_fullname_tl } { \fp_eval:n {#3} }
+        \seq_gput_right:NV \g_mvar_start_seq \l__numodel_fullname_tl
+      }
+    \cs_gset:cpn { \l__numodel_fullname_tl text }   {#2}
+    \cs_gset:cpn { \l__numodel_fullname_tl unit }   { \unit{#4} }
+    \cs_gset:cpn { \l__numodel_fullname_tl unitraw } {#4}
+    \cs_gset:cpn { \l__numodel_fullname_tl sign }   {#5}
+    \__numodel_normalize_type:n {#6}
+    \cs_gset:cpe { \l__numodel_fullname_tl type }
+      { \tl_use:N \l__numodel_type_tl }
+    \cs_gset:cpn { \l__numodel_fullname_tl min }    { inf }
+    \cs_gset:cpn { \l__numodel_fullname_tl max }    { -inf }
+    \cs_gset:cpe { \l__numodel_fullname_tl gridx }  { \tl_use:N \l__numodel_gridx_tl }
+    \cs_gset:cpe { \l__numodel_fullname_tl gridy }  { \tl_use:N \l__numodel_gridy_tl }
+    % Preserve the original user input so that \__numodel_build_graphic:
+    % can reset auto-placed positions to -1 on a second invocation.
+    \cs_gset:cpe { \l__numodel_fullname_tl gridxinit } { \tl_use:N \l__numodel_gridx_tl }
+    \cs_gset:cpe { \l__numodel_fullname_tl gridyinit } { \tl_use:N \l__numodel_gridy_tl }
+    % Pillar A — Lua-side meta for compute_layout (additive in A1).
+    % Detokenize text so that \luaescapestring works on bare chars.
+    \tl_set:Ne \l__numodel_scratch_tl { \detokenize {#2} }
+    \directlua{ numodel.set_meta(
+      "\g_numodel_current_prefix_tl",
+      "\l__numodel_fullname_tl",
+      { type  = "\tl_use:N \l__numodel_type_tl",
+        text  = "\luaescapestring{\l__numodel_scratch_tl}",
+        gridx = \tl_use:N \l__numodel_gridx_tl,
+        gridy = \tl_use:N \l__numodel_gridy_tl }) }
+    \cs_gset:cpe { \l__numodel_fullname_tl alias }      { \exp_not:V \l__numodel_alias_tl }
+    \cs_gset:cpe { \l__numodel_fullname_tl aliasleft }  { \exp_not:V \l__numodel_aliasleft_tl }
+    \cs_gset:cpe { \l__numodel_fullname_tl aliasright } { \exp_not:V \l__numodel_aliasright_tl }
+    \cs_gset:cpe { \l__numodel_fullname_tl flowcloud }  { \exp_not:V \l__numodel_mvar_flowcloud_tl }
+    \tl_if_blank:nF {#3}
+      {
+        \exp_args:NV \NumodelDefNumCs \l__numodel_fullname_tl {\fp_eval:n {#3}} {#5}
+        \exp_args:NV \NumodelDefQtyCs \l__numodel_fullname_tl {\fp_eval:n {#3}} {#5} {#4}
+        \exp_args:NV \NumodelDefPreCs \l__numodel_fullname_tl {\fp_eval:n {#3}} {#5} {#4}
+      }
+  }
+
+
+\msg_new:nnn { numodel } { redef }
+  { Model~variable~'#1'~is~being~redefined. }
+\msg_new:nnn { numodel } { empty-use }
+  { Model~variable~'#1'~has~no~start~value~and~is~used~before~assignment. }
+\msg_new:nnn { numodel } { maxiter }
+  { computemodel~stopped~after~\int_use:N \g_numodel_maxiter_int ~iterations~
+    (safety~limit).~Check~stop~condition. }
+\msg_new:nnn { numodel } { no-stop }
+  { computemodel:~no~stop~condition~defined.~Use~\token_to_str:N \mstop\space
+    before~\token_to_str:N \computemodel. }
+\msg_new:nnn { numodel } { prefix-exists }
+  { Model~prefix~'#1'~is~already~registered.~
+    Use~\token_to_str:N \switchmodelprefix\space to~switch~to~an~existing~prefix. }
+\msg_new:nnn { numodel } { prefix-unknown }
+  { Model~prefix~'#1'~is~not~registered.~
+    Use~\token_to_str:N \newmodelprefix\space to~create~it~first. }
+\msg_new:nnn { numodel } { no-prefix }
+  { No~current~model~prefix.~
+    Call~\token_to_str:N \newmodelprefix{<name>}\space before~using~model~commands. }
+\msg_new:nnn { numodel } { unknown-type }
+  { Unknown~variable~type~'#1'.~
+    Use~one~of~stock,~constant,~aux,~system~
+    (or~the~Dutch~aliases~voorraad,~constante,~hulp,~systeem). }
+\msg_new:nnn { numodel } { unit-mismatch }
+  { Variable~'#1'~has~a~different~unit~from~the~first~variable~
+    (expected~'#2').~Skipping~it~in~\token_to_str:N \diagrammodel\space
+    so~the~remaining~series~share~a~common~y-axis. }
+
+
+\tl_new:N \l__numodel_display_tl
+\tl_new:N \l__numodel_lhs_tl
+\tl_new:N \l__numodel_rhs_tl
+\tl_new:N \l__numodel_cond_tl
+\tl_new:N \l__numodel_true_tl
+\tl_new:N \l__numodel_false_tl
+
+\cs_new_protected:Npn \__numodel_vars_to_display:N #1
+  {
+    \typeout{VTD~input:~\tl_to_str:N #1}
+    \typeout{VTD~seq:~\seq_use:Nn \g_mvar_names_seq {|}}
+    % Variable names -> display names
+    \seq_map_inline:Nn \g_mvar_names_seq
+      {
+        \typeout{VTD~iter:~##1}
+        \cs_if_exist:cT { ##1 text }
+          {
+            \tl_set:Ne \l_tmpa_tl { \use:c { ##1 text } }
+            \typeout{VTD~replace~\c{##1}~with~\l_tmpa_tl}
+            \regex_replace_all:nnN { \c{##1} } { \u{l_tmpa_tl} } #1
+          }
+      }
+    % Multi-character numeric superscripts.  \fp_eval:n accepts
+    % '^1.2' (and '^12', '^-3', ...), but TeX math mode binds only
+    % the next single token to ^, so 'T^1.2' would typeset as
+    % 'T^{1}.2' and 'T^12' as 'T^{1}2'.  Wrap any numeric exponent
+    % literal in braces so display reads 'T^{1.2}', 'T^{12}', etc.
+    % Explicitly braced (^{...}) or parenthesised (^(...)) exponents
+    % are left untouched.
+    \regex_replace_all:nnN { \^ ( [+\-]? [0-9]+ (?: \. [0-9]+)? ) }
+      { \^ \cB\{ \1 \cE\} } #1
+    % Arithmetic operators
+    \regex_replace_all:nnN { \* } { \c{cdot} \x{20} } #1
+    \regex_replace_all:nnN { >= } { \c{geqslant} \x{20} } #1
+    \regex_replace_all:nnN { <= } { \c{leqslant} \x{20} } #1
+    % Functions (syllabus notation).  Order matters: asin/acos must
+    % match before sin/cos, otherwise the inner sin/cos gets replaced
+    % first and the outer arc- prefix is left dangling.
+    \regex_replace_all:nnN { sign \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_sign_tl}\cE\}( } #1
+    \regex_replace_all:nnN { abs \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_abs_tl}\cE\}( } #1
+    \regex_replace_all:nnN { sqrt \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_sqrt_tl}\cE\}( } #1
+    \regex_replace_all:nnN { exp \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_exp_tl}\cE\}( } #1
+    \regex_replace_all:nnN { ln \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_ln_tl}\cE\}( } #1
+    \regex_replace_all:nnN { asin \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_asin_tl}\cE\}( } #1
+    \regex_replace_all:nnN { acos \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_acos_tl}\cE\}( } #1
+    \regex_replace_all:nnN { atan \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_atan_tl}\cE\}( } #1
+    % Inverse reciprocal trig (degrees): rendered as
+    % 180/pi * <radian inverse>(1/arg).  The "1/arg" sits inside the
+    % parens so the argument must be captured (no nested parens) -- the
+    % closing brace then lands after it.  These must precede the radian
+    % inverse-reciprocals (acsc/asec/acot) AND the *d reciprocals
+    % (cscd/cotd/secd): "acscd(" contains "cscd(" and the bare acsc
+    % regex would mis-bite without the leading "a".
+    \regex_replace_all:nnN { acscd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_asin_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    \regex_replace_all:nnN { asecd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_acos_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    \regex_replace_all:nnN { acotd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_atan_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    % Inverse reciprocal trig (radians): <radian inverse>(1/arg),
+    % e.g. acsc(x) -> ARCSIN(1/x).  Captured argument (no nested
+    % parens).  Must precede the reciprocal cot/csc/sec regexes:
+    % "acsc(" contains "csc(".
+    \regex_replace_all:nnN { acsc \( ([^()]*) \) }
+      { \c{text}\cB\{ \u{g__numodel_kw_asin_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    \regex_replace_all:nnN { asec \( ([^()]*) \) }
+      { \c{text}\cB\{ \u{g__numodel_kw_acos_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    \regex_replace_all:nnN { acot \( ([^()]*) \) }
+      { \c{text}\cB\{ \u{g__numodel_kw_atan_tl}\cE\}(\c{sfrac}\cB\{1\cE\}\cB\{\1\cE\}) } #1
+    % Inverse trig (degrees): rendered as 180/pi * <radian inverse>.
+    % The 180/pi factor is a fixed prefix, so the head-only rewrite
+    % stays correct for any argument (the original ")" still closes
+    % the function).  Must precede sin/cos/tan: the trailing "d" keeps
+    % them from matching the radian regexes, but keep them together for
+    % readability.
+    \regex_replace_all:nnN { asind \( }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_asin_tl}\cE\}( } #1
+    \regex_replace_all:nnN { acosd \( }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_acos_tl}\cE\}( } #1
+    \regex_replace_all:nnN { atand \( }
+      { \c{sfrac}\cB\{180\cE\}\cB\{\c{pi}\cE\}\c{cdot}\x{20}
+        \c{text}\cB\{ \u{g__numodel_kw_atan_tl}\cE\}( } #1
+    % Forward trig (degrees): SIN(pi/180 * arg).  The pi/180 factor is
+    % a fixed prefix placed just after the opening paren, so this is a
+    % head-only rewrite (robust for any argument).  The trailing "d"
+    % keeps sind/cosd/tand from matching the radian sin/cos/tan below.
+    \regex_replace_all:nnN { sind \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_sin_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20} } #1
+    \regex_replace_all:nnN { cosd \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_cos_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20} } #1
+    \regex_replace_all:nnN { tand \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_tan_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20} } #1
+    \regex_replace_all:nnN { sin \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_sin_tl}\cE\}( } #1
+    \regex_replace_all:nnN { cos \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_cos_tl}\cE\}( } #1
+    \regex_replace_all:nnN { \b tan \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_tan_tl}\cE\}( } #1
+    % Reciprocal trig functions: rendered as a slashed fraction
+    % \sfrac{1}{<base>(arg)} so the "1/" no longer jams against the
+    % preceding term.  The argument is captured (([^()]*)) so the
+    % closing brace lands after it; this matches any argument WITHOUT
+    % nested parens.  The head-only "1/<base>(" fallbacks below catch
+    % the rare nested-argument case so it still translates (just
+    % without the \sfrac wrapper).
+    \regex_replace_all:nnN { cot \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_tan_tl}\cE\}(\1)\cE\} } #1
+    \regex_replace_all:nnN { csc \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_sin_tl}\cE\}(\1)\cE\} } #1
+    \regex_replace_all:nnN { sec \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_cos_tl}\cE\}(\1)\cE\} } #1
+    \regex_replace_all:nnN { cot \( }
+      { 1/\c{text}\cB\{ \u{g__numodel_kw_tan_tl}\cE\}( } #1
+    \regex_replace_all:nnN { csc \( }
+      { 1/\c{text}\cB\{ \u{g__numodel_kw_sin_tl}\cE\}( } #1
+    \regex_replace_all:nnN { sec \( }
+      { 1/\c{text}\cB\{ \u{g__numodel_kw_cos_tl}\cE\}( } #1
+    % Reciprocal trig (degrees): \sfrac{1}{<base>(pi/180 * arg)}.  Both
+    % the reciprocal and the degree conversion are inside the fraction,
+    % so the argument is captured (no nested parens); a nested-argument
+    % call is left untranslated rather than risk mis-biting the longer
+    % acotd/acscd/asecd names (which were already consumed above).
+    \regex_replace_all:nnN { cotd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_tan_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20}\1)\cE\} } #1
+    \regex_replace_all:nnN { cscd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_sin_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20}\1)\cE\} } #1
+    \regex_replace_all:nnN { secd \( ([^()]*) \) }
+      { \c{sfrac}\cB\{1\cE\}\cB\{\c{text}\cB\{ \u{g__numodel_kw_cos_tl}\cE\}(\c{sfrac}\cB\{\c{pi}\cE\}\cB\{180\cE\}\c{cdot}\x{20}\1)\cE\} } #1
+    % Floor and ceiling.  ceil(x) is rendered as -INT(-x) (the l3fp
+    % identity), reusing the floor keyword; argument captured.
+    \regex_replace_all:nnN { floor \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_floor_tl}\cE\}( } #1
+    \regex_replace_all:nnN { ceil \( ([^()]*) \) }
+      { -\c{text}\cB\{ \u{g__numodel_kw_floor_tl}\cE\}(-\1) } #1
+    % Two-argument extrema.
+    \regex_replace_all:nnN { min \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_min_tl}\cE\}( } #1
+    \regex_replace_all:nnN { max \( }
+      { \c{text}\cB\{ \u{g__numodel_kw_max_tl}\cE\}( } #1
+    % Logical operators (syllabus notation)
+    \regex_replace_all:nnN { \&\& }
+      { \c{text}\cB\{\u{g__numodel_kw_and_tl}\cE\} } #1
+    \regex_replace_all:nnN { \|\| }
+      { \c{text}\cB\{\u{g__numodel_kw_or_tl}\cE\} } #1
+  }
+
+\bool_new:N \l__numodel_is_ternary_bool
+
+\cs_new_protected:Npn \__numodel_parse_ternary:nN #1 #2
+  {
+    \bool_set_false:N \l__numodel_is_ternary_bool
+    \regex_match:nnT { (.+) \? (.+) \: (.+) } {#1}
+      {
+        \bool_set_true:N \l__numodel_is_ternary_bool
+        \tl_set:Nn \l__numodel_cond_tl {#1}
+        \regex_replace_once:nnN { \s*(.+?) \s* \? .+ } { \1 } \l__numodel_cond_tl
+        \tl_set:Nn \l__numodel_true_tl {#1}
+        \regex_replace_once:nnN { .+? \? \s* (.+?) \s* \: .+ } { \1 } \l__numodel_true_tl
+        \tl_set:Nn \l__numodel_false_tl {#1}
+        \regex_replace_once:nnN { .+ \: \s* (.+?) \s* \Z } { \1 } \l__numodel_false_tl
+        \__numodel_vars_to_display:N \l__numodel_cond_tl
+        \__numodel_vars_to_display:N \l__numodel_true_tl
+        \__numodel_vars_to_display:N \l__numodel_false_tl
+      }
+  }
+
+
+\NewDocumentCommand{\mrule}{ s O{} m m }{%
+  \typeout{MRULE~start:~#3}
+  \bool_set_false:N \l__numodel_is_ternary_bool
+  % Parse keys (prefix, alias, aliasleft, aliasright; gridx/gridy ignored)
+  \tl_clear:N \l__numodel_alias_tl
+  \tl_clear:N \l__numodel_aliasleft_tl
+  \tl_clear:N \l__numodel_aliasright_tl
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \keys_set:nn { numodel / mvar } {#2}
+  \__numodel_resolve_eff_prefix:
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    { \__numodel_mrule_body:nnn {#1}{#3}{#4} }%
+  \typeout{MRULE~done:~#3}
+}
+
+\cs_new_protected:Npn \__numodel_mrule_body:nnn #1 #2 #3
+  {
+    \int_gincr:N \g_mrule_counter_int
+    \tl_set:Ne \l__numodel_fullname_tl { \g_numodel_current_prefix_tl #2 }
+    % Store execution data (target = full name)
+    \seq_gput_right:Nx \g_mrule_calc_seq
+      { { \l__numodel_fullname_tl } { \exp_not:n {#3} } }
+    % Left-hand side: aliasleft or default display name
+    \tl_if_blank:VTF \l__numodel_aliasleft_tl
+      { \tl_set:Ne \l__numodel_lhs_tl { \use:c { \l__numodel_fullname_tl text } } }
+      { \tl_set_eq:NN \l__numodel_lhs_tl \l__numodel_aliasleft_tl }
+    % Generate display
+    \tl_if_blank:VTF \l__numodel_alias_tl
+      {
+        \tl_if_blank:VTF \l__numodel_aliasright_tl
+          {
+            % Automatic display generation (ternary or normal)
+            \__numodel_parse_ternary:nN {#3} \l__numodel_display_tl
+            \bool_if:NTF \l__numodel_is_ternary_bool
+              {
+                \IfBooleanTF {#1}
+                  {
+                    % Starred ternary -> multiline IF/THEN/ELSE/ENDIF
+                    \tl_set:Ne \l__numodel_display_tl
+                      {
+                        \__numodel_kwt:n {if}
+                        \exp_not:V \l__numodel_cond_tl
+                        \__numodel_kwt:n {then_nl}
+                      }
+                    \seq_gput_right:NV \g_mrule_seq \l__numodel_display_tl
+                    \seq_gput_right:Nn \g_mrule_type_seq { rule }
+                    \tl_set:Ne \l__numodel_display_tl
+                      {
+                        \exp_not:n { \quad }
+                        \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                        \exp_not:V \l__numodel_true_tl
+                      }
+                    \seq_gput_right:NV \g_mrule_seq \l__numodel_display_tl
+                    \seq_gput_right:Nn \g_mrule_type_seq { cont }
+                    \seq_gput_right:Ne \g_mrule_seq { \__numodel_kwt:n {else_nl} }
+                    \seq_gput_right:Nn \g_mrule_type_seq { cont }
+                    \tl_set:Ne \l__numodel_display_tl
+                      {
+                        \exp_not:n { \quad }
+                        \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                        \exp_not:V \l__numodel_false_tl
+                      }
+                    \seq_gput_right:NV \g_mrule_seq \l__numodel_display_tl
+                    \seq_gput_right:Nn \g_mrule_type_seq { cont }
+                    \seq_gput_right:Ne \g_mrule_seq { \__numodel_kwt:n {endif_nl} }
+                    \seq_gput_right:Nn \g_mrule_type_seq { cont }
+                  }
+                  {
+                    % Unstarred ternary -> single-line
+                    \tl_set:Ne \l__numodel_display_tl
+                      {
+                        \__numodel_kwt:n {if}
+                        \exp_not:V \l__numodel_cond_tl
+                        \__numodel_kwt:n {then}
+                        \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                        \exp_not:V \l__numodel_true_tl
+                        \__numodel_kwt:n {else}
+                        \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                        \exp_not:V \l__numodel_false_tl
+                        \__numodel_kwt:n {endif}
+                      }
+                  }
+              }
+              {
+                % Ordinary assignment: lhs = rhs
+                \tl_set:Nn \l__numodel_rhs_tl {#3}
+                \__numodel_vars_to_display:N \l__numodel_rhs_tl
+                \typeout{MRULE~rhs~after:~\tl_to_str:N \l__numodel_rhs_tl}
+                \tl_set:Ne \l__numodel_display_tl
+                  {
+                    \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                    \exp_not:V \l__numodel_rhs_tl
+                  }
+                \typeout{MRULE~display:~\tl_to_str:N \l__numodel_display_tl}
+              }
+          }
+          {
+            % aliasright: lhs = aliasright (no ternary processing)
+            \tl_set:Ne \l__numodel_display_tl
+              {
+                \exp_not:V \l__numodel_lhs_tl \exp_not:n { \,=\, }
+                \exp_not:V \l__numodel_aliasright_tl
+              }
+          }
+      }
+      {
+        % alias: replace the whole row
+        \tl_set:Ne \l__numodel_display_tl { \exp_not:V \l__numodel_alias_tl }
+      }
+    % For starred ternary everything is already pushed above
+    \bool_if:nF { \l__numodel_is_ternary_bool && #1 }
+      {
+        \seq_gput_right:NV \g_mrule_seq \l__numodel_display_tl
+        \seq_gput_right:Nn \g_mrule_type_seq { rule }
+      }
+    % Pillar A — Lua-side rule registration.  Detokenize the raw
+    % expression so Lua sees the macro names, not the evaluated
+    % fp values.  Lua handles both the dependency extraction
+    % (build_deps) and the flow detection (classify_flows) at
+    % \graphicmodel time.
+    \tl_set:Ne \l__numodel_scratch_tl { \detokenize {#3} }
+    \directlua{ numodel.add_rule(
+      "\g_numodel_current_prefix_tl",
+      "\l__numodel_fullname_tl",
+      "\luaescapestring{\l__numodel_scratch_tl}",
+      "\bool_if:NTF \l__numodel_is_ternary_bool { ternary } { calc }") }
+  }
+
+
+\NewDocumentCommand{\mruletext}{ O{} m }{%
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \keys_set:nn { numodel / cmd } {#1}
+  \__numodel_resolve_eff_prefix:
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    {
+      \int_gincr:N \g_mrule_counter_int
+      \seq_gput_right:Nn \g_mrule_seq {#2}
+      \seq_gput_right:Nn \g_mrule_type_seq { rule }
+    }
+}
+
+
+\tl_new:N \l__numodel_stop_tl
+\NewDocumentCommand{\mstop}{ s O{} m }{%
+  \typeout{MSTOP~start}
+  % Parse keys (only alias is honoured; prefix via key resolver)
+  \tl_clear:N \l__numodel_alias_tl
+  \tl_clear:N \l__numodel_aliasleft_tl
+  \tl_clear:N \l__numodel_aliasright_tl
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \keys_set:nn { numodel / mvar } {#2}
+  \__numodel_resolve_eff_prefix:
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    { \__numodel_mstop_body:n {#3} }%
+  \typeout{MSTOP~done}
+}
+
+\cs_new_protected:Npn \__numodel_mstop_body:n #1
+  {
+    \int_gincr:N \g_mrule_counter_int
+    % Store expression for execution (always the actual condition)
+    \tl_gset:Nn \g_numodel_stop_expr_tl {#1}
+    % Generate display
+    \tl_if_blank:VTF \l__numodel_alias_tl
+      {
+        \tl_set:Nn \l__numodel_stop_tl {#1}
+        \__numodel_vars_to_display:N \l__numodel_stop_tl
+        \tl_set:Ne \l__numodel_display_tl
+          {
+            \__numodel_kwt:n {if}
+            \exp_not:V \l__numodel_stop_tl
+            \__numodel_kwt:n {then_nl}
+            \__numodel_kwt:n {stop}
+            \__numodel_kwt:n {endif_nl}
+          }
+      }
+      {
+        \tl_set:Ne \l__numodel_display_tl { \exp_not:V \l__numodel_alias_tl }
+      }
+    \seq_gput_right:NV \g_mrule_seq \l__numodel_display_tl
+    \seq_gput_right:Nn \g_mrule_type_seq { rule }
+  }
+
+
+\tl_new:N  \g__numodel_table_tl
+\int_new:N \l__numodel_row_int
+\int_new:N \l__numodel_dispnum_int
+\int_new:N \l__numodel_startrow_int
+\int_new:N \l__numodel_numrules_int
+\int_new:N \l__numodel_numstarts_int
+
+\cs_new_protected:Npn \__numodel_emit_startcell:n #1
+  {
+    % Alias-key contents are wrapped in a TeX group { ... } before
+    % being placed in the table.  Two reasons:
+    %  - the bare-macro form (\exp_not:c) keeps expansion-fragile
+    %    contents like \cdots or \ldots from expanding at table-build
+    %    time, so amsmath internals (\extrap@, \@cdots, ...) only run
+    %    later inside the proper math context;
+    %  - the surrounding group bounds the \futurelet lookahead that
+    %    \cdots and friends perform when they expand: without it the
+    %    lookahead crosses tabularray's cell boundary into document
+    %    tokens, producing "Undefined control sequence \DN@" cascades.
+    \str_if_eq:eeTF { \tl_to_str:c { #1 alias } } { }
+      {
+        \tl_gput_right:Nn \g__numodel_table_tl { $ }
+        \str_if_eq:eeTF { \tl_to_str:c { #1 aliasleft } } { }
+          {
+            \tl_gput_right:Nx \g__numodel_table_tl
+              { { \exp_not:c { #1 text } } }
+          }
+          {
+            \tl_gput_right:Nx \g__numodel_table_tl
+              { { \exp_not:c { #1 aliasleft } } }
+          }
+        \tl_gput_right:Nn \g__numodel_table_tl { = }
+        \str_if_eq:eeTF { \tl_to_str:c { #1 aliasright } } { }
+          {
+            % Emit \<name>qty or \<name>num as a token name without
+            % expanding it; siunitx macros must only expand at
+            % \tl_use:N time, in the correct tabular context.
+            \bool_if:NTF \g__numodel_units_bool
+              {
+                \tl_gput_right:Nx \g__numodel_table_tl
+                  { \exp_not:c { #1 qty } }
+              }
+              {
+                \tl_gput_right:Nx \g__numodel_table_tl
+                  { \exp_not:c { #1 num } }
+              }
+          }
+          {
+            \tl_gput_right:Nx \g__numodel_table_tl
+              { { \exp_not:c { #1 aliasright } } }
+          }
+        \tl_gput_right:Nn \g__numodel_table_tl { $ }
+      }
+      {
+        \tl_gput_right:Nn \g__numodel_table_tl { $ }
+        \tl_gput_right:Nx \g__numodel_table_tl
+          { { \exp_not:c { #1 alias } } }
+        \tl_gput_right:Nn \g__numodel_table_tl { $ }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_build_table:
+  {
+    \typeout{BUILD_TABLE~rules:~\seq_use:Nn \g_mrule_seq {|}}
+    \typeout{BUILD_TABLE~types:~\seq_use:Nn \g_mrule_type_seq {|}}
+    \int_set:Nn \l__numodel_numrules_int  { \seq_count:N \g_mrule_seq }
+    \int_set:Nn \l__numodel_numstarts_int { \seq_count:N \g_mvar_start_seq }
+    \typeout{BUILD_TABLE~numrules:~\int_use:N \l__numodel_numrules_int}
+    \typeout{BUILD_TABLE~numstarts:~\int_use:N \l__numodel_numstarts_int}
+    \int_zero:N \l__numodel_row_int
+    \int_zero:N \l__numodel_dispnum_int
+    \int_zero:N \l__numodel_startrow_int
+    \tl_gset:Nn \g__numodel_table_tl { \begin }
+    \tl_gput_right:Ne \g__numodel_table_tl
+      { { \tl_use:N \g__numodel_tblrenv_tl } }
+    \tl_gput_right:Nn \g__numodel_table_tl
+      { [theme={numodel}]{colspec={r|l|l}, rowhead=1} & \textbf }
+    \tl_gput_right:Ne \g__numodel_table_tl
+      { { \__numodel_kw:n {th_model} } }
+    \tl_gput_right:Nn \g__numodel_table_tl
+      { & \textbf }
+    \tl_gput_right:Ne \g__numodel_table_tl
+      { { \__numodel_kw:n {th_initvals} } }
+    \tl_gput_right:Nn \g__numodel_table_tl
+      { \\ \hline }
+    \typeout{BUILD_TABLE~before-step~table:~\tl_to_str:N \g__numodel_table_tl}
+    \int_step_inline:nn { \l__numodel_numrules_int }
+      {
+        \typeout{BUILD_TABLE~iter~row:~\int_use:N \l__numodel_row_int}
+        \int_incr:N \l__numodel_row_int
+        \int_incr:N \l__numodel_startrow_int
+        \typeout{BUILD_TABLE~row:~\int_use:N \l__numodel_row_int~type:~\seq_item:Nn \g_mrule_type_seq { \l__numodel_row_int }}
+        % Check type: rule -> show number, cont -> blank
+        \str_if_eq:eeTF
+          { \seq_item:Nn \g_mrule_type_seq { \l__numodel_row_int } }
+          { cont }
+          {
+            % Continuation rows: no number
+            \tl_gput_right:Ne \g__numodel_table_tl
+              {
+                \exp_not:n { \rule{0pt}{2.6ex} }
+                \exp_not:n { & $ }
+                \exp_not:e { \seq_item:Nn \g_mrule_seq { \l__numodel_row_int } }
+                \exp_not:n { $ & }
+              }
+          }
+          {
+            % Numbered row
+            \int_incr:N \l__numodel_dispnum_int
+            \typeout{BUILD_TABLE~emit~rule~num:~\int_use:N \l__numodel_dispnum_int~content:~\seq_item:Nn \g_mrule_seq { \l__numodel_row_int }}
+            \tl_gput_right:Ne \g__numodel_table_tl
+              {
+                \exp_not:n { \rule{0pt}{2.6ex} }
+                \int_use:N \l__numodel_dispnum_int
+                \exp_not:n { & $ }
+                \exp_not:e { \seq_item:Nn \g_mrule_seq { \l__numodel_row_int } }
+                \exp_not:n { $ & }
+              }
+            \typeout{BUILD_TABLE~after-emit~table~tail:~\tl_tail:N \g__numodel_table_tl}
+          }
+        % Initial-value column (independent of rule/cont)
+        \int_compare:nNnTF { \l__numodel_startrow_int } > { \l__numodel_numstarts_int }
+          {
+            \tl_gput_right:Nn \g__numodel_table_tl { \\ }
+          }
+          {
+            \exp_args:Ne \__numodel_emit_startcell:n
+              { \seq_item:Nn \g_mvar_start_seq { \l__numodel_startrow_int } }
+            \tl_gput_right:Nn \g__numodel_table_tl { \\ }
+          }
+      }
+    \int_while_do:nNnn { \l__numodel_startrow_int } < { \l__numodel_numstarts_int }
+      {
+        \int_incr:N \l__numodel_startrow_int
+        \tl_gput_right:Nn \g__numodel_table_tl { & & }
+        \exp_args:Ne \__numodel_emit_startcell:n
+          { \seq_item:Nn \g_mvar_start_seq { \l__numodel_startrow_int } }
+        \tl_gput_right:Nn \g__numodel_table_tl { \\ }
+      }
+    \tl_gput_right:Nn \g__numodel_table_tl { \end }
+    \tl_gput_right:Ne \g__numodel_table_tl
+      { { \tl_use:N \g__numodel_tblrenv_tl } }
+  }
+
+\NewDocumentCommand{\textmodel}{ O{} }{%
+  \typeout{TEXTMODEL~start}
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \tl_clear:N \l__numodel_cmd_units_tl
+  \tl_clear:N \l__numodel_cmd_tblrenv_tl
+  \keys_set:nn { numodel / cmd } {#1}
+  \__numodel_resolve_eff_prefix:
+  % Temporary units override: save the global value, apply the key
+  % value before build, restore afterwards.  This way
+  % \textmodel[units=false] flips one render without touching the
+  % global \numodelsetup state.
+  \bool_set_eq:NN \l__numodel_saved_units_bool \g__numodel_units_bool
+  \tl_if_empty:NF \l__numodel_cmd_units_tl
+    {
+      \str_if_eq:VnTF \l__numodel_cmd_units_tl { true }
+        { \bool_gset_true:N  \g__numodel_units_bool }
+        { \bool_gset_false:N \g__numodel_units_bool }
+    }
+  % Same dance for tblrenv: save, apply per-call override, restore.
+  \tl_set_eq:NN \l__numodel_saved_tblrenv_tl \g__numodel_tblrenv_tl
+  \tl_if_empty:NF \l__numodel_cmd_tblrenv_tl
+    { \tl_gset_eq:NN \g__numodel_tblrenv_tl \l__numodel_cmd_tblrenv_tl }
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    {
+      \group_begin:
+        \__numodel_apply_dsep:
+        \__numodel_build_table:
+        \typeout{TEXTMODEL~table:~\tl_to_str:N \g__numodel_table_tl}
+        \tl_use:N \g__numodel_table_tl
+      \group_end:
+    }%
+  \bool_gset_eq:NN \g__numodel_units_bool \l__numodel_saved_units_bool
+  \tl_gset_eq:NN \g__numodel_tblrenv_tl \l__numodel_saved_tblrenv_tl
+  \typeout{TEXTMODEL~done}
+}
+\bool_new:N \l__numodel_saved_units_bool
+\tl_new:N \l__numodel_saved_tblrenv_tl
+
+
+\cs_new_protected:Npn \__numodel_exec_rule:nn #1 #2
+  {
+    \cs_gset:cpe {#1} { \fp_eval:n {#2} }
+  }
+
+\cs_new_protected:Npn \__numodel_lua_record_all:
+  {
+    \seq_map_inline:Nn \g_mvar_names_seq
+      {
+        \directlua{ numodel.record(
+          "\g_numodel_current_prefix_tl", "##1", \use:c{##1}) }
+      }
+    \directlua{ numodel.end_step("\g_numodel_current_prefix_tl") }
+  }
+
+\cs_new_protected:Npn \__numodel_set_minmax_from_lua:
+  {
+    \seq_map_inline:Nn \g_mvar_names_seq
+      {
+        \cs_gset:cpe { ##1 min }
+          { \directlua{ numodel.get_min("\g_numodel_current_prefix_tl", "##1") } }
+        \cs_gset:cpe { ##1 max }
+          { \directlua{ numodel.get_max("\g_numodel_current_prefix_tl", "##1") } }
+      }
+  }
+
+\NewDocumentCommand{\computemodel}{ O{} }{%
+  \typeout{COMPUTE~start}
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \keys_set:nn { numodel / cmd } {#1}
+  \__numodel_resolve_eff_prefix:
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    { \__numodel_compute_body: }%
+  \typeout{COMPUTE~done}
+}
+
+\cs_new_protected:Npn \__numodel_compute_body:
+  {
+    \tl_if_empty:NT \g_numodel_stop_expr_tl
+      { \msg_error:nn { numodel } { no-stop } }
+    \int_gzero:N \g_numodel_steps_int
+    % Initialise Lua storage for this prefix
+    \directlua{ numodel.init("\g_numodel_current_prefix_tl") }
+    % Main loop
+    \bool_gset_false:N \g_tmpa_bool
+    \bool_do_until:Nn \g_tmpa_bool
+      {
+        \__numodel_lua_record_all:
+        \int_gincr:N \g_numodel_steps_int
+        \int_compare:nNnT
+          { \fp_eval:n { \g_numodel_stop_expr_tl } } = { 1 }
+          { \bool_gset_true:N \g_tmpa_bool }
+        \bool_if:NF \g_tmpa_bool
+          {
+            \seq_map_inline:Nn \g_mrule_calc_seq
+              { \__numodel_exec_rule:nn ##1 }
+          }
+        \int_compare:nNnT
+          { \g_numodel_steps_int } > { \g_numodel_maxiter_int }
+          {
+            \bool_gset_true:N \g_tmpa_bool
+            \msg_warning:nn { numodel } { maxiter }
+          }
+      }
+    \__numodel_set_minmax_from_lua:
+    % Public per-prefix step-count accessor: \<prefix>steps holds the
+    % number of recorded samples (= iterations of the loop above).
+    \cs_gset:cpe { \g_numodel_current_prefix_tl steps }
+      { \int_use:N \g_numodel_steps_int }
+  }
+
+\cs_new:Npn \mcoords #1#2
+  {
+    \directlua{ numodel.get_coords(
+      "\g_numodel_current_prefix_tl",
+      "\g_numodel_current_prefix_tl" .. "#1",
+      "\g_numodel_current_prefix_tl" .. "#2") }
+  }
+
+\cs_new:Npn \mcoordsp #1#2#3
+  {
+    \directlua{ numodel.get_coords(
+      "#1", "#1" .. "#2", "#1" .. "#3") }
+  }
+
+\cs_new:Npn \mstep #1#2
+  {
+    \directlua{ numodel.get_step(
+      "\g_numodel_current_prefix_tl",
+      "\g_numodel_current_prefix_tl" .. "#1", #2) }
+  }
+
+\cs_new:Npn \mstepp #1#2#3
+  {
+    \directlua{ numodel.get_step("#1", "#1" .. "#2", #3) }
+  }
+
+
+
+\tl_new:N   \g__numodel_graphic_tl
+\prop_new:N \l__numodel_valve_for_prop      % aux/const -> stock (inflow)
+\prop_new:N \l__numodel_valve_extras_prop
+\prop_new:N \l__numodel_outvalve_for_prop   % aux/const -> stock (outflow)
+\prop_new:N \l__numodel_outvalve_extras_prop
+\prop_new:N \l__numodel_between_valve_prop  % aux/const -> source_stock (between-flow)
+\prop_new:N \l__numodel_between_target_prop % aux/const -> target_stock (between-flow)
+\prop_new:N \l__numodel_stock_valve_prop    % stock -> source stock (stock-as-flow)
+\prop_new:N \l__numodel_stock_phantom_valve_prop % stock -> source stock (phantom flow)
+\prop_new:N \l__numodel_vpos_x_prop         % varname -> valve gridx
+\prop_new:N \l__numodel_vpos_y_prop         % varname -> valve gridy (used when gridmaxx wrap shifted the stock row)
+\tl_new:N   \l__numodel_flows_tl            % deferred flow arrows
+\tl_new:N   \l__numodel_valves_tl           % deferred valve nodes (drawn on top)
+\tl_new:N   \l__numodel_late_causals_tl     % causals pointing at valves
+
+\tl_new:N \l__numodel_flowarrow_eff_tl     % "hollow" or "filled"
+\tl_new:N \l__numodel_valve_eff_tl         % "valve" | "circle" | "edu"
+\tl_new:N \l__numodel_flowcloud_global_tl  % "true" or "false" (global default)
+
+\cs_new_protected:Npn \__numodel_resolve_flowarrow:
+  {
+    \tl_if_empty:NTF \g__numodel_flowarrow_style_tl
+      {
+        \str_if_eq:VnTF \g__numodel_diagram_style_tl { forrester }
+          { \tl_set:Nn \l__numodel_flowarrow_eff_tl { hollow } }
+          { \tl_set:Nn \l__numodel_flowarrow_eff_tl { filled } }
+      }
+      { \tl_set_eq:NN \l__numodel_flowarrow_eff_tl
+                       \g__numodel_flowarrow_style_tl }
+  }
+
+\cs_new_protected:Npn \__numodel_resolve_valve:
+  {
+    \tl_if_empty:NTF \g__numodel_valve_style_tl
+      {
+        \str_if_eq:VnTF \g__numodel_diagram_style_tl { forrester }
+          { \tl_set:Nn \l__numodel_valve_eff_tl { valve } }
+          { \tl_set:Nn \l__numodel_valve_eff_tl { edu   } }
+      }
+      { \tl_set_eq:NN \l__numodel_valve_eff_tl
+                       \g__numodel_valve_style_tl }
+  }
+
+\cs_new_protected:Npn \__numodel_resolve_flowcloud:
+  {
+    \tl_if_empty:NTF \g__numodel_flowcloud_tl
+      {
+        \str_if_eq:VnTF \g__numodel_diagram_style_tl { forrester }
+          { \tl_set:Nn \l__numodel_flowcloud_global_tl { true  } }
+          { \tl_set:Nn \l__numodel_flowcloud_global_tl { false } }
+      }
+      { \tl_set_eq:NN \l__numodel_flowcloud_global_tl
+                       \g__numodel_flowcloud_tl }
+  }
+
+\tl_new:N \l__numodel_flowcloud_eff_tl
+\cs_new_protected:Npn \__numodel_eff_flowcloud:n #1
+  {
+    \tl_set:Ne \l__numodel_flowcloud_eff_tl { \use:c { #1 flowcloud } }
+    \tl_if_empty:NT \l__numodel_flowcloud_eff_tl
+      { \tl_set_eq:NN \l__numodel_flowcloud_eff_tl
+                       \l__numodel_flowcloud_global_tl }
+  }
+
+\cs_new_protected:Npn \__numodel_apply_flowarrow_style:
+  {
+    \str_if_eq:VnTF \l__numodel_flowarrow_eff_tl { hollow }
+      {
+        \cs_gset:Npn \nmflowbody { flowpipe-hollow }
+        \cs_gset:Npn \nmflowtip  { flowpipe-hollow-tip }
+        \cs_gset:Npn \nmflowtipcloudin  { flowpipe-hollow-cloudin }
+        \cs_gset:Npn \nmflowtipcloudout { flowpipe-hollow-cloudout }
+      }
+      {
+        \cs_gset:Npn \nmflowbody { flowpipe-filled }
+        \cs_gset:Npn \nmflowtip  { flowpipe-filled-tip }
+        \cs_gset:Npn \nmflowtipcloudin  { flowpipe-filled-cloudin }
+        \cs_gset:Npn \nmflowtipcloudout { flowpipe-filled-cloudout }
+      }
+  }
+
+\tl_new:N   \l__numodel_valve_node_tl
+\bool_new:N \l__numodel_valve_label_bool
+\cs_new_protected:Npn \__numodel_apply_valve_style:
+  {
+    \str_case:VnF \l__numodel_valve_eff_tl
+      {
+        { valve  }
+          {
+            \tl_set:Nn \l__numodel_valve_node_tl { valve-forrester }
+            \bool_set_false:N \l__numodel_valve_label_bool
+          }
+        { circle }
+          {
+            \tl_set:Nn \l__numodel_valve_node_tl { valve-circle }
+            \bool_set_false:N \l__numodel_valve_label_bool
+          }
+        { edu }
+          {
+            \tl_set:Nn \l__numodel_valve_node_tl { valve-edu }
+            \bool_set_true:N \l__numodel_valve_label_bool
+          }
+      }
+      {
+        \tl_set:Nn \l__numodel_valve_node_tl { valve-edu }
+        \bool_set_true:N \l__numodel_valve_label_bool
+      }
+  }
+
+\bool_new:N \l__numodel_keep_natural_bool
+
+\cs_new_protected:Npn \__numodel_build_graphic:
+  {
+    \typeout{BUILD:~step~0~reset~auto-positions}
+    % --- Reset gridx/gridy to the original user input ---
+    % Auto-layout writes positions to var.gridx/gridy.  On a second
+    % \graphicmodel call those would, without reset, be treated as
+    % "manually placed".  The initial values are saved in
+    % gridxinit/gridyinit by \mvar -- copy them back.
+    \seq_map_inline:Nn \g_mvar_names_seq
+      {
+        \cs_gset:cpe { ##1 gridx } { \use:c { ##1 gridxinit } }
+        \cs_gset:cpe { ##1 gridy } { \use:c { ##1 gridyinit } }
+      }
+    % Diagram-style mode: forrester|edu keep aux/const at their natural
+    % gridy with a phantom valve next to the stock; tight collapses the
+    % aux/const onto the valve position.  Consumed by \__numodel_place_node
+    % to dispatch between single-emit and natural+phantom emit.
+    \bool_set_false:N \l__numodel_keep_natural_bool
+    \str_if_eq:VnT \g__numodel_diagram_style_tl { forrester }
+      { \bool_set_true:N \l__numodel_keep_natural_bool }
+    \str_if_eq:VnT \g__numodel_diagram_style_tl { edu }
+      { \bool_set_true:N \l__numodel_keep_natural_bool }
+    \typeout{BUILD:~step~1~lua~layout~writeback}
+    % Pillar A — Lua is the single source of truth for flow detection
+    % and auto-layout.  The writeback clears and fills \<var>gridx/gridy
+    % and the flow-props that downstream emitters (place_node,
+    % flow-builders, emit_natural_and_phantom, emit_stock_valve) read.
+    \__numodel_lua_layout_writeback:
+    \typeout{BUILD:~step~2~tikzpicture}
+    % --- Build tikzpicture ---
+    % Render order matters: each segment overlays the previous one,
+    % so we draw flows first (one continuous arrow per flow), then
+    % the valve nodes on top (with white fill so they cover the
+    % section of the arrow that lies underneath), and finally the
+    % causal arrows that point at those valves.
+    \tl_gclear:N \g__numodel_graphic_tl
+    \tl_clear:N  \l__numodel_flows_tl
+    \tl_clear:N  \l__numodel_valves_tl
+    \tl_clear:N  \l__numodel_late_causals_tl
+    \tl_gput_right:Nn \g__numodel_graphic_tl
+      { \begin{tikzpicture}[gridscale] }
+    % Nodes (stocks, aux, const, clouds; flows -> flows_tl,
+    % valves -> valves_tl)
+    \seq_map_inline:Nn \g_mvar_names_seq
+      { \typeout{NODE:~##1} \__numodel_place_node:n {##1} }
+    \typeout{BUILD:~step~5~stock-valve~nodes}
+    % Stock-as-flow valve nodes
+    \prop_map_inline:Nn \l__numodel_stock_valve_prop
+      {
+        % ##1 = stock (e.g. modH), ##2 = source stock (e.g. modV)
+        % Skip entries that are not real stock-valves (e.g. __svgx keys)
+        \tl_if_in:nnF {##1} { __sv }
+          { \__numodel_emit_stock_valve:nn {##1} {##2} }
+      }
+    % Stock-as-rate phantom-valve nodes (source stock has no matching
+    % outflow term, so the inflow gets a cloud at the open end)
+    \prop_map_inline:Nn \l__numodel_stock_phantom_valve_prop
+      {
+        \tl_if_in:nnF {##1} { __sv }
+          { \__numodel_emit_stock_phantom_valve:nn {##1} {##2} }
+      }
+    \typeout{BUILD:~step~6~flow~arrows}
+    % Flow arrows (one segment each; drawn underneath the valves)
+    \tl_gput_right:NV \g__numodel_graphic_tl \l__numodel_flows_tl
+    \typeout{BUILD:~step~6a~valve~nodes}
+    % Valve nodes (white-filled, drawn ON TOP of the flow arrows)
+    \tl_gput_right:NV \g__numodel_graphic_tl \l__numodel_valves_tl
+    \typeout{BUILD:~step~6b+7~causal~arrows~(Lua)}
+    % A2: causal arrows via Lua — emit_causals demultiplexes on
+    % tgt_is_valve and pushes to \g__numodel_graphic_tl or
+    % \l__numodel_late_causals_tl respectively.  Afterwards append
+    % late-causals to graphic_tl once: that covers both the pushes
+    % from the flow-builders (step 6/6a) and those from emit_causals.
+    \__numodel_lua_emit_causals:
+    \tl_gput_right:NV \g__numodel_graphic_tl \l__numodel_late_causals_tl
+    \typeout{BUILD:~step~8~done}
+    \tl_gput_right:Nn \g__numodel_graphic_tl
+      { \end{tikzpicture} }
+  }
+
+\cs_new_protected:Npn \__numodel_place_node:n #1
+  {
+    \bool_set_true:N \l_tmpa_bool
+    \tl_set:Ne \l__numodel_scratch_tl { \use:c { #1 type } }
+    \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { system }
+      { \bool_set_false:N \l_tmpa_bool }
+    \bool_if:NT \l_tmpa_bool
+      {
+        \int_compare:nNnT { \use:c { #1 gridx } } = { -1 }
+          { \bool_set_false:N \l_tmpa_bool }
+      }
+    \bool_if:NT \l_tmpa_bool
+      {
+        \tl_set:Ne \l__numodel_tmp_tl { \use:c { #1 text } }
+        % With forrester|edu, valve vars get a dual emission:
+        % the natural aux/const node + a phantom valve next to the stock.
+        \bool_set_false:N \l_tmpb_bool   % is this a valve var?
+        \prop_if_in:NnT \l__numodel_valve_for_prop {#1}
+          { \bool_set_true:N \l_tmpb_bool }
+        \prop_if_in:NnT \l__numodel_outvalve_for_prop {#1}
+          { \bool_set_true:N \l_tmpb_bool }
+        \prop_if_in:NnT \l__numodel_between_valve_prop {#1}
+          { \bool_set_true:N \l_tmpb_bool }
+        \bool_lazy_and:nnTF
+          { \l__numodel_keep_natural_bool } { \l_tmpb_bool }
+          { \__numodel_emit_natural_and_phantom:n {#1} }
+          {
+            \prop_if_in:NnTF \l__numodel_valve_for_prop {#1}
+              { \__numodel_emit_valve:n {#1} }
+              {
+                \prop_if_in:NnTF \l__numodel_outvalve_for_prop {#1}
+                  { \__numodel_emit_outvalve:n {#1} }
+                  {
+                    \prop_if_in:NnTF \l__numodel_between_valve_prop {#1}
+                      { \__numodel_emit_between_valve:n {#1} }
+                      {
+                        \tl_set:Ne \l__numodel_scratch_tl { \use:c { #1 type } }
+                        \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { stock }
+                          { \__numodel_emit_stock:n {#1} }
+                        \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { aux }
+                          { \__numodel_emit_aux:n {#1} }
+                        \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { constant }
+                          { \__numodel_emit_const:n {#1} }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_valve_coord:nnn #1 #2 #3
+  {
+    \tl_gput_right:Ne \g__numodel_graphic_tl
+      {
+        \exp_not:N \coordinate ~
+        (#1) ~ \exp_not:n{at} ~ (#2 , ~ #3) ;
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_defer_valve:nnnn #1 #2 #3 #4
+  {
+    \tl_put_right:Ne \l__numodel_valves_tl
+      {
+        \exp_not:N \node ~ [ \tl_use:N \l__numodel_valve_node_tl ] ~
+        (#1) ~ \exp_not:n{at} ~ (#2 , ~ #3) ~
+        {
+          \bool_if:NTF \l__numodel_valve_label_bool
+            { \exp_not:N $ \exp_not:V #4 \exp_not:N $ }
+            { }
+        } ;
+      }
+  }
+
+\tl_new:N   \l__numodel_phantom_label_tl
+\cs_new_protected:Npn \__numodel_emit_natural_and_phantom:n #1
+  {
+    % --- 1. Natural node (aux or constant) ---
+    \tl_set:Ne \l__numodel_scratch_tl { \use:c { #1 type } }
+    \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { aux }
+      { \__numodel_emit_aux:n {#1} }
+    \exp_args:NV \str_if_eq:nnT \l__numodel_scratch_tl { constant }
+      { \__numodel_emit_const:n {#1} }
+    % --- 2. Locate the phantom valve x/y position ---
+    \prop_get:NnNT \l__numodel_vpos_x_prop {#1} \l__numodel_phantom_x_tl
+      {
+        \prop_get:NnNF \l__numodel_vpos_y_prop {#1} \l__numodel_scratch_y_tl
+          { \tl_set:Nn \l__numodel_scratch_y_tl { 0 } }
+        \tl_set:Ne \l__numodel_phantom_label_tl { \use:c { #1 text } }
+        % --- 3. Coordinate at the phantom valve position ---
+        \__numodel_emit_valve_coord:nnn { #1 __vc }
+          { \tl_use:N \l__numodel_phantom_x_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+        % --- 4. Flow arrow + (optional) cloud, one segment ---
+        \prop_if_in:NnTF \l__numodel_valve_for_prop {#1}
+          {
+            \tl_set:Ne \l__numodel_tmp_tl
+              { \prop_item:Nn \l__numodel_valve_for_prop {#1} }
+            \__numodel_eff_flowcloud:V \l__numodel_tmp_tl
+            \str_if_eq:VnTF \l__numodel_flowcloud_eff_tl { true }
+              {
+                \tl_put_right:Ne \l__numodel_flows_tl
+                  {
+                    \exp_not:N \flowarrow [#1 __cl] {#1 __vc}
+                      { \tl_use:N \l__numodel_tmp_tl }
+                  }
+              }
+              {
+                \tl_put_right:Ne \l__numodel_flows_tl
+                  {
+                    \exp_not:N \flowarrow {#1 __vc}
+                      { \tl_use:N \l__numodel_tmp_tl }
+                  }
+              }
+            \__numodel_emit_valve_extras:n {#1}
+          }
+          {
+            \prop_if_in:NnTF \l__numodel_outvalve_for_prop {#1}
+              {
+                \tl_set:Ne \l__numodel_tmp_tl
+                  { \prop_item:Nn \l__numodel_outvalve_for_prop {#1} }
+                \__numodel_eff_flowcloud:V \l__numodel_tmp_tl
+                \str_if_eq:VnTF \l__numodel_flowcloud_eff_tl { true }
+                  {
+                    \tl_put_right:Ne \l__numodel_flows_tl
+                      {
+                        \exp_not:N \flowoutarrow [#1 __cl]
+                          { \tl_use:N \l__numodel_tmp_tl } {#1 __vc}
+                      }
+                  }
+                  {
+                    \tl_put_right:Ne \l__numodel_flows_tl
+                      {
+                        \exp_not:N \flowoutarrow
+                          { \tl_use:N \l__numodel_tmp_tl } {#1 __vc}
+                      }
+                  }
+                \__numodel_emit_outvalve_extras:n {#1}
+              }
+              {
+                % between (no cloud: both ends are stocks)
+                \tl_set:Ne \l__numodel_tmp_tl
+                  { \prop_item:Nn \l__numodel_between_valve_prop {#1} }
+                \tl_set:Ne \l__numodel_scratch_tl
+                  { \prop_item:Nn \l__numodel_between_target_prop {#1} }
+                \tl_put_right:Ne \l__numodel_flows_tl
+                  {
+                    \exp_not:N \flowbetweenarrow
+                      { \tl_use:N \l__numodel_tmp_tl }
+                      {#1 __vc}
+                      { \tl_use:N \l__numodel_scratch_tl }
+                  }
+              }
+          }
+        % --- 5. Defer the phantom valve drawing (overlays flow) ---
+        \__numodel_defer_valve:nnnn { #1 __v }
+          { \tl_use:N \l__numodel_phantom_x_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+          \l__numodel_phantom_label_tl
+        % --- 6. Causal arrow natural -> phantom valve (deferred) ---
+        \tl_put_right:Ne \l__numodel_late_causals_tl
+          {
+            \exp_not:N \draw ~ [\exp_not:n{causal}] ~
+            (#1) ~ \exp_not:n{to} ~ (#1 __v) ;
+          }
+      }
+  }
+\tl_new:N \l__numodel_phantom_x_tl
+\cs_generate_variant:Nn \__numodel_eff_flowcloud:n { V }
+
+\cs_new_protected:Npn \__numodel_emit_stock:n #1
+  {
+    \tl_gput_right:Ne \g__numodel_graphic_tl
+      {
+        \exp_not:N \node ~ [\exp_not:n{stock}] ~
+        (#1) ~ \exp_not:n{at} ~
+        ( \use:c{#1 gridx} , ~ \use:c{#1 gridy} ) ~
+        { \exp_not:N $ \exp_not:V \l__numodel_tmp_tl \exp_not:N $ } ;
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_tight_valve_setup:n #1
+  {
+    \__numodel_emit_valve_coord:nnn { #1 __vc }
+      { \use:c{#1 gridx} } { \use:c{#1 gridy} }
+    \__numodel_defer_valve:nnnn {#1}
+      { \use:c{#1 gridx} } { \use:c{#1 gridy} }
+      \l__numodel_tmp_tl
+  }
+
+\cs_new_protected:Npn \__numodel_emit_valve:n #1
+  {
+    \__numodel_emit_tight_valve_setup:n {#1}
+    \tl_set:Ne \l__numodel_scratch_tl
+      { \prop_item:Nn \l__numodel_valve_for_prop {#1} }
+    \__numodel_eff_flowcloud:V \l__numodel_scratch_tl
+    \str_if_eq:VnTF \l__numodel_flowcloud_eff_tl { true }
+      {
+        \tl_put_right:Ne \l__numodel_flows_tl
+          {
+            \exp_not:N \flowarrow [#1 __cl] {#1 __vc}
+              { \tl_use:N \l__numodel_scratch_tl }
+          }
+      }
+      {
+        \tl_put_right:Ne \l__numodel_flows_tl
+          {
+            \exp_not:N \flowarrow {#1 __vc}
+              { \tl_use:N \l__numodel_scratch_tl }
+          }
+      }
+    \__numodel_emit_valve_extras:n {#1}
+  }
+
+\cs_new_protected:Npn \__numodel_emit_valve_extras:n #1
+  {
+    \prop_get:NnNT \l__numodel_valve_extras_prop {#1} \l__numodel_scratch_tl
+      {
+        \clist_set:NV \l__numodel_scratch_clist \l__numodel_scratch_tl
+        \clist_map_inline:Nn \l__numodel_scratch_clist
+          {
+            \tl_put_right:Nn \l__numodel_flows_tl
+              { \flowarrowbent {#1 __vc} {##1} }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_outvalve_extras:n #1
+  {
+    \prop_get:NnNT \l__numodel_outvalve_extras_prop
+      {#1} \l__numodel_scratch_tl
+      {
+        \clist_set:NV \l__numodel_scratch_clist \l__numodel_scratch_tl
+        \clist_map_inline:Nn \l__numodel_scratch_clist
+          {
+            \tl_put_right:Nn \l__numodel_flows_tl
+              { \flowoutarrowbent {##1} {#1 __vc} }
+          }
+      }
+  }
+\clist_new:N \l__numodel_scratch_clist
+
+\cs_new_protected:Npn \__numodel_emit_outvalve:n #1
+  {
+    \__numodel_emit_tight_valve_setup:n {#1}
+    \tl_set:Ne \l__numodel_scratch_tl
+      { \prop_item:Nn \l__numodel_outvalve_for_prop {#1} }
+    \__numodel_eff_flowcloud:V \l__numodel_scratch_tl
+    \str_if_eq:VnTF \l__numodel_flowcloud_eff_tl { true }
+      {
+        \tl_put_right:Ne \l__numodel_flows_tl
+          {
+            \exp_not:N \flowoutarrow [#1 __cl]
+              { \tl_use:N \l__numodel_scratch_tl } {#1 __vc}
+          }
+      }
+      {
+        \tl_put_right:Ne \l__numodel_flows_tl
+          {
+            \exp_not:N \flowoutarrow
+              { \tl_use:N \l__numodel_scratch_tl } {#1 __vc}
+          }
+      }
+    \__numodel_emit_outvalve_extras:n {#1}
+  }
+
+\cs_new_protected:Npn \__numodel_emit_between_valve:n #1
+  {
+    \__numodel_emit_tight_valve_setup:n {#1}
+    \tl_set:Ne \l__numodel_scratch_tl
+      { \prop_item:Nn \l__numodel_between_valve_prop {#1} }
+    \tl_set:Ne \l__numodel_tmp_tl
+      { \prop_item:Nn \l__numodel_between_target_prop {#1} }
+    \tl_put_right:Ne \l__numodel_flows_tl
+      {
+        \exp_not:N \flowbetweenarrow
+          { \tl_use:N \l__numodel_scratch_tl }
+          {#1 __vc}
+          { \tl_use:N \l__numodel_tmp_tl }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_aux:n #1
+  {
+    \tl_gput_right:Ne \g__numodel_graphic_tl
+      {
+        \exp_not:N \node ~ [\exp_not:n{aux}] ~
+        (#1) ~ \exp_not:n{at} ~
+        ( \use:c{#1 gridx} , ~ \use:c{#1 gridy} ) ~
+        { \exp_not:N $ \exp_not:V \l__numodel_tmp_tl \exp_not:N $ } ;
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_const:n #1
+  {
+    \tl_gput_right:Ne \g__numodel_graphic_tl
+      {
+        \exp_not:N \constnode
+        {#1}
+        { \use:c{#1 gridx} , ~ \use:c{#1 gridy} }
+        { \exp_not:N $ \exp_not:V \l__numodel_tmp_tl \exp_not:N $ }
+      }
+  }
+
+\cs_new_protected:Npn \__numodel_emit_stock_valve:nn #1 #2
+  {
+    % #1 = target stock (e.g. modH), #2 = source stock (e.g. modV)
+    % Pull gridx from the saved property
+    \prop_get:NnNTF \l__numodel_stock_valve_prop { #1 __svgx }
+      \l__numodel_scratch_tl
+      {
+        % Look up the wrap-shifted y-slot; default to 0 (the row that
+        % the auto layout used before any gridmaxx wrap was applied).
+        \prop_get:NnNF \l__numodel_stock_valve_prop { #1 __svgy }
+          \l__numodel_scratch_y_tl
+          { \tl_set:Nn \l__numodel_scratch_y_tl { 0 } }
+        % Coordinate at the valve position (used by the flow arrow)
+        \__numodel_emit_valve_coord:nnn { #1 __svc }
+          { \tl_use:N \l__numodel_scratch_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+        % Flow arrow from source-stock through valve into target-stock
+        % (no cloud: both ends are stocks).  The arrow runs in one
+        % continuous segment; the visible valve will be drawn ON TOP
+        % later via valves_tl.
+        \tl_put_right:Ne \l__numodel_flows_tl
+          {
+            \exp_not:N \flowbetweenarrow {#2} {#1 __svc} {#1}
+          }
+        % Defer the visible valve node (white fill overlays arrow)
+        \tl_set:Ne \l__numodel_tmp_tl { \use:c { #2 text } }
+        \__numodel_defer_valve:nnnn { #1 __sv }
+          { \tl_use:N \l__numodel_scratch_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+          \l__numodel_tmp_tl
+        % Causal arrow source-stock -> valve.  Bend it (curved) only
+        % when the source stock and the valve sit on the same row —
+        % then the straight causal would coincide with the flow pipe
+        % and disappear behind it.  When they are on different rows
+        % (e.g. after a gridmaxx wrap) the causal is vertical-ish and
+        % stays visible without a bend.  Deferred so it lands on top
+        % of the white-filled valve.
+        \str_if_eq:eeTF { \tl_use:N \l__numodel_scratch_y_tl }
+                        { \use:c { #2 gridy } }
+          {
+            \tl_put_right:Ne \l__numodel_late_causals_tl
+              {
+                \exp_not:N \draw ~ [\exp_not:n{causal}] ~
+                (#2) ~ \exp_not:n{to} ~ [\exp_not:n{bend~left=30}] ~ (#1__sv) ;
+              }
+          }
+          {
+            \tl_put_right:Ne \l__numodel_late_causals_tl
+              {
+                \exp_not:N \draw ~ [\exp_not:n{causal}] ~
+                (#2) ~ \exp_not:n{to} ~ (#1__sv) ;
+              }
+          }
+      }
+      { }  % no gridx found: skip
+  }
+
+\cs_new_protected:Npn \__numodel_emit_stock_phantom_valve:nn #1 #2
+  {
+    % #1 = target stock (e.g. ballY), #2 = source stock (e.g. ballV)
+    \prop_get:NnNTF \l__numodel_stock_phantom_valve_prop { #1 __svgx }
+      \l__numodel_scratch_tl
+      {
+        % Look up the wrap-shifted y-slot; default to 0.
+        \prop_get:NnNF \l__numodel_stock_phantom_valve_prop { #1 __svgy }
+          \l__numodel_scratch_y_tl
+          { \tl_set:Nn \l__numodel_scratch_y_tl { 0 } }
+        % Coordinate at the valve position
+        \__numodel_emit_valve_coord:nnn { #1 __svc }
+          { \tl_use:N \l__numodel_scratch_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+        % Flow arrow: cloud (open end) -> valve -> target stock
+        \__numodel_eff_flowcloud:n {#1}
+        \str_if_eq:VnTF \l__numodel_flowcloud_eff_tl { true }
+          {
+            \tl_put_right:Ne \l__numodel_flows_tl
+              {
+                \exp_not:N \flowarrow [#1 __svcl] {#1 __svc} {#1}
+              }
+          }
+          {
+            \tl_put_right:Ne \l__numodel_flows_tl
+              {
+                \exp_not:N \flowarrow {#1 __svc} {#1}
+              }
+          }
+        % Defer the visible valve node, labelled with the source stock
+        \tl_set:Ne \l__numodel_tmp_tl { \use:c { #2 text } }
+        \__numodel_defer_valve:nnnn { #1 __sv }
+          { \tl_use:N \l__numodel_scratch_tl }
+          { \tl_use:N \l__numodel_scratch_y_tl }
+          \l__numodel_tmp_tl
+        % Causal arrow source-stock -> valve.  Bend (curved) only when
+        % source and valve sit on the same row — see the equivalent
+        % comment in \__numodel_emit_stock_valve:nn for the rationale.
+        \str_if_eq:eeTF { \tl_use:N \l__numodel_scratch_y_tl }
+                        { \use:c { #2 gridy } }
+          {
+            \tl_put_right:Ne \l__numodel_late_causals_tl
+              {
+                \exp_not:N \draw ~ [\exp_not:n{causal}] ~
+                (#2) ~ \exp_not:n{to} ~ [\exp_not:n{bend~left=30}] ~ (#1__sv) ;
+              }
+          }
+          {
+            \tl_put_right:Ne \l__numodel_late_causals_tl
+              {
+                \exp_not:N \draw ~ [\exp_not:n{causal}] ~
+                (#2) ~ \exp_not:n{to} ~ (#1__sv) ;
+              }
+          }
+      }
+      { }  % no gridx found: skip
+  }
+
+\cs_new_protected:Npn \__numodel_lua_layout_writeback:
+  {
+    % 1. Clear the props that Lua refills, so repeated \graphicmodel
+    %    calls don't produce duplicate entries.
+    \prop_clear:N  \l__numodel_valve_for_prop
+    \prop_clear:N  \l__numodel_valve_extras_prop
+    \prop_clear:N  \l__numodel_outvalve_for_prop
+    \prop_clear:N  \l__numodel_outvalve_extras_prop
+    \prop_clear:N  \l__numodel_between_valve_prop
+    \prop_clear:N  \l__numodel_between_target_prop
+    \prop_clear:N  \l__numodel_stock_valve_prop
+    \prop_clear:N  \l__numodel_stock_phantom_valve_prop
+    \prop_clear:N  \l__numodel_vpos_x_prop
+    \prop_clear:N  \l__numodel_vpos_y_prop
+    % 2. Run the Lua pipeline.
+    \directlua{ numodel.compute_layout(
+      "\g_numodel_current_prefix_tl",
+      "\g__numodel_diagram_style_tl",
+      \int_use:N \g_numodel_gridmaxx_int) }
+    % 3. Write gridx/gridy and all flow-props back.
+    %    tex_writeback emits a list of expl3 statements via tex.print.
+    \directlua{ numodel.tex_writeback(
+      "\g_numodel_current_prefix_tl") }
+  }
+
+\cs_new_protected:Npn \__numodel_lua_emit_causals:
+  {
+    \directlua{ numodel.emit_causals(
+      "\g_numodel_current_prefix_tl") }
+  }
+
+\NewDocumentCommand{\graphicmodel}{ O{} }{%
+  \tl_clear:N \l__numodel_cmd_prefix_tl
+  \tl_clear:N \l__numodel_cmd_diagstyle_tl
+  \tl_clear:N \l__numodel_cmd_flowarrow_tl
+  \tl_clear:N \l__numodel_cmd_valve_tl
+  \tl_clear:N \l__numodel_cmd_flowcloud_tl
+  \keys_set:nn { numodel / cmd } {#1}
+  \__numodel_resolve_eff_prefix:
+  % Temporary overrides: save the global state, apply the per-call
+  % key values before build, restore afterwards.  This way
+  % \graphicmodel[diagram-style=forrester] flips one render without
+  % touching the global \numodelsetup state.
+  \tl_set_eq:NN \l__numodel_saved_diagstyle_tl \g__numodel_diagram_style_tl
+  \tl_set_eq:NN \l__numodel_saved_flowarrow_tl \g__numodel_flowarrow_style_tl
+  \tl_set_eq:NN \l__numodel_saved_valve_tl     \g__numodel_valve_style_tl
+  \tl_set_eq:NN \l__numodel_saved_flowcloud_tl \g__numodel_flowcloud_tl
+  \tl_if_empty:NF \l__numodel_cmd_diagstyle_tl
+    { \tl_gset_eq:NN \g__numodel_diagram_style_tl \l__numodel_cmd_diagstyle_tl }
+  \tl_if_empty:NF \l__numodel_cmd_flowarrow_tl
+    { \tl_gset_eq:NN \g__numodel_flowarrow_style_tl \l__numodel_cmd_flowarrow_tl }
+  \tl_if_empty:NF \l__numodel_cmd_valve_tl
+    { \tl_gset_eq:NN \g__numodel_valve_style_tl \l__numodel_cmd_valve_tl }
+  \tl_if_empty:NF \l__numodel_cmd_flowcloud_tl
+    { \tl_gset_eq:NN \g__numodel_flowcloud_tl \l__numodel_cmd_flowcloud_tl }
+  % Resolve the effective values for this render and propagate them
+  % to \nmflowbody / \nmflowtip used by the flow macros.
+  \__numodel_resolve_flowarrow:
+  \__numodel_resolve_valve:
+  \__numodel_resolve_flowcloud:
+  \__numodel_apply_flowarrow_style:
+  \__numodel_apply_valve_style:
+  \__numodel_with_prefix:Nn \l__numodel_eff_prefix_tl
+    {
+      \__numodel_build_graphic:
+      \tl_use:N \g__numodel_graphic_tl
+    }%
+  \tl_gset_eq:NN \g__numodel_diagram_style_tl    \l__numodel_saved_diagstyle_tl
+  \tl_gset_eq:NN \g__numodel_flowarrow_style_tl  \l__numodel_saved_flowarrow_tl
+  \tl_gset_eq:NN \g__numodel_valve_style_tl      \l__numodel_saved_valve_tl
+  \tl_gset_eq:NN \g__numodel_flowcloud_tl        \l__numodel_saved_flowcloud_tl
+}
+\tl_new:N \l__numodel_saved_diagstyle_tl
+\tl_new:N \l__numodel_saved_flowarrow_tl
+\tl_new:N \l__numodel_saved_valve_tl
+\tl_new:N \l__numodel_saved_flowcloud_tl
+
+
+\cs_new:Npn  \__numodel_calc_plot_dims: { \calcplotdims }
+\cs_new:Npn  \__numodel_draw_plot:n   #1 { \drawplot {#1} }
+
+
+\tl_new:N \l__numodel_xname_tl
+\tl_new:N \l__numodel_yname_tl
+\tl_new:N \l__numodel_yfull_tl
+\tl_new:N \l__numodel_yunit_first_tl
+\tl_new:N \l__numodel_yqty_tl
+\tl_new:N \l__numodel_plotbody_tl
+\clist_new:N \l__numodel_yshort_clist
+\clist_new:N \l__numodel_eff_prefixes_clist
+\bool_new:N  \l__numodel_multipref_bool
+\int_new:N \l__numodel_yidx_int
+
+\definecolor{numodelseriesa}{HTML}{000000} % black            (L ~ 0.00)
+\definecolor{numodelseriesb}{HTML}{E69F00} % orange           (L ~ 0.69)
+\definecolor{numodelseriesc}{HTML}{0072B2} % dark blue        (L ~ 0.36)
+\definecolor{numodelseriesd}{HTML}{56B4E9} % sky blue         (L ~ 0.74)
+\definecolor{numodelseriese}{HTML}{D55E00} % vermillion       (L ~ 0.50)
+\definecolor{numodelseriesf}{HTML}{CC79A7} % reddish purple   (L ~ 0.62)
+\definecolor{numodelseriesg}{HTML}{009E73} % bluish green     (L ~ 0.52)
+
+\clist_new:N \g__numodel_series_colors_clist
+\clist_gset:Nn \g__numodel_series_colors_clist
+  {
+    numodelseriesa , numodelseriesb , numodelseriesc , numodelseriesd ,
+    numodelseriese , numodelseriesf , numodelseriesg
+  }
+
+\cs_new:Npn \__numodel_series_color:n #1
+  {
+    \clist_item:Nn \g__numodel_series_colors_clist
+      { 1 + \int_mod:nn { #1 - 1 } { 7 } }
+  }
+
+\NewDocumentCommand{\diagrammodel}{ O{} m m O{} m }
+  {
+    \tl_clear:N \l__numodel_cmd_prefix_tl
+    \keys_set:nn { numodel / cmd } {#1}
+    \__numodel_resolve_eff_prefix:
+    % --- Parse prefix list -----------------------------------------
+    % \l__numodel_eff_prefix_tl may now carry a comma-separated list
+    % of prefixes (e.g. "ptc,pw") when the user passes prefix={..}.
+    % Treat it as a clist; a single prefix is just a one-item clist.
+    % After this step \l__numodel_eff_prefix_tl is overwritten with
+    % the first prefix, which drives the x-axis attributes and y-axis
+    % label texts (the same short names are assumed to share unit and
+    % display text across prefixes).
+    \clist_set:NV \l__numodel_eff_prefixes_clist
+                  \l__numodel_eff_prefix_tl
+    \clist_get:NN \l__numodel_eff_prefixes_clist
+                  \l__numodel_eff_prefix_tl
+    \bool_set_false:N \l__numodel_multipref_bool
+    \int_compare:nNnT
+        { \clist_count:N \l__numodel_eff_prefixes_clist } > { 1 }
+      { \bool_set_true:N \l__numodel_multipref_bool }
+    \tl_set:Ne \l__numodel_xname_tl { \l__numodel_eff_prefix_tl #2 }
+    % --- Parse comma-separated y-variable list ----------------------
+    % Keep only variables whose unitraw matches the first one's; warn
+    % about the rest.  The unit check uses the first prefix.
+    \clist_clear:N \l__numodel_yshort_clist
+    \tl_clear:N    \l__numodel_yunit_first_tl
+    \int_zero:N    \l__numodel_yidx_int
+    \clist_map_inline:nn {#3}
+      {
+        \int_incr:N \l__numodel_yidx_int
+        \tl_set:Ne \l__numodel_yfull_tl { \l__numodel_eff_prefix_tl ##1 }
+        \int_compare:nNnTF { \l__numodel_yidx_int } = { 1 }
+          {
+            \tl_set:Ne \l__numodel_yunit_first_tl
+              { \use:c { \l__numodel_yfull_tl unitraw } }
+            \clist_put_right:Nn \l__numodel_yshort_clist {##1}
+          }
+          {
+            \tl_set:Ne \l_tmpa_tl
+              { \use:c { \l__numodel_yfull_tl unitraw } }
+            \str_if_eq:VVTF \l_tmpa_tl \l__numodel_yunit_first_tl
+              { \clist_put_right:Nn \l__numodel_yshort_clist {##1} }
+              {
+                \msg_warning:nnee { numodel } { unit-mismatch }
+                  { \tl_use:N \l__numodel_yfull_tl }
+                  { \tl_use:N \l__numodel_yunit_first_tl }
+              }
+          }
+      }
+    % Canonical y-name = first kept variable (legacy single-series
+    % accessor used by the caption when only one series is plotted).
+    \clist_get:NN \l__numodel_yshort_clist \l_tmpa_tl
+    \tl_set:Ne \l__numodel_yname_tl
+      { \l__numodel_eff_prefix_tl \l_tmpa_tl }
+    % --- Axis ranges -----------------------------------------------
+    \def\xmin{\use:c{\l__numodel_xname_tl min}}
+    \def\xmax{\use:c{\l__numodel_xname_tl max}}
+    \def\xlabelqty{\use:c{\l__numodel_xname_tl text}}
+    \def\xlabelunit{\use:c{\l__numodel_xname_tl unitraw}}
+    % Reduce y-range over every (prefix, yvar) pair.  Use \edef +
+    % \fpeval so the per-variable min/max accessors are expanded to
+    % numeric literals before the fp parser sees them.
+    \def\ymin{inf}
+    \def\ymax{-inf}
+    \clist_map_inline:Nn \l__numodel_eff_prefixes_clist
+      {
+        \clist_map_inline:Nn \l__numodel_yshort_clist
+          {
+            \tl_set:Ne \l__numodel_yfull_tl { ##1 ####1 }
+            \edef\ymin{\fpeval{min(\ymin,\use:c{\l__numodel_yfull_tl min})}}
+            \edef\ymax{\fpeval{max(\ymax,\use:c{\l__numodel_yfull_tl max})}}
+          }
+      }
+    % --- y-axis label: comma-joined display texts, common unit -----
+    % Texts are taken from the first prefix (yvars under other
+    % prefixes are assumed to share their display text).
+    \tl_clear:N \l__numodel_yqty_tl
+    \int_zero:N \l__numodel_yidx_int
+    \clist_map_inline:Nn \l__numodel_yshort_clist
+      {
+        \int_incr:N \l__numodel_yidx_int
+        \int_compare:nNnF { \l__numodel_yidx_int } = { 1 }
+          { \tl_put_right:Nn \l__numodel_yqty_tl { ,~ } }
+        \tl_put_right:Ne \l__numodel_yqty_tl
+          { \use:c { \l__numodel_eff_prefix_tl ##1 text } }
+      }
+    \edef\ylabelqty{\tl_use:N \l__numodel_yqty_tl}
+    \edef\ylabelunit{\tl_use:N \l__numodel_yunit_first_tl}
+    \begin{figure}[H]
+    \centering
+    \group_begin:
+    \__numodel_apply_dsep:
+    % --- Build the plot body ---------------------------------------
+    % Single-series legacy path triggers iff there is exactly one
+    % prefix AND exactly one kept y-variable.  The two-count sum is
+    % 2 iff both lists hold one item.
+    \int_compare:nNnTF
+        {
+          \clist_count:N \l__numodel_yshort_clist +
+          \clist_count:N \l__numodel_eff_prefixes_clist
+        } = { 2 }
+      {
+        % Single-series: preserve the legacy mark-only rendering.
+        \edef\dm@coords
+          { \mcoordsp{\l__numodel_eff_prefix_tl}{#2}{\tl_use:N \l_tmpa_tl} }
+        \__numodel_draw_plot:n
+          {
+            \addplot[only~marks,~mark=*,~mark~size=0.5pt]~coordinates~{\dm@coords};
+            \addlegendentry{model~point}
+            #4
+          }
+      }
+      {
+        % Multi-series: one mark-only \addplot per (prefix, yvar)
+        % pair with cycling colour-blind safe colour and a text
+        % legend.  The legend's mark is enlarged so the colour stays
+        % visible there.  Loop order is prefix-major: all y-vars of
+        % the first prefix come before any of the second.  When more
+        % than one prefix is plotted the prefix is appended in
+        % parentheses after each display text.
+        \tl_clear:N \l__numodel_plotbody_tl
+        \int_zero:N \l__numodel_yidx_int
+        \clist_map_inline:Nn \l__numodel_eff_prefixes_clist
+          {
+            \clist_map_inline:Nn \l__numodel_yshort_clist
+              {
+                \int_incr:N \l__numodel_yidx_int
+                \tl_put_right:Ne \l__numodel_plotbody_tl
+                  {
+                    \exp_not:N \addplot
+                      [ only~marks ,~mark=* ,~mark~size=0.5pt ,
+                        color = \__numodel_series_color:n
+                                  { \int_use:N \l__numodel_yidx_int } ,
+                        legend~image~post~style = { mark~size=2pt } ]
+                    coordinates {
+                      \mcoordsp { ##1 } { #2 } { ####1 }
+                    } ;
+                    \exp_not:N \addlegendentry
+                      {
+                        $ \use:c { ##1 ####1 text } $
+                        \bool_if:NT \l__numodel_multipref_bool
+                          { ~ ( ##1 ) }
+                      }
+                  }
+              }
+          }
+        \tl_put_right:Nn \l__numodel_plotbody_tl {#4}
+        \exp_args:NV \__numodel_draw_plot:n \l__numodel_plotbody_tl
+      }
+    \group_end:
+    \caption{$\tl_use:N \l__numodel_yqty_tl$($\use:c{\l__numodel_xname_tl text}$)\text{-diagram}}
+    % If the project-specific worksheet system is loaded, pick the
+    % '-ws' label inside a worksheet; otherwise always the bare label.
+    \cs_if_exist:NTF \ifinworksheet
+      { \ifinworksheet{\label{fig:#5-ws}}{\label{fig:#5}} }
+      { \label{fig:#5} }
+    \end{figure}
+  }
+
+\ExplSyntaxOff
+
+
+
+\tikzset{
+gridscale/.style={x=\dgridx cm, y=\dgridy cm},
+stock/.style={
+rectangle, draw, thick,
+    minimum width=3 em,
+    minimum height=2 em,
+font=\small
+},
+aux/.style={
+circle, draw, thick,
+inner sep=2pt,
+    minimum size=2 em,
+font=\scriptsize
+},
+const/.style={
+circle, draw, thick,
+inner sep=2pt,
+    minimum size=2 em,
+font=\scriptsize
+},
+valve/.style={
+circle, draw, thick, fill=white,
+minimum size=2 em,
+font=\small
+},
+valve-forrester/.style={
+shape=rectangle,
+draw=none, fill=none,
+inner sep=0pt, outer sep=0pt,
+    minimum width=1 em,
+    minimum height=2 em,
+path picture={%
+\draw[thick, fill=white]
+(path picture bounding box.north west) --
+(path picture bounding box.north east) --
+(path picture bounding box.center) --
+cycle;
+\draw[thick, fill=white]
+(path picture bounding box.south west) --
+(path picture bounding box.south east) --
+(path picture bounding box.center) --
+cycle;
+}
+},
+valve-circle/.style={
+circle, draw, thick, fill=white,
+minimum size=2 em,
+font=\small
+},
+valve-edu/.style={
+circle, draw, thick, fill=white,
+minimum size=2 em,
+font=\small
+},
+flowpipe/.style={line width=3pt},                     % legacy alias
+flowpipe-filled/.style={line width=3pt},
+flowpipe-hollow/.style={
+line width=1pt,
+double=white, double distance=3pt
+},
+flowpipe-filled-tip/.style={line width=3pt, arrows={-Stealth[inset=0pt, angle=30:1em]}},
+flowpipe-hollow-tip/.style={
+line width=1pt,
+double=white, double distance=3pt,
+arrows={-Stealth[inset=0pt, angle=30:1em]}
+},
+flowpipe-filled-cloudin/.style={
+line width=3pt,
+arrows={Cloud[fill=white, line width=0.8pt]-Stealth[inset=0pt, angle=30:1em]}
+},
+flowpipe-hollow-cloudin/.style={
+line width=1pt,
+double=white, double distance=3pt,
+arrows={Cloud[fill=white, line width=0.8pt]-Stealth[inset=0pt, angle=30:1em]}
+},
+flowpipe-filled-cloudout/.style={
+line width=3pt,
+arrows={-{Stealth[inset=0pt, angle=30:1em].Cloud[fill=white, line width=0.8pt]}}
+},
+flowpipe-hollow-cloudout/.style={
+line width=1pt,
+double=white, double distance=3pt,
+arrows={-{Stealth[inset=0pt, angle=30:1em].Cloud[fill=white, line width=0.8pt]}}
+},
+causal/.style={thick, arrows={-Stealth[length=0.5em]}}
+}
+
+\providecommand{\nmflowbody}{flowpipe-filled}
+\providecommand{\nmflowtip}{flowpipe-filled-tip}
+\providecommand{\nmflowtipcloudin}{flowpipe-filled-cloudin}
+\providecommand{\nmflowtipcloudout}{flowpipe-filled-cloudout}
+
+\newcommand{\constnode}[3]{%
+\node[const] (#1) at (#2) {#3};%
+\draw[thick] ([xshift=-3mm]#1.west) -- (#1.west);%
+\draw[thick] (#1.east) -- ([xshift=3mm]#1.east);%
+}
+
+\NewDocumentCommand{\flowarrow}{ O{} m m }{%
+\IfBlankTF{#1}{%
+\draw[\nmflowtip] ([xshift=-3em]#2) -- ([xshift=0.5mm]#3.west);%
+}{%
+\draw[\nmflowtipcloudin] ([xshift=-3em]#2) -- ([xshift=0.5mm]#3.west);%
+}%
+}
+
+\NewDocumentCommand{\flowoutarrow}{ O{} m m }{%
+\IfBlankTF{#1}{%
+\draw[\nmflowtip] (#2.east) -- ([xshift=4em]#3);%
+}{%
+\draw[\nmflowtipcloudout] (#2.east) -- ([xshift=5em]#3);%
+}%
+}
+
+\newcommand{\flowbetweenarrow}[3]{%
+\draw[\nmflowtip] (#1.east) -- ([xshift=0.5mm]#3.west);%
+}
+
+\newcommand{\flowarrowbent}[2]{%
+\draw[\nmflowtip] (#1) to[bend right=30] (#2);%
+}
+
+\newcommand{\flowoutarrowbent}[2]{%
+\draw[\nmflowtip] (#1) to[bend right=30] (#2);%
+}
+\endinput
+%%
+%% End of file `numodel.sty'.

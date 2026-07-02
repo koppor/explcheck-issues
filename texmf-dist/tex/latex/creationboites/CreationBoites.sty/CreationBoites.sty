@@ -1,0 +1,970 @@
+% Author     : C. Pierquet
+% licence    : Released under the LaTeX Project Public License v1.3c or later, see http://www.latex-project.org/lppl.txt
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{CreationBoites}[2026/05/23 0.20c Macros pour creer des boites tcbox simples, avec personnalisation(s)]
+
+%====VARIABLES
+\def\cbpackagedate{2026/05/23}
+\def\cbpackageversion{0.20c}
+
+%====HISTORIQUE
+% v 0.20c  Possibilité d'utiliser un compteur personnalisé pour les boîtes
+% v 0.20b  Ajouts de 3 nouveaux styles + macro unique de génération, avec bifurcation(s)
+% v 0.20a  Ajout d'un mode de sauvegarde des couleurs à l'intérieur des boîtes
+% v 0.1.9  Bugfix avec AltBoite et compteur...
+% v 0.1.8  Style alternatif (simplifiée) + option ulem
+% v 0.1.7  Suppression dépendance à xstring (avec macros internes)
+% v 0.1.6  Option pour compatibilité avec fontawesome5/6/7
+% v 0.1.5  Modification des espacements
+% v 0.1.4  Ajout d'une option 'style peros rajouté' à la macro principale
+% v 0.1.3  Amélioration du code pour twemoji
+% v 0.1.2  Option pour compatibilité avec fontawesome5/6
+% v 0.1.1  Correction d'un bug avec [breakable] pour autoriser la coupure des boîtes + Clé pour décaler le logo CoinBasDroit + Décoration Icone
+% v 0.1.0  Version initiale
+
+%====OPTION
+\newif\if@breakable \@breakablefalse
+\DeclareOption{breakable}{\@breakabletrue}
+\newif\if@ulem \@ulemfalse
+\newif\if@normalulem \@normalulemfalse
+\DeclareOption{ulem}{\@ulemtrue}
+\DeclareOption{normalulem}{\@normalulemtrue}
+\newif\if@twemojis \@twemojistrue
+\newif\if@fafive \@fafivetrue
+\newif\if@fasix \@fasixfalse
+\newif\if@faseven \@fasevenfalse
+\DeclareOption{nonfa}{\@fafivefalse\@fasixfalse\@fasevenfalse}
+\DeclareOption{fa6}{\@fafivefalse\@fasixtrue\@fasevenfalse}
+\DeclareOption{fa7}{\@fafivefalse\@fasixfalse\@faseventrue}
+\DeclareOption*{}%si option inconnue ;-)
+\ProcessOptions\relax
+
+%====BASE
+\RequirePackage{tcolorbox}
+\tcbuselibrary{fitting,skins}
+\usetikzlibrary{calc}
+\if@fafive
+  \RequirePackage{fontawesome5}
+\fi
+\if@fasix
+  \RequirePackage{fontawesome6}
+\fi
+\if@faseven
+  \RequirePackage{fontawesome7}
+\fi
+\if@twemojis
+  \RequirePackage{twemojis}
+\fi
+\if@ulem
+  \RequirePackage{ulem}
+\fi
+\if@normalulem
+  \RequirePackage[normalem]{ulem}
+\fi
+\RequirePackage{simplekv}
+\RequirePackage{varwidth}
+
+%====INT MACRO L3
+\ExplSyntaxOn
+
+\NewDocumentCommand\intcbteststreq{ m m }%l3-ifeq
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \tl_set:Ne \l_tmpb_tl { #2 }
+    \tl_if_eq:NNTF \l_tmpa_tl \l_tmpb_tl { \use_i:nn } { \use_ii:nn }
+  }
+
+\NewDocumentCommand\intcbtestsubstr{ m m }%l3-ifsubstr
+{
+  \tl_set:Ne \l_tmpa_tl { #1 }
+  \tl_set:Ne \l_tmpb_tl { #2 }
+  \tl_if_in:NVTF \l_tmpa_tl \l_tmpb_tl { \use_i:nn } { \use_ii:nn }
+}
+
+\NewDocumentCommand\intcbbeforechar{ m m o }%l3-strbefore
+  {
+    \seq_set_split:Nee \l_tmpa_seq { #2 } { #1 }
+    \IfNoValueTF{#3}
+      {
+        \seq_item:Nn \l_tmpa_seq { 1 }
+      }
+      {
+      \tl_set:Ne #3 { \seq_item:Nn \l_tmpa_seq { 1 } }
+      }
+  }
+  
+\NewDocumentCommand\intcbafterchar{ m m o }%l3-strbehind
+  {
+    \seq_set_split:Nee \l_tmpa_seq { #2 } { #1 }
+    \IfNoValueTF{#3}
+      {
+        \seq_item:Nn \l_tmpa_seq { 2 }
+      }
+      {
+      \tl_set:Ne #3 { \seq_item:Nn \l_tmpa_seq { 2 } }
+      }
+  }
+  
+\DeclareExpandableDocumentCommand\CreaBoitesIfNoValueOrEmptyTF{mmm}{\IfNoValueTF{#1}{#2}{\tl_if_empty:nTF {#1} {#2} {#3}}}
+
+\ExplSyntaxOff
+
+%====CRÉATION DES COMPTEURS ET DES PARAMÈTRES DE BASE
+\NewDocumentCommand\CreerCompteur{ m }{%
+  \newcounter{#1}%création
+  \setcounter{#1}{0}%initialisation
+}
+\newcommand\policetitreboite{\bfseries\sffamily}
+\newcommand\policesoustitreboite{\small\bfseries\sffamily}
+\newcommand\couleursoustitreboite{red}
+\newcommand\tailleiconeboite{\small}
+\newcommand\margeboite{4mm}
+\newcommand\eptraitboite{1.25pt}
+\newcommand\margeinttitreboite{3pt}
+
+%====STYLE GÉNÉRAL DES TCBOX
+\if@breakable
+  \tcbuselibrary{breakable}
+  \tcbset{baseboite/.style={
+    enhanced,sharp corners=uphill,boxrule=\eptraitboite,%
+    breakable,%
+    before skip=0.5em,after skip=0.5em,%
+    colback=white,top=4mm,left={\margeboite-\margeinttitreboite-\eptraitboite},right={\margeboite-\margeinttitreboite-\eptraitboite}
+    }%
+  }
+\else
+  \tcbset{baseboite/.style={
+    enhanced,sharp corners=uphill,boxrule=\eptraitboite,%
+    before skip=0.5em,after skip=0.5em,%
+    colback=white,top=4mm,left={\margeboite-\margeinttitreboite-\eptraitboite},right={\margeboite-\margeinttitreboite-\eptraitboite}
+    }%
+  }
+\fi
+
+%====MACROS TITRE/SOUS-TITRE/LOGO
+
+\NewDocumentCommand\TitreBoite{ m m m m }{%
+  %1=couleur
+  %2=icone
+  %3=noms
+  %4=compteur
+  \node[inner sep=\margeinttitreboite,rounded corners=3pt,draw=#1,line width=\eptraitboite,rectangle,fill=#1!5!white,anchor=west,xshift=\margeboite,text=black,font=\policetitreboite] at (frame.north west)
+  {%
+    \,%
+    \CreaBoitesIfNoValueOrEmptyTF{#2}{}{{\tailleiconeboite#2}\space}%
+    \vphantom{Ppé}%
+    \ifboolKV[Boites]{Pluriel}{\intcbafterchar{#3}{/}}{\intcbbeforechar{#3}{/}}%
+    \intcbteststreq{\BoxModifLabel}{}%
+      {}%
+      {\BoxModifLabel}%
+    \ifboolKV[Boites]{Compteur}{\space#4}{}%
+    \intcbteststreq{\BoxCpltTitle}{}%
+      {}%
+      {\BoxCpltTitle}%
+    \,%
+  } ;
+}
+
+\NewDocumentCommand\SousTitreBoite{ }{%
+  \node[fill=white,anchor=east,xshift=-\margeboite,text=\couleursoustitreboite!75!black,font=\policesoustitreboite] at (frame.north east) {\vphantom{Ppé}\BoxSubTitle} ;
+}
+\NewDocumentCommand\LogoCoinDroit{ }{%OK
+  \begin{tcbclipinterior}\node[opacity=\BoxOpaciteLogo,rotate=-\BoxRotationLogo] at ($(interior.south east)+(\BoxOffsetLogo)$){\includegraphics[height=\BoxHauteurLogo]{\BoxLogo}};\end{tcbclipinterior}%
+}
+\NewDocumentCommand\EmojiCoinDroit{ }{%OK
+  \begin{tcbclipinterior}\node[opacity=\BoxOpaciteLogo,rotate=-\BoxRotationLogo] at ($(interior.south east)+(\BoxOffsetLogo)$){\twemoji[height=\BoxHauteurLogo]{\BoxLogoEmoji}};\end{tcbclipinterior}%
+}
+\NewDocumentCommand\IconeCoinDroit{ }{%Ok
+  \begin{tcbclipinterior}\node[opacity=\BoxOpaciteIcone,rotate=-\BoxRotationIcone,scale=\BoxEchelleIcone] at ($(interior.south east)+(\BoxOffsetLogo)$){\BoxIcone};\end{tcbclipinterior}%
+}
+
+%====MACRO POUR QQUES PARAMÈTRES BASIQUES
+\defKV[ParamBoites]{%
+  PoliceTitre=\renewcommand\policetitreboite{#1},%
+  PoliceSousTitre=\renewcommand\policesoustitreboite{#1},%
+  Marge=\renewcommand\margeboite{#1},%
+  TailleIcone=\renewcommand\tailleiconeboite{#1},%
+  CouleurSousTitre=\renewcommand\couleursoustitreboite{#1},%
+  EpaisseurBordure=\renewcommand\eptraitboite{#1},%
+  MargeTitre=\renewcommand\margeinttitreboite{#1}
+}
+\setKVdefault[ParamBoites]{%
+  PoliceTitre=\bfseries\sffamily,%
+  PoliceSousTitre=\small\bfseries\sffamily,%
+  Marge=4mm,%
+  TailleIcone=\small,%
+  CouleurSousTitre=red,%
+  EpaisseurBordure=1.25pt,%
+  MargeTitre=3pt
+}
+\NewDocumentCommand\ParamBoites{ O{} }{%
+  \useKVdefault[ParamBoites]%
+  \setKV[ParamBoites]{#1}%
+}
+
+%====MACRO PRINCIPALE
+\defKV[Boites]{%
+  ComplementTitre=\def\BoxCpltTitle{#1},%
+  SousTitre=\def\BoxSubTitle{#1},%
+  Logo=\def\BoxLogo{#1},%
+  Emoji=\def\BoxLogoEmoji{#1},%
+  ModifLabel=\def\BoxModifLabel{#1},%
+  HauteurLogo=\def\BoxHauteurLogo{#1},%
+  RotationLogo=\def\BoxRotationLogo{#1},%
+  OpaciteLogo=\def\BoxOpaciteLogo{#1},%
+  OffsetDeco=\def\BoxOffsetLogo{#1},%
+  Icone=\def\BoxIcone{#1},%
+  EchelleIcone=\def\BoxEchelleIcone{#1},%
+  RotationIcone=\def\BoxRotationIcone{#1},%
+  OpaciteIcone=\def\BoxOpaciteIcone{#1},%
+  CompteurPerso=\def\BoxPersonalCpt{#1}
+}
+\setKVdefault[Boites]{%
+  Pluriel=false,%
+  ComplementTitre={},%
+  SousTitre={},
+  Compteur=true,%
+  CompteurPerso={},%
+  Logo={},%
+  Emoji={},%
+  ModifLabel={},%
+  HauteurLogo=24pt,%
+  RotationLogo=45,%
+  OpaciteLogo=0.33,%
+  OffsetDeco={-10pt,10pt},%
+  Icone={},%
+  EchelleIcone=1,%
+  RotationIcone=30,%
+  OpaciteIcone=0.5
+}
+
+\NewDocumentCommand\CreationBoite{ O{black} m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %2 = compteur
+  %4 = icone
+  %5 = label singulier/pluriel
+  %6 = options persos tcbox
+  \CreerCompteur{#3}%
+  \colorlet{cbcoulbord#2}{#1}%
+  \colorlet{cbcoulfond#2}{#1!5!white}%
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+    %1 = clés
+    %2 = options spécifiques tcbox
+    {%
+      \colorlet{cbcoulbord}{cbcoulbord#2}%
+      \colorlet{cbcoulfond}{cbcoulfond#2}%
+      \useKVdefault[Boites]%
+      \setKV[Boites]{##1}%
+      \intcbteststreq{\BoxPersonalCpt}{}%
+        {%
+          \ifboolKV[Boites]{Compteur}{\stepcounter{#3}}{}%on augmente le compteur si demandé
+        }%
+        {%
+          \ifboolKV[Boites]{Compteur}{\stepcounter{\BoxPersonalCpt}}{}%on augmente le compteur perso si demandé
+        }%compteur perso ?
+      \tcbset{reset}%je pense que c'est mieux
+      \tcolorbox[baseboite,colframe=#1,##2,overlay={%
+        \intcbteststreq{\BoxLogo}{}{}{\LogoCoinDroit}%logo 
+        \intcbteststreq{\BoxIcone}{}{}{\IconeCoinDroit}%icone
+        \intcbteststreq{\BoxLogoEmoji}{}{}{\EmojiCoinDroit}%emoji
+        \tikzset{overlay=false}%
+        \intcbteststreq{\BoxPersonalCpt}{}%bigurcation cpt perso
+          {%
+            \TitreBoite{#1}{#4}{#5}{\arabic{#3}}%titre
+          }%
+          {%
+            \TitreBoite{#1}{#4}{#5}{\arabic{\BoxPersonalCpt}}%titre
+          }%
+        \intcbteststreq{\BoxSubTitle}{}{}{\SousTitreBoite}%soustitre
+      },#6]%
+    }%
+  {\endtcolorbox}%
+}
+
+%====MACRO STYLE SIMPLIFIÉ
+\def\opaciteboitealt{2.5}
+\if@breakable
+  \tcbuselibrary{breakable}
+  \tcbset{basecpcours/.style={
+      enhanced,empty,size=small,boxsep=2.25pt,top=0pt,bottom=2.25pt,left=2.25pt,right=2.25pt,breakable,
+      overlay={%
+        \fill[#1!\opaciteboitealt] (frame.north west) rectangle (frame.south east) ;
+        \draw[line width=1.5pt,#1] (frame.north west) -- (frame.south west) ;
+        %\draw[line width=1.25pt,#1] ([xshift=2.5mm]frame.north west) -- (frame.north west) |- ([xshift=7.5mm]frame.south west) ;
+      }
+    }
+  }
+\else
+  \tcbset{basecpcours/.style={
+      enhanced,empty,size=small,boxsep=2.25pt,top=0pt,bottom=2.25pt,left=2.25pt,right=2.25pt,
+      overlay={%
+        \fill[#1!\opaciteboitealt] (frame.north west) rectangle (frame.south east) ;
+        \draw[line width=1.5pt,#1] (frame.north west) -- (frame.south west) ;
+        %\draw[line width=1.25pt,#1] ([xshift=2.5mm]frame.north west) -- (frame.north west) |- ([xshift=7.5mm]frame.south west) ;
+      }
+    }
+  }
+\fi
+
+\defKV[cpaltboites]{%
+  ComplementTitre=\def\cpaltboitescplttitre{#1},%
+  SousTitre=\def\cpaltboitessoustitre{#1},%
+  EpaisseurSouligne=\def\cbulinethick{#1},%
+  CompteurPerso=\def\cbpersonalcpt{#1}%
+}
+
+\setKVdefault[cpaltboites]{%
+  ComplementTitre={},%
+  SousTitre={},%
+  Compteur=true,%
+  CompteurPerso={},%
+  Pluriel=false,%
+  SouligneLabel=false,%
+  EpaisseurSouligne=1pt,%
+  Fond=false,%
+  Ombre=false%
+}
+
+% \defKV[abaltboites]{%
+  % ComplementTitre=\def\cpaltboitescplttitre{#1},%
+  % SousTitre=\def\cpaltboitessoustitre{#1},%
+  % EpaisseurSouligne=\def\cbulinethick{#1}%
+% }
+
+% \setKVdefault[abaltboites]{%
+  % ComplementTitre={},%
+  % SousTitre={},%
+  % Compteur=true,%
+  % Pluriel=false,%
+  % SouligneLabel=false,%
+  % EpaisseurSouligne=1pt,%
+  % Fond=false,%
+  % Ombre=false
+% }
+
+\NewDocumentCommand\CreationBoiteAlt{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  \colorlet{cbcoulfond#2}{#1!\opaciteboitealt}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \tcolorbox[basecpcours={#1},#7,##2]%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoulfond}{cbcoulfond#2}%
+    \ifboolKV[cpaltboites]{SouligneLabel}
+      {%
+        \renewcommand\ULthickness{\cbulinethick}%
+        \settodepth\ULdepth{\hbox{pqyj}}%
+      }%
+      {}%
+    \ifboolKV[cpaltboites]{Compteur}%
+    {%
+      \ifboolKV[cpaltboites]{SouligneLabel}%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              {#6}%
+              \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+                {%
+                  {\uline{\stepcounter{#3}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\arabic{#3}}}}\textit{\cpaltboitessoustitre}%
+                }%
+                {%
+                  {\uline{\stepcounter{cbpersonalcpt}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\arabic{cbpersonalcpt}}}}\textit{\cpaltboitessoustitre}%
+                }%
+            }%
+          \par
+        }%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+                {%
+                  \stepcounter{#3}%
+                  \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\arabic{#3}\textit{\cpaltboitessoustitre}%
+                }%
+                {%
+                  \stepcounter{\cbpersonalcpt}%
+                  \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\arabic{\cbpersonalcpt}\textit{\cpaltboitessoustitre}%
+                }%
+            }%
+          \par
+        }%
+    }%
+    {%
+      \ifboolKV[cpaltboites]{SouligneLabel}%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              {#6}%
+              {\uline{{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre}}\textit{\cpaltboitessoustitre}}%
+            }%
+          \par
+        }%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre\textit{\cpaltboitessoustitre}%
+            }
+            %
+          \par
+        }%
+    }%
+    \vspace*{0.5mm}%
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+\NewDocumentCommand\CreationBoiteAltResetSection{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  \counterwithin{#3}{section}%
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  \colorlet{cbcoulfond#2}{#1!\opaciteboitealt}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \tcolorbox[basecpcours={#1},#7,##2]%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoulfond}{cbcoulfond#2}%
+    \ifboolKV[cpaltboites]{SouligneLabel}
+      {%
+        \renewcommand\ULthickness{1pt}%
+        \settodepth\ULdepth{\hbox{pqyj}}%
+      }%
+      {}%
+    \ifboolKV[cpaltboites]{Compteur}%
+    {%
+      \ifboolKV[cpaltboites]{SouligneLabel}%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              {#6}%
+              \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+                {%
+                  {\uline{\stepcounter{#3}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\ifnum\value{section}=0\else\arabic{section}.\fi\arabic{#3}}}}\textit{\cpaltboitessoustitre}%
+                }%
+                {%
+                  {\uline{\stepcounter{\cbpersonalcpt}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\ifnum\value{section}=0\else\arabic{section}.\fi\arabic{\cbpersonalcpt}}}}\textit{\cpaltboitessoustitre}%
+                }%
+            }%
+          \par
+        }%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+                {%
+                  \stepcounter{#3}%
+                  \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\ifnum\value{section}=0\else\arabic{section}.\fi\arabic{#3}\textit{\cpaltboitessoustitre}%
+                }%
+                {%
+                  \stepcounter{\cbpersonalcpt}%
+                  \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\ifnum\value{section}=0\else\arabic{section}.\fi\arabic{\cbpersonalcpt}\textit{\cpaltboitessoustitre}%
+                }%
+            }%
+          \par
+        }%
+    }%
+    {%
+      \ifboolKV[cpaltboites]{SouligneLabel}%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              {#6}%
+              {\uline{{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre}}\textit{\cpaltboitessoustitre}}%
+            }%
+          \par
+        }%
+        {%
+          \textcolor{#1!33!black}%
+            {%
+              \policetitreboite%
+              \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre\textit{\cpaltboitessoustitre}%
+            }
+            %
+          \par
+        }%
+    }%
+    \vspace*{0.5mm}%
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+%====MACRO STYLE À LA MANIÈRE D'ARNAUD BLAS
+\usetikzlibrary{shadows}
+
+\tcbset{abbaseboite/.style={%#1 = color
+    enhanced,empty,%
+    attach boxed title to top left={yshift=-2.5mm},
+    left=1mm,right=2mm,bottom=1mm,top=1.75mm,
+    boxed title style={empty,size=small,top=0pt,bottom=0pt},
+    varwidth boxed title=0.66\linewidth,
+    frame code={
+      \path (title.east|-frame.north) coordinate (aux);
+      \path[draw=#1,line width=1pt, rounded corners=3pt]
+      (frame.west) |- ([xshift=-2.5mm]title.north east) to[out=0, in=180] ([xshift=7.5mm]aux)-|([xshift=-1pt]frame.east)|-([yshift=1pt]frame.south)-|cycle;
+    },
+  }
+}
+
+\tcbset{abbaseboitefond/.style={%#1 = color
+    enhanced,empty,%
+    attach boxed title to top left={yshift=-2.5mm},
+    left=1mm,right=2mm,bottom=1mm,top=1.75mm,
+    boxed title style={empty,size=small,top=0pt,bottom=0pt},
+    varwidth boxed title=0.66\linewidth,
+    frame code={
+      \path (title.east|-frame.north) coordinate (aux);
+      \path[draw=#1,fill=white,line width=1pt, rounded corners=3pt, abbaseboiteombre]
+      (frame.west) |- ([xshift=-2.5mm]title.north east) to[out=0, in=180] ([xshift=7.5mm]aux)-|([xshift=-1pt]frame.east)|-([yshift=1pt]frame.south)-|cycle;
+    },
+  }
+}
+
+\newcommand\cbgenabtitre[6]{%
+  \ifboolKV[cpaltboites]{SouligneLabel}
+  {%
+    \renewcommand\ULthickness{\cbulinethick}%
+    \settodepth\ULdepth{\hbox{pqyj}}%
+  }%
+  {}%
+  \ifboolKV[cpaltboites]{Compteur}%
+  {%
+    \ifboolKV[cpaltboites]{SouligneLabel}%
+    {%
+      \textcolor{#1}%
+      {%
+        \policetitreboite%
+        {#6}%
+        \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+          {%
+            {\uline{\stepcounter{#3}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\arabic{#3}}}}\textit{\cpaltboitessoustitre}%
+          }%
+          {%
+            {\uline{\stepcounter{\cbpersonalcpt}{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre~\arabic{\cbpersonalcpt}}}}\textit{\cpaltboitessoustitre}%
+          }%
+      }%
+    }%
+    {%
+      \textcolor{#1}%
+      {%
+        \policetitreboite%
+        \intcbteststreq{\cbpersonalcpt}{}%bifurcation cpt perso
+          {%
+            \stepcounter{#3}%
+            \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\arabic{#3}\textit{\cpaltboitessoustitre}%
+          }%
+          {%
+            \stepcounter{\cbpersonalcpt}%
+            \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre~\arabic{\cbpersonalcpt}\textit{\cpaltboitessoustitre}%
+          }%
+      }%
+    }%
+  }%
+  {%
+    \ifboolKV[cpaltboites]{SouligneLabel}%
+    {%
+      \textcolor{#1}%
+      {%
+        \policetitreboite%
+        {#6}%
+        {\uline{{\vphantom{(qPÉ)}\tmplabelboite\cpaltboitescplttitre}}\textit{\cpaltboitessoustitre}}%
+      }%
+    }%
+    {%
+      \textcolor{#1}%
+      {%
+        \policetitreboite%
+        \vphantom{(qPÉ)}{#6}\tmplabelboite\cpaltboitescplttitre\textit{\cpaltboitessoustitre}%
+      }%
+    }%
+  }%
+}
+
+\NewDocumentCommand\CreationBoiteAAlt{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \ifboolKV[cpaltboites]{Ombre}{\tikzset{abbaseboiteombre/.style={drop shadow}}}{\tikzset{abbaseboiteombre/.style={}}}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoultitre}{cbcoulbord#2!75!black}%
+    \ifboolKV[cpaltboites]{Fond}%
+      {%
+        \tcolorbox[%
+          abbaseboitefond={#1},%
+          #7,##2,%
+          title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}}
+          ]%
+      }%
+      {%
+        \tcolorbox[%
+          abbaseboite={#1},%
+          #7,##2,%
+          title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}}
+          ]%
+      }%
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+\NewDocumentCommand\CreationBoiteAAltResetSection{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  \counterwithin{#3}{section}%
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \ifboolKV[cpaltboites]{Ombre}{\tikzset{abbaseboiteombre/.style={drop shadow}}}{\tikzset{abbaseboiteombre/.style={}}}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoultitre}{cbcoulbord#2!75!black}%
+    \ifboolKV[cpaltboites]{Fond}%
+      {%
+        \tcolorbox[%
+          abbaseboitefond={#1},%
+          #7,##2,%
+          title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}}
+          ]%
+      }%
+      {%
+        \tcolorbox[%
+          abbaseboite={#1},%
+          #7,##2,%
+          title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}}
+          ]%
+      }%
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+%====STYLE n°3
+\tcbset{hatbaseboite/.style={%#1 = color
+    enhanced,size=small,frame empty,interior empty,%
+    sharp corners,top=2mm+2mm,left skip=0.5cm,%
+    underlay boxed title={%
+      \filldraw[draw=none,#1!2.5!white,line width=0.25mm] (frame.north west) rectangle (frame.south east);\draw[#1,line width=0.25mm] (frame.north west) -- (frame.south west) ;
+      },%
+    attach boxed title to top left={xshift=-0.5cm,yshift=-\tcboxedtitleheight+2mm},
+    boxed title style={interior empty,size=small,boxsep=0.5mm,%
+    frame code={%
+      \draw[line width=0.25mm,#1,fill=white,rounded corners=0.25mm] (frame.north west) |- ([xshift=0.4cm]frame.south west) --++ (0.225cm,-0.175cm) |- (frame.south east) -- (frame.north east) -- cycle ;}
+      },%
+    fonttitle=\small
+  }
+}
+
+\NewDocumentCommand\CreationBoiteBAlt{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  \colorlet{cbcoulfond#2}{#1!2.5!white}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoulfond}{cbcoulbord#2!2.5!white}%
+    \tcolorbox%
+      [%
+      hatbaseboite={#1},%
+      title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}},
+      ]
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+\NewDocumentCommand\CreationBoiteBAltResetSection{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  \counterwithin{#3}{section}%
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  \colorlet{cbcoulfond#2}{#1!2.5!white}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \colorlet{cbcoulfond}{cbcoulbord#2!2.5!white}%
+    \tcolorbox%
+      [%
+      hatbaseboite={#1},%
+      title={\cbgenabtitre{#1!75!black}{#2}{#3}{#4}{#5}{#6}},
+      ]
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+%====STYLE n°4
+\tcbset{altaltbaseboite/.style={%#1 = color
+  enhanced,boxrule=0.375mm,
+  boxsep=1mm,top=1mm,bottom=1mm,left=2.5mm,right=2.5mm,
+  colframe=#1,
+  attach boxed title to top left={yshift*=-\tcboxedtitleheight}, 
+  boxed title size=title,
+  boxed title style={%
+    rounded corners=northeast, 
+    rounded corners=northwest, 
+    colback=tcbcolframe, 
+    boxrule=0pt,
+    },
+  underlay boxed title={%
+    \path[fill=tcbcolframe] (title.south west)--(title.south east) 
+    to[out=0, in=180] ([xshift=5mm]title.east)--
+    (title.center-|frame.east)
+    [rounded corners=5pt] |- 
+    (frame.north) -| cycle; 
+    },
+  colback=#1!2.5!white
+  }
+}
+
+\NewDocumentCommand\CreationBoiteCAlt{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \tcolorbox%
+      [%
+      altaltbaseboite={#1},%
+      title={\cbgenabtitre{white}{#2}{#3}{#4}{#5}{#6}},
+      ]
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+\NewDocumentCommand\CreationBoiteCAltResetSection{ O{} m m m m m !O{} }{%
+  %1 = couleur
+  %2 = nom
+  %3 = compteur
+  %4 = label singulier
+  %5 = label pluriel
+  %6 = before label
+  %7 = options persos tcbox
+  %counter
+  \newcounter{#3}%création
+  \setcounter{#3}{0}%initialisation
+  \counterwithin{#3}{section}%
+  %testcouleurl3
+  \colorlet{cbcoulbord#2}{#1}%
+  %next
+  \NewDocumentEnvironment{#2}{ O{} D<>{} }%
+  {%
+    \restoreKV[cpaltboites]%
+    \setKV[cpaltboites]{##1}%
+    \ifboolKV[cpaltboites]{Pluriel}%
+      {\def\tmplabelboite{#5}}%
+      {\def\tmplabelboite{#4}}%
+    \tcbset{reset}%
+    \colorlet{cbcoulbord}{cbcoulbord#2}%
+    \tcolorbox%
+      [%
+      altaltbaseboite={#1},%
+      title={\cbgenabtitre{#1}{#2}{#3}{#4}{#5}{#6}},
+      ]
+  }%
+  {%
+    \endtcolorbox%
+  }%
+}
+
+%====MACRO UNIQUE
+\defKV[cbgenereboite]{%
+  style=\def\cbgenboitestyle{#1}
+}
+\setKVdefault[cbgenereboite]{%
+  style=cp,%
+  reset section=false
+}
+
+\NewDocumentCommand\GenereBoite{ D<>{} O{} m m m m m !O{} }{%
+  \restoreKV[cbgenereboite]%
+  \setKV[cbgenereboite]{#1}%
+  \intcbtestsubstr{,ab,cp,ha,tx,default,}{,\cbgenboitestyle,}%
+    {}% valeur connue, on continue
+    {\def\cbgenboitestyle{default}}% valeur inconnue, on remet default par défaut
+  \intcbteststreq{\cbgenboitestyle}{cp}%
+    {%
+      \ifboolKV[cbgenereboite]{reset section}%
+        {%
+          \CreationBoiteAltResetSection[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+        {%
+          \CreationBoiteAlt[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+    }%
+    {}%
+  \intcbteststreq{\cbgenboitestyle}{ab}%
+    {%
+      \ifboolKV[cbgenereboite]{reset section}%
+        {%
+          \CreationBoiteAAltResetSection[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+        {%
+          \CreationBoiteAAlt[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+    }%
+    {}%
+  \intcbteststreq{\cbgenboitestyle}{ha}%
+    {%
+      \ifboolKV[cbgenereboite]{reset section}%
+        {%
+          \CreationBoiteBAltResetSection[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+        {%
+          \CreationBoiteBAlt[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+    }%
+    {}%
+  \intcbteststreq{\cbgenboitestyle}{tx}%
+    {%
+      \ifboolKV[cbgenereboite]{reset section}%
+        {%
+          \CreationBoiteCAltResetSection[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+        {%
+          \CreationBoiteCAlt[#2]{#3}{#4}{#5}{#6}{#7}[#8]%
+        }%
+    }%
+    {}%
+  \intcbteststreq{\cbgenboitestyle}{default}%
+    {%
+      \CreationBoite[#2]{#3}{#4}{#7}{#5/#6}[#8]%
+    }%
+    {}%
+}
+
+\endinput

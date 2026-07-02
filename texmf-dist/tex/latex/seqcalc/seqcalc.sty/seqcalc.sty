@@ -1,0 +1,462 @@
+% seqcalc.sty Version 1.0
+% Structured sequent calculus wrapper for the bussproofs package.
+% Copyright (C) 2026 by Julian (lambdaphoenix)
+% 
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   https://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2008 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Julian.
+%
+% This work consists of the file bussproofs-colorful.sty.
+% 
+% This package depends on:
+% - bussproofs
+% - expl3
+% - l3keys2e
+%
+% This package provides:
+% - a declarative rule system for sequent calculus proofs
+% - optional debug output
+% - optional shortcut commands
+% - optional built-in standard rule sets
+% - wrapper environments for proof trees
+%
+% Features:
+% - Rule declaration:
+%       \SeqCalcDeclareRule{Name}{Arity}[Label]
+% - Rule application:
+%       \SeqRule{Name}{Formula}[Hint]
+%       \Name{Formula}[Hint]   % auto-generated shortcut
+% - Sequents:
+%       \seq{A}{B}, \seqL{A}, \seqR{A}
+% - Axioms and premises:
+%       \SeqAxiom{A}, \SeqPremise{A}
+% - Conclusions:
+%       \SeqConclusion[Label]{Cmd}{Formula}[Hint],
+%       \SeqConclusionU[Label]{Formula}[Hint],
+%       \SeqConclusionB[Label]{Formula}[Hint]
+% - Shortcuts:
+%       \EnableSeqShortcuts (defines \SeqAx, \SeqPr, \CU, \CB, ...)
+% - Standard rules:
+%       \EnableSeqStandardRules (NegL, AndR, OrL, ImpR, ...)
+% - Proof environments:
+%       seqproof, seqproofinline
+%
+% Usage example:
+%   \usepackage{seqcalc}
+%
+%   \begin{seqproof}
+%       \SeqPremise{A}
+%       \SeqConclusionU{B}
+%   \end{seqproof}
+%
+% --------------------------------------------------------------------
+
+\ProvidesExplPackage
+  {seqcalc}
+  {2026/01/31}
+  {1.0}
+  {Sequence calculus wrapper for bussproofs with extensions}
+
+% --------------------------------------------------------------------
+% Dependencies
+% --------------------------------------------------------------------
+
+\RequirePackage{bussproofs}
+\RequirePackage{expl3}
+\RequirePackage{l3keys2e}
+
+\ExplSyntaxOn
+
+% --------------------------------------------------------------------
+% Global Options
+% --------------------------------------------------------------------
+
+\bool_new:N \g_seqcalc_opt_normalize_bool
+\bool_new:N \g_seqcalc_opt_debug_bool
+\bool_new:N \g_seqcalc_opt_shortcuts_bool
+\bool_new:N \g_seqcalc_opt_standard_rules_bool
+
+\keys_define:nn { seqcalc }
+    {
+        % --------------------------------------------------
+        % normalize-formulas = true | false
+        % --------------------------------------------------
+        normalize-formulas .bool_set:N = \g_seqcalc_opt_normalize_bool,
+        normalize-formulas .initial:n = true,
+        
+        % --------------------------------------------------
+        % debug = true | false
+        % --------------------------------------------------
+        debug .bool_set:N = \g_seqcalc_opt_debug_bool,
+        debug .initial:n = false,
+
+        % --------------------------------------------------
+        % shortcuts = true | false
+        % --------------------------------------------------
+        shortcuts .bool_set:N = \g_seqcalc_opt_shortcuts_bool,
+        shortcuts .initial:n  = false,
+    
+        % --------------------------------------------------
+        % standard-rules = true | false
+        % --------------------------------------------------
+        standard-rules .bool_set:N = \g_seqcalc_opt_standard_rules_bool,
+        standard-rules .initial:n  = false,
+    
+    }
+
+\ProcessKeysOptions{seqcalc}
+
+% --------------------------------------------------------------------
+% Debug + error helpers
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_debug:nn #1 #2
+    {
+        \bool_if:NT \g_seqcalc_opt_debug_bool
+            { \iow_term:x { Package~seqcalc~[#1]:~#2 } }
+    }
+
+\cs_new_protected:Npn \seqcalc_error:nn #1 #2
+    { \PackageError{seqcalc}{#1}{#2} }
+
+\cs_new_protected:Npn \seqcalc_error_unknown_inference_cmd:n #1
+    {
+        \seqcalc_error:nn
+            {Unknown~inference~command~'#1'}
+            {Use~UnaryInfC,~BinaryInfC~or~TrinaryInfC.}
+    }
+
+\cs_new_protected:Npn \seqcalc_error_unknown_rule:n #1
+    {
+        \seqcalc_error:nn
+            {Unknown~rule~'#1'}
+            {Declare~'#1'~with~\string\SeqCalcDeclareRule\space before~using.}
+    }
+
+% --------------------------------------------------------------------
+% Formula + math layer
+% --------------------------------------------------------------------
+
+\tl_new:N   \l_seqcalc_tmp_formula_tl
+
+\cs_new:Npn \seqcalc_math:n #1
+    { \ensuremath{#1} }
+
+\cs_new_protected:Npn \seqcalc_formula_normalize:n #1
+    {
+        \tl_set:Nn \l_seqcalc_tmp_formula_tl {#1}
+        
+        \regex_replace_all:nnN { \s* , \s* } { , } \l_seqcalc_tmp_formula_tl
+        \regex_replace_all:nnN { \s* ; \s* } { ; } \l_seqcalc_tmp_formula_tl
+        \regex_replace_all:nnN { [;,]\s*[;,]* } { , } \l_seqcalc_tmp_formula_tl
+        \regex_replace_all:nnN { ^, | ,$ } { } \l_seqcalc_tmp_formula_tl
+        
+        \seqcalc_debug:nn
+            {formula}
+            {Normalized~'#1'~to~'\tl_use:N \l_seqcalc_tmp_formula_tl'}
+        \tl_use:N \l_seqcalc_tmp_formula_tl
+    }
+
+\cs_new:Npn \seqcalc_formula:n #1
+    {
+        \bool_if:NTF \g_seqcalc_opt_normalize_bool
+            { \seqcalc_formula_normalize:n {#1} }
+            { #1 }
+    }
+
+% --------------------------------------------------------------------
+% Basic sequents
+% --------------------------------------------------------------------
+
+\cs_new:Npn \seqcalc_seq:nn #1 #2
+    {
+        \seqcalc_math:n
+            { \seqcalc_formula:n{#1} \Rightarrow \seqcalc_formula:n{#2} }
+    }
+
+\NewDocumentCommand \seq { m m }
+    { \seqcalc_seq:nn {#1}{#2} }
+
+\NewDocumentCommand \seqL { m }
+    { \seqcalc_seq:nn {#1}{} }
+
+\NewDocumentCommand \seqR { m }
+    { \seqcalc_seq:nn {}{#1} }
+
+% --------------------------------------------------------------------
+% Proof environments
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_proof_inline_begin:
+    { \leavevmode \group_begin: }
+
+\cs_new_protected:Npn \seqcalc_proof_inline_end:
+    { \DisplayProof \group_end: }
+
+\NewDocumentEnvironment {seqproofinline} {}
+    { \seqcalc_proof_inline_begin: }
+    { \seqcalc_proof_inline_end: }
+
+\cs_new_protected:Npn \seqcalc_proof_tree_begin:
+    { \group_begin: \begin{prooftree} }
+
+\cs_new_protected:Npn \seqcalc_proof_tree_end:
+    { \end{prooftree} \group_end: }
+
+\NewDocumentEnvironment {seqproof} {}
+    { \seqcalc_proof_tree_begin: }
+    { \seqcalc_proof_tree_end: }
+
+% --------------------------------------------------------------------
+% Axioms, premises, conclusions
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_axiom:n #1
+    {
+        \AxiomC{}
+        \UnaryInfC{ \seqcalc_math:n { \seqcalc_formula:n{#1} } }
+    }
+
+\cs_new_protected:Npn \seqcalc_premise:n #1
+    { \AxiomC{ \seqcalc_math:n { \seqcalc_formula:n{#1} } } }
+
+\NewDocumentCommand \SeqAxiom { m }
+    { \seqcalc_axiom:n {#1} }
+
+\NewDocumentCommand \SeqPremise { m }
+    { \seqcalc_premise:n {#1} }
+
+\cs_new_protected:Npn \seqcalc_conclusion:nnnn #1 #2 #3 #4
+    {
+        % Left label
+        \tl_if_blank:nF {#1}
+            { \LeftLabel{$(\seqcalc_math:n{#1})$} }
+        
+        % Right label
+        \tl_if_blank:nF {#4}
+            { \RightLabel{\seqcalc_math:n{#4}} }
+        
+        % Inference command
+        \cs_if_exist:cTF {#2}
+            { \use:c {#2} { \seqcalc_math:n{ \seqcalc_formula:n{#3} } } }
+            { \seqcalc_error_unknown_inference_cmd:n {#2} }
+    }
+
+\NewDocumentCommand \SeqConclusion { O{} m m O{} }
+    { \seqcalc_conclusion:nnnn {#1}{#2}{#3}{#4} }
+
+\NewDocumentCommand \SeqConclusionU { O{} m O{} }
+    { \seqcalc_conclusion:nnnn {#1}{UnaryInfC}{#2}{#3} }
+
+\NewDocumentCommand \SeqConclusionB { O{} m O{} }
+    { \seqcalc_conclusion:nnnn {#1}{BinaryInfC}{#2}{#3} }
+
+% --------------------------------------------------------------------
+% Shortcut system
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_shortcut_define:NN #1 #2
+    {
+        \cs_if_exist:NTF #1
+            {
+            \PackageWarning{seqcalc}
+                {Shortcut~\token_to_str:N #1~already~defined;~keeping~existing}
+            }
+        { \cs_set_eq:NN #1 #2 }
+    }
+
+\NewDocumentCommand \SeqCalcDeclareShortcut { m m }
+    { \seqcalc_shortcut_define:NN #1 #2 }
+
+\NewDocumentCommand \EnableSeqShortcuts { }
+    {
+        \SeqCalcDeclareShortcut{\SeqAx}{\SeqAxiom}
+        \SeqCalcDeclareShortcut{\SeqPr}{\SeqPremise}
+        \SeqCalcDeclareShortcut{\Cc}{\SeqConclusion}
+        \SeqCalcDeclareShortcut{\CU}{\SeqConclusionU}
+        \SeqCalcDeclareShortcut{\CB}{\SeqConclusionB}
+    }
+
+% --------------------------------------------------------------------
+% Rule system: storage + helpers
+% --------------------------------------------------------------------
+
+% g_seqcalc_rule_<name>_inference_cmd_tl
+% g_seqcalc_rule_<name>_display_label_tl
+
+\cs_new_protected:Npn \seqcalc_rule_set_cmd:nn #1 #2
+    { \tl_gset:cn { g_seqcalc_rule_#1_inference_cmd_tl } {#2} }
+
+\cs_new_protected:Npn \seqcalc_rule_set_label:nn #1 #2
+    { \tl_gset:cn { g_seqcalc_rule_#1_display_label_tl } {#2} }
+
+\cs_new:Npn \seqcalc_rule_if_exist:nTF #1
+    { \tl_if_exist:cTF { g_seqcalc_rule_#1_inference_cmd_tl } }
+
+\cs_new_protected:Npn \seqcalc_rule_get_cmd:nN #1 #2
+    {
+        \tl_set:Nn #2 { \tl_use:c { g_seqcalc_rule_#1_inference_cmd_tl } }
+    }
+
+\cs_new_protected:Npn \seqcalc_rule_get_label:nN #1 #2
+    {
+        \tl_set:Nn #2 { \tl_use:c { g_seqcalc_rule_#1_display_label_tl } }
+    }
+
+\cs_new:Npn \seqcalc_rule_if_label_exist:nTF #1
+    { \tl_if_exist:cTF { g_seqcalc_rule_#1_display_label_tl } }
+
+% --------------------------------------------------------------------
+% Rule system
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_rule_register:nnn #1 #2 #3
+    {
+        \seqcalc_debug:nn {rule} {Declaring~rule~#1}
+        
+        \int_compare:nNnTF {#2} < {1}
+            {
+                \seqcalc_error:nn
+                    {Premise~count~<~1}
+                    {Use~1,2,3.}
+            }
+            {
+                \int_compare:nNnTF {#2} > {3}
+                    {
+                        \seqcalc_error:nn
+                            {Premise~count~>~3}
+                            {Use~1,2,3.}
+                    }
+                    { }
+            }
+
+        \seqcalc_rule_set_cmd:nn {#1}
+            {
+                \int_case:nn {#2}
+                    {
+                        {1}{UnaryInfC}
+                        {2}{BinaryInfC}
+                        {3}{TrinaryInfC}
+                    }
+            }
+        
+        \tl_if_blank:nF {#3}
+            { \seqcalc_rule_set_label:nn {#1}{#3} }
+        
+        \seqcalc_rule_make_shortcut:n {#1}
+    }
+
+\NewDocumentCommand \SeqCalcDeclareRule { m m O{} }
+    { \seqcalc_rule_register:nnn {#1}{#2}{#3} }
+
+\tl_new:N \l_seqcalc_rule_tmp_label_tl
+\tl_new:N \l_seqcalc_rule_tmp_cmd_tl
+
+\cs_new_protected:Npn \seqcalc_rule_apply:nnn #1 #2 #3
+    {
+        \seqcalc_rule_if_exist:nTF {#1}
+            {
+                \seqcalc_rule_get_cmd:nN {#1} \l_seqcalc_rule_tmp_cmd_tl
+                
+                \seqcalc_rule_if_label_exist:nTF {#1}
+                    {
+                        \seqcalc_rule_get_label:nN {#1} \l_seqcalc_rule_tmp_label_tl
+                        \seqcalc_debug:nn
+                            {rule}
+                            {
+                                Applying~rule~'#1':~
+                                cmd=\tl_use:N \l_seqcalc_rule_tmp_cmd_tl,~
+                                label=\tl_use:N \l_seqcalc_rule_tmp_label_tl
+                            }
+                        
+                        \seqcalc_conclusion:nnnn
+                            { \l_seqcalc_rule_tmp_label_tl }
+                            { \l_seqcalc_rule_tmp_cmd_tl }
+                            { #2 }
+                            { #3 }
+                    }
+                    {
+                        \seqcalc_debug:nn
+                            {rule}
+                            {
+                                Applying~rule~'#1':~
+                                cmd=\tl_use:N \l_seqcalc_rule_tmp_cmd_tl
+                            }
+                        
+                        \seqcalc_conclusion:nnnn
+                            {}
+                            { \l_seqcalc_rule_tmp_cmd_tl }
+                            { #2 }
+                            { #3 }
+                    }
+            }
+            { \seqcalc_error_unknown_rule:n {#1} }
+    }
+
+\NewDocumentCommand \SeqRule { m m O{} }
+    { \seqcalc_rule_apply:nnn {#1}{#2}{#3} }
+
+\cs_new_protected:Npn \seqcalc_rule_make_shortcut:n #1
+    {
+        \cs_if_exist:cTF {#1}
+            {
+                \PackageWarning{seqcalc}
+                    {Shortcut~\string#1~already~exists;~keeping~existing}
+            }
+            { \cs_new_protected:cpn {#1} { \SeqRule{#1} } }
+    }
+
+% --------------------------------------------------------------------
+% Standard rules
+% --------------------------------------------------------------------
+
+\cs_new_protected:Npn \seqcalc_declare_standard_rules:
+    {
+        \SeqCalcDeclareRule{NegL}{1}[\neg\Rightarrow]
+        \SeqCalcDeclareRule{NegR}{1}[\Rightarrow\neg]
+        \SeqCalcDeclareRule{AndL}{1}[\land\Rightarrow]
+        \SeqCalcDeclareRule{AndR}{2}[\Rightarrow\land]
+        \SeqCalcDeclareRule{OrL}{2}[\lor\Rightarrow]
+        \SeqCalcDeclareRule{OrR}{1}[\Rightarrow\lor]
+        \SeqCalcDeclareRule{ImpL}{2}[\to\Rightarrow]
+        \SeqCalcDeclareRule{ImpR}{1}[\Rightarrow\to]
+        \SeqCalcDeclareRule{ForallL}{1}[\forall\Rightarrow]
+        \SeqCalcDeclareRule{ForallR}{1}[\Rightarrow\forall]
+        \SeqCalcDeclareRule{ExistsL}{1}[\exists\Rightarrow]
+        \SeqCalcDeclareRule{ExistsR}{1}[\Rightarrow\exists]
+        \SeqCalcDeclareRule{SubL}{1}[S\Rightarrow]
+        \SeqCalcDeclareRule{SubR}{1}[\Rightarrow S]
+        \SeqCalcDeclareRule{EqL}{1}[\Rightarrow=]
+    }
+
+\NewDocumentCommand \EnableSeqStandardRules { }
+    { \seqcalc_declare_standard_rules: }
+
+% --------------------------------------------------------------------
+% Apply options
+% --------------------------------------------------------------------
+
+% Load shortcuts if requested
+\bool_if:NT \g_seqcalc_opt_shortcuts_bool
+  { \EnableSeqShortcuts }
+
+% Load standard rules if requested
+\bool_if:NT \g_seqcalc_opt_standard_rules_bool
+  { \EnableSeqStandardRules }
+
+% --------------------------------------------------------------------
+
+\ExplSyntaxOff
+
+% --------------------------------------------------------------------
+% Version macro
+% --------------------------------------------------------------------
+\newcommand{\seqcalcVersion}{1.0}

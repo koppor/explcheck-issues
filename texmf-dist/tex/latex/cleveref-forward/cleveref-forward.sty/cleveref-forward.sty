@@ -1,0 +1,938 @@
+%%
+%% Copyright (C) 2023-2024 by Jinwen XU
+%% ------------------------------------
+%%
+%% This package is derived from the package ``cleveref-usedon''.
+%%
+%% This file may be distributed and/or modified under the conditions of
+%% the LaTeX Project Public License, either version 1.3c of this license
+%% or (at your option) any later version.  The latest version of this
+%% license is in:
+%%
+%%    http://www.latex-project.org/lppl.txt
+%%
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{cleveref-forward}
+  {2024/03/15} {}
+  {Forward-referencing functionality for cleveref}
+
+\keys_define:nn { cleveref-forward }
+  {
+    , default        .tl_set:N   = \l__crfwd_default_package_option_tl
+    , default        .initial:n  = { }
+    , default        .value_required:n = true
+    , Used-On        .meta:n     = { default = used-on }
+    , Used~On        .meta:n     = { default = used-on }
+    , Used On        .meta:n     = { default = used-on }
+    , used-on        .meta:n     = { default = used-on }
+    , used~on        .meta:n     = { default = used-on }
+    , used on        .meta:n     = { default = used-on }
+    , uo             .meta:n     = { default = used-on }
+    , Used-By        .meta:n     = { default = used-by }
+    , Used~By        .meta:n     = { default = used-by }
+    , Used By        .meta:n     = { default = used-by }
+    , used-by        .meta:n     = { default = used-by }
+    , used~by        .meta:n     = { default = used-by }
+    , used by        .meta:n     = { default = used-by }
+    , ub             .meta:n     = { default = used-by }
+    , Used-By-And-On .meta:n     = { default = used-by-and-on }
+    , Used~By~And~On .meta:n     = { default = used-by-and-on }
+    , Used By And On .meta:n     = { default = used-by-and-on }
+    , used-by-and-on .meta:n     = { default = used-by-and-on }
+    , used~by~and~on .meta:n     = { default = used-by-and-on }
+    , used by and on .meta:n     = { default = used-by-and-on }
+    , ubao           .meta:n     = { default = used-by-and-on }
+    , ubo            .meta:n     = { default = used-by-and-on }
+
+    , crefthe        .bool_set:N = \l__crfwd_crefthe_enabled_bool
+    , crefthe        .initial:n  = { false }
+
+    , unknown        .code:n     = { }
+  }
+\ProcessKeyOptions [ cleveref-forward ]
+
+\RequirePackage { cleveref }
+\bool_if:NT \l__crfwd_crefthe_enabled_bool
+  {
+    \RequirePackage { crefthe }
+  }
+
+% Fix for cleveref in order to work with long range of pages
+% See https://tex.stackexchange.com/a/620066
+\providecommand*{\@setcpagerefrange}[3]{%
+    \@@setcpagerefrange{#1}{#2}{cref}{#3}}
+\providecommand*{\@setCpagerefrange}[3]{%
+    \@@setcpagerefrange{#1}{#2}{Cref}{#3}}
+\providecommand*{\@setlabelcpagerefrange}[3]{%
+    \@@setcpagerefrange{#1}{#2}{labelcref}{#3}}
+
+% Fix for cleveref in order to work with xr-hyper
+% See https://tex.stackexchange.com/a/708445
+\def\cref@getref#1#2{%
+  \expandafter\let\expandafter#2\csname r@#1@cref\endcsname%
+  \expandafter\expandafter\expandafter\def%
+    \expandafter\expandafter\expandafter#2%
+    \expandafter\expandafter\expandafter{%
+      \expandafter\@firstoffive#2}}% <-------- five
+\def\cpageref@getref#1#2{%
+  \expandafter\let\expandafter#2\csname r@#1@cref\endcsname%
+  \expandafter\expandafter\expandafter\def%
+    \expandafter\expandafter\expandafter#2%
+    \expandafter\expandafter\expandafter{%
+      \expandafter\@secondoffive#2}}% <----------- five
+\AtBeginDocument{%
+  \def\label@noarg#1{%
+    \cref@old@label{#1}%
+    \@bsphack%
+    \edef\@tempa{{page}{\the\c@page}}%
+    \setcounter{page}{1}%
+    \edef\@tempb{\thepage}%
+    \expandafter\setcounter\@tempa%
+    \cref@constructprefix{page}{\cref@result}%
+    \protected@write\@auxout{}%
+      {\string\newlabel{#1@cref}{{\cref@currentlabel}%
+      {[\@tempb][\arabic{page}][\cref@result]\thepage}{}{}{}}}% <----- five
+    \@esphack}%
+  \def\label@optarg[#1]#2{%
+    \cref@old@label{#2}%
+    \@bsphack%
+    \edef\@tempa{{page}{\the\c@page}}%
+    \setcounter{page}{1}%
+    \edef\@tempb{\thepage}%
+    \expandafter\setcounter\@tempa%
+    \cref@constructprefix{page}{\cref@result}%
+    \protected@edef\cref@currentlabel{%
+      \expandafter\cref@override@label@type%
+        \cref@currentlabel\@nil{#1}}%
+    \protected@write\@auxout{}%
+      {\string\newlabel{#2@cref}{{\cref@currentlabel}%
+      {[\@tempb][\arabic{page}][\cref@result]\thepage}{}{}{}}}% <------- five
+    \@esphack}%
+}
+
+\prg_generate_conditional_variant:Nnn \str_case:nn { x } { T, TF }
+\cs_generate_variant:Nn \str_case:nn { x }
+
+\seq_new:N \g__crfwd_k_seq
+\prop_new:N \g__crfwd_kv_prop
+\clist_new:N \g__crfwd_options_clist
+\clist_set:Nn \g__crfwd_options_clist { UsedOn, UsedBy, UsedByAndOn }
+
+\cs_new:Nn \__crfwd_usedon_message_text:n { }
+\cs_new:Nn \__crfwd_usedby_message_text:n { }
+\cs_new:Nn \__crfwd_usedbyandon_message_text:nn { }
+\NewDocumentCommand \UsedOnMessageText { m } { \__crfwd_usedon_message_text:n { #1 } }
+\NewDocumentCommand \UsedByMessageText { m } { \__crfwd_usedby_message_text:n { #1 } }
+\NewDocumentCommand \UsedByAndOnMessageText { m m } { \__crfwd_usedbyandon_message_text:nn { #1 } { #2 } }
+% Alternative names
+\NewDocumentCommand \UsedOnMessageContent { m } { \__crfwd_usedon_message_text:n { #1 } }
+\NewDocumentCommand \UsedByMessageContent { m } { \__crfwd_usedby_message_text:n { #1 } }
+\NewDocumentCommand \UsedByAndOnMessageContent { m m } { \__crfwd_usedbyandon_message_text:nn { #1 } { #2 } }
+
+\NewDocumentCommand \SetUsedOnMessageText { m }
+  {
+    \cs_set:Nn \__crfwd_usedon_message_text:n { #1 }
+  }
+\NewDocumentCommand \SetUsedByMessageText { m }
+  {
+    \cs_set:Nn \__crfwd_usedby_message_text:n { #1 }
+  }
+\NewDocumentCommand \SetUsedByAndOnMessageText { m }
+  {
+    \cs_set:Nn \__crfwd_usedbyandon_message_text:nn { #1 }
+  }
+% Alternative names
+\NewDocumentCommand \SetUsedOnMessageContent { m }
+  {
+    \cs_set:Nn \__crfwd_usedon_message_text:n { #1 }
+  }
+\NewDocumentCommand \SetUsedByMessageContent { m }
+  {
+    \cs_set:Nn \__crfwd_usedby_message_text:n { #1 }
+  }
+\NewDocumentCommand \SetUsedByAndOnMessageContent { m }
+  {
+    \cs_set:Nn \__crfwd_usedbyandon_message_text:nn { #1 }
+  }
+
+\RequirePackage { iflang }
+
+% The default text
+\SetUsedOnMessageText { (Used~on~#1.) }
+\SetUsedByMessageText { (Used~by~#1.) }
+\SetUsedByAndOnMessageText { (Used~by~#1~on~#2.) }
+
+\cs_new:Nn \__crfwd_usedon_message:n { }
+\NewDocumentCommand \UsedOnMessage { m } { \__crfwd_usedon_message:n { #1 } }
+\cs_new:Nn \__crfwd_usedby_message:n { }
+\NewDocumentCommand \UsedByMessage { m } { \__crfwd_usedby_message:n { #1 } }
+\cs_new:Nn \__crfwd_usedbyandon_message:nn { }
+\NewDocumentCommand \UsedByAndOnMessage { m m } { \__crfwd_usedbyandon_message:nn { #1 } { #2 } }
+
+\cs_new:Nn \__crfwd_usedon_message_math:n { }
+\NewCommandCopy \UsedOnMessageMath \__crfwd_usedon_message_math:n
+\cs_new:Nn \__crfwd_usedby_message_math:n { }
+\NewCommandCopy \UsedByMessageMath \__crfwd_usedby_message_math:n
+\cs_new:Nn \__crfwd_usedbyandon_message_math:nn { }
+\NewCommandCopy \UsedByAndOnMessageMath \__crfwd_usedbyandon_message_math:nn
+\cs_new:Nn \__crfwd_usedon_message_inside_math:n { }
+\NewDocumentCommand \UsedOnMessageInsideMath { m } { \__crfwd_usedon_message_inside_math:n { #1 } }
+\cs_new:Nn \__crfwd_usedby_message_inside_math:n { }
+\NewDocumentCommand \UsedByMessageInsideMath { m } { \__crfwd_usedby_message_inside_math:n { #1 } }
+\cs_new:Nn \__crfwd_usedbyandon_message_inside_math:nn { }
+\NewDocumentCommand \UsedByAndOnMessageInsideMath { m m } { \__crfwd_usedbyandon_message_inside_math:nn { #1 } { #2 } }
+\cs_new:Nn \__crfwd_usedon_message_outside_math:n { }
+\NewDocumentCommand \UsedOnMessageOutsideMath { m } { \__crfwd_usedon_message_outside_math:n { #1 } }
+\cs_new:Nn \__crfwd_usedby_message_outside_math:n { }
+\NewDocumentCommand \UsedByMessageOutsideMath { m } { \__crfwd_usedby_message_outside_math:n { #1 } }
+\cs_new:Nn \__crfwd_usedbyandon_message_outside_math:nn { }
+\NewDocumentCommand \UsedByAndOnMessageOutsideMath { m m } { \__crfwd_usedbyandon_message_outside_math:nn { #1 } { #2 } }
+
+\tl_new:N \g__crfwd_tmpa_tl
+\NewDocumentCommand \SetUsedOnMessageStyle { m }
+  {
+    % \cs_set:Nn \__crfwd_usedon_message:n { #1 }
+    \cs_set:Npn \__crfwd_usedon_message:n ##1 { \cs_set:Nn \__crfwd_usedon_message:n { #1 } }
+    \__crfwd_usedon_message:n { \UsedOnMessageText{##1} }
+  }
+\NewDocumentCommand \SetUsedByMessageStyle { m }
+  {
+    \cs_set:Npn \__crfwd_usedby_message:n ##1 { \cs_set:Nn \__crfwd_usedby_message:n { #1 } }
+    \__crfwd_usedby_message:n { \UsedByMessageText{##1} }
+  }
+\NewDocumentCommand \SetUsedByAndOnMessageStyle { m }
+  {
+    \cs_set:Npn \__crfwd_usedbyandon_message:nn ##1 { \cs_set:Nn \__crfwd_usedbyandon_message:nn { #1 } }
+    \__crfwd_usedbyandon_message:nn { \UsedByAndOnMessageText{##1}{##2} }
+  }
+\bool_new:N \g__crfwd_inside_math_bool
+\NewDocumentCommand \SetUsedOnMessageStyleInsideMath { m }
+  {
+    \bool_set_true:N \g__crfwd_inside_math_bool
+    \cs_set:Npn \__crfwd_usedon_message_inside_math:n ##1 { \cs_set:Nn \__crfwd_usedon_message_inside_math:n { #1 } }
+    \__crfwd_usedon_message_inside_math:n { \UsedOnMessageText{##1} }
+  }
+\NewDocumentCommand \SetUsedByMessageStyleInsideMath { m }
+  {
+    \bool_set_true:N \g__crfwd_inside_math_bool
+    \cs_set:Npn \__crfwd_usedby_message_inside_math:n ##1 { \cs_set:Nn \__crfwd_usedby_message_inside_math:n { #1 } }
+    \__crfwd_usedby_message_inside_math:n { \UsedByMessageText{##1} }
+  }
+\NewDocumentCommand \SetUsedByAndOnMessageStyleInsideMath { m }
+  {
+    \bool_set_true:N \g__crfwd_inside_math_bool
+    \cs_set:Npn \__crfwd_usedbyandon_message_inside_math:nn ##1 { \cs_set:Nn \__crfwd_usedbyandon_message_inside_math:nn { #1 } }
+    \__crfwd_usedbyandon_message_inside_math:nn { \UsedByAndOnMessageText{##1}{##2} }
+  }
+
+\clist_new:N \l__crfwd_supported_equation_env_clist
+\clist_set:Nn \l__crfwd_supported_equation_env_clist
+  {
+    equation,
+    align, flalign, alignat,
+    gather,
+    multline,
+    dmath,
+  }
+\cs_new:Nn \__crfwd_message_outsidemath_hook_gremove_code:nn
+  {
+    \clist_map_inline:Nn \l__crfwd_supported_equation_env_clist
+      {
+        \hook_gremove_code:nn { env/##1/#1 } { cleveref-forward- #2 -message-outsidemath }
+      }
+  }
+\cs_new:Nn \__crfwd_message_outsidemath_hook_gput_code:nnn
+  {
+    \clist_map_inline:Nn \l__crfwd_supported_equation_env_clist
+      {
+        \hook_gput_code:nnn { env/##1/#1 } { cleveref-forward- #2 -message-outsidemath } { #3 }
+      }
+  }
+\cs_new:Nn \__crfwd_message_outsidemath_hook_gset_rule:nnnn
+  {
+    \clist_map_inline:Nn \l__crfwd_supported_equation_env_clist
+      {
+        \hook_gset_rule:nnnn { env/##1/#1 } { cleveref-forward- #2 -message-outsidemath } { #3 } { cleveref-forward- #4 -message-outsidemath }
+      }
+  }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedOn }      { }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedBy }      { }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedByAndOn } { }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { after }  { UsedOn }      { }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { after }  { UsedBy }      { }
+\__crfwd_message_outsidemath_hook_gput_code:nnn { after }  { UsedByAndOn } { }
+\NewDocumentCommand \SetUsedOnMessageStyleOutsideMath { m }
+  {
+    \bool_set_false:N \g__crfwd_inside_math_bool
+    \RenewDocumentCommand \UsedOnMessageOutsideMath { m }
+      {
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedOn } { voids } { UsedBy }
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedOn } { voids } { UsedByAndOn }
+        \tl_gset:Ne \g__crfwd_tmpa_tl { ##1 }
+      }
+    \cs_set:Npn \__crfwd_usedon_message_outside_math:n ##1
+      {
+        \cs_set:Nn \__crfwd_usedon_message_outside_math:n
+          {
+            \bool_if:NF \g__crfwd_label_no_use_bool
+              {
+                \tl_if_empty:NF \g__crfwd_tmpa_tl
+                  {
+                    #1
+                  }
+              }
+          }
+      }
+    \__crfwd_usedon_message_outside_math:n { \UsedOnMessageText{##1} }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { before } { UsedOn }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedOn }
+      {
+        \tl_gclear:N \g__crfwd_tmpa_tl
+      }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { after } { UsedOn }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { after } { UsedOn }
+      {
+        \__crfwd_usedon_message_outside_math:n { \tl_use:N \g__crfwd_tmpa_tl }
+      }
+  }
+\NewDocumentCommand \SetUsedByMessageStyleOutsideMath { m }
+  {
+    \bool_set_false:N \g__crfwd_inside_math_bool
+    \RenewDocumentCommand \UsedByMessageOutsideMath { m }
+      {
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedBy } { voids } { UsedOn }
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedBy } { voids } { UsedByAndOn }
+        \tl_gset:Ne \g__crfwd_tmpa_tl { ##1 }
+      }
+    \cs_set:Npn \__crfwd_usedby_message_outside_math:n ##1
+      {
+        \cs_set:Nn \__crfwd_usedby_message_outside_math:n
+          {
+            \bool_if:NF \g__crfwd_label_no_use_bool
+              {
+                \tl_if_empty:NF \g__crfwd_tmpa_tl
+                  {
+                    #1
+                  }
+              }
+          }
+      }
+    \__crfwd_usedby_message_outside_math:n { \UsedByMessageText{##1} }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { before } { UsedBy }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedBy }
+      {
+        \tl_gclear:N \g__crfwd_tmpa_tl
+      }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { after } { UsedBy }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { after } { UsedBy }
+      {
+        \__crfwd_usedby_message_outside_math:n { \tl_use:N \g__crfwd_tmpa_tl }
+      }
+  }
+\NewDocumentCommand \SetUsedByAndOnMessageStyleOutsideMath { m }
+  {
+    \bool_set_false:N \g__crfwd_inside_math_bool
+    \RenewDocumentCommand \UsedByAndOnMessageOutsideMath { m m }
+      {
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedByAndOn } { voids } { UsedOn }
+        \__crfwd_message_outsidemath_hook_gset_rule:nnnn { after } { UsedByAndOn } { voids } { UsedBy }
+        \tl_gset:Ne \g__crfwd_tmpa_tl { ##1 }
+        \tl_gset:Ne \g__crfwd_tmpb_tl { ##2 }
+      }
+    \cs_set:Npn \__crfwd_usedbyandon_message_outside_math:nn ##1
+      {
+        \cs_set:Nn \__crfwd_usedbyandon_message_outside_math:nn
+          {
+            \bool_if:NF \g__crfwd_label_no_use_bool
+              {
+                \tl_if_empty:NF \g__crfwd_tmpa_tl
+                  {
+                    #1
+                  }
+              }
+          }
+      }
+    \__crfwd_usedbyandon_message_outside_math:nn { \UsedByAndOnMessageText{##1}{##2} }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { before } { UsedByAndOn }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { before } { UsedByAndOn }
+      {
+        \tl_gclear:N \g__crfwd_tmpa_tl
+        \tl_gclear:N \g__crfwd_tmpb_tl
+      }
+    \__crfwd_message_outsidemath_hook_gremove_code:nn { after } { UsedByAndOn }
+    \__crfwd_message_outsidemath_hook_gput_code:nnn { after } { UsedByAndOn }
+      {
+        \__crfwd_usedbyandon_message_outside_math:nn { \tl_use:N \g__crfwd_tmpa_tl } { \tl_use:N \g__crfwd_tmpb_tl }
+      }
+  }
+
+\NewDocumentCommand \SetForwardReferenceStyle { m }
+  {
+    \SetUsedOnMessageStyle { #1 }
+    \SetUsedByMessageStyle { #1 }
+    \SetUsedByAndOnMessageStyle { #1 }
+  }
+\NewDocumentCommand \SetForwardReferenceStyleInsideMath { m }
+  {
+    \SetUsedOnMessageStyleInsideMath { #1 }
+    \SetUsedByMessageStyleInsideMath { #1 }
+    \SetUsedByAndOnMessageStyleInsideMath { #1 }
+  }
+\NewDocumentCommand \SetForwardReferenceStyleOutsideMath { m }
+  {
+    \SetUsedOnMessageStyleOutsideMath { #1 }
+    \SetUsedByMessageStyleOutsideMath { #1 }
+    \SetUsedByAndOnMessageStyleOutsideMath { #1 }
+  }
+
+% The default style
+\SetForwardReferenceStyle
+  {
+    \emph{#1} \\[.3\baselineskip]
+  }
+\SetForwardReferenceStyleOutsideMath
+  {
+    \begin{flushright}
+      \emph{#1}
+    \end{flushright}
+    \vspace{.15\baselineskip}
+  }
+
+\cs_new:Nn \__crfwd_cref_adjusted:n { \cref{#1} }
+\cs_new:Nn \__crfwd_cpageref_adjusted:n { \cpageref{#1} }
+\cs_new:Npn \__crfwd_adjust_cref_user: { }
+\cs_new:Npn \__crfwd_adjust_cpageref_user: { }
+\NewDocumentCommand \SetForwardReferenceRefForm { m }
+  {
+    % \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { #1{##1} }
+    \cs_set:Npn \__crfwd_adjust_cref_user:
+      {
+        \cs_set:Npn \__crfwd_cref_adjusted:n ####1 { #1{####1} }
+      }
+  }
+\NewDocumentCommand \SetForwardReferencePagerefForm { m }
+  {
+    % \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { #1{##1} }
+    \cs_set:Npn \__crfwd_adjust_cpageref_user:
+      {
+        \cs_set:Npn \__crfwd_cpageref_adjusted:n ####1 { #1{####1} }
+      }
+  }
+\bool_if:NTF \l__crfwd_crefthe_enabled_bool
+  {
+    \AtBeginDocument
+      {
+        \addto\extrasfrench{\crefthename{page}[le]{page}[les]{pages}}
+        \addto\extrasspanish{\crefthename{page}[la]{página}[las]{páginas}}
+      }
+    \SetUsedOnMessageText
+      {
+        \IfLanguageName{english}
+            { (Used~on~#1.) } {}
+        \IfLanguageName{french}
+            { (Apparaît~en~#1.) } {}
+        \IfLanguageName{ngerman}
+            { (Wird~auf~#1.) } {}
+        \IfLanguageName{italian}
+            { (Appare~a~#1.) } {}
+        \IfLanguageName{spanish}
+            { (Aparece~en~#1.) } {}
+      }
+    \SetUsedByMessageText
+      {
+        \IfLanguageName{english}
+            { (Used~by~#1.) } {}
+        \IfLanguageName{french}
+            { (Apparaît~dans~#1.) } {}
+        \IfLanguageName{ngerman}
+            { (Wird~#1.) } {}
+        \IfLanguageName{italian}
+            { (Appare~#1.) } {}
+        \IfLanguageName{spanish}
+            { (Aparece~en~#1.) } {}
+      }
+    \SetUsedByAndOnMessageText
+      {
+        \IfLanguageName{english}
+            { (Used~by~#1~on~#2.) } {}
+        \IfLanguageName{french}
+            { (Apparaît~dans~#1~en~#2.) } {}
+        \IfLanguageName{ngerman}
+            { (Wird~#1~auf~#2.) } {}
+        \IfLanguageName{italian}
+            { (Appare~#1~a~#2.) } {}
+        \IfLanguageName{spanish}
+            { (Aparece~en~#1~en~#2.) } {}
+      }
+    \cs_new:Nn \__crfwd_adjust_cref_commands:
+      {
+        \IfLanguageName{english}
+          {
+            \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \cref{##1} }
+            \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpageref{##1} }
+          } {}
+        \IfLanguageName{french}
+          {
+            \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \crefthe{##1} }
+            \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpagerefthe[noun]{##1} }
+          } {}
+        \IfLanguageName{ngerman}
+          {
+            \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \crefthe[von,dat.]{##1} }
+            \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpagerefthe[noun]{##1} }
+          } {}
+        \IfLanguageName{italian}
+          {
+            \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \crefthe[in]{##1} }
+            \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpagerefthe[noun]{##1} }
+          } {}
+        \IfLanguageName{spanish}
+          {
+            \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \crefthe{##1} }
+            \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpagerefthe{##1} }
+          } {}
+        \__crfwd_adjust_cref_user:
+        \__crfwd_adjust_cpageref_user:
+      }
+  }
+  {
+    \cs_new:Nn \__crfwd_adjust_cref_commands:
+      {
+        \cs_set:Npn \__crfwd_cref_adjusted:n ##1 { \cref{##1} }
+        \cs_set:Npn \__crfwd_cpageref_adjusted:n ##1 { \cpageref{##1} }
+        \__crfwd_adjust_cref_user:
+        \__crfwd_adjust_cpageref_user:
+      }
+  }
+
+\cs_new:Nn \__crfwd_printer_generic:nnn
+  {
+    % Check if the reference #1@<LabelName>@1 exists
+    % Here the @1 means that <LabelName> has been referenced
+    % with option #1 at least once where #1 is
+    % 'UsedOn', 'UsedBy' or 'UsedByAndOn'
+    \cs_if_exist:cT {r@#1@#2@1}
+      {
+        % In a tmp clist we store all the references of the form
+        %    `<Option>@<LabelName>@<Number>`
+        % where Number between 1 and \value{LastRun@UsedOn@<LabelName>}
+        % if the latter exists, otherwise until 1
+        % Should/will normally need two consecutive runs of pdflatex
+        \cs_if_free:cTF {c@LastRun@#1@#2}
+          { \int_set:Nn \l_tmpa_int { 1 } }
+          { \int_set:Nn \l_tmpa_int { \value{LastRun@#1@#2} } }
+        \int_set:Nn \l_tmpb_int { 1 }
+        \int_while_do:nn { \l_tmpb_int <= \l_tmpa_int }
+          {
+            \clist_put_right:Nx \l_tmpa_clist { #1@#2@\int_use:N \l_tmpb_int }
+            \int_incr:N \l_tmpb_int
+          }
+        #3
+    }
+  }
+\cs_new:Nn \__crfwd_printer:nn
+  {
+    \__crfwd_adjust_cref_commands:
+    \__crfwd_printer_generic:nnn { #1 } { #2 }
+      {
+        % Print `UsedOn` message by calling \cpageref with the parameter clist above
+        % Uncomment the next two lines for debugging to see the contents of \l_tmpa_clist
+        %%   Arguments~of~cpageref/cref~are:
+        %%   \par\clist_use:Nn \l_tmpa_clist {\par}\par
+        \str_case:xn { \str_foldcase:n { #1 } }
+          {
+            {used-on}        { \UsedOnMessage { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used~on}        { \UsedOnMessage { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used on}        { \UsedOnMessage { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {uo}             { \UsedOnMessage { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used-by}        { \UsedByMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used~by}        { \UsedByMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used by}        { \UsedByMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {ub}             { \UsedByMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used-by-and-on} { \UsedByAndOnMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used~by~and~on} { \UsedByAndOnMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used by and on} { \UsedByAndOnMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {ubao}           { \UsedByAndOnMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {ubo}            { \UsedByAndOnMessage { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+          }
+      }
+  }
+\cs_new:Nn \__crfwd_printer_math:nn
+  {
+    \__crfwd_adjust_cref_commands:
+    \__crfwd_printer_generic:nnn { #1 } { #2 }
+      {
+        % Print `UsedOn` message by calling \cpageref with the parameter clist above
+        % Uncomment the next two lines for debugging to see the contents of \l_tmpa_clist
+        %%   Arguments~of~cpageref/cref~are:
+        %%   \par\clist_use:Nn \l_tmpa_clist {\par}\par
+        \bool_if:NTF \g__crfwd_inside_math_bool
+          {
+            \RenewCommandCopy \UsedOnMessageMath \UsedOnMessageInsideMath
+            \RenewCommandCopy \UsedByMessageMath \UsedByMessageInsideMath
+            \RenewCommandCopy \UsedByAndOnMessageMath \UsedByAndOnMessageInsideMath
+          }
+          {
+            \RenewCommandCopy \UsedOnMessageMath \UsedOnMessageOutsideMath
+            \RenewCommandCopy \UsedByMessageMath \UsedByMessageOutsideMath
+            \RenewCommandCopy \UsedByAndOnMessageMath \UsedByAndOnMessageOutsideMath
+          }
+        \str_case:xn { \str_foldcase:n { #1 } }
+          {
+            {used-on}        { \UsedOnMessageMath { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used~on}        { \UsedOnMessageMath { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used on}        { \UsedOnMessageMath { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {uo}             { \UsedOnMessageMath { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used-by}        { \UsedByMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used~by}        { \UsedByMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used by}        { \UsedByMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {ub}             { \UsedByMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } }
+            {used-by-and-on} { \UsedByAndOnMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used~by~and~on} { \UsedByAndOnMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {used by and on} { \UsedByAndOnMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {ubao}           { \UsedByAndOnMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+            {ubo}            { \UsedByAndOnMessageMath { \__crfwd_cref_adjusted:n { \l_tmpa_clist } } { \__crfwd_cpageref_adjusted:n { \l_tmpa_clist } } }
+          }
+      }
+  }
+
+\cs_new:Nn \__crfwd_print_message:n
+  {
+    \clist_map_inline:Nn \g__crfwd_options_clist
+      {
+        \__crfwd_printer:nn { ##1 } { #1 }
+      }
+  }
+\cs_new:Nn \__crfwd_print_message_math:n
+  {
+    \clist_map_inline:Nn \g__crfwd_options_clist
+      {
+        \__crfwd_printer_math:nn { ##1 } { #1 }
+      }
+  }
+
+\str_new:N \l__crfwd_option_str
+\msg_new:nnn {cleveref-forward} { unrecognised-option }
+  {
+    Unrecognised~option~`#1'.
+  }
+\NewDocumentCommand \__crfwd_processor:w { o m }
+  {
+    \IfValueT { #1 }
+      {
+        \str_case:xnTF { \str_foldcase:n { #1 } }
+          {
+              % check if options 'UsedOn', 'UsedBy' or 'UsedByAndOn'
+              % (case-insensitive) were used in one of the following forms
+              {used-on}        { \str_set:Nn \l__crfwd_option_str {UsedOn} }
+              {used~on}        { \str_set:Nn \l__crfwd_option_str {UsedOn} }
+              {used on}        { \str_set:Nn \l__crfwd_option_str {UsedOn} }
+              {uo}             { \str_set:Nn \l__crfwd_option_str {UsedOn} }
+              {used-by}        { \str_set:Nn \l__crfwd_option_str {UsedBy} }
+              {used~by}        { \str_set:Nn \l__crfwd_option_str {UsedBy} }
+              {used by}        { \str_set:Nn \l__crfwd_option_str {UsedBy} }
+              {ub}             { \str_set:Nn \l__crfwd_option_str {UsedBy} }
+              {used-by-and-on} { \str_set:Nn \l__crfwd_option_str {UsedByAndOn} }
+              {used~by~and~on} { \str_set:Nn \l__crfwd_option_str {UsedByAndOn} }
+              {used by and on} { \str_set:Nn \l__crfwd_option_str {UsedByAndOn} }
+              {ubao}           { \str_set:Nn \l__crfwd_option_str {UsedByAndOn} }
+              {ubo}            { \str_set:Nn \l__crfwd_option_str {UsedByAndOn} }
+          }
+          {
+              {
+                % Loop through (potential) label list in arg of \cref (or \Cref)
+                \seq_set_from_clist:Nn \l_tmpa_seq { #2 }
+                \seq_map_inline:Nn \l_tmpa_seq
+                  {
+                    % if the label has not been referenced yet,
+                    % create a counter for the current and last run and save the label in the
+                    % global container \g_@@_k_seq
+                    \seq_if_in:NxF \g__crfwd_k_seq { \l__crfwd_option_str @##1 }
+                      {
+                          \newcounter{ ThisRun@ \l__crfwd_option_str @##1 }
+                          \cs_if_free:cT {c@LastRun@ \l__crfwd_option_str @##1}
+                            {
+                              \newcounter{LastRun@ \l__crfwd_option_str @##1}
+                            }
+                          \seq_gput_right:Nx \g__crfwd_k_seq
+                            { \l__crfwd_option_str @##1}
+                      }
+                    % increase the counters and compare with max counter
+                    \stepcounter{ThisRun@ \l__crfwd_option_str @##1}
+                    \setcounter{LastRun@ \l__crfwd_option_str @##1}
+                      {
+                        \fp_eval:n
+                          {
+                            max(
+                              \value{ThisRun@ \l__crfwd_option_str @##1} ,
+                              \value{LastRun@ \l__crfwd_option_str @##1}
+                            )
+                          }
+                      }
+                      % store the value in global key-value property list
+                      \prop_gput:Nxx \g__crfwd_kv_prop
+                        { \l__crfwd_option_str @##1}
+                        {\arabic{LastRun@ \l__crfwd_option_str @##1}}
+                      % create a label for the UsedOn reference and number this label
+                      \__crfwd_orig_label:w
+                        {
+                          \l__crfwd_option_str @##1@
+                          \arabic{ThisRun@ \l__crfwd_option_str @##1}
+                        }
+                  }
+              }
+          }
+          {
+              \msg_warning:nnn { cleveref-forward } { unrecognised-option } { #1 }
+          }
+      }
+  }
+\bool_new:N \g__crfwd_ref_no_use_bool
+\bool_new:N \l__crfwd_option_has_been_chosen_bool
+\clist_new:N \l__crfwd_local_options_clist
+\cs_new:Nn \__crfwd_define_from_orig_:NN
+  {
+    \NewDocumentCommand #1 { s o m }
+      {
+        \IfValueTF { ##2 }
+          {
+            \bool_set_false:N \l__crfwd_option_has_been_chosen_bool
+            \bool_set_false:N \g__crfwd_ref_no_use_bool
+            \clist_set:Nn \l__crfwd_local_options_clist { ##2 }
+            \clist_put_right:No \l__crfwd_local_options_clist { \l__crfwd_default_package_option_tl }
+            \clist_map_inline:Nn \l__crfwd_local_options_clist
+              {
+                \str_case:xnT { \str_foldcase:n { ####1 } }
+                  {
+                    {no-use}  {}
+                    {no~use}  {}
+                    {no use}  {}
+                    {not-use} {}
+                    {not~use} {}
+                    {not use} {}
+                  }
+                  {
+                    \clist_remove_all:Nn \l__crfwd_local_options_clist { ####1 }
+                    \bool_gset_true:N \g__crfwd_ref_no_use_bool
+                  }
+              }
+            \clist_map_inline:Nn \l__crfwd_local_options_clist
+              {
+                \str_case:xnT { \str_foldcase:n { ####1 } }
+                  {
+                    {used-on}        {}
+                    {used~on}        {}
+                    {used on}        {}
+                    {uo}             {}
+                    {used-by}        {}
+                    {used~by}        {}
+                    {used by}        {}
+                    {ub}             {}
+                    {used-by-and-on} {}
+                    {used~by~and~on} {}
+                    {used by and on} {}
+                    {ubao}           {}
+                    {ubo}            {}
+                  }
+                  {
+                    \clist_remove_all:Nn \l__crfwd_local_options_clist { ####1 }
+                    \bool_if:NF \l__crfwd_option_has_been_chosen_bool
+                      {
+                        \bool_if:NF \g__crfwd_ref_no_use_bool
+                          {
+                            \__crfwd_processor:w [ ####1 ] { ##3 }
+                          }
+                      }
+                    \bool_set_true:N \l__crfwd_option_has_been_chosen_bool
+                  }
+              }
+            \clist_if_empty:NTF \l__crfwd_local_options_clist
+              {
+                \IfBooleanTF { ##1 } { #2*{##3} } { #2{##3} }
+              }
+              {
+                \IfBooleanTF { ##1 } { #2*[\l__crfwd_local_options_clist]{##3} } { #2[\l__crfwd_local_options_clist]{##3} }
+              }
+          }
+          {
+            \tl_if_blank:VF \l__crfwd_default_package_option_tl
+              {
+                \clist_clear:N \l__crfwd_local_options_clist
+                \clist_put_right:No \l__crfwd_local_options_clist { \l__crfwd_default_package_option_tl }
+                \clist_map_inline:Nn \l__crfwd_local_options_clist
+                  {
+                    \__crfwd_processor:w [ ####1 ] { ##3 }
+                  }
+              }
+            \IfBooleanTF { ##1 } { #2*{##3} } { #2{##3} }
+          }
+      }
+  }
+\__crfwd_define_from_orig_:NN \__crfwd_cref:w \__crfwd_orig_cref:w
+\__crfwd_define_from_orig_:NN \__crfwd_Cref:w \__crfwd_orig_Cref:w
+\__crfwd_define_from_orig_:NN \__crfwd_labelcref:w \__crfwd_orig_labelcref:w
+\cs_new:Npn \__crfwd_read_from_aux:
+  {
+    \prop_map_inline:Nn \g__crfwd_kv_prop
+      {
+          \newcounter{LastRun@##1}
+          \setcounter{LastRun@##1}{##2}
+      }
+  }
+\cs_new:Npn \__crfwd_write_to_aux:
+  {
+    % First, we clear the global key-value prop list \cs{g_@@_kv_prop} and
+    % then we rebuild it with the information from the current run.
+    \prop_clear:N \g__crfwd_kv_prop
+    \seq_map_inline:Nn \g__crfwd_k_seq
+      { \prop_gput:Nxx \g__crfwd_kv_prop {##1}{\arabic{ThisRun@##1}} }
+    % Turn on |expl3| functionality in .aux file.
+    \iow_now:cx { @auxout }
+      { \token_to_str:N \ExplSyntaxOn }
+    % Loop through the key-val |proplist| and write contents to .aux file.
+    \prop_map_inline:Nn \g__crfwd_kv_prop
+      {
+        \tl_set:Nn \l_tmpa_tl { ##1 }
+        \tl_replace_all:Nnn \l_tmpa_tl { ~ } { \c_tilde_str }
+        \iow_now:cx { @auxout }
+          {
+            \prop_gput_from_keyval:Nn \token_to_str:N \g__crfwd_kv_prop
+              { {\l_tmpa_tl} = ##2 }
+          }
+      }
+    % Turn off |expl3| functionality in .aux file.
+    \iow_now:cx { @auxout }
+      { \token_to_str:N \ExplSyntaxOff }
+}%
+
+\RequirePackage { regexpatch }
+\@namedef{ver@xpatch.sty}{}
+
+\hook_gput_code:nnn { begindocument/end } { cleveref-forward }
+  {
+    \__crfwd_read_from_aux:
+    \cs_if_exist:NF \label@in@display { \NewCommandCopy \label@in@display \label }
+    \NewCommandCopy \__crfwd_orig_label_in_display:w \label@in@display
+    \NewCommandCopy \__crfwd_orig_label:w \label
+    \NewCommandCopy \__crfwd_orig_cref:w  \cref
+    \NewCommandCopy \__crfwd_orig_Cref:w  \Cref
+    \NewCommandCopy \__crfwd_orig_labelcref:w \labelcref
+    \bool_new:N \g__crfwd_label_no_use_bool
+    \prop_new:N \g__crfwd_label_prop
+    \cs_new:Nn \__crfwd_label_generic:nnn
+      % #1 = optional argument of \label
+      % #2 = mandatory argument of \label
+      % #3 = the varying part
+      {
+        \bool_gset_false:N \g__crfwd_label_no_use_bool
+        \prop_gput:Nno \g__crfwd_label_prop { #2 } { \cref@currentlabel }
+        \clist_clear:N \l__crfwd_local_options_clist
+        \IfValueT { #1 }
+          {
+            \clist_set:Nn \l__crfwd_local_options_clist { #1 }
+          }
+        \clist_map_inline:Nn \l__crfwd_local_options_clist
+          {
+            \str_case:xnT { \str_foldcase:n { ##1 } }
+              {
+                {no-use}  {}
+                {no~use}  {}
+                {no use}  {}
+                {not-use} {}
+                {not~use} {}
+                {not use} {}
+              }
+              {
+                \clist_remove_all:Nn \l__crfwd_local_options_clist { ##1 }
+                \bool_gset_true:N \g__crfwd_label_no_use_bool
+              }
+          }
+        #3
+      }
+    \RenewDocumentCommand \label { o m }
+      {
+        \__crfwd_label_generic:nnn { #1 } { #2 }
+          {
+            \if_mode_math: % this is for environments that do not use \label@in@display
+              \clist_if_empty:NTF \l__crfwd_local_options_clist
+                {
+                  \__crfwd_orig_label_in_display:w { #2 }
+                }
+                {
+                  \__crfwd_orig_label_in_display:w [ \l__crfwd_local_options_clist ] { #2 }
+                }
+              \bool_if:NF \g__crfwd_label_no_use_bool
+                {
+                  \__crfwd_print_message:n { #2 }
+                }
+            \else:
+              \clist_if_empty:NTF \l__crfwd_local_options_clist
+                {
+                  \__crfwd_orig_label:w { #2 }
+                }
+                {
+                  \__crfwd_orig_label:w [ \l__crfwd_local_options_clist ] { #2 }
+                }
+              \bool_if:NF \g__crfwd_label_no_use_bool
+                {
+                  \__crfwd_print_message:n { #2 }
+                }
+            \fi:
+          }
+      }
+    \RenewDocumentCommand \label@in@display { o m }
+      {
+        \__crfwd_label_generic:nnn { #1 } { #2 }
+          {
+            \clist_if_empty:NTF \l__crfwd_local_options_clist
+              {
+                \__crfwd_orig_label_in_display:w { #2 }
+              }
+              {
+                \__crfwd_orig_label_in_display:w [ \l__crfwd_local_options_clist ] { #2 }
+              }
+            \bool_if:NF \g__crfwd_label_no_use_bool
+              {
+                \__crfwd_print_message_math:n { #2 }
+              }
+          }
+      }
+    \NewDocumentCommand \label@gobble { o m }
+      {
+        \__crfwd_label_generic:nnn { #1 } { #2 }
+          {
+            \bool_if:NF \g__crfwd_label_no_use_bool
+              {
+                \__crfwd_print_message_math:n { #2 }
+              }
+          }
+      }
+    \makeatletter
+    \xpatchcmd{\multline@}{\let\label\cref@gobble@optarg}{\let\label\label@gobble}{}{}
+    \makeatother
+    \NewDocumentCommand \restorelabel { m }
+      {
+        \prop_if_in:NnTF \g__crfwd_label_prop { #1 }
+          {
+            \prop_get:NnN \g__crfwd_label_prop { #1 } \l_tmpa_tl
+            \RenewCommandCopy \cref@currentlabel \l_tmpa_tl
+          }
+          {
+            \msg_new:nnn {cleveref-forward} { label-not-exist }
+              {
+                The~label~`##1'~does~not~exist.
+              }
+            \msg_fatal:nnn { cleveref-forward } { label-not-exist } { #1 }
+          }
+      }
+    \RenewCommandCopy \cref \__crfwd_cref:w
+    \RenewCommandCopy \Cref \__crfwd_Cref:w
+    \RenewCommandCopy \labelcref \__crfwd_labelcref:w
+  }
+\hook_gput_code:nnn { enddocument } { cleveref-forward }
+  {
+    \__crfwd_write_to_aux:
+  }
+\endinput
+%%
+%% End of file `cleveref-forward.sty'.

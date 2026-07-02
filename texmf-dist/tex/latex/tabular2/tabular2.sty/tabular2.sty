@@ -1,0 +1,2298 @@
+%%
+%% This is file `tabular2.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% tabular2.dtx  (with options: `package')
+%% 
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage{tabular2}{2026-03-16}{0.4}
+  {A new table implementation base on expl3}
+\RequirePackage{l3draw}[2024-02-20]
+\cs_generate_variant:Nn \msg_error:nnn     { nnV }
+\cs_generate_variant:Nn \str_const:Nn      { Ne  }
+\cs_generate_variant:Nn \clist_item:nn     { Vn  }
+\cs_generate_variant:Nn \seq_set_split:Nnn { NVn, NVV }
+\cs_generate_variant:Nn \seq_set_item:Nnn  { NnV, Nne }
+\cs_generate_variant:Nn \seq_gset_item:Nnn { NnV, Nne }
+\cs_generate_variant:Nn \prop_gput:Nnn     { Nne, Nen, Nee, NeV, NVe, NVV }
+\cs_generate_variant:Nn \prop_gpop:NnN     { NeN }
+\cs_generate_variant:Nn \color_stroke:n    { e   }
+\cs_generate_variant:Nn \regex_extract_all:NnN { NVN }
+\cs_if_free:NT \draw_set_linewidth:n
+  { \cs_gset_eq:NN \draw_set_linewidth:n \draw_linewidth:n }
+\cs_if_free:NT \draw_set_dash_pattern:nn
+  { \cs_gset_eq:NN \draw_set_dash_pattern:nn \draw_dash_pattern:nn }
+\cs_generate_variant:Nn \draw_set_linewidth:n     { V, e   }
+\cs_generate_variant:Nn \draw_set_dash_pattern:nn { Vn, en }
+\msg_new:nnn {xtable} {unknown_row_name} {未知的行名称：<#1>}
+\msg_new:nnn {xtable} {unknown_col_name} {未知的列名称：<#1>}
+\msg_new:nnn {xtable} {unknown_input}    {未知的输入：<#1>}
+\msg_new:nnn {xtable} {unknown_format}   {未知的格式：<#1>}
+\msg_new:nnn {xtable} {unknown_cell}     {未知的单元格数据 @<#1>}
+\msg_new:nnn {xtable} {merged_cell}      {已经合并的单元格 @<#1>}
+\msg_new:nnn {xtable} {unmerged_cell}    {未合并的单元格 @<#1>}
+\msg_new:nnn {xtable} {outside_xtable}   {<#1> 应当在 xtable 环境中使用}
+\msg_new:nnn {xtable} {outside_render}   {<#1> 应当在 \rendertable 命令中使用}
+\msg_new:nnn {xtable} {unsaved_table}    {未保存的表：<#1>}
+\cs_new:Nn \__xtable_en_msg_support:
+  {
+    \msg_set:nnn {xtable} {unknown_row_name} {Unknown row name: <##1>}
+    \msg_set:nnn {xtable} {unknown_col_name} {Unknown column name: <##1>}
+    \msg_set:nnn {xtable} {unknown_input}    {Unknown input: <##1>}
+    \msg_set:nnn {xtable} {unknown_format}   {Unknown format: <##1>}
+    \msg_set:nnn {xtable} {unknown_cell}     {Unknown cell data @<##1>}
+    \msg_set:nnn {xtable} {merged_cell}      {Already merged cell @<##1>}
+    \msg_set:nnn {xtable} {unmerged_cell}    {Unmerged cell  @<##1>}
+    \msg_set:nnn {xtable} {outside_xtable}   {<##1> should be used inside xtable environment}
+    \msg_set:nnn {xtable} {outside_render}   {<##1> should be used inside \rendertable command}
+    \msg_set:nnn {xtable} {unsaved_table}    {Unsaved table: <##1>}
+  }
+\dim_new:N \g__xtable_cell_sep_dim       % 单元格间的水平间距（用于打印表格）
+\dim_new:N \g__xtable_row_margin_dim     % 行边距与列边路（用于渲染表格）
+\dim_new:N \g__xtable_col_margin_dim
+\dim_new:N \g__xtable_above_space_dim    % 表格上下边空
+\dim_new:N \g__xtable_below_space_dim
+\dim_new:N \g__xtable_cell_wd_min_dim    % 单元格的最小宽度
+\dim_new:N \g__xtable_cell_lineskip_dim  % 多行单元格的行距
+\keys_define:nn { xtable / package }
+  {
+    en        .code:n     = { \__xtable_en_msg_support: },
+    cellsep   .dim_gset:N = \g__xtable_cell_sep_dim,
+    cellsep   .initial:n  = { 0.5em },
+    margin    .code:n     =
+      {
+        \dim_gset:Nn \g__xtable_row_margin_dim { \clist_item:nn {#1} {2} }
+        \dim_gset:Nn \g__xtable_col_margin_dim { \clist_item:nn {#1} {1} }
+      },
+    margin    .initial:n  = { 0.4em, 0.6ex },
+    vspace    .code:n     =
+      {
+        \dim_gset:Nn \g__xtable_above_space_dim { \clist_item:nn {#1} {1} }
+        \dim_gset:Nn \g__xtable_below_space_dim { \clist_item:nn {#1} {2} }
+      },
+    vspace   .initial:n   = { 0.5ex, -1ex },
+    minwidth .dim_gset:N  = \g__xtable_cell_wd_min_dim,
+    minwidth .initial:n   = { 1.5em },
+    lineskip .dim_gset:N  = \g__xtable_cell_lineskip_dim,
+    lineskip .initial:n   = { 3ex }
+  }
+\ProcessKeyOptions [ xtable / package ]
+\str_const:Ne \c__xtable_space_str  { \char_generate:nn {32}  {10} } % <space>
+\str_const:Ne \c__xtable_escape_str { \char_generate:nn {92}  {12} } % \
+\str_const:Ne \c__xtable_lbrace_str { \char_generate:nn {123} {12} } % {
+\str_const:Ne \c__xtable_rbrace_str { \char_generate:nn {125} {12} } % }
+\scan_new:N \s__xtable_mark
+\dim_const:Nn \c__xtable_std_ht_dim {1.91ex} % 约等于汉字的高度，字母高度{1.67ex}
+\dim_const:Nn \c__xtable_std_dp_dim {0.48ex} % 约等于字母的深度
+\prop_const_from_keyval:Nn \c__xtable_merge_loc_prop
+  {
+    ul = ul, ur = ur, dl = dl, du = du,
+    lu = ul, ru = ur, ld = dl, ud = du
+  }
+\prop_const_from_keyval:Nn \c__xtable_merge_align_prop
+  {
+    tl = {t, l}, tc = {t, c}, tr = {t, r},
+    ml = {m, l}, mc = {m, c}, mr = {m, r},
+    bl = {b, l}, bc = {b, c}, br = {b, r},
+    lt = {t, l}, ct = {t, c}, rt = {t, r},
+    lm = {m, l}, cm = {m, c}, rm = {m, r},
+    lb = {b, l}, cb = {b, c}, rb = {b, r},
+    l = {m, l}, c = {m, c}, r = {m, r},
+    t = {t, c}, m = {m, c}, b = {b, c}
+  }
+\int_new:N  \l__xtable_row_loc_int
+\int_new:N  \l__xtable_col_loc_int
+\bool_new:N \l__xtable_is_box_bool
+\tl_new:N   \l__xtable_data_tl
+\tl_new:N   \l__xtable_style_tl
+\tl_new:N   \l__xtable_row_align_tl
+\tl_new:N   \l__xtable_col_align_tl
+\tl_new:N   \l__xtable_merge_id_tl
+\seq_new:N  \l__xtable_merge_seq
+\dim_new:N \l__xtable_wd_dim
+\dim_new:N \l__xtable_ht_dim
+\dim_new:N \l__xtable_dp_dim
+\dim_new:N \l__xtable_ufill_dim
+\dim_new:N \l__xtable_dfill_dim
+\int_new:N \l__xtable_cachea_int
+\int_new:N \l__xtable_cacheb_int
+\dim_new:N \l__xtable_cachea_dim
+\dim_new:N \l__xtable_cacheb_dim
+\tl_new:N \l__xtable_cachea_tl
+\tl_new:N \l__xtable_cacheb_tl
+\seq_new:N \l__xtable_cachea_seq
+\seq_new:N \l__xtable_cacheb_seq
+\int_new:N \l__xtable_tmpa_int
+\int_new:N \l__xtable_tmpb_int
+\dim_new:N \l__xtable_tmpa_dim
+\dim_new:N \l__xtable_tmpb_dim
+\tl_new:N  \l__xtable_tmpa_tl
+\tl_new:N  \l__xtable_tmpb_tl
+\str_new:N \l__xtable_tmpa_str
+\str_new:N \l__xtable_tmpb_str
+\seq_new:N  \l__xtable_tmpa_seq
+\seq_new:N  \l__xtable_tmpb_seq
+\prop_new:N \l__xtable_tmpa_prop
+\prop_new:N \l__xtable_tmpb_prop
+\box_new:N \l__xtable_tmpa_box
+\box_new:N \l__xtable_tmpb_box
+\cs_new:Nn \__xtable_init_seq:Nnn
+  {
+    \seq_clear:N #1
+    \prg_replicate:nn {#2} { \seq_put_right:Nn  #1 {#3} }
+  }
+\cs_new:Nn \__xtable_ginit_seq:Nnn
+  {
+    \seq_gclear:N #1
+    \prg_replicate:nn {#2} { \seq_gput_right:Nn #1 {#3} }
+  }
+\cs_generate_variant:Nn \__xtable_init_seq:Nnn {Nne}
+\cs_new:Nn \__xtable_int_set_max:Nn
+  { \int_set:Nn  #1 { \int_max:nn {#1} {#2} } }
+\cs_new:Nn \__xtable_int_gset_max:Nn
+  { \int_gset:Nn #1 { \int_max:nn {#1} {#2} } }
+\cs_generate_variant:Nn \__xtable_int_gset_max:Nn {cn}
+\cs_new:Nn \__xtable_dim_set_max:NN
+  { \dim_set:Nn  #1 { \dim_max:nn {#1} {#2} } }
+\cs_new:Nn \__xtable_dim_set_max:Nn
+  { \dim_set:Nn  #1 { \dim_max:nn {#1} {#2} } }
+\prop_new:N \g__xtable_footnote_prop
+\cs_gset_eq:NN \__xtable_origin_footnote:     \footnote
+\cs_gset_eq:NN \__xtable_origin_footnotemark: \footnotemark
+\NewDocumentCommand \__xtable_footnote: { O{} m }
+  { \__xtable_origin_footnotemark:[99] }
+\NewDocumentCommand \__xtable_footnotemark: { O{} }
+  { \__xtable_origin_footnotemark:[99] }
+\NewDocumentCommand \__xtable_footnote_support: { o m }
+  {
+    \IfNoValueTF {#1}
+      {
+        \__xtable_origin_footnotemark:
+        \prop_gput:Nen \g__xtable_footnote_prop {\thefootnote} {#2}
+      }
+      {
+        \__xtable_origin_footnotemark:[#1]
+        \prop_gput:Nnn \g__xtable_footnote_prop {#1} {#2}
+      }
+  }
+\cs_new:Nn \__xtable_footnote_print:
+  {
+    \prop_map_inline:Nn \g__xtable_footnote_prop
+      { \footnotetext[##1] {##2} }
+  }
+\cs_new:Nn \__xtable_disable_sys_func:
+  {
+    \prop_gclear:N \g__xtable_footnote_prop
+    \cs_set_eq:NN \footnote     \__xtable_footnote:
+    \cs_set_eq:NN \footnotemark \__xtable_footnotemark:
+  }
+\cs_new:Nn \__xtable_support_sys_func:
+  {
+    \prop_gclear:N \g__xtable_footnote_prop
+    \cs_set_eq:NN  \footnote \__xtable_footnote_support:
+  }
+\cs_new:Nn \__xtable_restore_sys_func:
+  {
+    \__xtable_footnote_print:
+    \cs_set_eq:NN \footnote     \__xtable_origin_footnote:
+    \cs_set_eq:NN \footnotemark \__xtable_origin_footnotemark:
+  }
+\cs_new:Nn \__xtable_tmpa_cs: {}
+\cs_new:Nn \__xtable_tmpb_cs: {}
+\prop_new:N \g__xtable_rule_pattern_prop
+\prop_new:N \g__xtable_rule_wd_prop
+\prop_new:N \g__xtable_rule_style_prop
+\tl_new:N  \l__xtable_rule_pattern_tl
+\tl_new:N  \l__xtable_rule_wd_tl
+\tl_new:N  \l__xtable_rule_color_tl
+\tl_new:N  \l__xtable_rule_style_tl
+\dim_new:N \l__xtable_rule_dim
+\seq_new:N \l__xtable_rule_style_seq
+\NewDocumentCommand {\rulepatternset} { m m }
+  { \prop_gput:Nnn \g__xtable_rule_pattern_prop {#1} {#2} }
+\NewDocumentCommand {\rulewdset} { m m }
+  { \prop_gput:Nnn \g__xtable_rule_wd_prop      {#1} {#2} }
+\NewDocumentCommand {\rulestyleset} { m m m m }
+  {
+    \prop_get:NnNF \g__xtable_rule_pattern_prop {#2} \l__xtable_rule_pattern_tl
+      { \tl_set:Nn \l__xtable_rule_pattern_tl   {#2} }
+    \prop_get:NnNF \g__xtable_rule_wd_prop      {#3} \l__xtable_rule_wd_tl
+      { \tl_set:Nn \l__xtable_rule_wd_tl        {#3} }
+    \prop_gput:Nne \g__xtable_rule_style_prop   {#1}
+      { \l__xtable_rule_pattern_tl \s__xtable_mark \l__xtable_rule_wd_tl \s__xtable_mark #4}
+  }
+\rulepatternset {soild} {}
+\rulepatternset {dotted}{0.6em, 0.15em}
+\rulepatternset {dash}  {0.6em, 0.15em, 0.05em, 0.15em}
+\rulewdset {normal}     {1pt}
+\rulewdset {thick}      {1.5pt}
+\rulewdset {thin}       {0.75pt}
+\rulewdset {toprule}    {0.08em}
+\rulewdset {midrule}    {0.05em}
+\rulewdset {cmidrule}   {0.03em}
+\rulewdset {bottomrule} {0.08em}
+\rulestyleset {normal}  {soild}  {normal} {black}
+\rulestyleset {dotted}  {dotted} {normal} {black}
+\rulestyleset {dash}    {dash}   {normal} {black}
+\rulestyleset {bold}    {soild}  {thick}  {black}
+\cs_new:Nn \__xtable_set_rule_pattern:n
+  {
+    \prop_get:NnNTF \g__xtable_rule_pattern_prop {#1} \l__xtable_rule_pattern_tl
+      { \draw_set_dash_pattern:Vn \l__xtable_rule_pattern_tl {0pt} }
+      { \draw_set_dash_pattern:nn {#1} {0pt} }
+  }
+\cs_new:Nn \__xtable_set_rule_wd:n
+  {
+    \prop_get:NnNTF \g__xtable_rule_wd_prop {#1} \l__xtable_rule_wd_tl
+      { \draw_set_linewidth:V \l__xtable_rule_wd_tl }
+      { \draw_set_linewidth:n {#1} }
+  }
+\cs_new:Nn \__xtable_set_rule_style:n
+  {
+    \prop_get:NnNTF \g__xtable_rule_style_prop {#1} \l__xtable_rule_style_tl
+      {
+        \seq_set_split:NnV \l__xtable_rule_style_seq
+          {\s__xtable_mark} \l__xtable_rule_style_tl
+        \draw_set_dash_pattern:en { \seq_item:Nn \l__xtable_rule_style_seq {1} } {0pt}
+        \draw_set_linewidth:e     { \seq_item:Nn \l__xtable_rule_style_seq {2} }
+        \color_stroke:e           { \seq_item:Nn \l__xtable_rule_style_seq {3} }
+      } {
+        \__xtable_set_rule_pattern:n {soild}
+        \__xtable_set_rule_wd:n {#1}
+        \color_stroke:e {black}
+      }
+  }
+\cs_generate_variant:Nn \__xtable_set_rule_style:n {V}
+\cs_new:Nn \__xtable_parse_rule_style:n
+  {
+    \prop_get:NnNTF \g__xtable_rule_style_prop {#1} \l__xtable_rule_style_tl
+      {
+        \seq_set_split:NnV \l__xtable_rule_style_seq
+          {\s__xtable_mark} \l__xtable_rule_style_tl
+        \tl_set:Ne  \l__xtable_rule_pattern_tl { \seq_item:Nn \l__xtable_tmpa_seq {1} }
+        \tl_set:Ne  \l__xtable_rule_wd_tl      { \seq_item:Nn \l__xtable_tmpa_seq {2} }
+        \tl_set:Ne  \l__xtable_rule_color_tl   { \seq_item:Nn \l__xtable_tmpa_seq {3} }
+        \dim_set:Nn \l__xtable_rule_dim        { \l__xtable_rule_wd_tl }
+      }
+      {
+        \prop_get:NnNF \g__xtable_rule_wd_prop {#1} \l__xtable_rule_wd_tl
+          { \tl_set:Nn \l__xtable_rule_wd_tl {#1} }
+        \dim_set:Nn \l__xtable_rule_dim { \l__xtable_rule_wd_tl }
+        \tl_if_empty:NT \l__xtable_rule_pattern_tl
+          { \tl_set:Nn  \l__xtable_rule_pattern_tl  { soild } }
+        \tl_if_empty:NT \l__xtable_rule_color_tl
+          { \tl_set:Nn  \l__xtable_rule_color_tl    { black } }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_parse_rule_style:n {V}
+\bool_new:N \g__xtable_row_header_bool
+\bool_new:N \g__xtable_col_header_bool
+\int_new:N  \g__xtable_row_count_int
+\int_new:N  \g__xtable_col_count_int
+\prop_new:N \g__xtable_row_name_prop
+\prop_new:N \g__xtable_col_name_prop
+\seq_new:N \g__xtable_row_align_seq
+\seq_new:N \g__xtable_col_align_seq
+\seq_new:N \g__xtable_row_ht_style_seq
+\seq_new:N \g__xtable_col_wd_style_seq
+\tl_const:Nn \c__xtable_cell_content_tl {content}
+\tl_const:Nn \c__xtable_cell_formula_tl {formula}
+\tl_const:Nn \c__xtable_cell_box_tl     {box}
+\prop_new:N \g__xtable_cell_data_prop
+\seq_new:N  \g__xtable_merge_info_seq
+\seq_new:N  \g__xtable_merge_align_seq
+\prop_new:N \g__xtable_merge_ref_prop
+\cs_new:Nn \__xtable_set_excel_col_names:n
+  {
+    \int_step_inline:nn {#1}
+      {
+        \prop_gput:Nen \g__xtable_col_name_prop
+          { \int_to_Alph:n {##1} } {##1}
+      }
+  }
+\cs_new:Nn \__xtable_set_row_name:nN
+  {
+    \prop_gput:Nne \g__xtable_row_name_prop {#1} {\int_use:N #2}
+    \__xtable_int_gset_max:Nn \g__xtable_row_count_int {#2}
+  }
+\cs_new:Nn \__xtable_set_col_name:nN
+  {
+    \prop_gput:Nne \g__xtable_col_name_prop {#1} {\int_use:N #2}
+    \__xtable_int_gset_max:Nn \g__xtable_col_count_int {#2}
+  }
+\cs_generate_variant:Nn \__xtable_set_row_name:nN {VN}
+\cs_generate_variant:Nn \__xtable_set_col_name:nN {VN}
+\prg_new_conditional:Nnn \__xtable_get_line_loc:NnN { T, F, TF }
+  {
+    \regex_match:nnTF {^-?[0-9]+$} {#2}
+      { \int_set:Nn #3 {#2} \prg_return_true: }
+      {
+        \prop_get:NnNTF #1 {#2} \l__xtable_tmpa_tl
+          { \int_set:Nn #3 { \l__xtable_tmpa_tl } \prg_return_true: }
+          { \prg_return_false: }
+      }
+  }
+\cs_new:Nn \__xtable_parse_row_loc:n
+  {
+    \__xtable_get_line_loc:NnNF
+      \g__xtable_row_name_prop {#1} \l__xtable_row_loc_int
+      { \msg_error:nnn {xtable} {unknown_row_name} {#1} }
+  }
+\cs_new:Nn \__xtable_parse_col_loc:n
+  {
+    \__xtable_get_line_loc:NnNF
+      \g__xtable_col_name_prop {#1} \l__xtable_col_loc_int
+      { \msg_error:nnn {xtable} {unknown_col_name} {#1} }
+  }
+\cs_generate_variant:Nn \__xtable_parse_row_loc:n { e, V }
+\cs_generate_variant:Nn \__xtable_parse_col_loc:n { e, V }
+\cs_new:Nn \__xtable_parse_new_row_loc:n
+  {
+    \__xtable_get_line_loc:NnNF
+      \g__xtable_row_name_prop {#1} \l__xtable_row_loc_int
+      {
+        \int_if_zero:nT { \l__xtable_row_loc_int }
+          { \int_set:Nn \l__xtable_row_loc_int { \g__xtable_row_count_int + 1 } }
+        \__xtable_set_row_name:nN {#1} \l__xtable_row_loc_int
+      }
+  }
+\cs_new:Nn \__xtable_parse_new_col_loc:n
+  {
+    \__xtable_get_line_loc:NnNF
+      \g__xtable_col_name_prop {#1} \l__xtable_col_loc_int
+      {
+        \int_if_zero:nT { \l__xtable_col_loc_int }
+          { \int_set:Nn \l__xtable_col_loc_int { \g__xtable_col_count_int + 1 } }
+        \__xtable_set_col_name:nN {#1} \l__xtable_col_loc_int
+      }
+  }
+\cs_generate_variant:Nn \__xtable_parse_new_row_loc:n { e, V }
+\cs_generate_variant:Nn \__xtable_parse_new_col_loc:n { e, V }
+\cs_new:Nn \__xtable_parse_coord:n
+  {
+    \__xtable_parse_row_loc:e { \clist_item:nn {#1} {1} }
+    \__xtable_parse_col_loc:e { \clist_item:nn {#1} {2} }
+  }
+\cs_new:Nn \__xtable_parse_new_coord:n
+  {
+    \__xtable_parse_new_row_loc:e { \clist_item:nn {#1} {1} }
+    \__xtable_parse_new_col_loc:e { \clist_item:nn {#1} {2} }
+  }
+\cs_new:Nn \__xtable_table_init:
+  {
+    \int_gzero:N   \g__xtable_row_count_int
+    \int_gzero:N   \g__xtable_col_count_int
+    \seq_gclear:N  \g__xtable_row_align_seq
+    \seq_gclear:N  \g__xtable_col_align_seq
+    \seq_gclear:N  \g__xtable_row_ht_style_seq
+    \seq_gclear:N  \g__xtable_col_wd_style_seq
+    \seq_gclear:N  \g__xtable_merge_info_seq
+    \seq_gclear:N  \g__xtable_merge_align_seq
+    \prop_gclear:N \g__xtable_row_name_prop
+    \prop_gclear:N \g__xtable_col_name_prop
+    \prop_gclear:N \g__xtable_cell_data_prop
+    \prop_gclear:N \g__xtable_merge_ref_prop
+    \prop_gput:Nnn \g__xtable_row_name_prop {header} {0}
+    \prop_gput:Nnn \g__xtable_col_name_prop {title}  {0}
+    \bool_gset_false:N \g__xtable_row_header_bool
+    \bool_gset_true:N  \g__xtable_col_header_bool
+  }
+\cs_new:Nn \__xtable_table_save:n
+  {
+    \cs_if_exist:cF { g__xtable_row_count_#1_int }
+      {
+        \bool_new:c { g__xtable_row_header_#1_bool  }
+        \bool_new:c { g__xtable_col_header_#1_bool  }
+        \int_new:c  { g__xtable_row_count_#1_int    }
+        \int_new:c  { g__xtable_col_count_#1_int    }
+        \seq_new:c  { g__xtable_row_align_#1_seq    }
+        \seq_new:c  { g__xtable_col_align_#1_seq    }
+        \seq_new:c  { g__xtable_row_ht_style_#1_seq }
+        \seq_new:c  { g__xtable_col_wd_style_#1_seq }
+        \seq_new:c  { g__xtable_merge_info_#1_seq   }
+        \seq_new:c  { g__xtable_merge_align_#1_seq  }
+        \prop_new:c { g__xtable_row_name_#1_prop    }
+        \prop_new:c { g__xtable_col_name_#1_prop    }
+        \prop_new:c { g__xtable_cell_data_#1_prop   }
+        \prop_new:c { g__xtable_merge_ref_#1_prop   }
+      }
+    \bool_gset_eq:cN { g__xtable_row_header_#1_bool  } \g__xtable_row_header_bool
+    \bool_gset_eq:cN { g__xtable_col_header_#1_bool  } \g__xtable_col_header_bool
+    \int_gset_eq:cN  { g__xtable_row_count_#1_int    } \g__xtable_row_count_int
+    \int_gset_eq:cN  { g__xtable_col_count_#1_int    } \g__xtable_col_count_int
+    \seq_gset_eq:cN  { g__xtable_row_align_#1_seq    } \g__xtable_row_align_seq
+    \seq_gset_eq:cN  { g__xtable_col_align_#1_seq    } \g__xtable_col_align_seq
+    \seq_gset_eq:cN  { g__xtable_row_ht_style_#1_seq } \g__xtable_row_ht_style_seq
+    \seq_gset_eq:cN  { g__xtable_col_wd_style_#1_seq } \g__xtable_col_wd_style_seq
+    \seq_gset_eq:cN  { g__xtable_merge_info_#1_seq   } \g__xtable_merge_info_seq
+    \seq_gset_eq:cN  { g__xtable_merge_align_#1_seq  } \g__xtable_merge_align_seq
+    \prop_gset_eq:cN { g__xtable_row_name_#1_prop    } \g__xtable_row_name_prop
+    \prop_gset_eq:cN { g__xtable_col_name_#1_prop    } \g__xtable_col_name_prop
+    \prop_gset_eq:cN { g__xtable_cell_data_#1_prop   } \g__xtable_cell_data_prop
+    \prop_gset_eq:cN { g__xtable_merge_ref_#1_prop   } \g__xtable_merge_ref_prop
+  }
+\cs_new:Nn \__xtable_table_restore:n
+  {
+    \cs_if_exist:cF { g__xtable_row_count_#1_int }
+      { \msg_error:nnn {xtable} {unsaved_table} {#1} }
+    \bool_gset_eq:Nc \g__xtable_row_header_bool  { g__xtable_row_header_#1_bool  }
+    \bool_gset_eq:Nc \g__xtable_col_header_bool  { g__xtable_col_header_#1_bool  }
+    \int_gset_eq:Nc  \g__xtable_row_count_int    { g__xtable_row_count_#1_int    }
+    \int_gset_eq:Nc  \g__xtable_col_count_int    { g__xtable_col_count_#1_int    }
+    \seq_gset_eq:Nc  \g__xtable_row_align_seq    { g__xtable_row_align_#1_seq    }
+    \seq_gset_eq:Nc  \g__xtable_col_align_seq    { g__xtable_col_align_#1_seq    }
+    \seq_gset_eq:Nc  \g__xtable_row_ht_style_seq { g__xtable_row_ht_style_#1_seq }
+    \seq_gset_eq:Nc  \g__xtable_col_wd_style_seq { g__xtable_col_wd_style_#1_seq }
+    \seq_gset_eq:Nc  \g__xtable_merge_info_seq   { g__xtable_merge_info_#1_seq   }
+    \seq_gset_eq:Nc  \g__xtable_merge_align_seq  { g__xtable_merge_align_#1_seq  }
+    \prop_gset_eq:Nc \g__xtable_row_name_prop    { g__xtable_row_name_#1_prop    }
+    \prop_gset_eq:Nc \g__xtable_col_name_prop    { g__xtable_col_name_#1_prop    }
+    \prop_gset_eq:Nc \g__xtable_cell_data_prop   { g__xtable_cell_data_#1_prop   }
+    \prop_gset_eq:Nc \g__xtable_merge_ref_prop   { g__xtable_merge_ref_#1_prop   }
+  }
+\cs_new:Nn \__xtable_set_cell:nnnn
+  {
+    \prop_gput:Nnn \g__xtable_cell_data_prop
+      {#1} {#2 \s__xtable_mark #3 \s__xtable_mark #4}
+    \__xtable_int_gset_max:Nn \g__xtable_row_count_int { \clist_item:nn{#1}{1} }
+    \__xtable_int_gset_max:Nn \g__xtable_col_count_int { \clist_item:nn{#1}{2} }
+  }
+\cs_generate_variant:Nn \__xtable_set_cell:nnnn { nVnn, eVnn }
+\cs_new:Nn \__xtable_set_cell:nn
+  {
+    \tl_if_empty:nTF {#2}
+      { \prop_gpop:NeN \g__xtable_cell_data_prop {#1} \l__xtable_tmpa_tl }
+      { \__xtable_set_cell:nVnn {#1} \c__xtable_cell_content_tl {#2} {} }
+  }
+\cs_new:Nn \__xtable_set_cell_formula:nn
+  { \__xtable_set_cell:nVnn {#1} \c__xtable_cell_formula_tl {} {#2} }
+\cs_new:Nn \__xtable_set_cell_box:nn
+  { \__xtable_set_cell:nVnn {#1} \c__xtable_cell_box_tl     {#2} {} }
+\cs_generate_variant:Nn \__xtable_set_cell:nn          { en, nV, eV }
+\cs_generate_variant:Nn \__xtable_set_cell_formula:nn  { en }
+\cs_generate_variant:Nn \__xtable_set_cell_box:nn      { en }
+\cs_new:Nn \__xtable_set_cell:NNn
+  { \__xtable_set_cell:en         { \int_use:N #1, \int_use:N #2 } {#3} }
+\cs_new:Nn \__xtable_set_cell_formula:NNn
+  { \__xtable_set_cell_formula:en { \int_use:N #1, \int_use:N #2 } {#3} }
+\cs_new:Nn \__xtable_set_cell_box:NNn
+  { \__xtable_set_cell_box:en     { \int_use:N #1, \int_use:N #2 } {#3} }
+\cs_generate_variant:Nn \__xtable_set_cell:NNn          { NNV }
+\cs_generate_variant:Nn \__xtable_set_cell_formula:NNn  { NNV }
+\cs_generate_variant:Nn \__xtable_set_cell_box:NNn      { NNV }
+\cs_new:Nn \__xtable_set_cell:n
+  {
+    \__xtable_set_cell:NNn
+      \l__xtable_row_loc_int \l__xtable_col_loc_int {#1}
+  }
+\cs_new:Nn \__xtable_set_cell_formula:n
+  {
+    \__xtable_set_cell_formula:NNn
+      \l__xtable_row_loc_int \l__xtable_col_loc_int {#1}
+  }
+\cs_new:Nn \__xtable_set_cell_box:n
+  {
+    \__xtable_set_cell_box:NNn
+      \l__xtable_row_loc_int \l__xtable_col_loc_int {#1}
+  }
+\cs_new:Nn \__xtable_parse_cell:n
+  {
+    \bool_set_false:N \l__xtable_is_box_bool
+    \prop_get:NnNTF \g__xtable_cell_data_prop {#1} \l__xtable_tmpa_tl
+      {
+        \seq_set_split:NnV \l__xtable_tmpa_seq {\s__xtable_mark} \l__xtable_tmpa_tl
+        \tl_set:Ne \l__xtable_tmpa_tl { \seq_item:Nn \l__xtable_tmpa_seq {1} }
+        \tl_set:Ne \l__xtable_data_tl { \seq_item:Nn \l__xtable_tmpa_seq {2} }
+        \str_if_eq:VVT \l__xtable_tmpa_tl \c__xtable_cell_box_tl
+          { \bool_set_true:N \l__xtable_is_box_bool }
+      }
+      { \tl_clear:N \l__xtable_data_tl } % 空单元格
+  }
+\cs_generate_variant:Nn {\__xtable_parse_cell:n}  {V, e}
+\cs_new:Nn \__xtable_table_restructure:nn
+  {
+    \group_begin:
+    \prop_clear:N \l__xtable_tmpa_prop   % new -> old
+    \prop_clear:N \l__xtable_tmpb_prop   % old -> new
+    \prop_clear:N \l__xtable_cachea_prop % new name prop
+    \prop_clear:N \l__xtable_cacheb_prop % new data prop
+    \seq_set_split:Nnn \l__xtable_tmpa_seq {,} {#1} % new col list
+    \int_gset:cn {g__xtable_#2_count_int}
+      { \seq_count:N \l__xtable_tmpa_seq }
+    \prop_gput:Nnn \l__xtable_tmpa_prop {0} {0}
+    \prop_gput:Nnn \l__xtable_tmpb_prop {0} {0}
+    \int_step_inline:nn { \seq_count:N \l__xtable_tmpa_seq }
+      {
+        \tl_set:Ne \l__xtable_tmpa_tl
+          { \seq_item:Nn \l__xtable_tmpa_seq {##1} }
+        \prop_gput:NnV \l__xtable_tmpa_prop {##1} \l__xtable_tmpa_tl
+        \prop_gput:NVn \l__xtable_tmpb_prop \l__xtable_tmpa_tl {##1}
+      }
+    \prop_map_inline:cn { g__xtable_#2_name_prop }
+      {
+        \prop_get:NnNTF \l__xtable_tmpb_prop  {##2} \l__xtable_tmpa_tl
+          { \prop_put:NnV \l__xtable_cachea_prop {##1} \l__xtable_tmpa_tl }
+          {
+            \int_compare:nNnT {##2} = {0}
+              { \prop_put:Nnn \l__xtable_cachea_prop {##1} {##2} }
+          }
+      }
+    \prop_gset_eq:cN { g__xtable_#2_name_prop } \l__xtable_cachea_prop
+    \str_if_eq:nnTF {#2} {row}
+      { \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_tmpa_str }
+      { \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_tmpb_str }
+    \prop_map_inline:nn \g__xtable_cell_data_prop
+      {
+        \str_set:Ne \l__xtable_tmpa_str { \clist_item:nn {##1} {1} }
+        \str_set:Ne \l__xtable_tmpb_str { \clist_item:nn {##1} {2} }
+        \prop_get:NnNT \l__xtable_tmpb_prop \__xtable_tmpa_cs: \__xtable_tmpa_cs:
+          {
+            \prop_put:Nen \l__xtable_cacheb_prop
+              { \l__xtable_tmpa_str, \l__xtable_tmpb_str } {##2}
+          }
+      }
+    \prop_gset_eq:NN \g__xtable_cell_data_prop \l__xtable_cacheb_prop
+    \group_end:
+  }
+\cs_new:Nn \__xtable_data_move:nnn
+  {
+    \prop_clear:N \l__xtable_tmpa_seq     % new data prop
+    \str_if_eq:nnTF {#3} {row}
+      {
+        \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_tmpa_int      % 临时行索引
+        \cs_set_eq:NN \__xtable_tmpb_cs: \l__xtable_row_count_int % 行数
+      } {
+        \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_tmpb_int      % 临时列索引
+        \cs_set_eq:NN \__xtable_tmpb_cs: \l__xtable_col_count_int % 列数
+      }
+    \prop_map_inline:nn \g__xtable_cell_data_prop
+      {
+        \int_set:Nn \l__xtable_tmpa_int { \clist_item:nn {##1} {1} }
+        \int_set:Nn \l__xtable_tmpb_int { \clist_item:nn {##1} {2} }
+        \int_compare:nNnTF {\__xtable_tmpa_cs:} < {#1}
+          % 如果有数据，说明其它单元格移动到此位置
+          { \prop_put_if_new:Nnn \l__xtable_tmpa_seq {##1} {##2} }
+          {
+            \int_add:Nn \__xtable_tmpa_cs: {#2}
+            \__xtable_int_gset_max:Nn \__xtable_tmpb_cs: { \__xtable_tmpa_cs: }
+            \prop_put:Nen \l__xtable_tmpa_seq
+              { \int_use:N \l__xtable_tmpa_int, \int_use:N \l__xtable_tmpb_int } {##2}
+          }
+      }
+    \prop_gset_eq:NN \g__xtable_cell_data_prop \l__xtable_tmpa_seq
+  }
+\cs_new:Nn \__xtable_cell_move_by_row:nnn
+  {
+    \int_compare:nNnTF {#3} < {0}
+      { \int_step_inline:nnn {#1} {\g__xtable_row_count_int} }
+      { \int_step_inline:nnnn {\g__xtable_row_count_int} {#1} {-1} }
+      { % 此内容为映射函数的最后一个参数
+        \prop_gpop:NnNT \g__xtable_cell_data_prop {##1,#2} \l__xtable_tmpa_tl
+          {
+            \int_set:Nn    \l__xtable_tmpa_int {##1 + #3}
+            \prop_gput:NeV \g__xtable_cell_data_prop
+              { \int_use:N \l__xtable_tmpa_int, #2 } \l__xtable_tmpa_tl
+            \__xtable_int_gset_max:Nn \l__xtable_row_count_int { \l__xtable_tmpa_int }
+          }
+      }
+  }
+\cs_new:Nn \__xtable_cell_move_by_col:nnn
+  {
+    \int_compare:nNnTF {#3} < {0}
+      { \int_step_inline:nnn {#2} {\g__xtable_col_count_int} }
+      { \int_step_inline:nnnn {\g__xtable_col_count_int} {#2} {-1} }
+      { % 此内容为映射函数的最后一个参数
+        \prop_gpop:NnNT \g__xtable_cell_data_prop {#1,##1} \l__xtable_tmpa_tl
+          {
+            \int_set:Nn    \l__xtable_tmpa_int {##1 + #3}
+            \prop_gput:NeV \g__xtable_cell_data_prop
+              { #1, \int_use:N \l__xtable_tmpa_int } \l__xtable_tmpa_tl
+            \__xtable_int_gset_max:Nn \l__xtable_col_count_int { \l__xtable_tmpa_int }
+          }
+      }
+  }
+\cs_new:Nn \__xtable_set_line_style:NNnn
+ {
+    \bool_if:cTF
+      {
+        \str_if_eq:nnTF {#4} {row}
+          { g__xtable_col_header_bool } { g__xtable_row_header_bool }
+      }
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      { \int_set:Nn \l__xtable_tmpa_int {1} }
+    \__xtable_int_gset_max:cn  { g__xtable_#4_count_int }
+      { \seq_count:N #1 - 1 + \l__xtable_tmpa_int }
+    \__xtable_ginit_seq:Nnn #1 { \int_use:c { g__xtable_#4_count_int } + 1 } {#3}
+    \cs_set_eq:Nc \__xtable_tmpa_cs: { __xtable_parse_#4_loc:V }
+    \seq_map_inline:Nn #2
+      {
+        \str_if_in:nnTF {##1} {=}
+          {
+            \seq_set_split:Nnn \l__xtable_tmpa_seq {=} {##1}
+            \seq_get_left:NN   \l__xtable_tmpa_seq \l__xtable_tmpa_tl
+            \seq_get_right:NN  \l__xtable_tmpa_seq \l__xtable_tmpb_tl
+            \__xtable_tmpa_cs: \l__xtable_tmpa_tl
+            \int_set_eq:Nc     \l__xtable_tmpa_int { l__xtable_#4_loc_int }
+          }
+          { \tl_set:Nn \l__xtable_tmpb_tl {##1} }
+        \seq_gset_item:NnV #1
+          {\l__xtable_tmpa_int + 1} \l__xtable_tmpb_tl
+        \int_incr:N \l__xtable_tmpa_int
+      }
+  }
+\cs_new:Nn \__xtable_set_row_align:Nn
+  { \__xtable_set_line_style:NNnn \g__xtable_row_align_seq #1 {#2} {row} }
+\cs_new:Nn \__xtable_set_col_align:Nn
+  { \__xtable_set_line_style:NNnn \g__xtable_col_align_seq #1 {#2} {col} }
+\cs_new:Nn \__xtable_set_row_ht_style:Nnn
+  {
+    \__xtable_set_line_style:NNnn \g__xtable_row_ht_style_seq #1 {#2} {row}
+    \int_step_inline:nn
+      { \seq_count:N \g__xtable_row_ht_style_seq }
+      {
+        \tl_set:Ne \l__xtable_tmpa_tl
+          { \seq_item:Nn \g__xtable_row_ht_style_seq {##1} }
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {auto} {a}
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {same} {s}
+        \seq_gset_item:NnV \g__xtable_row_ht_style_seq {##1} \l__xtable_tmpa_tl
+      }
+    \seq_gput_right:Nn \g__xtable_row_ht_style_seq {#3}
+  }
+\cs_new:Nn \__xtable_set_col_wd_style:Nnn
+  {
+    \__xtable_set_line_style:NNnn \g__xtable_col_wd_style_seq #1 {#2} {col}
+    \int_step_inline:nn
+      { \seq_count:N \g__xtable_col_wd_style_seq }
+      {
+        \tl_set:Ne \l__xtable_tmpa_tl
+          { \seq_item:Nn \g__xtable_col_wd_style_seq {##1} }
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {auto} {a}
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {same} {s}
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {fill} {f}
+        \seq_gset_item:NnV \g__xtable_col_wd_style_seq {##1} \l__xtable_tmpa_tl
+      }
+    \seq_gput_right:Nn \g__xtable_col_wd_style_seq {#3}
+  }
+\cs_new:Nn \__xtable_insure_style:
+  {
+    \seq_if_empty:NT \g__xtable_row_align_seq
+      { \__xtable_set_row_align:Nn \c_empty_seq {b} }
+    \seq_if_empty:NT \g__xtable_col_align_seq
+      { \__xtable_set_col_align:Nn \c_empty_seq {c} }
+    \seq_if_empty:NT \g__xtable_row_ht_style_seq
+      { \__xtable_set_row_ht_style:Nnn \c_empty_seq {a} {} }
+    \seq_if_empty:NT \g__xtable_col_wd_style_seq
+      { \__xtable_set_col_wd_style:Nnn \c_empty_seq {a} {\textwidth} }
+  }
+\cs_new:Nn \__xtable_parse_row_align:n
+  {
+    \tl_set:Ne \l__xtable_row_align_tl
+      { \seq_item:Nn \g__xtable_row_align_seq {#1 + 1} }
+  }
+\cs_new:Nn \__xtable_parse_col_align:n
+  {
+    \tl_set:Ne \l__xtable_col_align_tl
+      { \seq_item:Nn \g__xtable_col_align_seq {#1 + 1} }
+  }
+\cs_new:Nn \__xtable_parse_row_ht_style:n
+  {
+    \tl_set:Ne \l__xtable_style_tl
+      { \seq_item:Nn \g__xtable_row_ht_style_seq {#1 + 1} }
+  }
+\cs_new:Nn \__xtable_parse_col_wd_style:n
+  {
+    \tl_set:Ne \l__xtable_style_tl
+      { \seq_item:Nn \g__xtable_col_wd_style_seq {#1 + 1} }
+  }
+\cs_new:Nn \__xtable_check_merge_range:nnnn
+  {
+    \int_step_inline:nnn {#1} {#3}
+      {
+        \int_step_inline:nnn {#2} {#4}
+          {
+            \prop_if_in:NnT \g__xtable_merge_ref_prop {##1,####1}
+              { \msg_error:nnn {xtable} {merged_cell} {##1,####1} }
+          }
+      }
+  }
+\cs_new:Nn \__xtable_set_merge_cell:nnnnn
+  {
+    \__xtable_check_merge_range:nnnn {#1} {#2} {#3} {#4}
+    \int_set:Nn \l__xtable_tmpa_int
+      { \seq_count:N \g__xtable_merge_info_seq + 1 }
+    \prop_get:NnNF \c__xtable_merge_align_prop {#5} \l__xtable_tmpa_tl
+      { \tl_set:Nn \l__xtable_tmpa_tl {} }
+    \seq_gput_right:Ne \g__xtable_merge_info_seq
+      {
+        #1 \s__xtable_mark #2 \s__xtable_mark
+        #3 \s__xtable_mark #4 \s__xtable_mark
+        \str_case:VnF \l__xtable_tmpa_tl
+          {
+            {ul} { #1, #2 }
+            {ur} { #3, #2 }
+            {dl} { #1, #4 }
+            {dr} { #3, #4 }
+          }
+          { #1, #2 }
+      }
+    \int_step_inline:nnn {#1} {#3}
+      {
+        \int_step_inline:nnn {#2} {#4}
+          {
+            \prop_gput:Nne \g__xtable_merge_ref_prop
+              {##1,####1}  { \int_use:N \l__xtable_tmpa_int }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_set_merge_cell:nnnnn { VVVVn }
+\cs_new:Nn \__xtable_set_merge_align:n
+  {
+    \int_set:Nn \l__xtable_tmpa_int
+      { \seq_count:N \g__xtable_merge_align_seq + 1 }
+    \int_set:Nn \l__xtable_tmpb_int
+      { \seq_count:N \g__xtable_merge_info_seq  - 1 }
+    \int_step_inline:nnn { \l__xtable_tmpa_int } { \l__xtable_tmpb_int }
+      { \seq_gput_right:Nn \g__xtable_merge_align_seq {m, c} }
+    \prop_get:NnNF \c__xtable_merge_align_prop {#1} \l__xtable_tmpa_tl
+      { \tl_set:Nn \l__xtable_tmpa_tl {m, c} }
+    \seq_gput_right:NV \g__xtable_merge_align_seq   \l__xtable_tmpa_tl
+  }
+\prg_new_conditional:Nnn \__xtable_merge_if:n { p, T, F, TF }
+  {
+    \prop_if_in:NnTF \g__xtable_merge_ref_prop {#1}
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_new:Nn \__xtable_parse_merge_count:
+  { \seq_count:N \g__xtable_merge_info_seq }
+\cs_new:Nn \__xtable_parse_merge_id:n
+  {
+    \prop_get:NnNF \g__xtable_merge_ref_prop {#1} \l__xtable_merge_id_tl
+      { \msg_error:nnn {xtable} {unmerged_cell} {#1} }
+  }
+\cs_new:Nn \__xtable_parse_merge:n
+  {
+    \tl_set:Ne \l__xtable_tmpa_tl
+      { \seq_item:Nn \g__xtable_merge_info_seq {#1} }
+    \seq_set_split:NnV \l__xtable_merge_seq {\s__xtable_mark} \l__xtable_tmpa_tl
+    \__xtable_parse_cell:e { \seq_item:Nn \l__xtable_merge_seq {5} }
+  }
+\cs_generate_variant:Nn \__xtable_parse_merge:n { V }
+\cs_new:Nn \__xtable_parse_merge_align:n
+  {
+    \tl_set:Ne \l__xtable_tmpa_tl
+      { \seq_item:Nn \g__xtable_merge_align_seq {#1} }
+    \tl_set:Ne \l__xtable_row_align_tl
+      { \clist_item:Vn \l__xtable_tmpa_tl {1} }
+    \tl_set:Ne \l__xtable_col_align_tl
+      { \clist_item:Vn \l__xtable_tmpa_tl {2} }
+  }
+\cs_new:Nn \__xtable_header_fill:
+  {
+    \prop_clear:N \l__xtable_tmpa_prop
+    \prop_map_inline:Nn \g__xtable_row_name_prop
+      { \prop_put:Nnn \l__xtable_tmpa_prop {##2, 0} {##1} }
+    \prop_map_inline:Nn \g__xtable_col_name_prop
+      { \prop_put:Nnn \l__xtable_tmpa_prop {0, ##2} {##1} }
+    \prop_map_inline:Nn \l__xtable_tmpa_prop
+      {
+        \tl_set:Nn \l__xtable_tmpa_tl { \s__xtable_mark ##2 \s__xtable_mark }
+        \tl_put_left:NV \l__xtable_tmpa_tl \c__xtable_cell_content_tl
+        \prop_gput_if_new:NnV \g__xtable_cell_data_prop {##1} \l__xtable_tmpa_tl
+      }
+    \int_step_inline:nn { \g__xtable_row_count_int }
+      {
+        \tl_set:No \l__xtable_tmpa_tl
+          {\c__xtable_cell_content_tl \s__xtable_mark ##1 \s__xtable_mark }
+        \prop_gput_if_new:NnV \g__xtable_cell_data_prop {##1, 0} \l__xtable_tmpa_tl
+      }
+  }
+\NewDocumentCommand \showtable {}
+  {
+    \prop_if_empty:NTF \g__xtable_cell_data_prop
+      {当前表格内容为空。}
+      {当前表格内容如下：}
+    \int_step_inline:nnn {0} { \g__xtable_row_count_int }
+      {
+        \\<##1>~
+        \int_step_inline:nnn {0} { \g__xtable_col_count_int }
+          {
+            \__xtable_parse_cell:n {##1, ####1}
+            ,~\l__xtable_data_tl
+          }
+        ;
+      }
+  }
+\NewDocumentCommand \logtable {}
+  {
+    \int_log:N  \g__xtable_row_count_int
+    \int_log:N  \g__xtable_col_count_int
+    \seq_log:N  \g__xtable_row_align_seq
+    \seq_log:N  \g__xtable_col_align_seq
+    \seq_log:N  \g__xtable_row_ht_style_seq
+    \seq_log:N  \g__xtable_col_wd_style_seq
+    \seq_log:N  \g__xtable_merge_info_seq
+    \seq_log:N  \g__xtable_merge_align_seq
+    \prop_log:N \g__xtable_row_name_prop
+    \prop_log:N \g__xtable_col_name_prop
+    \prop_log:N \g__xtable_cell_data_prop
+    \prop_log:N \g__xtable_merge_ref_prop
+    \bool_log:N \g__xtable_row_header_bool
+    \bool_log:N \g__xtable_col_header_bool
+  }
+\regex_const:Nn \c__xtable_csv_row_regex
+  { (?:(?:[^"\c{\\}]+|"(?:""|[^"])+")+?)(?:\c{\\}) }
+\regex_const:Nn \c__xtable_csv_cell_regex
+  { (?:([^"\c{\\},]*)|"((?:""|[^"])+)")(?:,|\c{\\}) }
+\regex_const:Nn \c__xtable_json_cell_regex
+  {
+    "((?:[^"\\]|\\.)+)"
+    \s*:\s*
+    (?:
+      ([\+\-]?(?:\d*\.)?\d+|true|false) |
+      "((?:[^"\\]|\\.)+)"
+    )
+    \s*[,]?
+  }
+\regex_const:Nn \c__xtable_row_ht_regex
+  {
+    \A(?:.*=)?(?:
+    (auto|same|a|s)|
+    ([0-9.]+(?:pt|ex|em|mm|cm|in|cc|dd|pc))
+    )\Z
+  }
+\regex_const:Nn \c__xtable_col_wd_regex
+  {
+    \A(?:.*=)?(?:
+    (auto|same|fill|samefill|a|s|f|sf)|
+    ([0-9.]+(?:pt|ex|em|mm|cm|in|cc|dd|pc))
+    )\Z
+  }
+\bool_new:N       \l__xtable_input_bool
+\bool_set_false:N \l__xtable_input_bool
+\cs_new:Nn \__xtable_check_input_env:n
+  {
+    \bool_if:NF \l__xtable_input_bool
+      { \msg_error:nnn {xtable} {outside_xtable} {#1} }
+  }
+\int_new:N  \l__xtable_parse_status_int
+\bool_new:N \l__xtable_esc_status_bool
+\bool_new:N \l__xtable_quote_status_bool
+\seq_new:N \l__xtable_row_input_seq
+\seq_new:N \l__xtable_cell_input_seq
+\tl_new:N   \l__xtable_input_format_tl
+\tl_new:N   \l__xtable_input_sep_tl
+\bool_new:N \l__xtable_input_row_header_bool
+\bool_new:N \l__xtable_input_col_header_bool
+\keys_define:nn { xtable / input }
+  {
+    format    .choices:nn = { inner, csv, json }
+      { \tl_set_eq:NN \l__xtable_input_format_tl \l_keys_choice_tl },
+    format    .initial:n  = {inner},
+    csv       .code:n     = { \tl_set:Nn \l__xtable_input_format_tl { csv } },
+    json      .code:n     = { \tl_set:Nn \l__xtable_input_format_tl { json } },
+    title     .bool_set:N = \l__xtable_input_col_header_bool,
+    header    .bool_set:N = \l__xtable_input_col_header_bool,
+    header    .initial:n  = {true},
+    rowheader .bool_set:N = \l__xtable_input_row_header_bool,
+    rowheader .initial:n  = {false},
+    sep       .tl_set:N   = \l__xtable_input_sep_tl,
+    sep       .initial:n  = {,},
+    loc       .code:n     = { \__xtable_parse_coord:n {#1} },
+    loc       .initial:n  = {1,1}
+  }
+\cs_new:Nn \__xtable_parse_input:n
+  {
+    \seq_set_split:Nnn \l__xtable_row_input_seq {\\} {#1}
+    \cs_set:Nn \__xtable_tmpa_cs: % 更新单元格序列
+      {
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {\newline} {\\}
+        \seq_set_split:NVV \l__xtable_cell_input_seq
+          \l__xtable_input_sep_tl \l__xtable_tmpa_tl
+      }
+    \cs_set:Nn \__xtable_tmpb_cs: % 填充一行数据
+      {
+        \int_set_eq:NN \l__xtable_tmpb_int \l__xtable_col_loc_int
+        \seq_map_inline:Nn \l__xtable_cell_input_seq
+          {
+            \__xtable_set_cell:NNn \l__xtable_tmpa_int \l__xtable_tmpb_int {####1}
+            \int_incr:N \l__xtable_tmpb_int
+          }
+      }
+    \bool_if:NT \l__xtable_input_col_header_bool
+      {
+        \int_zero:N \l__xtable_tmpa_int
+        \seq_pop_left:NN \l__xtable_row_input_seq \l__xtable_tmpa_tl
+        \__xtable_tmpa_cs:
+        \bool_if:NT \l__xtable_input_row_header_bool
+          {
+            \seq_pop_left:NNT \l__xtable_cell_input_seq \l__xtable_tmpb_tl
+              { \__xtable_set_cell:nV {0, 0} \l__xtable_tmpb_tl }
+          }
+        \__xtable_tmpb_cs:
+        \int_set_eq:NN \l__xtable_tmpb_int \l__xtable_col_loc_int
+        \seq_map_inline:Nn \l__xtable_cell_input_seq
+          {
+            \__xtable_set_col_name:nN {##1} \l__xtable_tmpb_int
+            \int_incr:N \l__xtable_tmpb_int
+          }
+      }
+    \int_set_eq:NN \l__xtable_tmpa_int \l__xtable_row_loc_int
+    \seq_map_inline:Nn \l__xtable_row_input_seq
+      {
+        \tl_set:Nn \l__xtable_tmpa_tl {##1}
+        \__xtable_tmpa_cs:
+        \bool_if:NT \l__xtable_input_row_header_bool
+          {
+            \seq_pop_left:NNT \l__xtable_cell_input_seq \l__xtable_tmpb_tl
+              { \__xtable_set_cell:eV {\l__xtable_tmpa_int, 0} \l__xtable_tmpb_tl }
+          }
+        \__xtable_tmpb_cs:
+        \int_incr:N \l__xtable_tmpa_int
+      }
+  }
+\cs_new:Nn \__xtable_parse_csv:n
+  {
+    \seq_clear:N \l__xtable_row_input_seq
+    \regex_extract_all:NnN
+      \c__xtable_csv_row_regex {#1\\} \l__xtable_row_input_seq
+    \int_set_eq:NN \l__xtable_tmpa_int \l__xtable_row_loc_int
+    \seq_map_inline:Nn \l__xtable_row_input_seq
+      {
+        \int_set_eq:NN \l__xtable_tmpb_int \l__xtable_col_loc_int
+        \seq_clear:N \l__xtable_tmpa_seq
+        \seq_clear:N \l__xtable_cell_input_seq
+        \regex_extract_all:NnN
+          \c__xtable_csv_cell_regex {##1} \l__xtable_tmpa_seq
+        \int_step_inline:nnnn {2} {3} {\seq_count:N \l__xtable_tmpa_seq}
+          {
+            \tl_set:Ne \l__xtable_tmpa_tl
+              { \seq_item:Nn \l__xtable_tmpa_seq {####1} }
+            \tl_set:Ne \l__xtable_tmpb_tl
+              { \seq_item:Nn \l__xtable_tmpa_seq {####1+1} }
+            \tl_put_right:NV \l__xtable_tmpa_tl \l__xtable_tmpb_tl
+            \seq_put_right:NV \l__xtable_cell_input_seq \l__xtable_tmpa_tl
+          }
+        \bool_if:NTF \l__xtable_input_col_header_bool
+          { % 填充表头（设置列名）
+            \seq_map_inline:Nn \l__xtable_cell_input_seq
+              {
+                \__xtable_set_col_name:nN {####1} \l__xtable_tmpb_int
+                \int_incr:N \l__xtable_tmpb_int
+              }
+            \bool_set_false:N \l__xtable_input_col_header_bool
+          }
+          { % 填充数据
+            \seq_map_inline:Nn \l__xtable_cell_input_seq
+              {
+                \__xtable_set_cell:NNn \l__xtable_tmpa_int \l__xtable_tmpb_int {####1}
+                \int_incr:N \l__xtable_tmpb_int
+              }
+            \int_incr:N \l__xtable_tmpa_int
+          }
+      }
+  }
+\cs_new:Nn \__xtable_parse_json_auxa:n
+  {
+    \str_case_e:nnF {#1}
+      {
+        {\c__xtable_space_str} {}  % 空白，跳过
+        {[}                   % 数组开始
+        { \int_set:Nn \l__xtable_parse_status_int {1} }
+        {\c__xtable_lbrace_str}    % 行开始
+        {
+          \int_set:Nn \l__xtable_parse_status_int {2}
+          \str_clear:N \l__xtable_tmpa_str
+        }
+      }
+      { \msg_error:nnn {xtable} {unknown_input} {#1} }
+  }
+\cs_new:Nn \__xtable_parse_json_auxb:n
+  {
+    \str_case_e:nnF {#1}
+      {
+        {\c__xtable_space_str} {}  % 空白，跳过
+        {,} {}                % 行分隔，跳过
+        {]}                   % 数组结束
+        { \int_set:Nn \l__xtable_parse_status_int {0} }
+        {\c__xtable_lbrace_str}    % 行开始
+        {
+          \int_set:Nn \l__xtable_parse_status_int {2}
+          \str_clear:N \l__xtable_tmpa_str
+        }
+      }
+      { \msg_error:nnn {xtable} {unknown_input} {#1} }
+  }
+\cs_new:Nn \__xtable_parse_json_auxc:n
+  {
+    \bool_if:NTF \l__xtable_esc_status_bool % 转义状态
+      { \bool_set_false:N \l__xtable_esc_status_bool }
+      {
+        \str_if_eq:VnTF \c__xtable_escape_str {#1} % 即将转义
+          { \bool_set_true:N \l__xtable_esc_status_bool }
+          {
+            \bool_if:NTF \l__xtable_quote_status_bool % 引用状态
+              {
+                \str_if_eq:nnT {"} {#1} % 结束引用
+                  { \bool_set_false:N \l__xtable_quote_status_bool }
+              }
+              {
+                \str_if_eq:nnTF {"} {#1} % 即将引用
+                  { \bool_set_true:N \l__xtable_quote_status_bool }
+                  {
+                    \str_if_eq:VnT \c__xtable_rbrace_str {#1} % 行结束
+                      {
+                        \int_set:Nn \l__xtable_parse_status_int {1}
+                        \seq_put_right:NV \l__xtable_row_input_seq \l__xtable_tmpa_str
+                      }
+                  }
+              }
+          }
+      }
+    \str_put_right:Nn \l__xtable_tmpa_str {#1}
+  }
+\cs_new:Nn \__xtable_parse_json_row:n
+  {
+    \regex_extract_all:NnN
+      \c__xtable_json_cell_regex {#1} \l__xtable_cell_input_seq
+    \bool_until_do:nn
+      { \seq_if_empty_p:N \l__xtable_cell_input_seq }
+      {
+        \seq_pop_left:NN \l__xtable_cell_input_seq \l__xtable_tmpa_tl % 丢弃
+        \seq_pop_left:NN \l__xtable_cell_input_seq \l__xtable_cachea_tl
+        \seq_pop_left:NN \l__xtable_cell_input_seq \l__xtable_tmpa_tl
+        \seq_pop_left:NN \l__xtable_cell_input_seq \l__xtable_tmpb_tl
+        \tl_if_empty:NTF \l__xtable_tmpa_tl
+          { \tl_set_eq:NN \l__xtable_cacheb_tl \l__xtable_tmpb_tl }
+          { \tl_set_eq:NN \l__xtable_cacheb_tl \l__xtable_tmpa_tl }
+        \int_set_eq:NN \l__xtable_cachea_int \l__xtable_col_loc_int
+        \__xtable_parse_new_col_loc:V \l__xtable_cachea_tl
+        \int_set_eq:NN \l__xtable_tmpa_int \l__xtable_col_loc_int
+        \int_compare:nNnTF {\l__xtable_cachea_int} = {\l__xtable_col_loc_int}
+          { \int_incr:N \l__xtable_col_loc_int }
+          { \int_set_eq:NN \l__xtable_col_loc_int \l__xtable_cachea_int }
+        \__xtable_set_cell:NNV
+          \l__xtable_row_loc_int \l__xtable_tmpa_int \l__xtable_cacheb_tl
+      }
+    \int_incr:N \l__xtable_row_loc_int
+  }
+\cs_new:Nn \__xtable_parse_json:n
+  {
+    \int_zero:N \l__xtable_parse_status_int
+    \bool_set_false:N \l__xtable_esc_status_bool
+    \bool_set_false:N \l__xtable_quote_status_bool
+    \str_clear:N \l__xtable_tmpa_str
+    \seq_clear:N \l__xtable_row_input_seq
+    \str_map_inline:nn {#1} % 解析 JSON 中的行
+      {
+        \int_case:nn
+          { \l__xtable_parse_status_int }
+          {
+            {0} { \__xtable_parse_json_auxa:n {##1} } % 开始
+            {1} { \__xtable_parse_json_auxb:n {##1} } % 行间状态
+            {2} { \__xtable_parse_json_auxc:n {##1} } % 行内状态
+          }
+      }
+    \seq_map_function:NN \l__xtable_row_input_seq \__xtable_parse_json_row:n
+  }
+\NewDocumentCommand {\loadtable} { m }
+  {
+    \__xtable_check_input_env:n {\loadtable}
+    \__xtable_table_restore:n {#1}
+  }
+\NewDocumentCommand {\savetable} { m }
+  {
+    \__xtable_check_input_env:n {\savetable}
+    \__xtable_table_save:n {#1}
+  }
+\NewDocumentCommand {\excelcolname} { O{26} }
+  {
+    \__xtable_check_input_env:n {\excelcolname}
+    \__xtable_set_excel_col_names:n {#1}
+  }
+\cs_new:Nn \__xtable_line_name:Nnnn
+  {
+    \int_set:Nn \l__xtable_tmpa_int {#2}
+    \seq_set_split:Nnn \l__xtable_cell_input_seq {#3} {#4}
+    \seq_map_inline:Nn \l__xtable_cell_input_seq
+      {
+        #1 {##1} \l__xtable_tmpa_int
+        \int_incr:N \l__xtable_tmpa_int
+      }
+  }
+\NewDocumentCommand {\rowname} { D(){1} O{,} m }
+  {
+    \__xtable_check_input_env:n {\rowname}
+    \__xtable_line_name:Nnnn \__xtable_set_row_name:nN {#1} {#2} {#3}
+  }
+\NewDocumentCommand {\colname} { D(){1} O{,} m }
+  {
+    \__xtable_check_input_env:n {\colname}
+    \__xtable_line_name:Nnnn \__xtable_set_col_name:nN {#1} {#2} {#3}
+  }
+\cs_new:Nn \__xtable_line:nnnn
+  {
+    \int_set:Nn \l__xtable_row_loc_int {1}
+    \int_set:Nn \l__xtable_col_loc_int {1}
+    \str_if_empty:nTF {#1}
+      {
+        \int_set_eq:Nc \l__xtable_tmpa_int { g__xtable_#4_count_int }
+        \int_add:cn { l__xtable_#4_loc_int } { \l__xtable_tmpa_int }
+      }
+      {
+        \str_if_in:nnTF {#1} {,}
+          { \__xtable_parse_new_coord:n {#1} }
+          { \use:c { __xtable_parse_new_#4_loc:n } {#1} }
+      }
+    \str_if_eq:nnTF {#4} {row}
+      { \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_col_loc_int }
+      { \cs_set_eq:NN \__xtable_tmpa_cs: \l__xtable_row_loc_int }
+    \seq_set_split:Nnn \l__xtable_cell_input_seq {#2} {#3}
+    \seq_map_inline:Nn \l__xtable_cell_input_seq
+      {
+        \__xtable_set_cell:n {##1}
+        \int_incr:N \__xtable_tmpa_cs:
+      }
+  }
+\NewDocumentCommand {\__xtable_row:nnn} { D(){} O{,} m }
+  { \__xtable_line:nnnn {#1} {#2} {#3} {row} }
+\NewDocumentCommand {\__xtable_col:nnn} { D(){} O{,} m }
+  { \__xtable_line:nnnn {#1} {#2} {#3} {col} }
+\NewDocumentCommand {\__xtable_cell:nn} { r() m }
+  {
+    \int_zero:N \l__xtable_row_loc_int
+    \int_zero:N \l__xtable_col_loc_int
+    \__xtable_parse_new_coord:n {#1}
+    \__xtable_set_cell:n {#2}
+  }
+\NewDocumentEnvironment{__xtable_data:}{O{} +b}
+  {
+    \keys_set:nn { xtable/input } {#1}
+    \str_case:VnF \l__xtable_input_format_tl
+      {
+        {inner} { \__xtable_parse_input:n {#2} }
+        {csv}   { \__xtable_parse_csv:n   {#2} }
+        {json}  { \__xtable_parse_json:n  {#2} }
+      }
+      { \msg_error:nnV {xtable} {unknown_format} \l__xtable_input_format_tl }
+  }
+  {}
+\NewDocumentEnvironment{xtable}{ O{} }
+  {
+    \__xtable_table_init:
+    \keys_set:nn { xtable/input } {#1}
+    \bool_gset_eq:NN
+      \g__xtable_row_header_bool \l__xtable_input_row_header_bool
+    \bool_gset_eq:NN
+      \g__xtable_col_header_bool \l__xtable_input_col_header_bool
+    \cs_set_eq:NN \data \__xtable_data:
+    \cs_set_eq:NN \enddata \end__xtable_data:
+    \cs_set_eq:NN \row  \__xtable_row:nnn
+    \cs_set_eq:NN \col  \__xtable_col:nnn
+    \cs_set_eq:NN \cell \__xtable_cell:nn
+    \bool_set_true:N \l__xtable_input_bool
+  }
+  {
+    \bool_set_false:N \l__xtable_input_bool
+    \__xtable_insure_style:
+    \__xtable_header_fill:
+  }
+\cs_new:Nn \__xtable_line_align:nnnn
+  {
+    \regex_extract_all:nnNF {#3} {#1#2} \l__xtable_tmpa_seq
+      { \msg_error:nnn {xtable} {unknown_format} {[#1],{#2}} }
+    \str_if_in:nnTF {#2} {=}
+      { \seq_set_split:Nnn \l__xtable_cell_input_seq {,} {#2} }
+      {
+        \tl_set:Nn \l__xtable_tmpa_tl {#2}
+        \tl_replace_all:Nnn \l__xtable_tmpa_tl {,} {}
+        \seq_set_split:NnV \l__xtable_cell_input_seq {} \l__xtable_tmpa_tl
+      }
+    \use:c { __xtable_set_#4_align:Nn } \l__xtable_cell_input_seq {#1}
+  }
+\NewDocumentCommand {\rowalign} { O{b} m }
+  {
+    \__xtable_check_input_env:n {\rowalign}
+    \__xtable_line_align:nnnn {#1} {#2} {^(?:(?:.*=)?[tmb],?)*$} {row}
+  }
+\NewDocumentCommand {\colalign} { O{c} m }
+  {
+    \__xtable_check_input_env:n {\colalign}
+    \__xtable_line_align:nnnn {#1} {#2} {^(?:(?:.*=)?[lcr],?)*$} {col}
+  }
+\cs_new:Nn \__xtable_line_size:nnnn
+  {
+    \seq_clear:N \l__xtable_cell_input_seq
+    \seq_set_split:Nnn \l__xtable_cell_input_seq {,} {#3}
+    \cs_set_eq:Nc \__xtable_tmpa_cs: { c__xtable_#4_regex }
+    \regex_extract_all:NnNF
+      \__xtable_tmpa_cs: {#1} \l__xtable_tmpa_seq
+      { \msg_error:nnn {xtable} {unknown_format} {#1} }
+    \seq_map_inline:Nn \l__xtable_cell_input_seq
+      {
+        \regex_extract_all:NnNF
+          \__xtable_tmpa_cs: {##1} \l__xtable_tmpa_seq
+          { \msg_error:nnn {xtable} {unknown_format} {##1} }
+      }
+    \use:c { __xtable_set_#4_style:Nnn } \l__xtable_cell_input_seq {#1} {#2}
+   }
+\NewDocumentCommand {\rowheight} { O{auto} O{\textheight} m }
+  {
+    \__xtable_check_input_env:n {\rowheight}
+    \__xtable_line_size:nnnn {#1} {#2} {#3} { row_ht }
+   }
+\NewDocumentCommand {\colwidth} { O{auto} O{\textwidth} m }
+  {
+    \__xtable_check_input_env:n {\colwidth}
+    \__xtable_line_size:nnnn {#1} {#2} {#3} { col_wd }
+  }
+\NewDocumentCommand {\mergecell} { O{ul} r() r() O{mc} }
+  {
+    \__xtable_check_input_env:n {\mergecell}
+    \cs_new:Npn \__xtable_tmapa_cs: ##1##2
+      {
+        \int_set_eq:NN \l__xtable_tmpa_int ##1
+        \int_set_eq:NN ##1 ##2
+        \int_set_eq:NN ##2 \l__xtable_tmpa_int
+      }
+    \__xtable_check_input_env:n {\mergecell}
+    \__xtable_parse_coord:n {#3}
+    \int_set_eq:NN \l__xtable_cachea_int \l__xtable_row_loc_int
+    \int_set_eq:NN \l__xtable_cacheb_int \l__xtable_col_loc_int
+    \__xtable_parse_coord:n {#2}
+    \int_compare:nNnT {\l__xtable_row_loc_int} > {\l__xtable_cachea_int}
+      { \__xtable_tmapa_cs: \l__xtable_row_loc_int \l__xtable_cachea_int }
+    \int_compare:nNnT {\l__xtable_col_loc_int} > {\l__xtable_cacheb_int}
+      { \__xtable_tmapa_cs: \l__xtable_col_loc_int \l__xtable_cacheb_int }
+    \__xtable_set_merge_cell:VVVVn \l__xtable_row_loc_int \l__xtable_col_loc_int
+      \l__xtable_cachea_int \l__xtable_cacheb_int {#1}
+    \__xtable_set_merge_align:n {#4}
+  }
+\seq_new:N \g__xtable_row_sep_seq
+\seq_new:N \g__xtable_col_sep_seq
+\seq_new:N \g__xtable_row_ht_seq
+\seq_new:N \g__xtable_row_dp_seq
+\seq_new:N \g__xtable_col_wd_seq
+\prop_new:N \g__xtable_cell_ht_prop
+\prop_new:N \g__xtable_cell_ufill_prop
+\prop_new:N \g__xtable_cell_dfill_prop
+\seq_new:N \g__xtable_merge_wd_seq
+\seq_new:N \g__xtable_merge_ht_seq
+\seq_new:N \g__xtable_merge_dp_seq
+\seq_new:N \g__xtable_merge_ufill_seq
+\seq_new:N \g__xtable_merge_dfill_seq
+\seq_new:N \g__xtable_merge_range_wd_seq
+\seq_new:N \g__xtable_merge_range_ht_seq
+\seq_new:N \g__xtable_merge_range_dp_seq
+\seq_new:N \g__xtable_row_loc_seq
+\seq_new:N \g__xtable_col_loc_seq
+\cs_new:Nn \__xtable_set_row_sep:nn
+  {
+    \seq_gclear:N \g__xtable_row_sep_seq
+    \prg_replicate:nn {\g__xtable_row_count_int}
+      { \seq_gput_right:Nn \g__xtable_row_sep_seq {#2} }
+    \seq_gput_left:Nn  \g__xtable_row_sep_seq {#1}
+    \seq_gput_right:Nn \g__xtable_row_sep_seq {#1}
+    \bool_if:NF \g__xtable_col_header_bool
+      {
+        \seq_gset_item:Nnn \g__xtable_row_sep_seq {1} { 0pt }
+        \seq_gset_item:Nnn \g__xtable_row_sep_seq {2} { #1 }
+      }
+  }
+\cs_new:Nn \__xtable_set_col_sep:nn
+  {
+    \seq_gclear:N \g__xtable_col_sep_seq
+    \prg_replicate:nn {\g__xtable_col_count_int}
+      { \seq_gput_right:Nn \g__xtable_col_sep_seq {#2} }
+    \seq_gput_left:Nn  \g__xtable_col_sep_seq {#1}
+    \seq_gput_right:Nn \g__xtable_col_sep_seq {#1}
+    \bool_if:NF \g__xtable_row_header_bool
+      {
+        \seq_gset_item:Nnn \g__xtable_col_sep_seq {1} { 0pt }
+        \seq_gset_item:Nnn \g__xtable_col_sep_seq {2} { #1 }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_set_row_sep:nn { ne, en, ee }
+\cs_generate_variant:Nn \__xtable_set_col_sep:nn { ne, en, ee }
+\cs_new:Nn \__xtable_measure_cell_wd:n
+  {
+    \dim_zero:N    \l__xtable_ufill_dim
+    \dim_zero:N    \l__xtable_dfill_dim
+    \dim_set_eq:NN \l__xtable_wd_dim \g__xtable_cell_wd_min_dim
+    \tl_if_empty:nF {#1}
+      {
+        \bool_set_true:N   \l__xtable_tmpa_bool % top line mark
+        \seq_set_split:Nnn \l__xtable_tmpa_seq {\\} {#1}
+        \seq_map_inline:Nn \l__xtable_tmpa_seq % each line
+          {
+            \hbox_set:Nn \l__xtable_tmpa_box {##1}
+            \__xtable_dim_set_max:Nn \l__xtable_wd_dim
+              { \box_wd:N \l__xtable_tmpa_box }
+            \bool_if:NT \l__xtable_tmpa_bool
+              {
+                \__xtable_dim_set_max:Nn \l__xtable_ufill_dim
+                  { \c__xtable_std_ht_dim - \box_ht:N \l__xtable_tmpa_box }
+                \bool_set_false:N  \l__xtable_tmpa_bool
+              }
+            \dim_zero:N \l__xtable_dfill_dim % clear above line
+            \__xtable_dim_set_max:Nn \l__xtable_dfill_dim
+              { \c__xtable_std_dp_dim - \box_dp:N \l__xtable_tmpa_box }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_measure_cell_wd:n { V, e }
+\cs_new:Nn \__xtable_measure_cell_box_wd:n
+  {
+    \dim_zero:N    \l__xtable_ufill_dim
+    \dim_zero:N    \l__xtable_dfill_dim
+    \dim_set_eq:NN \l__xtable_wd_dim \g__xtable_cell_wd_min_dim
+    \tl_if_empty:nF {#1}
+      {
+        \hbox_set:Nn \l__xtable_tmpa_box {#1}
+        \__xtable_dim_set_max:Nn \l__xtable_wd_dim
+          { \box_wd:N \l__xtable_tmpa_box }
+        \__xtable_dim_set_max:Nn \l__xtable_ufill_dim
+          { \c__xtable_std_ht_dim - \box_ht:N \l__xtable_tmpa_box }
+        \__xtable_dim_set_max:Nn \l__xtable_dfill_dim
+          { \c__xtable_std_dp_dim - \box_dp:N \l__xtable_tmpa_box }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_measure_cell_box_wd:n { V, e }
+\cs_new:Nn \__xtable_measure_col_wd:n
+  {
+    \dim_zero:N \l__xtable_tmpa_dim % max width
+    \bool_if:NTF \g__xtable_col_header_bool
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      { \int_set:Nn \l__xtable_tmpa_int {1} }
+    \int_step_inline:nnn {\l__xtable_tmpa_int} {\g__xtable_row_count_int}
+      {
+        \__xtable_merge_if:nF {##1, #1}
+          {
+            \__xtable_parse_cell:n {##1, #1}
+            \bool_if:NTF \l__xtable_is_box_bool
+              { \__xtable_measure_cell_box_wd:V \l__xtable_data_tl }
+              { \__xtable_measure_cell_wd:V     \l__xtable_data_tl }
+            \__xtable_dim_set_max:NN \l__xtable_tmpa_dim \l__xtable_wd_dim
+            \prop_gput:Nne \g__xtable_cell_ufill_prop
+              {##1,#1} {\dim_use:N \l__xtable_ufill_dim}
+            \prop_gput:Nne \g__xtable_cell_dfill_prop
+              {##1,#1} {\dim_use:N \l__xtable_dfill_dim}
+          }
+      }
+    \dim_set_eq:NN \l__xtable_wd_dim \l__xtable_tmpa_dim
+  }
+\cs_new:Nn \__xtable_calc_col_wd:
+  {
+    \dim_zero:N    \l__xtable_cachea_dim % 相同宽度的列的最大列宽
+    \dim_zero:N    \l__xtable_cacheb_dim % 相同宽度且填充的列的最大列宽
+    \seq_clear:N   \l__xtable_cachea_seq % 相同宽度的列的索引序列
+    \seq_clear:N   \l__xtable_cacheb_seq % 相同宽度且填充的列列的索引序列
+    \seq_gclear:N  \g__xtable_col_wd_seq % 列宽序列
+    \prop_gclear:N \g__xtable_cell_ufill_prop
+    \prop_gclear:N \g__xtable_cell_dfill_prop
+    \__xtable_disable_sys_func:
+    \bool_if:NTF \g__xtable_row_header_bool
+      { \int_step_inline:nnn { 0 } { \g__xtable_col_count_int } }
+      {
+        \seq_gput_right:Nn \g__xtable_col_wd_seq { 0pt }
+        \int_step_inline:nnn { 1 } { \g__xtable_col_count_int }
+      }
+      { % \int_step_inline:nnn 的参数三
+        \__xtable_measure_col_wd:n {##1}
+        \__xtable_parse_col_wd_style:n {##1}
+        \clist_if_in:nVTF {a,s,f,sf} \l__xtable_style_tl
+          {
+            \seq_gput_right:Ne \g__xtable_col_wd_seq
+              { \dim_use:N \l__xtable_wd_dim }
+            \tl_if_eq:VnT \l__xtable_style_tl {s}
+              {
+                \seq_put_right:Nn \l__xtable_cachea_seq {##1}
+                \__xtable_dim_set_max:NN \l__xtable_cachea_dim \l__xtable_wd_dim
+              }
+            \tl_if_eq:VnT \l__xtable_style_tl {sf}
+              {
+                \seq_put_right:Nn \l__xtable_cacheb_seq {##1}
+                \__xtable_dim_set_max:NN \l__xtable_cacheb_dim \l__xtable_wd_dim
+              }
+          }
+          { \seq_gput_right:NV \g__xtable_col_wd_seq \l__xtable_style_tl }
+      }
+    \__xtable_restore_sys_func:
+    \seq_map_inline:Nn \l__xtable_cachea_seq
+      {
+        \seq_gset_item:Nne \g__xtable_col_wd_seq
+          {##1+1} { \dim_use:N \l__xtable_cachea_dim }
+      }
+    \seq_map_inline:Nn \l__xtable_cacheb_seq
+      {
+        \seq_gset_item:Nne \g__xtable_col_wd_seq
+          {##1+1} { \dim_use:N \l__xtable_cacheb_dim }
+      }
+    \int_zero:N  \l__xtable_cachea_int % 填充列的个数
+    \seq_clear:N \l__xtable_cachea_seq % 填充列的索引序列
+    \dim_set:Nn  \l__xtable_wd_dim
+      { \seq_item:Nn \g__xtable_col_wd_style_seq {-1} }
+    \seq_map_inline:Nn \g__xtable_col_sep_seq
+      { \dim_sub:Nn \l__xtable_wd_dim {##1} }
+    \int_step_inline:nnn { 0 } { \g__xtable_col_count_int }
+      {
+        \dim_sub:Nn \l__xtable_wd_dim
+          { \seq_item:Nn \g__xtable_col_wd_seq {##1+1} }
+        \__xtable_parse_col_wd_style:n {##1}
+        \tl_if_in:NnT \l__xtable_style_tl {f}
+          {
+            \int_incr:N \l__xtable_cachea_int
+            \seq_put_right:Nn \l__xtable_cachea_seq {##1}
+          }
+      }
+    \int_if_zero:nF { \l__xtable_cachea_int }
+      {
+        \dim_set:Nn \l__xtable_cachea_dim
+          { \l__xtable_wd_dim / \l__xtable_cachea_int }
+      }
+    \seq_map_inline:Nn \l__xtable_cachea_seq
+      {
+        \dim_sub:Nn \l__xtable_wd_dim
+          { \seq_item:Nn \g__xtable_col_wd_seq {##1+1} }
+        \dim_add:Nn \l__xtable_wd_dim { \l__xtable_cachea_dim }
+        \seq_gset_item:Nne \g__xtable_col_wd_seq
+          {##1+1} { \dim_use:N \l__xtable_wd_dim }
+      }
+  }
+\cs_new:Nn \__xtable_measure_cell_ht:nnn
+  {
+    \dim_set_eq:NN \l__xtable_ht_dim \c__xtable_std_ht_dim
+    \dim_set_eq:NN \l__xtable_dp_dim \c__xtable_std_dp_dim
+    \tl_if_empty:nF {#3}
+      {
+        \str_if_eq:nnTF {#1} {t}
+          { \vbox_set_top:Nn } { \vbox_set:Nn }
+          \l__xtable_tmpa_box
+          {
+            \baselineskip=\g__xtable_cell_lineskip_dim
+            \hsize=#2 \parindent=0pt \noindent #3
+          }
+        \__xtable_dim_set_max:Nn \l__xtable_ht_dim
+          { \box_ht:N \l__xtable_tmpa_box + \l__xtable_ufill_dim }
+        \__xtable_dim_set_max:Nn \l__xtable_dp_dim
+          { \box_dp:N \l__xtable_tmpa_box + \l__xtable_dfill_dim  }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_measure_cell_ht:nnn { VeV }
+\cs_new:Nn \__xtable_measure_row_ht:n
+  {
+    \dim_zero:N \l__xtable_tmpa_dim
+    \dim_zero:N \l__xtable_tmpb_dim
+    \__xtable_parse_row_align:n {#1}
+    \bool_if:NTF \g__xtable_row_header_bool
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      { \int_set:Nn \l__xtable_tmpa_int {1} }
+    \int_step_inline:nnn { \l__xtable_tmpa_int } { \g__xtable_col_count_int }
+      {
+        \__xtable_merge_if:nF {#1, ##1}
+          {
+            \__xtable_parse_cell:n      {#1, ##1}
+            \__xtable_parse_cell_fill:n {#1, ##1}
+            \__xtable_measure_cell_ht:VeV \l__xtable_row_align_tl
+              { \seq_item:Nn \g__xtable_col_wd_seq { ##1 + 1 } }
+              \l__xtable_data_tl
+            \prop_gput:Nne \g__xtable_cell_ht_prop {#1,##1}
+              { \dim_use:N \l__xtable_ht_dim }
+            \__xtable_dim_set_max:NN \l__xtable_tmpa_dim \l__xtable_ht_dim
+            \__xtable_dim_set_max:NN \l__xtable_tmpb_dim \l__xtable_dp_dim
+          }
+      }
+    \dim_set_eq:NN \l__xtable_ht_dim \l__xtable_tmpa_dim
+    \dim_set_eq:NN \l__xtable_dp_dim \l__xtable_tmpb_dim
+  }
+
+\cs_new:Nn \__xtable_calc_row_ht:
+  {
+    \dim_zero:N    \l__xtable_cachea_dim
+    \dim_zero:N    \l__xtable_cacheb_dim
+    \seq_clear:N   \l__xtable_cachea_seq
+    \seq_gclear:N  \g__xtable_row_ht_seq
+    \seq_gclear:N  \g__xtable_row_dp_seq
+    \prop_gclear:N \g__xtable_cell_ht_prop
+    \__xtable_disable_sys_func:
+    \bool_if:NTF \g__xtable_col_header_bool
+      { \int_step_inline:nnn { 0 } { \g__xtable_row_count_int } }
+      {
+        \seq_gput_right:Nn \g__xtable_row_ht_seq { 0pt }
+        \seq_gput_right:Nn \g__xtable_row_dp_seq { 0pt }
+        \int_step_inline:nnn { 1 } { \g__xtable_row_count_int }
+      }
+      { % \int_step_inline:nnn 的参数三
+        \__xtable_measure_row_ht:n {##1}
+        \__xtable_parse_row_ht_style:n {##1}
+        \clist_if_in:nVTF {a,s} \l__xtable_style_tl
+          {
+            \seq_gput_right:Ne \g__xtable_row_ht_seq
+              { \dim_use:N \l__xtable_ht_dim }
+            \seq_gput_right:Ne \g__xtable_row_dp_seq
+              { \dim_use:N \l__xtable_dp_dim }
+            \tl_if_eq:VnT \l__xtable_style_tl {s}
+              {
+                \seq_put_right:Nn \l__xtable_cachea_seq {##1}
+                \__xtable_dim_set_max:NN \l__xtable_cachea_dim \l__xtable_ht_dim
+                \__xtable_dim_set_max:NN \l__xtable_cacheb_dim \l__xtable_dp_dim
+              }
+          }
+          {
+            \seq_gput_right:Ne \g__xtable_row_ht_seq
+              { \dim_eval:n { \l__xtable_style_tl - \l__xtable_dp_dim } }
+            \seq_gput_right:Ne \g__xtable_row_dp_seq
+              { \dim_use:N \l__xtable_dp_dim }
+          }
+      }
+    \__xtable_restore_sys_func:
+    \seq_map_inline:Nn \l__xtable_cachea_seq
+      {
+        \__xtable_parse_row_align:n {##1}
+        \str_if_eq:VnTF \l__xtable_row_align_tl {t}
+          {
+            \dim_set:Nn \l__xtable_ht_dim
+              { \seq_item:Nn \g__xtable_row_ht_seq {##1+1} }
+            \dim_set:Nn \l__xtable_dp_dim
+              { \l__xtable_cachea_dim + \l__xtable_cacheb_dim - \l__xtable_ht_dim }
+            \seq_gset_item:Nne \g__xtable_row_dp_seq
+              {##1+1} { \dim_use:N \l__xtable_dp_dim  }
+          }
+          {
+            \dim_set:Nn \l__xtable_dp_dim
+              { \seq_item:Nn \g__xtable_row_dp_seq {##1+1} }
+            \dim_set:Nn \l__xtable_ht_dim
+              { \l__xtable_cachea_dim + \l__xtable_cacheb_dim - \l__xtable_dp_dim }
+            \seq_gset_item:Nne \g__xtable_row_ht_seq
+              {##1+1} { \dim_use:N \l__xtable_ht_dim  }
+          }
+      }
+  }
+\cs_new:Nn \__xtable_parse_cell_size:n
+  {
+    \int_set:Nn \l__xtable_tmpa_int { \clist_item:nn {#1} {1} + 1 }
+    \int_set:Nn \l__xtable_tmpb_int { \clist_item:nn {#1} {2} + 1 }
+    \dim_set:Nn \l__xtable_wd_dim
+      { \seq_item:Nn \g__xtable_col_wd_seq { \l__xtable_tmpb_int } }
+    \dim_set:Nn \l__xtable_ht_dim
+      { \seq_item:Nn \g__xtable_row_ht_seq { \l__xtable_tmpa_int } }
+    \dim_set:Nn \l__xtable_dp_dim
+      { \seq_item:Nn \g__xtable_row_dp_seq { \l__xtable_tmpa_int } }
+  }
+\cs_new:Nn \__xtable_parse_cell_fill:n
+  {
+    \prop_get:NnNF \g__xtable_cell_ufill_prop {#1} \l__xtable_tmpa_tl
+      { \tl_set:Nn \l__xtable_tmpa_tl {0pt} }
+    \prop_get:NnNF \g__xtable_cell_dfill_prop {#1} \l__xtable_tmpb_tl
+      { \tl_set:Nn \l__xtable_tmpb_tl {0pt} }
+    \dim_set:Nn \l__xtable_ufill_dim {\l__xtable_tmpa_tl}
+    \dim_set:Nn \l__xtable_dfill_dim {\l__xtable_tmpb_tl}
+  }
+\cs_new:Nn \__xtable_parse_cell_ht:n
+  {
+    \prop_get:NnN \g__xtable_cell_ht_prop {#1} \l__xtable_tmpa_tl
+    \dim_set:Nn \l__xtable_ht_dim {\l__xtable_tmpa_tl}
+  }
+\cs_new:Nn \__xtable_measure_merge_size:
+  {
+    \seq_gclear:N \g__xtable_merge_wd_seq
+    \seq_gclear:N \g__xtable_merge_ht_seq
+    \seq_gclear:N \g__xtable_merge_dp_seq
+    \seq_gclear:N \g__xtable_merge_dfill_seq
+    \seq_gclear:N \g__xtable_merge_ufill_seq
+    \int_step_inline:nn
+      { \__xtable_parse_merge_count: }
+      {
+        \__xtable_parse_merge:n {##1}
+        % 计算宽度
+        \bool_if:NTF \l__xtable_is_box_bool
+          { \__xtable_measure_cell_box_wd:V \l__xtable_data_tl }
+          { \__xtable_measure_cell_wd:V \l__xtable_data_tl }
+        \seq_gput_right:Ne \g__xtable_merge_wd_seq
+          { \dim_use:N \l__xtable_wd_dim }
+        \seq_gput_right:Ne \g__xtable_merge_dfill_seq
+          { \dim_use:N \l__xtable_dfill_dim }
+        \seq_gput_right:Ne \g__xtable_merge_ufill_seq
+          { \dim_use:N \l__xtable_ufill_dim }
+        % 计算高度
+        \__xtable_parse_merge_align:n {##1}
+        \__xtable_measure_cell_ht:VeV \l__xtable_row_align_tl
+          { \dim_use:N \l__xtable_wd_dim }
+          \l__xtable_data_tl
+        \seq_gput_right:Ne \g__xtable_merge_ht_seq
+          { \dim_use:N \l__xtable_ht_dim }
+        \seq_gput_right:Ne \g__xtable_merge_dp_seq
+          { \dim_use:N \l__xtable_dp_dim }
+      }
+  }
+\cs_new:Nn \__xtable_calc_merge_size:
+  {
+    \seq_gclear:N \g__xtable_merge_range_wd_seq
+    \seq_gclear:N \g__xtable_merge_range_ht_seq
+    \seq_gclear:N \g__xtable_merge_range_dp_seq
+    \__xtable_disable_sys_func:
+    \__xtable_measure_merge_size:
+    \__xtable_restore_sys_func:
+    \int_step_inline:nn
+      { \__xtable_parse_merge_count: }
+      {
+        \__xtable_parse_merge:n       {##1}
+        \__xtable_parse_merge_align:n {##1}
+        \int_zero:N \l__xtable_tmpa_int
+        \int_step_inline:nnn
+          { \seq_item:Nn \l__xtable_merge_seq {2} }
+          { \seq_item:Nn \l__xtable_merge_seq {4} }
+          {
+            \dim_add:Nn \l__xtable_wd_dim
+              { \seq_item:Nn \g__xtable_col_sep_seq { ####1 + 1 } }
+            \int_if_zero:nT { \l__xtable_tmpa_int }
+              { % 置后清零，以排除第一列左边的间隙
+                \dim_zero:N \l__xtable_wd_dim
+                \int_incr:N \l__xtable_tmpa_int
+              }
+            \dim_add:Nn \l__xtable_wd_dim
+              { \seq_item:Nn \g__xtable_col_wd_seq  { ####1 + 1 } }
+          }
+        \seq_gput_right:Ne \g__xtable_merge_range_wd_seq
+          { \dim_use:N \l__xtable_wd_dim }
+        \int_zero:N \l__xtable_tmpa_int
+        \int_step_inline:nnn
+          { \seq_item:Nn \l__xtable_merge_seq {1} }
+          { \seq_item:Nn \l__xtable_merge_seq {3} }
+          {
+            \dim_add:Nn \l__xtable_tmpa_dim
+              { \seq_item:Nn \g__xtable_row_sep_seq { ####1 + 1 } }
+            \int_if_zero:nT { \l__xtable_tmpa_int }
+              { % 置后清零，以排除第一行上边的间隙
+                \dim_zero:N \l__xtable_tmpa_dim
+                \int_incr:N \l__xtable_tmpa_int
+                \dim_set:Nn \l__xtable_ht_dim % 首行
+                  { \seq_item:Nn \g__xtable_row_ht_seq { ####1 + 1 } }
+              }
+            \dim_set:Nn \l__xtable_dp_dim % 未列
+              { \seq_item:Nn \g__xtable_row_dp_seq  { ####1 + 1 } }
+            \dim_add:Nn \l__xtable_tmpa_dim
+              { \seq_item:Nn \g__xtable_row_ht_seq  { ####1 + 1 } }
+            \dim_add:Nn \l__xtable_tmpa_dim
+              { \seq_item:Nn \g__xtable_row_dp_seq  { ####1 + 1 } }
+          }
+        \str_if_eq:VnTF \l__xtable_row_align_tl {t}
+          {
+            \seq_gput_right:Ne \g__xtable_merge_range_ht_seq
+              { \dim_use:N \l__xtable_ht_dim }
+            \seq_gput_right:Ne \g__xtable_merge_range_dp_seq
+              { \dim_eval:n { \l__xtable_tmpa_dim - \l__xtable_ht_dim } }
+          } {
+            \seq_gput_right:Ne \g__xtable_merge_range_dp_seq
+              { \dim_use:N \l__xtable_dp_dim }
+            \seq_gput_right:Ne \g__xtable_merge_range_ht_seq
+              { \dim_eval:n { \l__xtable_tmpa_dim - \l__xtable_dp_dim } }
+          }
+      }
+  }
+\cs_new:Nn \__xtable_parse_merge_size:n
+  {
+    \dim_set:Nn \l__xtable_wd_dim
+      { \seq_item:Nn \g__xtable_merge_range_wd_seq {#1} }
+    \dim_set:Nn \l__xtable_ht_dim
+      { \seq_item:Nn \g__xtable_merge_range_ht_seq {#1} }
+    \dim_set:Nn \l__xtable_dp_dim
+      { \seq_item:Nn \g__xtable_merge_range_dp_seq {#1} }
+  }
+\cs_new:Nn \__xtable_parse_merge_fill:n
+  {
+    \dim_set:Nn \l__xtable_dfill_dim
+      { \seq_item:Nn \g__xtable_merge_dfill_seq {#1} }
+    \dim_set:Nn \l__xtable_ufill_dim
+      { \seq_item:Nn \g__xtable_merge_ufill_seq {#1} }
+  }
+\cs_new:Nn \__xtable_parse_merge_ht:n
+  {
+    \dim_set:Nn \l__xtable_ht_dim
+      { \seq_item:Nn \g__xtable_merge_ht_seq {#1} }
+  }
+\cs_new:Nn \__xtable_calc_coord:
+  {
+    \dim_zero:N   \l__xtable_wd_dim
+    \seq_gclear:N \g__xtable_col_loc_seq
+    \seq_gput_right:NV \g__xtable_col_loc_seq \l__xtable_wd_dim
+    \bool_if:NTF \g__xtable_row_header_bool
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      {
+        \int_set:Nn \l__xtable_tmpa_int {1}
+        \seq_gput_right:NV \g__xtable_col_loc_seq \l__xtable_wd_dim
+      }
+    \dim_add:Nn \l__xtable_wd_dim
+      { ( \seq_item:Nn \g__xtable_col_sep_seq { \l__xtable_tmpa_int + 1 } ) / 2 }
+    \int_step_inline:nnn
+      { \l__xtable_tmpa_int } { \g__xtable_col_count_int }
+      {
+        \dim_add:Nn \l__xtable_wd_dim
+          { ( \seq_item:Nn \g__xtable_col_sep_seq { ##1 + 1 } ) / 2 }
+        \dim_add:Nn \l__xtable_wd_dim
+          { \seq_item:Nn \g__xtable_col_wd_seq { ##1 + 1 } }
+        \dim_add:Nn \l__xtable_wd_dim
+          { ( \seq_item:Nn \g__xtable_col_sep_seq { ##1 + 2 } ) / 2 }
+        \seq_gput_right:NV \g__xtable_col_loc_seq \l__xtable_wd_dim
+      }
+    \dim_add:Nn \l__xtable_wd_dim
+      { ( \seq_item:Nn \g__xtable_col_sep_seq {-1} ) / 2 }
+    \seq_gset_item:NnV \g__xtable_col_loc_seq {-1} \l__xtable_wd_dim
+    \dim_zero:N   \l__xtable_ht_dim
+    \seq_gclear:N \g__xtable_row_loc_seq
+    \seq_gput_right:NV \g__xtable_row_loc_seq \l__xtable_ht_dim
+    \bool_if:NTF \g__xtable_col_header_bool
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      {
+        \int_set:Nn \l__xtable_tmpa_int {1}
+        \seq_gput_right:NV \g__xtable_row_loc_seq \l__xtable_ht_dim
+      }
+    \dim_sub:Nn \l__xtable_ht_dim
+      { ( \seq_item:Nn \g__xtable_row_sep_seq { \l__xtable_tmpa_int + 1 } ) / 2 }
+    \int_step_inline:nnn
+      { \l__xtable_tmpa_int } { \g__xtable_row_count_int }
+      {
+        \dim_sub:Nn \l__xtable_ht_dim
+          { ( \seq_item:Nn \g__xtable_row_sep_seq { ##1+1 } ) / 2 }
+        \dim_sub:Nn \l__xtable_ht_dim
+          { \seq_item:Nn \g__xtable_row_ht_seq { ##1+1 } }
+        \dim_sub:Nn \l__xtable_ht_dim
+          { \seq_item:Nn \g__xtable_row_dp_seq { ##1+1 } }
+        \dim_sub:Nn \l__xtable_ht_dim
+          { ( \seq_item:Nn \g__xtable_row_sep_seq { ##1+2 } ) / 2 }
+        \seq_gput_right:NV \g__xtable_row_loc_seq \l__xtable_ht_dim
+      }
+    \dim_sub:Nn \l__xtable_ht_dim
+      { (\seq_item:Nn \g__xtable_row_sep_seq {-1})/2 }
+    \seq_gset_item:NnV \g__xtable_row_loc_seq {-1} \l__xtable_ht_dim
+  }
+\dim_new:N \l__xtable_x_dim
+\dim_new:N \l__xtable_y_dim
+\dim_new:N \l__xtable_offset_x_dim
+\dim_new:N \l__xtable_offset_y_dim
+\dim_new:N \l__xtable_expand_start_dim
+\dim_new:N \l__xtable_expand_end_dim
+\seq_new:N \g__xtable_row_rule_seq
+\seq_new:N \g__xtable_col_rule_seq
+\seq_new:N \l__xtable_style_seq
+\box_new:N  \l__xtable_cell_box
+\cs_new:Nn \__xtable_draw_hrule:n
+  {
+    \draw_path_moveto:n
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq {1} - \l__xtable_expand_start_dim,
+        \seq_item:Nn \g__xtable_row_loc_seq {#1}
+      }
+    \draw_path_lineto:n
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq {-1} + \l__xtable_expand_end_dim,
+        \seq_item:Nn \g__xtable_row_loc_seq {#1}
+      }
+  }
+\cs_new:Nn \__xtable_draw_vrule:n
+  {
+    \draw_path_moveto:n
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq {#1},
+        \seq_item:Nn \g__xtable_row_loc_seq {1} + \l__xtable_expand_start_dim
+      }
+    \draw_path_lineto:n
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq {#1},
+        \seq_item:Nn \g__xtable_row_loc_seq {-1} - \l__xtable_expand_end_dim
+      }
+  }
+\cs_new:Nn \__xtable_print_data:nnn
+  {
+    \str_if_in:nnTF {tmb} {#1}
+      { \tl_set:Nn \l__xtable_tmpb_tl {#1} }
+      { \tl_set:Nn \l__xtable_tmpb_tl {b} }
+    \str_case:nnF {#2}
+      {
+        {l} { \tl_set:Nn \l__xtable_tmpa_tl {\raggedright} }
+        {c} { \tl_set:Nn \l__xtable_tmpa_tl {\centering} }
+        {r} { \tl_set:Nn \l__xtable_tmpa_tl {\raggedleft} }
+      }
+      { \tl_set:Nn \l__xtable_tmpa_tl {} }
+    \tl_if_empty:nT {#3}
+      { \tl_put_right:Nn \l__xtable_tmpa_tl {\rule{1pt}{0pt}} }
+    \str_case:Vn \l__xtable_tmpb_tl
+      {
+        {t}
+        {
+          \vbox_set_top:Nn \l__xtable_tmpa_box
+            {
+              \baselineskip=\g__xtable_cell_lineskip_dim
+              \hsize=\l__xtable_wd_dim \parindent=0pt
+              \l__xtable_tmpa_tl #3 \vfill \par
+            }
+        }
+        {m}
+        {
+          \dim_set:Nn \l__xtable_tmpa_dim
+            { (\l__xtable_ht_dim - \l__xtable_cachea_dim)/2 + \l__xtable_ufill_dim }
+          \vbox_set_to_ht:Nnn \l__xtable_tmpa_box {\l__xtable_ht_dim}
+            {
+              \baselineskip=\g__xtable_cell_lineskip_dim
+              \hsize=\l__xtable_wd_dim \parindent=0pt
+              \vskip \l__xtable_tmpa_dim
+              \l__xtable_tmpa_tl #3 \vfill \par
+            }
+        }
+        {b}
+        {
+          \dim_set:Nn \l__xtable_tmpa_dim
+            { \l__xtable_ht_dim - \l__xtable_cachea_dim + \l__xtable_ufill_dim }
+          \vbox_set:Nn \l__xtable_tmpa_box
+            {
+              \baselineskip=\g__xtable_cell_lineskip_dim
+              \hsize=\l__xtable_wd_dim \parindent=0pt
+              \vskip \l__xtable_tmpa_dim
+              \l__xtable_tmpa_tl #3 \par
+            }
+        }
+      }
+    \dim_compare:nNnT {\box_dp:N \l__xtable_tmpa_box} < {\l__xtable_dp_dim}
+      { \box_set_dp:Nn \l__xtable_tmpa_box {\l__xtable_dp_dim} }
+    \box_use:N \l__xtable_tmpa_box
+  }
+\cs_generate_variant:Nn \__xtable_print_data:nnn {VVV}
+\cs_new:Nn \__xtable_print_merge_data:nn
+  {
+    \__xtable_parse_merge_id:n {#1, #2}
+    \__xtable_parse_merge:V \l__xtable_merge_id_tl
+    \tl_set:Ne \l__xtable_tmpa_tl
+      { \seq_item:Nn \l__xtable_merge_seq {2} }
+    \str_if_eq:VnT \l__xtable_tmpa_tl {#2}
+      { % 只有合并单元格的第一列输出
+        \__xtable_parse_merge_size:n { \l__xtable_merge_id_tl }
+        \__xtable_parse_merge_fill:n { \l__xtable_merge_id_tl }
+        \tl_set:Ne \l__xtable_tmpa_tl
+          { \seq_item:Nn \l__xtable_merge_seq {1} }
+        \str_if_eq:VnTF \l__xtable_tmpa_tl {#1}
+          { % 如果是首行，则完整输出
+            \vbox_set_top:Nn \l__xtable_tmpa_box
+              {
+                \baselineskip=\g__xtable_cell_lineskip_dim
+                \hsize=\l__xtable_wd_dim \parindent=0pt
+                \centering \l__xtable_data_tl \vfill \par
+              }
+            \__xtable_parse_cell_size:n {#1, #2}
+            \box_set_ht:Nn \l__xtable_tmpa_box { \l__xtable_ht_dim - \l__xtable_dfill_dim }
+            \box_set_dp:Nn \l__xtable_tmpa_box { \l__xtable_dp_dim }
+            \box_use:N \l__xtable_tmpa_box
+          }
+          { % 如果是非首行，则只输出占位符
+            \exp_args:Ne \rule { \dim_use:N \l__xtable_wd_dim } { 0pt }
+          }
+        \hspace{\g__xtable_cell_sep_dim}
+      }
+  }
+\NewDocumentCommand \printtable { s O{0em} }
+  {
+    \__xtable_set_row_sep:ne {0pt} { \dim_use:N \g__xtable_cell_sep_dim }
+    \__xtable_set_col_sep:ne {0pt} { \dim_use:N \g__xtable_cell_sep_dim }
+    \__xtable_calc_col_wd: \__xtable_calc_row_ht:
+    \__xtable_calc_merge_size:
+    \bool_if:NTF \g__xtable_col_header_bool
+      { \int_set:Nn \l__xtable_cachea_int {0} }
+      { \int_set:Nn \l__xtable_cachea_int {1} }
+    \bool_if:NTF \g__xtable_row_header_bool
+      { \int_set:Nn \l__xtable_cacheb_int {0} }
+      { \int_set:Nn \l__xtable_cacheb_int {1} }
+    \int_step_inline:nnn { \l__xtable_cachea_int } { \g__xtable_row_count_int }
+      {
+        \__xtable_support_sys_func:
+        \hbox:n
+          {
+            \dim_zero:N \l__xtable_tmpa_dim
+            \hspace{#2}
+            \int_step_inline:nnn { \l__xtable_cacheb_int } {\g__xtable_col_count_int}
+              {
+                \__xtable_merge_if:nTF {##1, ####1}
+                  { \__xtable_print_merge_data:nn {##1} {####1} }
+                  {
+                    \__xtable_parse_cell:n      {##1, ####1}
+                    \__xtable_parse_cell_fill:n {##1, ####1}
+                    \__xtable_parse_cell_ht:n   {##1, ####1}
+                    \dim_set_eq:NN \l__xtable_cachea_dim \l__xtable_ht_dim
+                    \__xtable_parse_cell_size:n {##1, ####1}
+                    \__xtable_parse_row_align:n {##1}
+                    \__xtable_parse_col_align:n {####1}
+                    \__xtable_print_data:VVV
+                      \l__xtable_row_align_tl \l__xtable_col_align_tl \l__xtable_data_tl
+                    \hspace{\g__xtable_cell_sep_dim}
+                  }
+              }
+          }
+        \IfBooleanF {#1}
+          { \int_compare:nNnT {##1} < {\g__xtable_row_count_int} {\\} }
+        \__xtable_restore_sys_func:
+      }
+  }
+\cs_new:Nn \__xtable_render_data:nnn
+  {
+    \str_case:nnF{#2}
+      {
+        {l} { \tl_set:Nn \l__xtable_tmpa_tl { \raggedright } }
+        {c} { \tl_set:Nn \l__xtable_tmpa_tl { \centering   } }
+        {r} { \tl_set:Nn \l__xtable_tmpa_tl { \raggedleft  } }
+      }
+      { \tl_set:Nn \l__xtable_tmpa_tl {} }
+    \tl_if_empty:nTF {#3}
+      { \tl_set:Nn \l__xtable_tmpb_tl { \rule{1pt}{0pt} } }
+      { \tl_set:Nn \l__xtable_tmpb_tl {#3} }
+    \str_if_eq:nnTF {#1} {t}
+      { \vbox_set_top:Nn } { \vbox_set:Nn }
+      \l__xtable_cell_box
+      {
+        \baselineskip=3ex \hsize=\l__xtable_wd_dim \parindent=0pt
+        \l__xtable_tmpa_tl \l__xtable_tmpb_tl \par
+      }
+  }
+\cs_generate_variant:Nn \__xtable_render_data:nnn {VVV}
+\cs_new:Nn \__xtable_draw_cell:nn
+  {
+    \__xtable_parse_cell_fill:n {#1, #2}
+    \__xtable_parse_cell_size:n {#1, #2}
+    \__xtable_parse_row_align:n {#1}
+    \__xtable_parse_col_align:n {#2}
+    \__xtable_merge_if:nTF      {#1, #2}
+      {
+        \bool_set_false:N \l__xtable_is_box_bool
+        \tl_set:Nn \l__xtable_data_tl {}
+      }
+      { \__xtable_parse_cell:n  {#1, #2} }
+    \__xtable_render_data:VVV % 获取包含渲染内容的盒子
+      \l__xtable_row_align_tl \l__xtable_col_align_tl \l__xtable_data_tl
+    \tl_if_eq:NnTF \l__xtable_row_align_tl {m}
+      {
+        \dim_set:Nn \l__xtable_tmpb_dim
+          { \box_ht:N \l__xtable_cell_box + \l__xtable_ufill_dim }
+        \dim_set:Nn \l__xtable_tmpa_dim
+          { \l__xtable_y_dim - \l__xtable_tmpb_dim }
+        \dim_sub:Nn \l__xtable_tmpa_dim
+          { (\l__xtable_ht_dim - \l__xtable_tmpb_dim) / 2 }
+      }
+      {
+        \dim_set:Nn \l__xtable_tmpa_dim
+          { \l__xtable_y_dim - \l__xtable_ht_dim }
+      }
+    \draw_box_use:Nn \l__xtable_cell_box
+      { \l__xtable_x_dim, \l__xtable_tmpa_dim }
+  }
+\cs_new:Nn \__xtable_draw_merge:n
+  {
+    \__xtable_parse_merge:n {#1}
+    \int_set:Nn \l__xtable_tmpa_int
+      { \seq_item:Nn \l__xtable_merge_seq {1} }
+    \int_set:Nn \l__xtable_tmpb_int
+      { \seq_item:Nn \l__xtable_merge_seq {2} }
+    \dim_set:Nn \l__xtable_y_dim
+      { \seq_item:Nn \g__xtable_row_loc_seq { \l__xtable_tmpa_int + 1 } }
+    \dim_set:Nn \l__xtable_x_dim
+      { \seq_item:Nn \g__xtable_col_loc_seq { \l__xtable_tmpb_int + 1 } }
+    \dim_add:Nn \l__xtable_x_dim
+      { \seq_item:Nn \g__xtable_col_sep_seq { \l__xtable_tmpb_int + 1 } / 2 }
+    \dim_sub:Nn \l__xtable_y_dim { \c__xtable_std_dp_dim / 3 }
+    \dim_sub:Nn \l__xtable_y_dim
+      { \seq_item:Nn \g__xtable_row_sep_seq { \l__xtable_tmpa_int + 1 } / 2 }
+    \__xtable_parse_merge_size:n  {#1}
+    \__xtable_parse_merge_fill:n  {#1}
+    \__xtable_parse_merge_ht:n    {#1}
+    \__xtable_parse_merge_align:n {#1}
+    \__xtable_render_data:VVV % 获取包含渲染内容的盒子
+      \l__xtable_row_align_tl \l__xtable_col_align_tl \l__xtable_data_tl
+    \tl_if_eq:NnTF \l__xtable_row_align_tl {m}
+      {
+        \dim_set:Nn \l__xtable_tmpb_dim
+          { \box_ht:N \l__xtable_cell_box + \l__xtable_ufill_dim }
+        \dim_set:Nn \l__xtable_tmpa_dim
+          { \l__xtable_y_dim - \l__xtable_tmpb_dim }
+        \dim_sub:Nn \l__xtable_tmpa_dim
+          { (\l__xtable_ht_dim - \l__xtable_tmpb_dim) / 2 }
+      }
+      {
+        \dim_set:Nn \l__xtable_tmpa_dim
+          { \l__xtable_y_dim - \l__xtable_ht_dim }
+      }
+    \draw_box_use:Nn \l__xtable_cell_box
+      { \l__xtable_x_dim, \l__xtable_tmpa_dim }
+  }
+\cs_new:Nn \__xtable_draw_cells:
+  {
+    \dim_set:Nn \l__xtable_y_dim { -\c__xtable_std_dp_dim / 3 } % 补偿
+    \bool_if:NTF \g__xtable_col_header_bool
+      { \int_set:Nn \l__xtable_tmpa_int {0} }
+      { \int_set:Nn \l__xtable_tmpa_int {1} }
+    \int_step_inline:nnn {\l__xtable_tmpa_int} {\g__xtable_row_count_int}
+      {
+        \dim_sub:Nn \l__xtable_y_dim
+          { \seq_item:Nn \g__xtable_row_sep_seq {##1+1} }
+        \dim_zero:N \l__xtable_x_dim
+        \bool_if:NTF \g__xtable_row_header_bool
+          { \int_set:Nn \l__xtable_tmpb_int {0} }
+          { \int_set:Nn \l__xtable_tmpb_int {1} }
+        \int_step_inline:nnn { \l__xtable_tmpb_int } { \g__xtable_col_count_int }
+          {
+            \dim_add:Nn \l__xtable_x_dim
+              { \seq_item:Nn \g__xtable_col_sep_seq {####1 + 1} }
+            \__xtable_draw_cell:nn {##1} {####1}
+            \dim_add:Nn \l__xtable_x_dim { \l__xtable_wd_dim }
+          }
+        \dim_sub:Nn \l__xtable_y_dim
+          { \l__xtable_ht_dim + \l__xtable_dp_dim }
+      }
+    \int_step_inline:nn { \__xtable_parse_merge_count: }
+      { \__xtable_draw_merge:n {##1} }
+  }
+\cs_new:Nn \__xtable_draw_booktabs:n
+  {
+    \dim_zero:N \l__xtable_expand_start_dim
+    \dim_zero:N \l__xtable_expand_end_dim
+    \__xtable_set_rule_style:n {toprule}
+    \__xtable_draw_hrule:n {1}
+    \draw_path_use_clear:n { stroke }
+    \bool_if:NT \g__xtable_col_header_bool
+      {
+        \__xtable_set_rule_style:n {midrule}
+        \__xtable_draw_hrule:n {2}
+        \draw_path_use_clear:n { stroke }
+      }
+    \__xtable_set_rule_style:n {bottomrule}
+    \__xtable_draw_hrule:n {-1}
+    \draw_path_use_clear:n { stroke }
+    \__xtable_set_rule_style:n {cmidrule}
+    \clist_map_inline:nn {#1}
+      { \__xtable_draw_hrule:n {##1+2}  }
+    \draw_path_use_clear:n { stroke }
+  }
+\cs_generate_variant:Nn \__xtable_draw_booktabs:n { V }
+\NewDocumentCommand {\__xtable_row_rule:nn} { O{} m }
+  {
+    \tl_set:Nn \l__xtable_style_tl {#1}
+    \tl_if_empty:nTF {#2}
+      { \seq_clear:N \l__xtable_style_seq }
+      {
+        \seq_set_split:Nnn \l__xtable_style_seq {,} {#2}
+        \seq_get_left:NN \l__xtable_style_seq \l__xtable_tmpa_tl
+        \str_if_in:NnF \l__xtable_tmpa_tl {=}
+          { \seq_pop_left:NN \l__xtable_style_seq \l__xtable_style_tl }
+      }
+    \__xtable_set_line_style:NNnn \g__xtable_row_rule_seq
+      \l__xtable_style_seq {#1} {row}
+    \bool_if:NF \g__xtable_col_header_bool
+      { \seq_gpop_left:NN \g__xtable_row_rule_seq \l__xtable_tmpa_tl }
+    \seq_gput_left:NV \g__xtable_row_rule_seq \l__xtable_style_tl
+  }
+\NewDocumentCommand {\__xtable_col_rule:nn} { O{} m }
+  {
+    \tl_set:Nn \l__xtable_style_tl {#1}
+    \tl_if_empty:nTF {#2}
+      { \seq_clear:N \l__xtable_style_seq }
+      {
+        \seq_set_split:Nnn \l__xtable_style_seq {,} {#2}
+        \seq_get_left:NN \l__xtable_style_seq \l__xtable_tmpa_tl
+        \str_if_in:NnF \l__xtable_tmpa_tl {=}
+          { \seq_pop_left:NN \l__xtable_style_seq \l__xtable_style_tl }
+      }
+    \__xtable_set_line_style:NNnn \g__xtable_col_rule_seq
+      \l__xtable_style_seq {#1} {col}
+    \seq_gput_left:NV \g__xtable_col_rule_seq  \l__xtable_style_tl
+  }
+\cs_new:Nn \__xtable_calc_grid_expand:N
+  {
+    \seq_if_empty:NTF #1
+      { \seq_set_split:Nnn \l__xtable_tmpa_seq {,} {0pt} }
+      { \seq_set_eq:NN \l__xtable_tmpa_seq #1 }
+    \seq_get_left:NN \l__xtable_tmpa_seq \l__xtable_style_tl
+    \tl_if_empty:NTF \l__xtable_style_tl
+      { \dim_zero:N \l__xtable_expand_start_dim }
+      {
+        \__xtable_parse_rule_style:V \l__xtable_style_tl
+        \dim_set:Nn \l__xtable_expand_start_dim
+          { \l__xtable_rule_dim/2 }
+      }
+    \seq_get_right:NN \l__xtable_tmpa_seq \l__xtable_style_tl
+    \tl_if_empty:NTF \l__xtable_style_tl
+      { \dim_zero:N \l__xtable_expand_end_dim }
+      {
+        \__xtable_parse_rule_style:V \l__xtable_style_tl
+        \dim_set:Nn \l__xtable_expand_end_dim
+          { \l__xtable_rule_dim/2 }
+      }
+  }
+\cs_new:Nn \__xtable_draw_grid:n
+  {
+    \group_begin:
+      \cs_set_eq:NN \hrule \__xtable_row_rule:nn
+      \cs_set_eq:NN \vrule \__xtable_col_rule:nn
+      #1
+    \group_end:
+    \__xtable_calc_grid_expand:N \g__xtable_row_rule_seq
+    \int_step_inline:nn { \seq_count:N \g__xtable_col_loc_seq }
+      {
+        \tl_set:Ne \l__xtable_style_tl
+          { \seq_item:Nn \g__xtable_col_rule_seq {##1} }
+        \tl_if_empty:NF \l__xtable_style_tl
+          {
+            \__xtable_set_rule_style:V \l__xtable_style_tl
+            \__xtable_draw_vrule:n {##1}
+            \draw_path_use_clear:n { stroke }
+          }
+      }
+    \__xtable_calc_grid_expand:N \g__xtable_col_rule_seq
+    \int_step_inline:nn  {\seq_count:N \g__xtable_row_loc_seq}
+      {
+        \tl_set:Ne \l__xtable_style_tl
+          { \seq_item:Nn \g__xtable_row_rule_seq {##1} }
+        \tl_if_empty:NF \l__xtable_style_tl
+          {
+            \__xtable_set_rule_style:V \l__xtable_style_tl
+            \__xtable_draw_hrule:n {##1}
+            \draw_path_use_clear:n { stroke }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xtable_draw_grid:n { V }
+\cs_new:Nn \__xtable_draw_cell_rule:nn
+  {
+    \dim_set:Nn \l__xtable_x_dim
+      { \seq_item:Nn \g__xtable_col_loc_seq {#2+1} }
+    \dim_set:Nn \l__xtable_tmpa_dim
+      { \seq_item:Nn \g__xtable_col_loc_seq {#2+2} }
+    \dim_set:Nn \l__xtable_y_dim
+      { \seq_item:Nn \g__xtable_row_loc_seq {#1+2} }
+    \dim_set:Nn \l__xtable_tmpb_dim
+      { \seq_item:Nn \g__xtable_row_loc_seq {#1+1} }
+    \dim_sub:Nn \l__xtable_tmpa_dim { \l__xtable_x_dim }
+    \dim_sub:Nn \l__xtable_tmpb_dim { \l__xtable_y_dim }
+    \draw_path_rectangle:nn
+      { \l__xtable_x_dim, \l__xtable_y_dim }
+      { \l__xtable_tmpa_dim, \l__xtable_tmpb_dim }
+    \draw_path_use_clear:n { draw }
+  }
+\cs_new:Nn \__xtable_draw_merge_rule:n
+  {
+    \__xtable_parse_merge:n {#1}
+    \dim_set:Nn \l__xtable_x_dim
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq
+          { \seq_item:Nn \l__xtable_merge_seq {2} + 1 }
+      }
+    \dim_set:Nn \l__xtable_tmpa_dim
+      {
+        \seq_item:Nn \g__xtable_col_loc_seq
+          { \seq_item:Nn \l__xtable_merge_seq {4} + 2 }
+      }
+    \dim_set:Nn \l__xtable_y_dim
+      {
+        \seq_item:Nn \g__xtable_row_loc_seq
+          { \seq_item:Nn \l__xtable_merge_seq {3} + 2 }
+      }
+    \dim_set:Nn \l__xtable_tmpb_dim
+      {
+        \seq_item:Nn \g__xtable_row_loc_seq
+          { \seq_item:Nn \l__xtable_merge_seq {1} + 1 }
+      }
+    \dim_sub:Nn \l__xtable_tmpa_dim { \l__xtable_x_dim }
+    \dim_sub:Nn \l__xtable_tmpb_dim { \l__xtable_y_dim }
+    \draw_path_rectangle:nn
+      { \l__xtable_x_dim, \l__xtable_y_dim }
+      { \l__xtable_tmpa_dim, \l__xtable_tmpb_dim }
+    \draw_path_use_clear:n { draw }
+  }
+\cs_new:Nn \__xtable_draw_cell_rules:
+  {
+    \int_step_inline:nnn
+      { \bool_if:NTF \g__xtable_col_header_bool {0} {1} }
+      { \g__xtable_row_count_int }
+      {
+        \int_step_inline:nnn
+          { \bool_if:NTF \g__xtable_row_header_bool {0} {1} }
+          { \g__xtable_col_count_int }
+          {
+            \__xtable_merge_if:nF {##1, ####1}
+              { \__xtable_draw_cell_rule:nn {##1} {####1} }
+          }
+      }
+    \int_step_inline:nn { \__xtable_parse_merge_count: }
+      { \__xtable_draw_merge_rule:n {##1} }
+  }
+\bool_new:N \l__xtable_render_multicol_bool
+\bool_new:N \l__xtable_render_longtable_bool
+\tl_new:N   \l__xtable_render_format_tl
+\tl_new:N   \l__xtable_render_rule_tl
+\keys_define:nn { xtable / render }
+  {
+    format    .choices:nn = { border, grid, booktabs, custom }
+      { \tl_set_eq:NN \l__xtable_render_format_tl \l_keys_choice_tl },
+    format    .initial:n  = {border},
+    booktabs  .code:n     = { \tl_set:Nn \l__xtable_render_format_tl { booktabs } },
+    grid      .code:n     = { \tl_set:Nn \l__xtable_render_format_tl { grid     } },
+    border    .code:n     = { \tl_set:Nn \l__xtable_render_format_tl { border   } },
+    custom    .code:n     = { \tl_set:Nn \l__xtable_render_format_tl { custom   } },
+    multicol  .bool_set:N = \l__xtable_render_multicol_bool,
+    multicol  .default:n  = {true},
+    multicol  .initial:n  = {false},
+    longtable .bool_set:N = \l__xtable_render_longtable_bool,
+    longtable .default:n  = {true},
+    longtable .initial:n  = {false},
+    rule      .tl_set:N   = \l__xtable_render_rule_tl,
+    rule      .initial:n  = {}
+  }
+\cs_new:Nn \__xtable_clear_render_options:
+  {
+    \tl_clear:N \l__xtable_render_rule_tl
+    \bool_set_false:N \l__xtable_render_multicol_bool
+    \bool_set_false:N \l__xtable_render_longtable_bool
+  }
+\cs_new:Nn \__xtable_set_table_sep:n
+  {
+    \__xtable_set_row_sep:ee
+      { \dim_use:N \g__xtable_row_margin_dim }
+      { \dim_eval:n { \g__xtable_row_margin_dim * 2 } }
+    \__xtable_set_col_sep:ee
+      {
+        \bool_if:nTF {#1}
+          { \dim_use:N \g__xtable_col_margin_dim }
+          { 0pt }
+      }
+      { \dim_eval:n { \g__xtable_col_margin_dim * 2 } }
+  }
+\cs_new:Nn \__xtable_rendertable_pre:
+  {
+    \__xtable_set_table_sep:n {\c_true_bool}
+    \__xtable_calc_col_wd:
+    \__xtable_calc_row_ht:
+    \__xtable_calc_merge_size:
+    \__xtable_calc_coord:
+    \draw_begin:
+    \vbox_set_to_ht:Nnn \l__xtable_tmpa_box
+      {\g__xtable_above_space_dim} {}
+    \draw_box_use:N \l__xtable_tmpa_box
+  }
+\cs_new:Nn \__xtable_rendertable_post:
+  {
+    \__xtable_support_sys_func:
+    \__xtable_draw_cells:
+    \draw_end:
+    \__xtable_restore_sys_func:
+    \__xtable_clear_render_options:
+  }
+\NewDocumentCommand \rendertable { O{} }
+  {
+    \keys_set:nn { xtable/render } {#1}
+    \__xtable_rendertable_pre:
+    \str_case:NnF \l__xtable_render_format_tl
+      {
+        {booktabs} { \__xtable_draw_booktabs:V \l__xtable_render_rule_tl }
+        {grid}     { \__xtable_draw_grid:V     \l__xtable_render_rule_tl }
+      }
+      { \__xtable_draw_cell_rules: }
+    \__xtable_rendertable_post:
+  }
+%% 
+%%
+%% End of file `tabular2.sty'.

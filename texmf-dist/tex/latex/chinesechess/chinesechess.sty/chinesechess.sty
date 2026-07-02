@@ -1,0 +1,2701 @@
+%%     Copyright (C) 2020-2022 by Nan Geng <nangeng@nwafu.edu.cn>
+%% --------------------------------------------------------------------------
+%%
+%%     This work may be distributed and/or modified under the
+%%     conditions of the LaTeX Project Public License, either
+%%     version 1.3c of this license or (at your option) any later
+%%     version. This version of this license is in
+%%        http://www.latex-project.org/lppl/lppl-1-3c.txt
+%%     and the latest version of this license is in
+%%        http://www.latex-project.org/lppl.txt
+%%     and version 1.3 or later is part of all distributions of
+%%     LaTeX version 2005/12/01 or later.
+%%
+%%     This work has the LPPL maintenance status "maintained".
+%%
+%%     The Current Maintainer of this work is Nan Geng.
+%%
+%% --------------------------------------------------------------------------
+%%
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{expl3}
+\ProvidesExplPackage{chinesechess}{2022-05-09}{v1.2.0}
+  {Typeset Chinese chess with l3draw}
+
+\RequirePackage { l3keys2e, l3draw, xparse }
+
+% 测量盒子总高度(保证TeXLive的向下兼容)
+\cs_if_free:NT \box_ht_plus_dp:N
+  {
+    \cs_new_protected:Npn \box_ht_plus_dp:N #1
+      { \tex_dimexpr:D \box_ht:N #1 + \box_dp:N #1 \scan_stop: }
+  }
+
+% 棋盘排版命令用户接口
+% #1 星号命令，是否输出棋子
+% #2 棋盘类型、棋子类型等外观选项
+\NewDocumentCommand{\cchessboard}{ s o }
+  {
+    \group_begin:
+      % 星号命令是否带棋子
+      \IfBooleanTF{ #1 }
+        {
+          \bool_set_false:N  \l__cchess_board_pieces_bool
+        }{
+          \bool_set_true:N \l__cchess_board_pieces_bool
+        }
+
+      \IfNoValueF { #2 }
+        {
+          % 设置选项
+          \keys_set:nn { cchess } { #2 }
+
+          % 有draft参数，需要重构棋子和棋盘
+          \tl_if_in:nnT { #2 } { draft }
+            {
+              % 构建棋盘
+              \__cchess_board_construct:
+              % 构建红黑各9个棋子
+              \__cchess_pieces_construct:
+            }
+
+          \bool_if:NF \g__cchess_draft_bool
+            {
+              % 构建棋盘
+              \__cchess_board_option_if_in:nT { #2 }
+                {
+                  \__cchess_board_construct:
+                }
+              % 构建红黑各9个棋子
+              \__cchess_piece_option_if_in:nT { #2 }
+                {
+                  \__cchess_pieces_construct:
+                }
+            }
+        }
+      \__cchess_board_output:
+    \group_end:
+  }
+
+% 棋谱排版命令用户接口
+% #1 棋盘类型、棋子类型等外观选项
+% #2 棋子位置列表
+%    红棋：K=帅,A=仕,E/B=相,R=车,C=砲,N/H=马,P=兵,
+%    黑棋：k=将,a=士,e/b=象,r=車,c=炮,n/h=馬,p=卒
+%    横向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8)
+%    纵向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8),j(9)
+\NewDocumentCommand{\cchessman}{ o m }
+  {
+    \group_begin:
+      % 设置选项
+      \IfNoValueF { #1}
+        {
+          \keys_set:nn { cchess } { #1 }
+
+          % 有draft参数，需要重构棋子和棋盘
+          \tl_if_in:nnT { #1 } { draft }
+            {
+              % 构建棋盘
+              \__cchess_board_construct:
+              % 构建红黑各9个棋子
+              \__cchess_pieces_construct:
+            }
+
+          \bool_if:NF \g__cchess_draft_bool
+            {
+              % 构建棋盘
+              \__cchess_board_option_if_in:nT { #1 }
+                {
+                  \__cchess_board_construct:
+                }
+              % 构建红黑各9个棋子
+              \__cchess_piece_option_if_in:nT { #1 }
+                {
+                  \__cchess_pieces_construct:
+                }
+            }
+        }
+      \__cchess_manual_output:n { #2 }
+    \group_end:
+  }
+
+% 棋子字符复位
+\NewDocumentCommand{\resetpiece}{}
+  {
+    % 定义棋子字符常量
+    \clist_map_inline:nn
+      {
+        { K } { 帥 }, % 帥\__cchess_symbol:n {"5E25}
+        { A } { 仕 }, % 仕\__cchess_symbol:n {"4ED5}
+        { E } { 相 }, % 相\__cchess_symbol:n {"76F8}
+        { B } { 相 }, % 相\__cchess_symbol:n {"76F8}
+        { H } { 马 }, % 马\__cchess_symbol:n {"9A6C}
+        { N } { 马 }, % 马\__cchess_symbol:n {"9A6C}
+        { R } { 车 }, % 车\__cchess_symbol:n {"8F66}
+        { C } { 砲 }, % 砲\__cchess_symbol:n {"7832}
+        { P } { 兵 }, % 兵\__cchess_symbol:n {"5175}
+        { k } { 將 }, % 將\__cchess_symbol:n {"5C07}
+        { a } { 士 }, % 士\__cchess_symbol:n {"58EB}
+        { e } { 象 }, % 象\__cchess_symbol:n {"8C61}
+        { b } { 象 }, % 象\__cchess_symbol:n {"8C61}
+        { h } { 馬 }, % 馬\__cchess_symbol:n {"99AC}
+        { n } { 馬 }, % 馬\__cchess_symbol:n {"99AC}
+        { r } { 車 }, % 車\__cchess_symbol:n {"8ECA}
+        { c } { 炮 }, % 炮\__cchess_symbol:n {"70AE}
+        { p } { 卒 }, % 卒\__cchess_symbol:n {"5352}
+      }
+      { \__cchess_piece_char_setup:nn ##1 }
+
+    \bool_if:NF \g__cchess_draft_bool
+      {
+        % 构建红黑各9个棋子
+        \__cchess_pieces_construct:
+      }
+  }
+
+% 棋子字符设置命令
+% #1 棋子编号及字符
+% K=帅,A=仕,B/E=相,R=车,C=砲,N/H=马,P=兵
+% k=将,a=士,b/e=象,r=車,c=炮,n/h=馬,p=卒
+\NewDocumentCommand{\piecechar}{ m m }
+  {
+    \__cchess_piece_char_setup:nn { #1 } { #2 }
+
+    \bool_if:NF \g__cchess_draft_bool
+      {
+        % 构建红黑各9个棋子
+        \__cchess_pieces_construct:
+      }
+  }
+
+% 打谱环境初始化(仅用于setcchessman环境中)
+% #1 棋子位置列表
+%    红棋：K=帅,A=仕,E/B=相,R=车,C=砲,N/H=马,P=兵,
+%    黑棋：k=将,a=士,e/b=象,r=車,c=炮,n/h=馬,p=卒
+%    横向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8)
+%    纵向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8),j(9)
+\NewDocumentCommand{\init}{ m }
+  {
+    % 临时clist
+    \clist_set:Nn \l_tmpa_clist { #1 }
+
+    % 替换占位盒子内容
+    \clist_map_inline:Nn \l_tmpa_clist
+      { \__cchess_piece_replace_handle:nn  ##1 }
+  }
+
+% 打谱环境中的棋子布置命令(仅用于setcchessman环境中)
+% #1 棋子位置
+% #2 棋子位置列表
+%    红棋：K=帅,A=仕,E/B=相,R=车,C=砲,N/H=马,P=兵,
+%    黑棋：k=将,a=士,e/b=象,r=車,c=炮,n/h=馬,p=卒
+%    横向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8)
+%    纵向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8),j(9)
+\NewDocumentCommand{\set}{ m m }
+  {
+    \__cchess_piece_replace_handle:nn { #1 } { #2 }
+  }
+
+% 删除打谱环境中的棋子(仅用于setcchessman环境中)
+% #1 棋子位置列表
+%    横向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8)
+%    纵向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8),j(9)
+\NewDocumentCommand{\del}{ m }
+  {
+    \__cchess_piece_remove_handle:n { #1 }
+  }
+
+% 移动打谱环境中的棋子(仅用于setcchessman环境中)
+% #1 棋子名称(单个英文字母)
+% #2 棋子当前位置
+% #3 棋子目的位置
+%    红棋：K=帅,A=仕,E/B=相,R=车,C=砲,N/H=马,P=兵,
+%    黑棋：k=将,a=士,e/b=象,r=車,c=炮,n/h=馬,p=卒
+%    横向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8)
+%    纵向定位: a(0),b(1),c(2),d(3),e(4),f(5),g(6),h(7),i(8),j(9)
+\NewDocumentCommand{\mov}{ m m m }
+  {
+    \__cchess_piece_move_handle:nnn { #1 } { #2 } { #3 }
+  }
+
+% 打谱排版环境用户接口
+% #1 棋盘类型、棋子类型等外观选项
+\NewDocumentEnvironment{ setcchessman }{ o +b }
+  {
+    \group_begin:
+      \bool_set_false:N  \l__cchess_with_setman_bool
+
+      % 设置选项
+      \IfNoValueF { #1}
+        {
+          \keys_set:nn { cchess } { #1 }
+
+          % 有draft参数，需要重构棋子和棋盘
+          \tl_if_in:nnT { #1 } { draft }
+            {
+              % 构建棋盘
+              \__cchess_board_construct:
+              % 构建红黑各9个棋子
+              \__cchess_pieces_construct:
+            }
+
+          \bool_if:NF \g__cchess_draft_bool
+            {
+              % 构建棋盘
+              \__cchess_board_option_if_in:nT { #1 }
+                {
+                  \__cchess_board_construct:
+                }
+              % 构建红黑各9个棋子
+              \__cchess_piece_option_if_in:nT { #1 }
+                {
+                  \__cchess_pieces_construct:
+                }
+            }
+        }
+      \__cchess_setcchessman_pre_setup:n { #2 }
+  }{
+      \__cchess_setcchessman_post_setup:
+    \group_end:
+  }
+
+% 打谱排版星号环境用户接口，用于同时输出棋谱描述
+% #1 棋盘类型、棋子类型等外观选项
+\NewDocumentEnvironment{ setcchessman* }{ o +b }
+  {
+    \group_begin:
+      \bool_set_true:N  \l__cchess_with_setman_bool
+      % 设置选项
+      \keys_set:nn { cchess } { #1 }
+      \__cchess_setcchessman_pre_setup:n { #2 }
+  }{
+      \__cchess_setcchessman_post_setup:
+    \group_end:
+  }
+
+% 打谱棋谱输出用户接口
+% #1 每行输出步数
+% #2 棋谱交叉引用label
+% 参考雾月的回复：https://ask.latexstudio.net/ask/question/7430.html
+\NewDocumentCommand{\printman}{ O{} >{\TrimSpaces} m } % 去掉两侧空格
+  {
+    \group_begin:
+      % 设置选项
+      \keys_set:nn { cchess } { #1 }
+      \__cchess_setman_print:n { #2 }
+    \group_end:
+  }
+
+% 棋子输出用户接口
+% #1 棋子字体字号
+% #2 棋子编码
+%    红棋：K=帅,A=仕,E/B=相,R=车,C=砲,N/H=马,P=兵,
+%    黑棋：k=将,a=士,e/b=象,r=車,c=炮,n/h=馬,p=卒
+\NewDocumentCommand{\getpiece}{ O{\normalsize} m }
+  {
+    \group_begin:
+      \__cchess_getpiece_handle:nn {#1} { #2 }
+    \group_end:
+  }
+
+% ==========棋子字符常量定义=====================
+% 读取符号
+\cs_new:Npn \__cchess_symbol:n #1
+  {
+    #1
+    % \tex_char:D #1
+    % \scan_stop:
+  }
+
+% 棋子符号定义
+\cs_new_protected:Npn \__cchess_piece_define:nn #1#2
+  {
+    \tl_const:cn { c__cchess_ #1 _tl } { \__cchess_symbol:n { #2 } }
+  }
+
+% ==========变量定义=====================
+% 绘制棋盘时是否带有棋子标志
+\bool_new:N   \l__cchess_board_pieces_bool
+\bool_new:N   \l__cchess_with_setman_bool
+\bool_new:N   \g__cchess_draft_bool
+
+% 棋子容器
+% 当前中国象棋主流软件的棋子代码，多沿用:
+% K  A  B  N  R  C  P
+% 帅 仕 相 马 车 炮 兵
+% （红方用大写字母，黑方小写）
+% 出于对国际象棋棋手意识习惯的兼容性设计
+% 相 B ，也可兼容使用 E，
+% 马N， 也可兼容使用 H 代替
+% 在此，为兼容性考虑使用B/E同时表示相，使用H/N同时表示马
+% 在使用时，可以任意选择习惯的名称
+
+% 判断红黑棋子英文单字母名称的正则表达式
+\regex_new:N \l__capital_regex
+\regex_set:Nn \l__capital_regex { [KAEBRCHNP] }
+
+% 棋子英文单字母名称列表
+\clist_const:Nn \c__cchess_pieces_name_clist { K,A,E,B,R,C,H,N,P,k,a,e,b,r,c,h,n,p }
+\msg_new:nnn { cchess } { piecename-exists } { The~ piece~ name~ `#1~ not~ exists. }
+
+% 定义棋子字符常量
+% 注意相和马分别用两个符号以适配不同习惯
+\clist_map_inline:nn
+  {
+    { K } { 帥 }, % 帥"5E25
+    { A } { 仕 }, % 仕"4ED5
+    { E } { 相 }, % 相"76F8
+    { B } { 相 }, % 相"76F8
+    { H } { 马 }, % 马"9A6C
+    { N } { 马 }, % 马"9A6C
+    { R } { 车 }, % 车"8F66
+    { C } { 砲 }, % 砲"7832
+    { P } { 兵 }, % 兵"5175
+    { k } { 將 }, % 將"5C07
+    { a } { 士 }, % 士"58EB
+    { e } { 象 }, % 象"8C61
+    { b } { 象 }, % 象"8C61
+    { h } { 馬 }, % 馬"99AC
+    { n } { 馬 }, % 馬"99AC
+    { r } { 車 }, % 車"8ECA
+    { c } { 炮 }, % 炮"70AE
+    { p } { 卒 }, % 卒"5352
+  }
+  { \__cchess_piece_define:nn #1 }
+
+% 定义棋子编码与字符对照属性表
+\prop_new:N \c__cchess_board_pieces_alph_name_prop
+\clist_map_inline:Nn \c__cchess_pieces_name_clist
+  {
+    \prop_put:NnV \c__cchess_board_pieces_alph_name_prop
+      { #1 } { \use:c { c__cchess_ #1 _tl } }
+  }
+
+% 在棋子编码列表中添加z表示空棋子
+\clist_push:Nn \c__cchess_pieces_name_clist { z }
+
+% 定义棋子盒子容器
+\clist_map_inline:Nn \c__cchess_pieces_name_clist
+  {
+    \coffin_new:c { l__cchess_piece_ #1 _coffin }
+  }
+% 将空棋子盒子容器置空
+\hcoffin_gset:Nn \l__cchess_piece_z_coffin { \phantom{a} }
+
+% 棋盘盒子容器
+\coffin_new:N \l__cchess_board_coffin
+% 棋盘背景盒子容器
+\coffin_new:N \l__cchess_board_background_coffin
+
+% 棋谱容器
+\coffin_new:N \l__cchess_manual_coffin
+
+% 判断是否为字母位置的正则表达式
+\regex_new:N \l__alph_regex
+\regex_set:Nn \l__alph_regex { [a-j] }
+
+% 棋子位置字母与数字对应关系
+\prop_const_from_keyval:Nn \c__cchess_board_pos_alph_num_prop
+  {
+    a = 0, b = 1, c = 2 , d = 3, e = 4,
+    f = 5, g = 6, h = 7, i = 8, j = 9
+  }
+
+\coffin_new:N \l__cchess_board_pieces_pos_coffin
+
+% 判断是否为数值位置的正则表达式
+\regex_new:N \l__digit_regex
+\regex_set:Nn \l__digit_regex { [0-9] }
+
+% 棋子位置数字与字母对应关系
+\prop_const_from_keyval:Nn \c__cchess_board_pos_num_alph_prop
+  {
+    0 = a, 1 = b, 2 = c, 3 = d, 4 = e,
+    5 = f, 6 = g, 7 = h, 8 = i, 9 = j
+  }
+
+% 判断是横向位置合法性的列表
+\clist_const:Nn \c__cchess_pos_x_index_clist
+  { a,b,c,d,e,f,g,h,i,0,1,2,3,4,5,6,7,8 }
+\msg_new:nnn { cchess } { posx-exists } { The~ x~ index~ `#1~ not~ exists. }
+% 判断是纵向位置合法性的列表
+\clist_const:Nn \c__cchess_pos_y_index_clist
+  { a,b,c,d,e,f,g,h,i,j,0,1,2,3,4,5,6,7,8,9 }
+\msg_new:nnn { cchess } { posy-exists } { The~ y~ index~ `#1~ not~ exists. }
+
+% 棋子占位盒子容器
+\clist_const:Nn \c__cchess_board_pos_x_clist
+  { a,b,c,d,e,f,g,h,i }
+\clist_const:Nn \c__cchess_board_pos_y_clist
+  { a,b,c,d,e,f,g,h,i,j }
+\clist_map_inline:Nn \c__cchess_board_pos_x_clist
+  {
+    \clist_map_inline:Nn \c__cchess_board_pos_y_clist
+      {
+        \coffin_new:c { l__cchess_board_piece_ #1 _ ##1 _coffin }
+        \hcoffin_gset:cn { l__cchess_board_piece_ #1 _ ##1 _coffin }
+          { \phantom{a} }
+      }
+  }
+\coffin_new:N \l__cchess_board_piece_z_coffin
+\hcoffin_gset:Nn \l__cchess_board_piece_z_coffin { \phantom{a} }
+
+% 红方棋盘坐标字母与红棋竖线标位对应关系
+\prop_const_from_keyval:Nn \c__cchess_board_red_x_idx_prop
+  {
+    a = 九, b = 八, c = 七 , d = 六, e = 五,
+    f = 四, g = 三, h = 二, i = 一
+  }
+
+% 黑方棋盘坐标字母与黑棋竖线标位对应关系
+\prop_const_from_keyval:Nn \c__cchess_board_black_x_idx_prop
+  {
+    a = 1, b = 2, c = 3 , d = 4, e = 5,
+    f = 6, g = 7, h = 8, i = 9
+  }
+
+% 英文数字与中文数字的对应关系
+\prop_const_from_keyval:Nn \c__cchess_board_pos_arabic_zh_prop
+  {
+    0 = 〇, 1 = 一, 2 = 二, 3 = 三, 4 = 四,
+    5 = 五, 6 = 六, 7 = 七, 8 = 八, 9 = 九
+  }
+
+% 棋谱记录列表(如车一进二等)
+\clist_new:N \l__cchess_manual_clist
+
+% 棋子外框盒子容器
+\coffin_new:N \l__cchess_box_coffin
+% 棋子盒子容器
+\coffin_new:N \l__cchess_piece_coffin
+% 楚河汉界盒子容器
+\coffin_new:N \l__cchess_char_a_coffin
+\coffin_new:N \l__cchess_char_b_coffin
+\coffin_new:N \l__cchess_char_c_coffin
+\coffin_new:N \l__cchess_char_d_coffin
+% 临时盒子容器
+\coffin_new:N \l__cchess_tmpa_coffin
+\coffin_new:N \l__cchess_tmpb_coffin
+\coffin_new:N \l__cchess_tmpc_coffin
+\coffin_new:N \l__cchess_tmpd_coffin
+
+\clist_set:Nn \l_tmpa_clist { a,b,c,d }
+\clist_map_inline:Nn \l_tmpa_clist
+  {
+    \coffin_new:c { l_char_tmp #1 _coffin }
+  }
+
+% 棋子类型
+\tl_new:N     \l__cchess_piece_box_type_tl
+% 棋子类型列表
+\clist_new:N  \g__cchess_piece_box_list_clist
+% 棋盘类型
+\tl_new:N     \l__cchess_board_type_tl
+% 棋盘类型列表
+\clist_new:N  \g__cchess_board_list_clist
+
+% 缩放方式
+\tl_new:N     \l__cchess_resize_method_tl
+% 缩放方式列表
+\clist_new:N  \g__cchess_resize_method_clist
+
+% 棋谱输出宽度
+\dim_new:N    \l__cchess_manual_width_dim
+% 棋谱输出高度
+\dim_new:N    \l__cchess_manual_height_dim
+
+% 棋盘宽度
+\dim_new:N    \l__cchess_board_width_dim
+% 棋盘高度
+\dim_new:N    \l__cchess_board_height_dim
+
+% 棋盘线线宽
+\dim_new:N    \l__cchess_board_linewidth_dim
+% 辅线线宽
+\dim_new:N    \l__cchess_cross_linewidth_dim
+% 辅线间距
+\dim_new:N    \l__cchess_cross_sep_dim
+% 棋子字符正方形外接圆半径
+\dim_new:N    \l__cchess_piece_box_radius_dim
+% 棋子外框线线宽
+\dim_new:N    \l__cchess_box_linewidth_dim
+
+% 棋盘格子尺寸
+\dim_new:N    \gridsize
+% 棋子整体尺寸
+\dim_new:N    \piecesize
+% 棋子字符包围盒尺寸
+\dim_new:N    \charboxsize
+% 棋子字符包围盒尺寸半长
+\dim_new:N    \semicharboxsize
+
+% 临时尺寸变量
+\dim_new:N    \l__cchess_tmpa_dim
+\dim_new:N    \l__cchess_tmpb_dim
+\dim_new:N    \l__cchess_tmpc_dim
+\dim_new:N    \l__cchess_tmpd_dim
+
+% 棋子字符格式
+\tl_new:N    \l__cchess_piece_char_format_tl
+% 棋盘背景图片名称
+\tl_new:N    \l__cchess_board_background_tl
+% 棋子字符字形类型(实线、虚线等)
+\int_new:N   \l__cchess_charstroke_type_int
+
+% 打谱环境棋谱标签
+\tl_new:N    \l__cchess_setman_label_tl
+% 打谱结果每行棋谱步数
+\int_new:N   \l__cchess_mans_per_line_int
+
+% 打谱环境用计数器
+\newcounter{setman}
+
+% 增加两个临时int变量
+\int_new:N \l_tmpc_int
+\int_new:N \l_tmpd_int
+\int_new:N \l_tmpe_int
+% 增加两个临时tl变量
+\tl_new:N \l_tmpc_tl
+\tl_new:N \l_tmpd_tl
+\tl_new:N \l_tmpe_tl
+
+% ============宏包选项=================
+\keys_define:nn { cchess }
+  {
+    draft .choice:,
+    draft / true  .code:n = { \bool_set_true:N  \g__cchess_draft_bool },
+    draft / false .code:n = { \bool_set_false:N \g__cchess_draft_bool },
+    draft .default:n = true,
+    draft .initial:n = false,
+
+    unknown .code:n = { \msg_error:nn { cchess } { unknown-option } }
+  }
+
+% 将文档类选项传给cchess
+% \ProcessKeysOptions { cchess }
+
+% 棋子盒子由l3draw实现，
+% 棋子外围盒子及缩放设计思路来自zitie宏包
+% (\url{https://www.ctan.org/pkg/zitie})。
+
+% =============颜色处理函数=============
+% 填充色辅助函数
+\cs_new_nopar:Nn \__cchess_aux_color_boxfill:
+  { }
+
+% 颜色命名函数
+% #1 颜色名称
+% #2 颜色表达式
+\cs_set_nopar:Npn \__cchess_color_select:nn #1#2
+  {
+    \color_set:nn {#1} {#2}
+  }
+\cs_generate_variant:Nn \__cchess_color_select:nn {nx}
+
+% 颜色命名函数
+% #1 颜色名称
+% #2 颜色空间
+% #3 颜色分量值
+\cs_set_nopar:Npn \__cchess_color_select:nnn #1#2#3
+  {
+    \color_set:nnn {#1} {#2} {#3}
+  }
+\cs_generate_variant:Nn \__cchess_color_select:nnn {nnx}
+
+% =============基础尺寸计算函数=============
+% 盒子容器总高度计算函数
+\cs_new_nopar:Npn \__cchess_coffin_ht_plus_dp:N #1
+  {
+    \coffin_ht:N #1 + \coffin_dp:N #1
+  }
+
+% 计算外框大小(外接正方形边长和外接圆半径)
+\cs_new:Npn \__cchess_calc_piece_box_size:
+  {
+    % 设置计算基础盒子
+    \hbox_set:Nn \l_tmpa_box { xx }
+
+    % 盒子宽度
+    \dim_set:Nn \l_tmpa_dim
+      {
+        \box_wd:N \l_tmpa_box
+      }
+    % 盒子高度
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \box_ht_plus_dp:N \l_tmpa_box
+      }
+
+    % 正方形边长
+    \dim_compare:nNnTF \l_tmpa_dim > \l_tmpb_dim
+      {
+        \dim_gset_eq:NN \charboxsize \l_tmpa_dim
+      }
+      {
+        \dim_gset_eq:NN \charboxsize \l_tmpb_dim
+      }
+
+    \dim_gadd:Nn \charboxsize { 2pt }
+
+    % 包围盒半长
+    \dim_gset:Nn \semicharboxsize
+      {
+        \fp_to_dim:n { \fp_eval:n { \charboxsize / 2 } }
+        % \charboxsize / 2
+      }
+
+    % 外接圆半径
+    \dim_gset:Nn \l__cchess_piece_box_radius_dim
+      {
+        \fp_to_dim:n { \fp_eval:n { \charboxsize * sqrt(2)/ 2 } }
+        % \fp_to_dim:n { \fp_eval:n { \charboxsize * 0.707106781 } }
+      }
+  }
+
+% =============构造棋子函数=============
+% 字符盒子构造类型函数名称生成函数
+% #1 缩放比例
+\cs_new_nopar:Npn \__cchess_piece_box_type:n #1
+  {
+    __cchess_piece_box_construct_type_ #1 :n
+  }
+% 字符盒子构造类型函数名称命令生成函数
+% #1 缩放比例
+\cs_new_nopar:Npn \__cchess_piece_box_type_c:n #1
+  {
+    \use:c { __cchess_piece_box_construct_type_ #1 :n }
+  }
+
+% 字符盒子构造类型函数内部生成器函数
+% #1 类型名称
+\cs_new:Npn \__cchess_new_piece_box_private_construct:nn #1
+  {
+    % 类似\cs_new:cn __cchess_piece_box_construct_type_none:n
+    \cs_new:cn { \__cchess_piece_box_type:n {#1} }
+  }
+\cs_generate_variant:Nn \__cchess_new_piece_box_private_construct:nn { V }
+\cs_generate_variant:Nn \__cchess_new_piece_box_private_construct:nn { x }
+
+% 字符盒子构造类型函数生成器函数
+% #1 类型名称
+\cs_new:Npn \__cchess_new_piece_box_construct:nn #1
+  {
+    % 将类型名称记入clist
+    \clist_put_right:Nn \g__cchess_piece_box_list_clist {#1}
+    % 类似\cs_new:cn __cchess_piece_box_construct_type_none:n
+    \cs_new:cn { \__cchess_piece_box_type:n {#1} }
+  }
+\cs_generate_variant:Nn \__cchess_new_piece_box_construct:nn { V }
+\cs_generate_variant:Nn \__cchess_new_piece_box_construct:nn { x }
+
+% 定义字符边框盒子类型内部函数
+% 无边框
+\__cchess_new_piece_box_construct:nn { none } { }
+
+% 底层填充外接圆
+\__cchess_new_piece_box_private_construct:nn { __outerlowerfilledcircle }
+  {
+    \draw_scope_begin:
+      \color_fill:n { lowerbgboxfill }
+      \draw_path_circle:nn { \semicharboxsize, \semicharboxsize }
+        { \l__cchess_piece_box_radius_dim*#1 }
+      \draw_path_use_clear:n { fill }
+    \draw_scope_end:
+  }
+
+% 顶层填充外接圆
+\__cchess_new_piece_box_private_construct:nn { __outerupperfilledcircle }
+  {
+    \draw_scope_begin:
+      \color_fill:n { upperbgboxfill }
+      \draw_path_circle:nn { \semicharboxsize, \semicharboxsize }
+        { \l__cchess_piece_box_radius_dim*#1 }
+      \draw_path_use_clear:n { fill }
+    \draw_scope_end:
+  }
+
+% 圆环层填充外接圆
+\__cchess_new_piece_box_private_construct:nn { __outerdonutfilledcircle }
+  {
+    \draw_scope_begin:
+      \color_fill:n { donutboxfill }
+      \draw_path_circle:nn { \semicharboxsize, \semicharboxsize }
+        { \l__cchess_piece_box_radius_dim*#1 }
+      \draw_path_use_clear:n { fill }
+    \draw_scope_end:
+  }
+
+% 阴影填充外接圆
+\__cchess_new_piece_box_private_construct:nn { __outershadowfilledcircle }
+  {
+    \draw_scope_begin:
+      \color_fill:n { shadowboxfill   }
+      \draw_transform_shift:n { \charboxsize*0.1, -\charboxsize*0.1 }
+      \draw_path_circle:nn { \semicharboxsize, \semicharboxsize }
+        { \l__cchess_piece_box_radius_dim*#1 }
+      \draw_path_use_clear:n { fill }
+    \draw_scope_end:
+  }
+
+% 外接圆边框
+\__cchess_new_piece_box_private_construct:nn { __outercirclebox }
+  {
+    \draw_scope_begin:
+      \color_stroke:n { cchesspieceboxcolor }
+      \draw_path_circle:nn { \semicharboxsize, \semicharboxsize }
+        { \l__cchess_piece_box_radius_dim*#1 }
+      \draw_path_use_clear:n { stroke }
+    \draw_scope_end:
+  }
+
+% 填充外接圆叠加外接圆边框
+\__cchess_new_piece_box_construct:nn { o }
+  {
+    \__cchess_piece_box_type_c:n { __outerupperfilledcircle } {0.82}
+    \__cchess_piece_box_type_c:n { __outercirclebox } {0.82}
+  }
+
+% 填充外接圆叠加同心82%外接圆边框
+\__cchess_new_piece_box_construct:nn { oo }
+  {
+    \__cchess_piece_box_type_c:n { __outerupperfilledcircle } {#1}
+    \__cchess_piece_box_type_c:n { __outercirclebox } {#1}
+    \__cchess_piece_box_type_c:n { __outercirclebox } {0.82}
+  }
+
+% 3同心圆叠加(阴影)
+\__cchess_new_piece_box_construct:nn { ooo }
+  {
+    % 绘制填充外接圆阴影
+    \__cchess_piece_box_type_c:n { __outershadowfilledcircle } {1.0}
+    % 绘制填充外接圆外圈背景
+    \__cchess_piece_box_type_c:n { __outerlowerfilledcircle } {1.0}
+    % 绘制填充外接边环背景
+    \__cchess_piece_box_type_c:n { __outerdonutfilledcircle } {0.88}
+    % 绘制填充外接圆内圈背景
+    \__cchess_piece_box_type_c:n { __outerupperfilledcircle } {0.72}
+    % 绘制双边刻环线
+    \__cchess_piece_box_type_c:n { __outercirclebox } {0.88}
+    \__cchess_piece_box_type_c:n { __outercirclebox } {0.72}
+  }
+
+\msg_new:nnn { cchess } { box-exists } { The~ box~ type~ `#1~ not~ exists. }
+
+% =============构造棋盘函数=============
+% 棋盘部件构造函数函数名称生成函数
+% 名称中2个参数分别表示：
+% #1 x方向缩放比例(暂未使用, 保留参数)
+% #2 y方向缩放比例(暂未使用, 保留参数)
+\cs_new_nopar:Npn \__cchess_board_type:n #1
+  {
+    __cchess_board_construct_type_ #1 :nn
+  }
+% 名称命令中2个参数分别表示：
+% #1 x方向缩放比例(暂未使用, 保留参数)
+% #2 y方向缩放比例(暂未使用, 保留参数)
+\cs_new_nopar:Npn \__cchess_board_type_c:n #1
+  {
+    \use:c { __cchess_board_construct_type_ #1 :nn }
+  }
+
+% 棋盘类型函数生成器内部函数
+% #1 类型名称
+\cs_new:Npn \__cchess_new_board_private_construct:nn #1
+  {
+    % 类似\cs_new:cn __cchess_board_construct_type_none:nn
+    \cs_new:cn { \__cchess_board_type:n {#1} }
+  }
+\cs_generate_variant:Nn \__cchess_new_board_private_construct:nn { V }
+\cs_generate_variant:Nn \__cchess_new_board_private_construct:nn { x }
+
+% 棋盘类型函数生成器函数
+% #1 类型名称
+\cs_new:Npn \__cchess_new_board_construct:nn #1
+  {
+    % 将类型名称记入clist
+    \clist_put_right:Nn \g__cchess_board_list_clist {#1}
+    % 类似\cs_new:cn __cchess_board_construct_type_none:nn
+    \cs_new:cn { \__cchess_board_type:n {#1} }
+  }
+\cs_generate_variant:Nn \__cchess_new_board_construct:nn { V }
+\cs_generate_variant:Nn \__cchess_new_board_construct:nn { x }
+
+% 空棋盘
+\__cchess_new_board_construct:nn { none } { }
+
+% 仅格子线半部棋盘
+\__cchess_new_board_private_construct:nn { __semiboard }
+  {
+    \draw_scope_begin:
+      \color_stroke:n { cchessboardlinecolor }
+      % 绘制棋盘网格
+      \draw_path_grid:nnnn { \gridsize } { \gridsize }
+        { 0, 0 } { \gridsize * 8, \gridsize * 4 }
+
+      % 绘制半长边格线
+      \draw_path_moveto:n { 0    , \gridsize * 4   }
+      \draw_path_lineto:n { 0    , \gridsize * 4.5 }
+      \draw_path_moveto:n { \gridsize * 8, \gridsize * 4   }
+      \draw_path_lineto:n { \gridsize * 8, \gridsize * 4.5 }
+
+      \draw_path_use_clear:n { stroke }
+    \draw_scope_end:
+  }
+
+% 兵、炮4分位标志(右上)
+\__cchess_new_board_private_construct:nn { __quaterpos }
+  {
+    % 计算标志长度
+    \dim_set:Nn \l_tmpa_dim
+      { \fp_to_dim:n { \fp_eval:n { \gridsize * 0.10 } } }
+
+    \draw_scope_begin:
+      \color_stroke:n { cchessboardlinecolor }
+      \draw_path_scope_begin:
+        \draw_linewidth:n { \l__cchess_cross_linewidth_dim }
+        \draw_path_moveto:n { 0pt        , \l_tmpa_dim }
+        \draw_path_lineto:n { 0pt        , 0pt         }
+        \draw_path_lineto:n { \l_tmpa_dim, 0pt         }
+        \draw_path_use_clear:n { stroke }
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 兵、炮全位标志
+\__cchess_new_board_private_construct:nn { __fullpos }
+  {
+    \draw_scope_begin:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \l__cchess_cross_sep_dim, \l__cchess_cross_sep_dim }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { -\l__cchess_cross_sep_dim, \l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { 90 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { -\l__cchess_cross_sep_dim, -\l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { 180 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \l__cchess_cross_sep_dim, -\l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { 270 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 右向兵半位标志
+\__cchess_new_board_private_construct:nn { __rightsemipos }
+  {
+    \draw_scope_begin:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \l__cchess_cross_sep_dim, \l__cchess_cross_sep_dim }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \l__cchess_cross_sep_dim, -\l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { -90 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 左向兵半位标志
+\__cchess_new_board_private_construct:nn { __leftsemipos }
+  {
+    \draw_scope_begin:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { -\l__cchess_cross_sep_dim, \l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { 90 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { -\l__cchess_cross_sep_dim, -\l__cchess_cross_sep_dim }
+        \draw_transform_rotate:n { 180 }
+        \__cchess_board_type_c:n { __quaterpos } {#1} {#2}
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 兵、炮标志(半棋盘)
+\__cchess_new_board_private_construct:nn { __semipos }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \draw_scope_begin:
+          % 绘制兵、炮定位标志
+          \clist_map_variable:nNn {{1,2},{7,2},{2,3},{4,3},{6,3}} \l_tmpa_tl
+            {
+              \clist_set:NV \l_tmpa_clist \l_tmpa_tl
+              \dim_set:Nn \l_tmpa_dim
+                {
+                  \fp_to_dim:n
+                    {
+                      \fp_eval:n { \gridsize * \clist_item:Nn \l_tmpa_clist { 1 } }
+                    }
+                }
+              \dim_set:Nn \l_tmpb_dim
+                {
+                  \fp_to_dim:n
+                    {
+                      \fp_eval:n { \gridsize * \clist_item:Nn \l_tmpa_clist { 2 } }
+                    }
+                }
+              \draw_path_scope_begin:
+                \draw_transform_shift:n { \l_tmpa_dim, \l_tmpb_dim }
+                \__cchess_board_type_c:n { __fullpos } {#1} {#2}
+              \draw_path_scope_end:
+            }
+
+          \draw_path_scope_begin:
+            \draw_transform_shift:n { 0, \gridsize * 3 }
+            \__cchess_board_type_c:n { __rightsemipos } {#1} {#2}
+          \draw_path_scope_end:
+
+          \draw_path_scope_begin:
+            \draw_transform_shift:n { \gridsize * 8, \gridsize * 3 }
+            \__cchess_board_type_c:n { __leftsemipos } {#1} {#2}
+          \draw_path_scope_end:
+
+        \draw_scope_end:
+      }
+    % 使用盒子容器
+    \draw_path_scope_begin:
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 无兵、炮标志全棋盘
+\__cchess_new_board_private_construct:nn { __semiboardwithpos }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboard } {#1} {#2}
+        \__cchess_board_type_c:n { __semipos } {#1} {#2}
+      }
+    % 使用盒子容器
+    \draw_path_scope_begin:
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 九宫对角线
+\__cchess_new_board_private_construct:nn { __dguardcross }
+  {
+    \draw_scope_begin:
+      \color_stroke:n { cchessboardlinecolor }
+      \draw_path_scope_begin:
+        \draw_linewidth:n { \l__cchess_cross_linewidth_dim }
+        \draw_transform_shift:n { \gridsize * 3, 0       }
+
+        \draw_path_moveto:n { 0          , \gridsize * 2 }
+        \draw_path_lineto:n { \gridsize * 2, 0           }
+        \draw_path_moveto:n { 0          , 0           }
+        \draw_path_lineto:n { \gridsize * 2, \gridsize * 2 }
+        \draw_path_use_clear:n { stroke }
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 象位虚线
+\__cchess_new_board_private_construct:nn { __elephantcross }
+  {
+    \draw_scope_begin:
+      \color_stroke:n { cchessboardlinecolor }
+      \draw_path_scope_begin:
+        \draw_linewidth:n { \l__cchess_cross_linewidth_dim }
+        \draw_dash_pattern:nn { 0.5mm , 0.5mm , 0.5mm , 0.5mm } { 0cm }
+        \draw_path_moveto:n { \gridsize * 2, 0           }
+        \draw_path_lineto:n { \gridsize * 6, \gridsize * 4 }
+        \draw_path_lineto:n { \gridsize * 8, \gridsize * 2 }
+        \draw_path_lineto:n { \gridsize * 6, 0           }
+        \draw_path_lineto:n { \gridsize * 2, \gridsize * 4 }
+        \draw_path_lineto:n { 0          , \gridsize * 2 }
+        \draw_path_lineto:n { \gridsize * 2, 0           }
+        \draw_path_use_clear:n { stroke }
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 带炮、兵位标志和九宫对角线的半棋盘
+\__cchess_new_board_private_construct:nn { __semiboardposdguardcross }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboardwithpos } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+      }
+    % 使用盒子容器
+    \draw_path_scope_begin:
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 使用盒子容器函数变体
+\cs_generate_variant:Nn \draw_coffin_use:Nnn { c }
+
+% 构建楚河汉界
+\__cchess_new_board_private_construct:nn { __midseptext }
+  {
+
+    \color_select:n { cchessboardlinecolor }
+
+    \hcoffin_set:Nn \l_char_tmpa_coffin { 楚 }
+    \hcoffin_set:Nn \l_char_tmpb_coffin { 河 }
+    \hcoffin_set:Nn \l_char_tmpc_coffin { 漢 }
+    \hcoffin_set:Nn \l_char_tmpd_coffin { 界 }
+
+    \clist_map_inline:nn { a, b }
+      {
+        \coffin_rotate:cn { l_char_tmp ##1 _coffin } { -90 }
+      }
+    \clist_map_inline:nn { c, d }
+      {
+        \coffin_rotate:cn { l_char_tmp ##1 _coffin } { 90 }
+      }
+
+    % 测量盒子容器总高度
+    \dim_set:Nn \l_tmpa_dim
+      { \__cchess_coffin_ht_plus_dp:N \l_char_tmpa_coffin }
+
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \fp_to_dim:n { \fp_eval:n { \gridsize * 0.45 } }
+      }
+
+    % 缩放盒子容器
+    \clist_map_inline:nn { a, b, c, d }
+      {
+        \coffin_scale:cnn { l_char_tmp ##1 _coffin }
+          {
+            \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+          }{
+            \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+          }
+      }
+
+    % 排版文字
+    \draw_scope_begin:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \gridsize * 2, \gridsize * 4.5 }
+        \draw_transform_shift:n { -\gridsize / 2, 0pt }
+        \draw_coffin_use:cnn { l_char_tmpb_coffin } { hc } { vc }
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \gridsize * 2, \gridsize * 4.5 }
+        \draw_transform_shift:n { \gridsize / 2, 0pt }
+        \draw_coffin_use:cnn { l_char_tmpa_coffin } { hc } { vc }
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \gridsize * 6, \gridsize * 4.5 }
+        \draw_transform_shift:n { -\gridsize / 2, 0pt }
+        \draw_coffin_use:cnn { l_char_tmpc_coffin } { hc } { vc }
+      \draw_path_scope_end:
+      \draw_path_scope_begin:
+        \draw_transform_shift:n { \gridsize * 6, \gridsize * 4.5 }
+        \draw_transform_shift:n { \gridsize / 2, 0pt }
+        \draw_coffin_use:cnn { l_char_tmpd_coffin } { hc } { vc }
+      \draw_path_scope_end:
+    \draw_scope_end:
+  }
+
+% 构建数字标识
+\__cchess_new_board_private_construct:nn { __tbnumtext }
+  {
+    \dim_set:Nn \l__cchess_tmpc_dim
+      {
+        \fp_to_dim:n { \fp_eval:n { \gridsize * 9 + \gridsize * 0.7 } }
+      }
+    \dim_set:Nn \l__cchess_tmpd_dim
+      {
+        \fp_to_dim:n { \fp_eval:n { -\gridsize * 0.7 } }
+      }
+
+    \color_select:n { cchessboardlinecolor }
+
+    \clist_set:Nn \l_tmpa_clist { 1,2,3,4,5,6,7,8,9 }
+    \clist_set:Nn \l_tmpb_clist { 九,八,七,六,五,四,三,二,一 }
+
+    \hcoffin_set:Nn \l_tmpa_coffin { 五 }
+
+    % 测量盒子容器总高度
+    \dim_set:Nn \l_tmpa_dim
+      { \__cchess_coffin_ht_plus_dp:N \l_tmpa_coffin }
+
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \fp_to_dim:n { \fp_eval:n { \gridsize * 0.25 } }
+      }
+
+    \draw_scope_begin:
+      \int_set:Nn \l_tmpa_int { 0 }
+      \clist_map_inline:Nn \l_tmpa_clist
+        {
+          \clist_pop:NN \l_tmpb_clist \l_tmpa_tl
+          \hcoffin_set:Nn \l_tmpa_coffin { ##1 }
+          \hcoffin_set:Nn \l_tmpb_coffin { \l_tmpa_tl }
+          \coffin_scale:Nnn \l_tmpa_coffin
+            {
+              \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+            }{
+              \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+            }
+          \coffin_scale:Nnn \l_tmpb_coffin
+            {
+              \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+            }{
+              \dim_ratio:nn { \l_tmpb_dim } { \l_tmpa_dim }
+            }
+
+          \draw_path_scope_begin:
+            \draw_transform_shift:n
+              { \gridsize * \l_tmpa_int, \l__cchess_tmpc_dim }
+            \draw_coffin_use:Nnn \l_tmpa_coffin { hc } { vc }
+          \draw_path_scope_end:
+
+          \draw_path_scope_begin:
+            \draw_transform_shift:n
+              { \gridsize * \l_tmpa_int, \l__cchess_tmpd_dim }
+            \draw_coffin_use:Nnn \l_tmpb_coffin { hc } { vc }
+          \draw_path_scope_end:
+
+          \int_incr:N \l_tmpa_int
+        }
+    \draw_scope_end:
+  }
+
+% 无兵、炮标志全棋盘
+\__cchess_new_board_private_construct:nn { __none }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboard } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 无兵、炮标志全棋盘
+\__cchess_new_board_construct:nn { x }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboard } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 有兵、炮标志全棋盘
+\__cchess_new_board_construct:nn { x+ }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboardwithpos } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+  }
+
+% 有兵、炮标志全棋盘
+\__cchess_new_board_construct:nn { x+t }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboardwithpos } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+    \__cchess_board_type_c:n { __midseptext } {#1} {#2}
+  }
+
+% 有兵、炮标志全棋盘
+\__cchess_new_board_construct:nn { x+tn }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboardwithpos } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+    \__cchess_board_type_c:n { __midseptext } {#1} {#2}
+    \__cchess_board_type_c:n { __tbnumtext } {#1} {#2}
+  }
+
+% 有兵、炮标志和象位线的全棋盘
+\__cchess_new_board_construct:nn { x+Xtn }
+  {
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \__cchess_board_type_c:n { __semiboardwithpos } {#1} {#2}
+        \__cchess_board_type_c:n { __dguardcross } {#1} {#2}
+        \__cchess_board_type_c:n { __elephantcross } {#1} {#2}
+      }
+    % 下半部
+    \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+
+    % 上半部
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * 8, \gridsize * 9 }
+      \draw_transform_rotate:n { 180 }
+      \draw_coffin_use:Nnn \l_tmpa_coffin { l } { b }
+    \draw_path_scope_end:
+    \__cchess_board_type_c:n { __midseptext } {#1} {#2}
+    \__cchess_board_type_c:n { __tbnumtext } {#1} {#2}
+  }
+
+\msg_new:nnn { cchess } { board-exists } { The~ board~ type~ `#1~ not~ exists. }
+
+% =============缩放处理函数=============
+% 缩放类型名称生成函数
+\cs_new_nopar:Npn \__cchess_resize:n #1
+  {
+    __cchess_processor_resize_ #1 :w
+  }
+
+% 缩放类型函数名称命令生成函数
+\cs_new_nopar:Npn \__cchess_resize_c:n #1
+  {
+    \use:c
+      {
+        __cchess_processor_resize_ #1 :w
+      }
+  }
+
+% 缩放代码生成函数
+% #1 dim长度变量1
+% #2 dim长度变量2
+% #3 缩放代码1
+% #4 缩放代码2
+% #5 缩放代码3
+% #6 缩放代码4
+% 如果 #1 > 0  且 #2 > 0 ，取#3代码
+% 如果 #1 > 0  且 #2 <= 0，取#4代码
+% 如果 #1 <= 0 且 #2 > 0 ，取#5代码
+% 如果 #1 <= 0 且 #2 <= 0，取#6代码
+\cs_new:Npn \__cchess_dim_gezero_dispatch:NNnnnn #1#2 #3#4#5#6
+  {
+    \dim_compare:nNnTF #1 > \c_zero_dim
+      {
+        \dim_compare:nNnTF #2 > \c_zero_dim
+          { #3 } { #4 }
+      }
+      {
+        \dim_compare:nNnTF #2 > \c_zero_dim
+          { #5 } { #6 }
+      }
+  }
+
+% 缩放代码生成函数(分别按高宽、高度、宽度或实际尺寸缩放)
+\cs_new:Npn \__cchess_force_size_dispatch:nnnn % both, height, width, none
+  {
+    % \dim_show:N \l__cchess_manual_width_dim
+    \__cchess_dim_gezero_dispatch:NNnnnn \l__cchess_manual_height_dim
+      \l__cchess_manual_width_dim
+  }
+
+% 构造缩放类型
+\cs_new:Npn \__cchess_new_resize_method:nn #1
+  {
+    \clist_put_right:Nn \g__cchess_resize_method_clist {#1}
+    \cs_new:cpn { \__cchess_resize:n {#1} }
+  }
+
+% 无缩放
+\__cchess_new_resize_method:nn { none } { }
+
+% 按实际参数缩放
+\__cchess_new_resize_method:nn { real }
+  {
+    \__cchess_force_size_dispatch:nnnn
+      {% 盒子宽高缩放
+        \coffin_resize:Nnn \l__cchess_manual_coffin
+                           \l__cchess_manual_width_dim
+                           \l__cchess_manual_height_dim
+      }
+      {% 指定高度为比例缩放
+        \coffin_scale:Nnn \l__cchess_manual_coffin
+          {
+            \dim_ratio:nn { \l__cchess_manual_height_dim }
+              { \__cchess_coffin_ht_plus_dp:N \l__cchess_manual_coffin }
+          }
+          {
+            \dim_ratio:nn { \l__cchess_manual_height_dim }
+              { \__cchess_coffin_ht_plus_dp:N \l__cchess_manual_coffin }
+          }
+      }
+      {% 指定宽度为比例缩放
+        \coffin_scale:Nnn \l__cchess_manual_coffin
+          {
+            \dim_ratio:nn { \l__cchess_manual_width_dim }
+                          { \coffin_wd:N \l__cchess_manual_coffin }
+          }
+          {
+            \dim_ratio:nn { \l__cchess_manual_width_dim }
+                          { \coffin_wd:N \l__cchess_manual_coffin }
+          }
+      }
+      {% 实际宽、高比例缩放
+        \coffin_scale:Nnn \l__cchess_manual_coffin
+                          { \l__cchess_x_scale_tl }
+                          { \l__cchess_y_scale_tl }
+      }
+  }
+\msg_new:nnn { cchess } { resize-type } { using~ `#1'~ resize. }
+
+% 笔画设置函数
+\cs_new:Npn \__cchess_pieces_stroke:nn #1#2
+  {
+    \special { pdf:code ~ q ~ #1 } #2 \special { pdf:code ~ Q }
+  }
+% 笔画构造函数
+\cs_new_protected:Npn \__cchess_pieces_stroke_construct:n #1
+  {
+    \int_case:nn {\l__cchess_charstroke_type_int}
+      {
+        {1}{ #1 }
+        {2}{
+          \__cchess_pieces_stroke:nn { 1~Tr~0.25~w~[]~0~d~1~J } {#1}
+        }
+        {3}{
+          \__cchess_pieces_stroke:nn { 2~Tr~0.25~w~[]~0~d~1~J~1~1~1~RG~1~1~1~rg } {#1}
+        }
+        {4}{
+          \__cchess_pieces_stroke:nn { 2~Tr~0.25~w } {#1}
+        }
+        {5}{
+          \__cchess_pieces_stroke:nn { 3 ~ Tr } {#1}
+        }
+      }
+  }
+\cs_generate_variant:Nn  \__cchess_pieces_stroke_construct:n { V }
+\cs_generate_variant:Nn  \__cchess_pieces_stroke_construct:n { x }
+
+% =============棋子文字设置函数=============
+% 设置棋子的文字
+% 红棋编码用大写字母，默认：
+% K=帅,A=仕,E/B=相,R=车,C=砲,H/N=马,P=兵
+% 黑棋编码用小字字母，默认：
+% k=将,a=士,e/b=象,r=車,c=炮,h/n=馬,p=卒
+% #1 棋子编码
+% #2 棋子字符
+\cs_new_nopar:Npn \__cchess_piece_char_setup:nn #1#2
+  {
+    \clist_if_in:NnF \c__cchess_pieces_name_clist { #1 }
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { #1 }
+      }
+
+    \prop_gput:Nnn \c__cchess_board_pieces_alph_name_prop
+        { #1 } { #2 }
+  }
+
+% key_value选项设计
+\keys_define:nn { cchess }
+  {
+    % 缩放参数
+    gridsize .code:n = { \dim_set:Nn \gridsize { #1 }
+                         % 棋子尺寸
+                         \dim_set:Nn \piecesize
+                           {
+                             \fp_to_dim:n { \fp_eval:n { \gridsize * 0.9 } }
+                           }
+                       } ,
+    gridsize .initial:n = 10mm ,
+    % 棋盘类型
+    boardtype .code:n = { \exp_args:NNx \clist_if_in:NnTF \g__cchess_board_list_clist {#1}
+                            { \tl_set:Nx \l__cchess_board_type_tl {#1} }
+                            { \msg_error:nnx { cchess } { board-exists } {#1} }
+                        },
+    % 棋盘线线宽
+    boardlinewd .code:n = { \dim_set:Nn \l__cchess_board_linewidth_dim {#1}
+                            % 九宫线与象位线线宽
+                            \dim_gset:Nn \l__cchess_cross_linewidth_dim
+                              {
+                                \fp_to_dim:n
+                                  {
+                                    \fp_eval:n { \l__cchess_board_linewidth_dim * 0.50 }
+                                  }
+                              }
+                            % 炮兵位置线与棋盘线间距
+                            \dim_gset:Nn \l__cchess_cross_sep_dim
+                              {
+                                \fp_to_dim:n
+                                  {
+                                    \fp_eval:n { \l__cchess_board_linewidth_dim * 1.80 }
+                                  }
+                              }
+                          },
+    boardlinewd .initial:n = 0.4pt ,
+
+    % 棋盘线颜色
+    boardlinecolor  .code:n = { \__cchess_color_select:nn { cchessboardlinecolor } {#1} } ,
+    boardlinecolor  .initial:n = black ,
+    boardlinecolor* .code:n = { \__cchess_color_select:nnn { cchessboardlinecolor } #1 } ,
+
+    % 棋盘背景图片
+    boardbg .tl_set:N  = \l__cchess_board_background_tl ,
+    boardbg .initial:n = {} ,
+
+    % 设置棋子字符
+    piecechar .code:n    = { \__cchess_piece_char_setup:nn #1 },
+    piecechar .initial:n = {K}{\c__cchess_K_tl} ,
+
+    % 字符格式
+    piecefont .code:n = { \tl_set:Nn \l__cchess_piece_char_format_tl {#1}
+                          \__cchess_calc_piece_box_size:
+                        },
+
+    % 边框类型
+    piecetype .code:n = { \exp_args:NNx \clist_if_in:NnTF
+                            \g__cchess_piece_box_list_clist {#1}
+                            { \tl_set:Nx \l__cchess_piece_box_type_tl {#1} }
+                            { \msg_error:nnx { cchess } { box-exists } {#1} }
+                        },
+
+    % 字符边框线宽
+    boxlinewd .dim_set:N = \l__cchess_box_linewidth_dim ,
+    boxlinewd .initial:n = 0.4pt ,
+
+    % 边框线颜色
+    boxcolor  .code:n    = { \__cchess_color_select:nn { cchesspieceboxcolor } {#1} } ,
+    boxcolor  .initial:n = black ,
+    boxcolor* .code:n    = { \__cchess_color_select:nnn { cchesspieceboxcolor } #1 } ,
+    % 字符颜色
+    redpiece  .code:n    = { \__cchess_color_select:nn { cchessredpiececolor } {#1} } ,
+    redpiece  .initial:n = red ,
+    redpiece* .code:n    = { \__cchess_color_select:nnn { cchessredpiececolor } #1 } ,
+    blkpiece  .code:n    = { \__cchess_color_select:nn { cchessblkpiececolor } {#1} } ,
+    blkpiece  .initial:n = black ,
+    blkpiece* .code:n    = { \__cchess_color_select:nnn { cchessblkpiececolor } #1 } ,
+
+    % 棋子背景底层填充颜色
+    lower  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                         {
+                           \__cchess_color_select:nn { lowerbgboxfill }
+                             { yellow!70!red }
+                           \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                             { \color_fill:n { yellow!70!red } }
+                         }{ \__cchess_color_select:nn { lowerbgboxfill } { #1 }
+                           \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                             { \color_fill:n { #1 } }
+                         }
+                     } ,
+    lower  .initial:n = {} ,
+
+    % 无反色时上层盒子背景填充颜色
+    donut  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                         {
+                           \__cchess_color_select:nn { donutboxfill }
+                             { yellow!80!black }
+                           \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                             { \color_fill:n { yellow!80!black } }
+                         }{ \__cchess_color_select:nn { donutboxfill } { #1 }
+                           \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                             { \color_fill:n { #1 } }
+                         }
+                     } ,
+    donut  .initial:n = {} ,
+
+    % 棋子背景底层填充颜色
+    redupper  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                            {
+                              \__cchess_color_select:nn { redupperbgboxfill }
+                                { yellow!70!red }
+                              \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                                { \color_fill:n { yellow!70!red } }
+                            }{ \__cchess_color_select:nn { redupperbgboxfill } { #1 }
+                              \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                                { \color_fill:n { #1 } }
+                            }
+                        } ,
+    redupper  .initial:n = {} ,
+
+    % 棋子背景底层填充颜色
+    blkupper  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                            {
+                              \__cchess_color_select:nn { blkupperbgboxfill }
+                                { yellow!70!red }
+                              \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                                { \color_fill:n { yellow!70!red } }
+                            }{ \__cchess_color_select:nn { blkupperbgboxfill } { #1 }
+                              \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                                { \color_fill:n { #1 } }
+                            }
+                        } ,
+    blkupper  .initial:n = {} ,
+
+    % 盒子阴影填充颜色
+    shadow  .code:n = { \exp_args:Nx \tl_if_empty:nTF {#1}
+                          {
+                            \__cchess_color_select:nn { shadowboxfill }
+                              { black!35!white }
+                            \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                              { \color_fill:n { black!35!white } }
+                          }{ \__cchess_color_select:nn { shadowboxfill } { #1 }
+                            \cs_set_nopar:Npn \__cchess_aux_color_boxfill:
+                              { \color_fill:n { #1 } }
+                          }
+                       } ,
+    shadow  .initial:n = {} ,
+
+    % 笔画参数
+    charstroke .choice:,
+    charstroke .value_required:n = true,
+    charstroke .choices:nn =
+      { none, solid, white, bold, invisible }
+      { \int_set_eq:NN \l__cchess_charstroke_type_int \l_keys_choice_int },
+    charstroke .initial:n = bold,
+
+    unknown .code:n = { \msg_error:nn { cchess } { unknown-option } }
+  }
+\msg_new:nnn { cchess } { unknown-option }
+  { package~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+\keys_set:nn { cchess }
+  {
+    piecefont = \kaishu,
+    piecetype = ooo,
+    boardtype = x+tn,
+  }
+
+\ProcessKeysOptions { cchess }
+
+% key_value选项设计(打谱man)
+\keys_define:nn { cchess / man }
+  {
+    % 打谱环境交叉引用标签
+    label .tl_gset:N  = \l__cchess_setman_label_tl ,
+    label .initial:n = {} ,
+
+    % 每行棋谱步数
+    nums .tl_gset:N  = \l__cchess_mans_per_line_int ,
+    nums .initial:n = 2 ,
+
+    unknown .code:n = { \msg_error:nn { cchess } { unknown-man-option } }
+  }
+\msg_new:nnn { cchess } { unknown-man-option }
+  { package~ manual~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+% key_value选项设计(缩放resize)
+\keys_define:nn { cchess / resize }
+  {
+    % 缩放方式
+    type    .code:n = { \exp_args:NNx \clist_if_in:NnTF \g__cchess_resize_method_clist {#1}
+                            { \tl_set:Nx \l__cchess_resize_method_tl {#1} }
+                            { \msg_error:nnx { cchess } { resize-method } {#1} }
+                        },
+    % 缩放参数
+    xscale .tl_set:N  = \l__cchess_x_scale_tl ,
+    xscale .initial:n = 1 ,
+    yscale .tl_set:N  = \l__cchess_y_scale_tl ,
+    yscale .initial:n = 1 ,
+    scale  .meta:n    = { xscale = #1 , yscale = #1 } ,
+    width  .dim_set:N = \l__cchess_manual_width_dim ,
+    height .dim_set:N = \l__cchess_manual_height_dim ,
+
+    unknown .code:n = { \msg_error:nn { cchess } { unknown-resize-option } }
+  }
+\msg_new:nnn { cchess } { unknown-resize-option }
+  { package~ resize~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+\keys_set:nn { cchess / resize }
+  {
+    type = none,
+  }
+
+% =============判断选项是否存在=============
+
+% 状态记录bool变量
+\bool_new:N \g__cchess_is_board_option_bool
+\bool_new:N \g__cchess_is_piece_option_bool
+
+% 判断是否有棋盘外观参数
+\cs_new:Npn \__cchess_board_option_if_in:n #1
+  {
+    \bool_set_false:N \g__cchess_is_board_option_bool
+    \clist_map_inline:nn { board,gridsize }
+      {
+        \tl_if_in:nnT { #1 } { ##1 }
+          {
+            \bool_set_true:N \g__cchess_is_board_option_bool
+            \clist_map_break:
+          }
+      }
+  }
+
+% 判断是否有棋子外观参数
+\cs_new:Npn \__cchess_piece_option_if_in:n #1
+  {
+    \bool_set_false:N \g__cchess_is_piece_option_bool
+    \clist_map_inline:nn { piece,lower,donut,upper,shadow,box,charstroke }
+      {
+        \tl_if_in:nnT { #1 } { ##1 }
+          {
+            \bool_set_true:N \g__cchess_is_piece_option_bool
+            \clist_map_break:
+          }
+      }
+  }
+
+% 棋盘参数判断
+\prg_set_conditional:Npnn \__cchess_board_option_if_in:n #1 { p, T, F, TF }
+  {
+    \__cchess_board_option_if_in:n { #1 }
+
+    \bool_if:NTF \g__cchess_is_board_option_bool
+      {
+        \prg_return_true:
+      }{
+        \prg_return_false:
+      }
+  }
+
+% 棋子参数判断
+\prg_set_conditional:Npnn \__cchess_piece_option_if_in:n #1 { p, T, F, TF }
+  {
+    \__cchess_piece_option_if_in:n { #1 }
+
+    \bool_if:NTF \g__cchess_is_piece_option_bool
+      {
+        \prg_return_true:
+      }{
+        \prg_return_false:
+      }
+  }
+
+% 选项设置用户接口
+\NewDocumentCommand \cchessset { m }
+  {
+    \IfNoValueF { #1}
+      {
+        \keys_set:nn { cchess } { #1 }
+
+        % 有draft参数，需要重构棋子和棋盘
+        \tl_if_in:nnT { #1 } { draft }
+          {
+            % 构建棋盘
+            \__cchess_board_construct:
+            % 构建红黑各9个棋子
+            \__cchess_pieces_construct:
+          }
+
+        \bool_if:NF \g__cchess_draft_bool
+          {
+            % 构建棋盘
+            \__cchess_board_option_if_in:nT { #1 }
+              {
+                \__cchess_board_construct:
+              }
+            % 构建红黑各9个棋子
+            \__cchess_piece_option_if_in:nT { #1 }
+              {
+                \__cchess_pieces_construct:
+              }
+          }
+      }
+  }
+
+% =============创建棋子coffins=============
+% 黑白棋子字符颜色及棋子颜色选择
+\cs_new:Npn \__cchess_pieces_color_select:n #1
+  {
+    \regex_match:NnTF \l__capital_regex { #1 }
+      {
+        \color_set_eq:nn { cchesspiececolor } { cchessredpiececolor }
+        \color_set_eq:nn { upperbgboxfill } { redupperbgboxfill }
+      }{
+        \color_set_eq:nn { cchesspiececolor } { cchessblkpiececolor }
+        \color_set_eq:nn { upperbgboxfill } { blkupperbgboxfill }
+      }
+  }
+
+% 构建棋子盒子容器
+\cs_new:Nn \__cchess_pieces_construct:
+  {
+    \group_begin:
+      \prop_map_inline:Nn \c__cchess_board_pieces_alph_name_prop
+        {
+          % 选择颜色
+          \__cchess_pieces_color_select:n { ##1 }
+          % 棋子文字
+          \tl_gset:Nx \l__cchess_piece_tl { ##2 }
+
+          % 构建棋子盒子容器
+          \hcoffin_set:Nn \l__cchess_piece_coffin
+            {
+              \__cchess_piece_construct:N \l__cchess_piece_tl
+            }
+
+          % 缩放棋子盒子容器
+          \coffin_resize:Nnn \l__cchess_piece_coffin { \piecesize }{ \piecesize }
+
+          % 保存结果
+          \coffin_gset_eq:cN
+            { l__cchess_piece_ ##1 _coffin } \l__cchess_piece_coffin
+        }
+    \group_end:
+  }
+
+% 构造带圈字符
+% #1 需要处理的字符(串)变量
+\cs_new:Npn \__cchess_piece_construct:N #1
+  {
+    % 按指定颜色和格式构造棋子字符盒子容器
+    \hcoffin_gset:Nn \l__cchess_box_coffin
+      {
+        \bool_if:NTF \g__cchess_draft_bool
+          {
+            \color_select:n { cchesspiececolor }
+            #1
+          }{
+            \color_select:n { cchesspiececolor }
+            \tl_use:N \l__cchess_piece_char_format_tl
+            % 笔划处理
+            \__cchess_pieces_stroke_construct:n { #1 }
+          }
+      }
+
+    % 构造构造棋子字符盒子容器边框
+    \__cchess_single_box_construct:
+  }
+% gridsize,boardtype,boardlinewd,boardlinecolor,boardbg,
+% piecechar,piecefont,piecetype,boxlinewd,boxcolor,redpiece,blkpiece,
+% lower,donut,redupper,blkupper,shadow,charstroke
+
+% 字符盒子及边框组合盒子容器构造函数
+\cs_new:Npn \__cchess_single_box_construct:
+  {
+    \bool_if:NTF \g__cchess_draft_bool
+      {
+        \coffin_typeset:cnnnn { l__cchess_box_coffin }
+          { l } { b } { 0pt } { 0pt }
+      }{
+        % 绘制字符外框并拼装结果
+        \draw_begin:
+          \draw_linewidth:n { \l__cchess_box_linewidth_dim }
+
+          \draw_path_scope_begin:
+            \__cchess_piece_box_type_c:n { \l__cchess_piece_box_type_tl } { 1.0 }
+            \draw_transform_shift:n {\charboxsize / 2.0, \charboxsize / 2.0 }
+            \draw_coffin_use:Nnn \l__cchess_box_coffin { hc } { vc }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+  }
+
+% =============创建棋子占位coffins=============
+  % 缩放空白棋子
+\cs_new:Nn \__cchess_board_piece_z_resize:
+  {
+    \coffin_resize:Nnn \l__cchess_piece_z_coffin { \piecesize } { \piecesize }
+  }
+% 缩放空白棋子
+\__cchess_board_piece_z_resize:
+
+% 将棋子盒子容器布置到棋盘指定位置(用于棋谱和棋盘排版)
+% #1 棋子参数
+% 棋子参数的形式为{{0,0}{k},{0,1}{K}}，注意需要包含大括号，
+% 不同棋子之间用英文逗号分隔
+\cs_new:Npn \__cchess_board_piece_pos_construct:n #1
+  {
+    \hcoffin_gset:Nn \l__cchess_board_pieces_pos_coffin
+      {
+        \draw_begin:
+          % 在四个角布置空白棋子实现占位(用于撑满棋子画布)
+          \clist_set:Nn \l_tmpa_clist
+            { {0, 0}{z}, {8, 0}{z}, {0, 9}{z}, {8, 9}{z}}
+          \clist_map_inline:Nn \l_tmpa_clist
+            {
+              \__cchess_piece_set_handle:nn ##1
+            }
+
+          % 在指定位置布置棋子
+          \clist_set:Nn \l_tmpa_clist { #1 }
+          \clist_map_inline:Nn \l_tmpa_clist
+            {
+              \__cchess_piece_set_handle:nn ##1
+            }
+        \draw_end:
+      }
+  }
+
+% =============创建棋盘背景coffin=============
+% 载入背景图片
+\cs_new:Nn \__cchess_board_backgroud_construct:
+  {
+    \hcoffin_set:Nn \l__cchess_board_background_coffin
+      {
+        % 如果文件名不为空则载入图片，否则创建一个空盒子容器
+        \tl_if_empty:NTF \l__cchess_board_background_tl
+          {
+            \phantom{a}
+          }{
+            \includegraphics{\l__cchess_board_background_tl}
+          }
+      }
+  }
+
+% 组装背景图片
+\cs_new:Nn \__cchess_board_assemble:
+  {
+    % 计算棋盘+棋子后的总宽和总高
+    \dim_gset:Nn \l_tmpa_dim
+      {
+        \coffin_wd:N \l__cchess_manual_coffin
+      }
+    \dim_gset:Nn \l_tmpb_dim
+      {
+        \__cchess_coffin_ht_plus_dp:N \l__cchess_manual_coffin
+      }
+
+    % 放大一个棋子的长度
+    \dim_add:Nn \l_tmpa_dim { \piecesize / 2 }
+    \dim_add:Nn \l_tmpb_dim { \piecesize / 2 }
+
+    \bool_if:NF \g__cchess_draft_bool
+      {
+        % 构建背景图片coffin
+        \__cchess_board_backgroud_construct:
+
+        % 缩放背景图片coffin
+        \coffin_resize:Nnn \l__cchess_board_background_coffin
+          { \l_tmpa_dim } { \l_tmpb_dim }
+      }
+
+    % 绘制总边框外线
+    \hcoffin_set:Nn \l__cchess_tmpa_coffin
+      {
+        \draw_begin:
+          \draw_linewidth:n { \l__cchess_board_linewidth_dim * 2 }
+          \draw_path_rectangle:nn
+            { 0pt, 0pt } { \l_tmpa_dim * 0.99, \l_tmpb_dim * 0.99 }
+          \draw_path_use_clear:n { draw }
+        \draw_end:
+      }
+
+    % 绘制总边框内线
+    \hcoffin_set:Nn \l__cchess_tmpb_coffin
+      {
+        \draw_begin:
+          \draw_linewidth:n { \l__cchess_board_linewidth_dim * 1 }
+          \draw_path_rectangle:nn
+            { 0pt, 0pt } { \l_tmpa_dim * 0.97, \l_tmpb_dim * 0.97 }
+          \draw_path_use_clear:n { draw }
+        \draw_end:
+      }
+
+    % 拼装结果
+    \hcoffin_set:Nn \l__cchess_manual_coffin
+      {
+        \draw_begin:
+          \draw_path_scope_begin:
+            \draw_transform_shift:n { \l_tmpa_dim / 2, \l_tmpa_dim / 2 }
+            \bool_if:NF \g__cchess_draft_bool
+              {
+                \draw_coffin_use:Nnn \l__cchess_board_background_coffin { hc } { vc }
+              }
+            \draw_coffin_use:Nnn \l__cchess_tmpa_coffin { hc } { vc }
+            \draw_coffin_use:Nnn \l__cchess_tmpb_coffin { hc } { vc }
+            \draw_coffin_use:Nnn \l__cchess_manual_coffin { hc } { vc }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+
+  }
+
+% =============创建棋盘coffins=============
+\cs_new:Nn \__cchess_board_construct:
+  {
+    % 按指定类型创建棋盘
+    \hcoffin_set:Nn \l__cchess_board_coffin
+      {
+        \draw_begin:
+          \draw_linewidth:n { \l__cchess_board_linewidth_dim }
+
+          \draw_path_scope_begin:
+            \bool_if:NTF \g__cchess_draft_bool
+              {
+                \__cchess_board_type_c:n { x } { 1.0 } { 1.0 }
+              }{
+                \__cchess_board_type_c:n { \l__cchess_board_type_tl } { 1.0 } { 1.0 }
+              }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+
+    % 计算棋盘总宽和总高
+    \dim_gset:Nn \l__cchess_board_width_dim
+      {
+        \coffin_wd:N \l__cchess_board_coffin
+      }
+    \dim_gset:Nn \l__cchess_board_height_dim
+      {
+        \__cchess_coffin_ht_plus_dp:N \l__cchess_board_coffin
+      }
+  }
+
+% 在正文中排版棋子
+\cs_new:Npn \__cchess_getpiece_handle:nn #1#2
+  {
+    % 构建红黑各9个棋子
+    % \__cchess_pieces_construct:
+
+    % 设置指定格式的基字符盒子
+    \hbox_set:Nn \l_tmpa_box { #1 将 }
+
+    % 盒子高度
+    \dim_set:Nn \l_tmpa_dim
+      {
+        \box_ht_plus_dp:N \l_tmpa_box
+      }
+
+    % 棋子高度
+    \dim_set:Nn \l_tmpb_dim
+      {
+        \__cchess_coffin_ht_plus_dp:N \l__cchess_piece_K_coffin
+      }
+
+    % 缩放棋子
+    \coffin_scale:cnn { l__cchess_piece_ #2 _coffin }
+      {
+        \dim_ratio:nn { \l_tmpa_dim } { \l_tmpb_dim }
+      }{
+        \dim_ratio:nn { \l_tmpa_dim } { \l_tmpb_dim }
+      }
+
+    % 盒子深度
+    \dim_set:Nn \l_tmpb_dim { \box_dp:N \l_tmpa_box }
+
+    % 输出盒子(下沉深度距离)
+    \coffin_typeset:cnnnn { l__cchess_piece_ #2 _coffin }
+        { l } { b } { 0pt } { -\l_tmpb_dim }
+  }
+
+% 构建棋盘
+\__cchess_board_construct:
+
+% 构建红黑各9个棋子
+\__cchess_pieces_construct:
+
+% =============排版棋谱=============
+% 棋谱排版
+\cs_new:Npn \__cchess_manual_output:n #1
+  {
+    % 构建棋盘
+    % \__cchess_board_construct:
+
+    % 构建红黑各9个棋子
+    % \__cchess_pieces_construct:
+
+    % 构建棋子画布盒子容器
+    \__cchess_board_piece_pos_construct:n { #1 }
+
+    % 将棋盘与棋子画布居中对齐后进行拼装
+    \hcoffin_set:Nn \l__cchess_manual_coffin
+      {
+        \draw_begin:
+          \draw_path_scope_begin:
+            \draw_transform_shift:n
+              {
+                \l__cchess_board_width_dim / 2,
+                \l__cchess_board_height_dim / 2
+              }
+            \draw_coffin_use:Nnn \l__cchess_board_coffin { hc } { vc }
+            \draw_coffin_use:Nnn \l__cchess_board_pieces_pos_coffin { hc } { vc }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+
+    % 按指定方式进行缩放
+    \__cchess_resize_c:n { \l__cchess_resize_method_tl }
+
+    % 添加背景和外框
+    \__cchess_board_assemble:
+
+    % 输出结果
+    \coffin_typeset:Nnnnn \l__cchess_manual_coffin
+      { l }{ b } { 0pt } { 0pt }
+  }
+
+% 排版棋盘
+\cs_new:Nn \__cchess_board_output:
+  {
+    % 创建棋盘
+    % \__cchess_board_construct:
+
+    % 是否需要棋子
+    \bool_if:NT  \l__cchess_board_pieces_bool
+      {
+        % 构建红黑各9个棋子
+        % \__cchess_pieces_construct:
+
+        % 创建32个棋子画布盒子容器
+        \__cchess_board_piece_pos_construct:n
+          {
+            { {0,0}{R} }, { {1,0}{H} }, { {2,0}{E} }, { {3,0}{A} }, { {4,0}{K} },
+            { {5,0}{A} }, { {6,0}{E} }, { {7,0}{H} }, { {8,0}{R} },
+            { {1,2}{C} }, { {7,2}{C} },
+            { {0,3}{P} }, { {2,3}{P} }, { {4,3}{P} }, { {6,3}{P} }, { {8,3}{P} },
+            { {0,9}{r} }, { {1,9}{h} }, { {2,9}{e} }, { {3,9}{a} }, { {4,9}{k} },
+            { {5,9}{a} }, { {6,9}{e} }, { {7,9}{h} }, { {8,9}{r} },
+            { {1,7}{c} }, { {7,7}{c} },
+            { {0,6}{p} }, { {2,6}{p} }, { {4,6}{p} }, { {6,6}{p} }, { {8,6}{p} }
+          }
+      }
+
+    % 拼装结果
+    \hcoffin_set:Nn \l__cchess_manual_coffin
+      {
+        \draw_begin:
+          \draw_path_scope_begin:
+            \draw_transform_shift:n
+              {
+                \l__cchess_board_width_dim / 2,
+                \l__cchess_board_height_dim / 2
+              }
+            \draw_coffin_use:Nnn \l__cchess_board_coffin { hc } { vc }
+            \bool_if:NT  \l__cchess_board_pieces_bool
+              {
+                \draw_coffin_use:Nnn \l__cchess_board_pieces_pos_coffin { hc } { vc }
+              }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+
+    % 按指定方式缩放
+    \__cchess_resize_c:n { \l__cchess_resize_method_tl }
+
+    % 添加背景和外框
+    \__cchess_board_assemble:
+
+    % 输出结果
+    \coffin_typeset:Nnnnn \l__cchess_manual_coffin
+      { l }{ b } { 0pt } { 0pt }
+  }
+
+% 设置正则匹配函数变体函数
+\cs_generate_variant:Nn \regex_match:NnT { NV }
+\cs_generate_variant:Nn \regex_match:NnF { NV }
+
+% 利用正则匹配和属性表，
+% 将字母或数字表示的棋子坐标转换为数字表示
+\cs_new:Npn \__cchess_piece_set_handle:nn #1#2
+  {
+    \clist_set:Nn \l_tmpa_clist { #1 }
+    \clist_pop:NN \l_tmpa_clist \l_tmpa_tl
+    \clist_pop:NN \l_tmpa_clist \l_tmpb_tl
+
+    % 判断输入合法性
+    \clist_if_in:NVF \c__cchess_pos_x_index_clist \l_tmpa_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpa_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_y_index_clist \l_tmpb_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpb_tl }
+      }
+    \clist_if_in:NnF \c__cchess_pieces_name_clist { #2 }
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { #2 }
+      }
+
+    % 转换坐标为数字
+    \regex_match:NVT \l__alph_regex \l_tmpa_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_alph_num_prop \l_tmpa_tl \l_tmpa_tl
+      }
+
+    \regex_match:NVT \l__alph_regex \l_tmpb_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_alph_num_prop \l_tmpb_tl \l_tmpb_tl
+      }
+
+    % 用数字坐标定位布置棋子
+    \__cchess_piece_set:VVn \l_tmpa_tl \l_tmpb_tl { #2 }
+  }
+
+% 在指定位置布置棋子
+% #1 x方向数字型坐标值(0-8)
+% #2 y方向数字型坐标值(0-9)
+% #3 棋子名称(单英文字母)
+\cs_new:Npn \__cchess_piece_set:nnn #1#2#3
+  {
+    \draw_path_scope_begin:
+      \draw_transform_shift:n { \gridsize * #1, \gridsize * #2 }
+      \draw_coffin_use:cnn { l__cchess_piece_ #3 _coffin } { hc } { vc }
+    \draw_path_scope_end:
+  }
+\cs_generate_variant:Nn \__cchess_piece_set:nnn {VV}
+
+% ======================================================
+% ===采用棋子替换方式创建棋子画布coffin(用于打谱排版)===
+% ======================================================
+% 缩放占棋子盒子容器
+\cs_new:Nn \__cchess_board_pieces_resize:
+  {
+    % 空白棋子
+    \coffin_resize:Nnn \l__cchess_board_piece_z_coffin
+       { \piecesize } { \piecesize }
+
+    % 其它棋子，按行(a-i)列(a-j)编号命名。
+    \clist_map_inline:Nn \c__cchess_board_pos_x_clist
+      {
+        \clist_map_inline:Nn \c__cchess_board_pos_y_clist
+          {
+            \coffin_resize:cnn { l__cchess_board_piece_ ##1 _ ####1 _coffin }
+              { \piecesize } { \piecesize }
+          }
+      }
+  }
+
+% 创建字母行列编号命名棋子的占位棋子画布
+\cs_new:Nn \__cchess_board_pieces_seat:
+  {
+    % 缩放占位棋子
+    \__cchess_board_pieces_resize:
+
+    % 利用双重循环创建棋子画布
+    \hcoffin_gset:Nn \l__cchess_board_pieces_pos_coffin
+    {
+      \draw_begin:
+        \int_zero:N \l_tmpa_int
+        % 扫描a-i横向位置编号列表
+        \clist_map_inline:Nn \c__cchess_board_pos_x_clist
+          {
+            \int_zero:N \l_tmpb_int
+            % 扫描a-j纵向位置编号列表
+            \clist_map_inline:Nn \c__cchess_board_pos_y_clist
+              {
+                \draw_path_scope_begin:
+                  % 坐标平移
+                  \draw_transform_shift:n
+                    { \gridsize * \l_tmpa_int, \gridsize * \l_tmpb_int }
+                  % 布置棋子
+                  \draw_coffin_use:cnn
+                    { l__cchess_board_piece_ ##1 _ ####1 _coffin } { hc } { vc }
+                \draw_path_scope_end:
+                \int_incr:N \l_tmpb_int
+              }
+            \int_incr:N \l_tmpa_int
+          }
+      \draw_end:
+    }
+  }
+
+% 棋子画布棋子替换句柄函数
+% 利用正则匹配和属性表，
+% 将字母或数字表示的棋子坐标转换为字母表示
+\cs_new:Npn \__cchess_piece_replace_handle:nn #1#2
+  {
+    \clist_set:Nn \l_tmpa_clist { #1 }
+    \clist_pop:NN \l_tmpa_clist \l_tmpa_tl
+    \clist_pop:NN \l_tmpa_clist \l_tmpb_tl
+
+    % 判断输入合法性
+    \clist_if_in:NVF \c__cchess_pos_x_index_clist \l_tmpa_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpa_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_y_index_clist \l_tmpb_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpb_tl }
+      }
+    \clist_if_in:NnF \c__cchess_pieces_name_clist { #2 }
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { #2 }
+      }
+
+    % 转换坐标为字母
+    \regex_match:NVT \l__digit_regex \l_tmpa_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpa_tl \l_tmpa_tl
+      }
+
+    \regex_match:NVT \l__digit_regex \l_tmpb_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpb_tl \l_tmpb_tl
+      }
+
+    % 用字母坐标定位布置棋子
+    \__cchess_piece_replace:VVn \l_tmpa_tl \l_tmpb_tl { #2 }
+  }
+
+% 棋子占位替换函数
+% #1 横向字符型坐标值(a-i)
+% #2 纵向字符型坐标值(a-j)
+% #3 棋子名称(单英文字母)
+\cs_new:Npn \__cchess_piece_replace:nnn #1#2#3
+  {
+    \coffin_gset_eq:cc
+      { l__cchess_board_piece_ #1 _ #2 _coffin }
+      { l__cchess_piece_ #3 _coffin }
+  }
+\cs_generate_variant:Nn \__cchess_piece_replace:nnn {VV}
+
+% 棋子删除句柄函数
+% 利用正则匹配和属性表，
+% 将字母或数字表示的棋子坐标转换为字母表示
+\cs_new:Npn \__cchess_piece_remove_handle:n #1
+  {
+    \clist_set:Nn \l_tmpa_clist { #1 }
+    \clist_pop:NN \l_tmpa_clist \l_tmpa_tl
+    \clist_pop:NN \l_tmpa_clist \l_tmpb_tl
+
+    % 判断输入合法性
+    \clist_if_in:NVF \c__cchess_pos_x_index_clist \l_tmpa_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpa_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_y_index_clist \l_tmpb_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpb_tl }
+      }
+
+    % 转换坐标为字母
+    \regex_match:NVT \l__digit_regex \l_tmpa_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpa_tl \l_tmpa_tl
+      }
+
+    \regex_match:NVT \l__digit_regex \l_tmpb_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpb_tl \l_tmpb_tl
+      }
+
+    % 用字母坐标定位布置棋子
+    \__cchess_piece_remove:VV \l_tmpa_tl \l_tmpb_tl
+  }
+
+% 棋子删除函数
+% #1 横向字符型坐标值(a-i)
+% #2 纵方向字符型坐标值(a-j)
+% #3 棋子名称(单英文字母)
+\cs_new:Npn \__cchess_piece_remove:nn #1#2
+  {
+    \coffin_gset_eq:cN
+      { l__cchess_board_piece_ #1 _ #2 _coffin }
+      \l__cchess_board_piece_z_coffin
+  }
+\cs_generate_variant:Nn \__cchess_piece_remove:nn {VV}
+
+% 棋子移动句柄函数
+% 利用正则匹配和属性表，
+% 将字母或数字表示的棋子坐标转换为字母表示
+\cs_new:Npn \__cchess_piece_move_handle:nnn #1#2#3
+  {
+    \clist_set:Nn \l_tmpa_clist { #2 }
+    \clist_pop:NN \l_tmpa_clist \l_tmpa_tl
+    \clist_pop:NN \l_tmpa_clist \l_tmpb_tl
+    \clist_set:Nn \l_tmpa_clist { #3 }
+    \clist_pop:NN \l_tmpa_clist \l_tmpc_tl
+    \clist_pop:NN \l_tmpa_clist \l_tmpd_tl
+
+    % 判断输入合法性
+    \clist_if_in:NVF \c__cchess_pos_x_index_clist \l_tmpa_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpa_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_y_index_clist \l_tmpb_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpb_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_x_index_clist \l_tmpc_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpc_tl }
+      }
+    \clist_if_in:NVF \c__cchess_pos_y_index_clist \l_tmpd_tl
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { \l_tmpd_tl }
+      }
+    \clist_if_in:NnF \c__cchess_pieces_name_clist { #1 }
+      {
+        \msg_error:nnx { cchess } { piecename-exists } { #1 }
+      }
+
+    % 转换坐标为字母
+    \regex_match:NVT \l__digit_regex \l_tmpa_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpa_tl \l_tmpa_tl
+      }
+    \regex_match:NVT \l__digit_regex \l_tmpb_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpb_tl \l_tmpb_tl
+      }
+    \regex_match:NVT \l__digit_regex \l_tmpc_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpc_tl \l_tmpc_tl
+      }
+
+    \regex_match:NVT \l__digit_regex \l_tmpd_tl
+      {
+        \prop_get:NVN \c__cchess_board_pos_num_alph_prop \l_tmpd_tl \l_tmpd_tl
+      }
+
+    % 用字母坐标定位布置棋子
+    \__cchess_piece_move:VVVVn
+      \l_tmpa_tl \l_tmpb_tl \l_tmpc_tl \l_tmpd_tl { #1 }
+  }
+
+% 棋子移动函数
+% #1 原位置横向字符型坐标值(a-i)
+% #2 原位置纵向字符型坐标值(a-j)
+% #3 新位置横向字符型坐标值(a-i)
+% #4 新位置纵向字符型坐标值(a-j)
+% #5 棋子名称(单英文字母)
+\cs_new:Npn \__cchess_piece_move:nnnnn #1#2#3#4#5
+  {
+    % 删除原位置棋子
+    \__cchess_piece_remove:nn { #1 } { #2 }
+    % 在新位置布置棋子
+    \__cchess_piece_replace:nnn { #3 } { #4 } { #5 }
+
+    % 生成打谱棋谱记录
+    \bool_if:NT \l__cchess_with_setman_bool
+      {
+        \__cchess_piece_manual_str_construct:nnnnn { #1 }{ #2 }{ #3 }{ #4 }{ #5 }
+      }
+  }
+\cs_generate_variant:Nn \__cchess_piece_move:nnnnn {VVVV}
+
+% 生成打谱棋谱记录
+% TODO：暂未实现纵向同类棋子前后判断
+% #1 原位置横向字符型坐标值(a-i)
+% #2 原位置纵向字符型坐标值(a-j)
+% #3 新位置横向字符型坐标值(a-i)
+% #4 新位置纵向字符型坐标值(a-j)
+% #5 棋子名称(单英文字母)
+\cs_new:Npn \__cchess_piece_manual_str_construct:nnnnn #1#2#3#4#5
+  {
+    % 将字符坐标数据转换为整数坐标
+    \prop_get:NnN \c__cchess_board_pos_alph_num_prop { #1 } \l_tmpa_tl
+    \prop_get:NnN \c__cchess_board_pos_alph_num_prop { #2 } \l_tmpb_tl
+    \prop_get:NnN \c__cchess_board_pos_alph_num_prop { #3 } \l_tmpc_tl
+    \prop_get:NnN \c__cchess_board_pos_alph_num_prop { #4 } \l_tmpd_tl
+    \int_set:Nn \l_tmpa_int { \l_tmpa_tl }
+    \int_set:Nn \l_tmpb_int { \l_tmpb_tl }
+    \int_set:Nn \l_tmpc_int { \l_tmpc_tl }
+    \int_set:Nn \l_tmpd_int { \l_tmpd_tl }
+
+    % 行棋分析
+    \int_compare:nNnTF { \l_tmpc_int } = { \l_tmpa_int }
+      { % 纵向移动
+        \int_compare:nNnTF { \l_tmpd_int } > { \l_tmpb_int }
+          {
+            % 坐标向上
+            \int_set:Nn \l_tmpe_int { \l_tmpd_int - \l_tmpb_int }
+            \tl_set:Nx \l_tmpe_tl { \int_use:N \l_tmpe_int }
+            \regex_match:NnTF \l__capital_regex { #5 }
+              { % 红棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_red_x_idx_prop { #1 } \l_tmpb_tl
+                \prop_get:NVN \c__cchess_board_pos_arabic_zh_prop \l_tmpe_tl \l_tmpc_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    进
+                    \l_tmpc_tl
+                  }
+              }{ % 黑棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_black_x_idx_prop { #1 } \l_tmpb_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    退
+                    \int_use:N \l_tmpe_int
+                  }
+              }
+          }{ % 坐标向下
+            \int_set:Nn \l_tmpe_int { \l_tmpb_int - \l_tmpd_int }
+            \tl_set:Nx \l_tmpe_tl { \int_use:N \l_tmpe_int }
+            \regex_match:NnTF \l__capital_regex { #5 }
+              { % 红棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_red_x_idx_prop { #1 } \l_tmpb_tl
+                \prop_get:NVN \c__cchess_board_pos_arabic_zh_prop \l_tmpe_tl \l_tmpc_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    退
+                    \l_tmpc_tl
+                  }
+              }{ % 黑棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_black_x_idx_prop { #1 } \l_tmpb_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    进
+                    \int_use:N \l_tmpe_int
+                  }
+              }
+          }
+      }{ % 非纵向移动
+        \int_compare:nNnTF { \l_tmpd_int } = { \l_tmpb_int }
+          { % 水平移动
+            \regex_match:NnTF \l__capital_regex { #5 }
+              { % 黑棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_red_x_idx_prop { #1 } \l_tmpb_tl
+                \prop_get:NnN \c__cchess_board_red_x_idx_prop { #3 } \l_tmpc_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    平
+                    \l_tmpc_tl
+                  }
+              }{ % 红棋
+                \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                \prop_get:NnN \c__cchess_board_black_x_idx_prop { #1 } \l_tmpb_tl
+                \prop_get:NnN \c__cchess_board_black_x_idx_prop { #3 } \l_tmpc_tl
+                \clist_put_right:Nx \l__cchess_manual_clist
+                  {
+                    \l_tmpa_tl
+                    \l_tmpb_tl
+                    平
+                    \l_tmpc_tl
+                  }
+              }
+          }{ % 非纵非横向移动
+            \int_compare:nNnTF { \l_tmpd_int } > { \l_tmpb_int }
+              { % 纵向向上
+                \regex_match:NnTF \l__capital_regex { #5 }
+                  { % 红棋
+                    \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                    \prop_get:NnN \c__cchess_board_red_x_idx_prop { #1 } \l_tmpb_tl
+                    \prop_get:NnN \c__cchess_board_red_x_idx_prop { #3 } \l_tmpc_tl
+                    \clist_put_right:Nx \l__cchess_manual_clist
+                      {
+                        \l_tmpa_tl
+                        \l_tmpb_tl
+                        进
+                        \l_tmpc_tl
+                      }
+                  }{ % 黑棋
+                    \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                    \prop_get:NnN \c__cchess_board_black_x_idx_prop { #1 } \l_tmpb_tl
+                    \prop_get:NnN \c__cchess_board_black_x_idx_prop { #3 } \l_tmpc_tl
+                    \clist_put_right:Nx \l__cchess_manual_clist
+                      {
+                        \l_tmpa_tl
+                        \l_tmpb_tl
+                        退
+                        \l_tmpc_tl
+                      }
+                  }
+              }{ % 纵向向下
+                \regex_match:NnTF \l__capital_regex { #5 }
+                  { % 红棋
+                    \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                    \prop_get:NnN \c__cchess_board_red_x_idx_prop { #1 } \l_tmpb_tl
+                    \prop_get:NnN \c__cchess_board_red_x_idx_prop { #3 } \l_tmpc_tl
+                    \clist_put_right:Nx \l__cchess_manual_clist
+                      {
+                        \l_tmpa_tl
+                        \l_tmpb_tl
+                        退
+                        \l_tmpc_tl
+                      }
+                  }{ % 黑棋
+                    \prop_get:NnN \c__cchess_board_pieces_alph_name_prop { #5 } \l_tmpa_tl
+                    \prop_get:NnN \c__cchess_board_black_x_idx_prop { #1 } \l_tmpb_tl
+                    \prop_get:NnN \c__cchess_board_black_x_idx_prop { #3 } \l_tmpc_tl
+                    \clist_put_right:Nx \l__cchess_manual_clist
+                      {
+                        \l_tmpa_tl
+                        \l_tmpb_tl
+                        进
+                        \l_tmpc_tl
+                      }
+                  }
+              }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__cchess_piece_manual_str_construct:nnnnn {VVVV}
+
+% 打谱环境前处理函数
+% #1 打谱命令
+\cs_new:Npn \__cchess_setcchessman_pre_setup:n #1
+  {
+    % 构建棋盘
+    % \__cchess_board_construct:
+    % 构建红黑各9个棋子
+    % \__cchess_pieces_construct:
+
+    % 删除环境中的代码中的空白
+    \tl_set:Nn \l_tmpa_tl { #1 }
+    \tl_remove_all:Nn \l_tmpa_tl {~}
+    % 执行环境中的代码
+    \tl_use:N \l_tmpa_tl
+  }
+
+% 定义\label命令的变体函数
+%\label { #1 }
+\cs_set_eq:NN \__cchess_setman_label:n \label
+\cs_generate_variant:Nn \__cchess_setman_label:n { x }
+
+% 打谱环境后处理函数
+\cs_new:Nn \__cchess_setcchessman_post_setup:
+  {
+    % 布置棋子
+    \__cchess_board_pieces_seat:
+
+    % 将棋盘与打谱结果盒子容器居中对齐后进行拼装
+    \hcoffin_set:Nn \l__cchess_manual_coffin
+      {
+        \draw_begin:
+          \draw_path_scope_begin:
+            \draw_transform_shift:n
+              {
+                \l__cchess_board_width_dim / 2,
+                \l__cchess_board_height_dim / 2
+              }
+            \draw_coffin_use:Nnn \l__cchess_board_coffin { hc } { vc }
+            \draw_coffin_use:Nnn \l__cchess_board_pieces_pos_coffin { hc } { vc }
+          \draw_path_scope_end:
+        \draw_end:
+      }
+
+    % 缩放拼装结果
+    \__cchess_resize_c:n { \l__cchess_resize_method_tl }
+
+    % 添加背景和外框
+    \__cchess_board_assemble:
+
+    % 星号环境需要输出打谱记录
+    \bool_if:NT \l__cchess_with_setman_bool
+      {
+        % 递增计数器
+        \refstepcounter{setman}
+        % 设置label标签
+        \__cchess_setman_label:x { \l__cchess_setman_label_tl }
+
+        % 构造临时文件
+        \iow_open:Nn \g_tmpa_iow
+          {
+            \c_sys_jobname_str\l__cchess_setman_label_tl\thesetman .man
+          }
+
+        % 遍历打谱记录列表，输出打谱记录到临时文件
+        \bool_until_do:nn { \clist_if_empty_p:N \l__cchess_manual_clist }
+          {
+            \clist_pop:NN \l__cchess_manual_clist \l_tmpa_tl
+            \tl_set:Nx \l_tmpb_tl {\l_tmpa_tl}
+            \iow_now:Nx \g_tmpa_iow { \l_tmpb_tl }
+          }
+
+        % 关闭文件
+        \iow_close:N \g_tmpa_iow
+      }
+
+    % 输出结果盒子容器
+    \coffin_typeset:Nnnnn \l__cchess_manual_coffin
+      { l }{ b } { 0pt } { 0pt }
+  }
+
+% 参考雾月的回复：https://ask.latexstudio.net/ask/question/7430.html
+% LaTeX3 并未定义 \use_i:nnnnn
+\cs_set:Npn \use_i:nnnnn #1#2#3#4#5 {#1}
+
+% 打谱棋谱排版描述处理
+\cs_new:Npn \__cchess_setman_print:n #1
+  {
+    % 根据棋谱label构建文件名
+    \cs_if_exist:cTF { r@#1 }
+      {
+        % 这一步是得到 ref，它保存在 \r@#1 中。
+        % \r@#1 有两项，当使用 hyperref 时，
+        % \r@#1 有 5 项，这里使用 \empty 统一解决
+        \tl_set:Nx \l_tmpa_tl
+          {
+            \c_sys_jobname_str
+            #1 \exp_args:NNc \exp_after:wN \use_i:nnnnn { r@ #1 }
+            \c_empty_tl \c_empty_tl \c_empty_tl .man
+          }
+
+        % 打开文件读取数据并输出结果
+        \ior_open:NnTF \g_tmpb_ior { \l_tmpa_tl }
+          {
+            % 循环计数
+            \int_set:Nn \l_tmpa_int { 1 }
+            % 循环读取一行棋谱
+            \ior_str_map_variable:NNn \g_tmpb_ior \l_tmpb_str
+              {
+                % 转换为token
+                \tl_set_rescan:Nno \l_tmpb_tl
+                  {
+                    \char_set_catcode_letter:N \_
+                    \char_set_catcode_letter:N :
+                  }{ \l_tmpb_str }
+
+                % 输出结果
+                \tl_use:N \l_tmpb_tl
+
+                % 根据每行步数确定输出\quad或是\par
+                \int_set:Nn \l_tmpb_int
+                  {
+                    \int_mod:nn { \l_tmpa_int } { \l__cchess_mans_per_line_int }
+                  }
+                \int_compare:nNnTF { \l_tmpb_int } = { 0 }
+                  { \par } { \quad }
+
+                \int_incr:N \l_tmpa_int
+              }
+          }
+          { \msg_error:nnx { cchess } { file-not-found } { \l_tmpa_tl } }
+
+        % 关闭文件
+        \iow_close:N \g_tmpa_ior
+      }{ \G@refundefinedtrue }% 引用未定义
+  }
+
+\endinput

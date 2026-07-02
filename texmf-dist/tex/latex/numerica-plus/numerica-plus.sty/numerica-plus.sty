@@ -1,0 +1,903 @@
+% This is file `numerica-plus.sty'.
+%
+% This work may be distributed and/or modified under the conditions
+% of the LaTeX Project Public License, either version 1.3c of this 
+% license or any later version; see
+% http://www.latex-project.org/lppl.txt
+%
+% Andrew Parsloe (ajparsloe@gmail.com)
+% 
+\ProvidesExplFile
+  {numerica-plus.sty}
+  {2023/08/13}
+  {3.0.0}
+  {Iterate functions, find zeros/extrema of functions, evaluate recurrences}
+
+\msg_new:nnn {numerica-plus} {version}
+  {
+    Package~too~old!~This~version~of~numerica-plus~requires~
+    numerica~version~3.
+  }
+\msg_new:nnn {numerica-plus} {load-order}
+  { Please~load~version~3~of~numerica~*before*~numerica~plus. }
+  
+\cs_if_exist:NTF \c_nmc_version_tl  
+  { 
+    \int_compare:nNnT { \c_nmc_version_tl } < { 30 }
+      { \msg_fatal:nn {numerica-plus} {version} }
+  }
+  { \msg_fatal:nn {numerica-plus} {load-order} }
+%----------------------------------------------------------
+\cs_generate_variant:Nn \tl_if_novalue:nTF { o }
+
+\clist_map_inline:nn { iter,solve } 
+  { 
+    \tl_new:c { g__nmc_info_#1_tl } 
+    \tl_gset:cn { g__nmc_info_#1_tl } { 0 }
+  }
+\clist_gput_right:Nn \g__nmc_info_proc_clist { iter, solve }
+
+\int_if_zero:nT { \g__nmc_consts_vv_int }
+  { \int_incr:N \g__nmc_consts_vv_int }
+\cs_new_protected:Npn \__nmc_plus_get_var:NNn #1#2#3
+  { 
+    \tl_if_empty:NT #1
+      { 
+        \tl_set:Nx \l_tmpa_tl 
+            { \seq_item:Nn \l__nmc_vv_all_seq { \g__nmc_consts_vv_int } }
+        \quark_if_no_value:NTF \l_tmpa_tl
+          { 
+            \__nmc_error_where:n { #2 }
+            \__nmc_error_what:n { No~#3~variable~specified~in } }
+          { 
+            \__nmc_vv_split_item:V \l_tmpa_tl
+            \tl_set_eq:NN #1 \l__nmc_eq_var_tl
+          }
+      }
+  }
+% #1 vv-seq reversed #2 var_tl #3 \nmc<cmd> #4 {adjective}
+\cs_new_protected:Npn \__nmc_plus_vv_digest:NNNn #1#2#3#4
+  { 
+    \clist_push:NV \l__nmc_formula_tl #2
+    \__nmc_vv_digest:N #1 
+    \tl_if_empty:NTF #2
+      { \__nmc_plus_get_var:NNn #2 #3 { #4 } }
+      { \clist_pop:NN \l__nmc_formula_tl #2 }
+  }
+\cs_new_protected:Npn \__nmc_plus_reuse:N #1
+  {
+    \tl_gclear:N \g__nmc_reuse_tl
+    \seq_map_inline:Nn #1
+      { \tl_gput_right:Nn \g__nmc_reuse_tl { ,{##1} } }
+    \tl_gset:Nx \g__nmc_reuse_tl 
+        { \exp_last_unbraced:NV \use_none:n \g__nmc_reuse_tl }
+  }
+\NewDocumentCommand \clitem { m m }
+  { \clist_item:Nn #1 { #2 } }
+% \nmcIterate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\int_new:N \l__nmc_iter_total_int
+\int_new:N \l__nmc_iter_view_int
+\int_new:N \l__nmc_iter_round_int
+\tl_new:N  \l__nmc_iter_var_tl
+\fp_new:N  \l__nmc_iter_first_fp
+\seq_new:N \l__nmc_iter_result_seq
+\seq_new:N \l__nmc_iter_index_seq
+
+\fp_new:N \l__nmc_iter_fixedpti_fp
+\fp_new:N \l__nmc_iter_fixedptii_fp
+
+\tl_new:N \l__nmc_iter_begin_tl
+\tl_new:N \l__nmc_iter_end_tl
+
+\nmc_define:NnN \nmcIterate { iter } \iter
+
+\cs_set_protected:Npn \__nmc_iter_initialize:
+  {
+    \tl_set:Nn \l__nmc_dbg_idii_tl { function }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { stored }
+    \__nmc_env_initialize:
+  }
+\cs_set_protected:Npn \__nmc_iter_settings:
+  {
+    \bool_set_false:N \l__nmc_allow_TF_out_bool
+    \int_set:Nn \l__nmc_iter_total_int 
+        { \int_max:nn { \l__nmc_iter_total_int } { 1 } }
+    \int_set:Nn \l__nmc_iter_view_int 
+        { \int_min:nn { \int_max:nn { \l__nmc_iter_view_int } 
+            { 1 } } { \l__nmc_iter_total_int } }
+    \__nmc_env_settings:
+  }
+\cs_gset_protected:Npn \__nmc_iter_formula:
+  { 
+    \__nmc_env_formula:
+    \tl_set_eq:NN \l__nmc_formula_dup_tl \l__nmc_formula_tl 
+  }
+\cs_gset_protected:Npn \__nmc_iter_vv_digest:N #1
+  { 
+    \__nmc_plus_vv_digest:NNNn #1 
+        \l__nmc_iter_var_tl \nmcIterate {iteration} 
+  }
+\cs_gset_protected:Npn \__nmc_iter_process:
+  { 
+    \int_set:Nn \l__nmc_iter_round_int 
+        { \l__nmc_round_int + \l__nmc_iter_extra_int }
+    % first iterate
+    \__nmc_error_where:n { formula }
+    \tl_clear:N \l__nmc_fp_expr_tl
+    \__nmc_fpify:VN \l__nmc_formula_tl \l__nmc_fp_expr_tl
+    \fp_set:Nn \l__nmc_result_fp { \l__nmc_fp_expr_tl }
+    \__nmc_error_fpflag:
+    \bool_if:NF \g__nmc_error_bool
+      { \fp_set_eq:NN \l__nmc_iter_first_fp \l__nmc_result_fp }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_iter_do:
+        \tl_set_eq:NN \l__nmc_fp_expr_tl \l__nmc_fp_exprn_tl
+      }
+    \bool_if:nF { \g__nmc_error_bool || \l__nmc_num_only_bool }
+      { 
+        \__nmc_iter_environ:
+        \__nmc_iter_write:
+      }
+    \int_if_zero:nF \l__nmc_dbg_int
+      { 
+        \__nmc_dbg_get_data:
+        \__nmc_if_mod_zero:nnT \l__nmc_dbg_int { 11 }
+          { \__nmc_iter_display: }
+      }
+  }
+\cs_gset_protected:Npn \__nmc_iter_display:
+  {
+    \tl_gset_eq:NN \l__nmc_show_tl \l__nmc_result_tl
+    \__nmc_if_mod_zero:nnF { \l__nmc_dbg_int } { 11 }
+      { \l__nmc_show_tl }
+  }
+%--------------------------------------
+\cs_new_protected:Npn \__nmc_iter_do:
+  { 
+    \bool_if:NTF \l__nmc_num_only_bool
+      { 
+        \__nmc_iter_fixed_pt:
+        \bool_if:NF \g__nmc_error_bool
+          { 
+            \__nmc_num_format:nNnN { \l__nmc_iter_fixedpti_fp }
+                \l__nmc_result_tl { \l__nmc_round_int } 
+                    \l__nmc_sci_num_out_bool
+            \tl_gset_eq:NN \g__nmc_reuse_tl \l__nmc_result_tl
+            \int_decr:N \l__nmc_iter_total_int %  for checking iter.
+            \tl_gset:Nx \g__nmc_info_iter_tl 
+              { \int_use:N \l__nmc_iter_total_int }
+          }
+      }
+      { % don't print initial iters
+        \int_step_function:nnnN { 1 } { 1 }
+            { \l__nmc_iter_total_int - \l__nmc_iter_view_int - 1 }
+                \__nmc_iter_current:n
+        \bool_if:NF \g__nmc_error_bool
+          { % store & print these ones
+            \seq_clear:N \l__nmc_iter_result_seq
+            \int_step_function:nnnN { 1 } { 1 } 
+              { \int_min:nn { \l__nmc_iter_view_int } 
+                  { \l__nmc_iter_total_int - 1 } } \__nmc_iter_current_store:n
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_iter_current:n #1
+  { % stepping function
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_calc_fn_val:VNnN \l__nmc_iter_var_tl \l__nmc_formula_tl
+            { \l__nmc_result_fp } \l__nmc_result_fp
+      }
+  }
+\cs_new_protected:Npn \__nmc_iter_current_store:n #1
+  { % stepping function
+    \__nmc_calc_fn_val:VNnN \l__nmc_iter_var_tl \l__nmc_formula_tl 
+        { \l__nmc_result_fp } \l__nmc_result_fp
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_num_format:nNnN { \l__nmc_result_fp } \l__nmc_result_tl
+             { \l__nmc_round_int } \l__nmc_sci_num_out_bool 
+        \seq_put_right:NV \l__nmc_iter_result_seq \l__nmc_result_tl
+        \int_set:Nn \l_tmpa_int
+            { \l__nmc_iter_total_int - \l__nmc_iter_view_int + #1 }
+        \seq_put_right:Nx \l__nmc_iter_index_seq { \int_use:N \l_tmpa_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_iter_fixed_pt:
+  { % already 1 iteration
+    \int_set:Nn \l__nmc_iter_total_int { 1 }
+    \fp_set_eq:NN \l__nmc_iter_fixedpti_fp \l__nmc_iter_first_fp
+    \fp_set:Nn \l__nmc_iter_fixedptii_fp { \l__nmc_iter_fixedpti_fp + 1 }
+    \int_incr:N \l__nmc_iter_max_int % for fx pt checking iter
+    \bool_until_do:nn
+        { 
+          \fp_compare_p:nNn { 0 } = 
+              { round( \l__nmc_iter_fixedpti_fp - \l__nmc_iter_fixedptii_fp,
+                  \l__nmc_iter_round_int ) }
+          || \g__nmc_error_bool
+        }
+      {
+        \int_incr:N \l__nmc_iter_total_int
+        \fp_set_eq:NN \l__nmc_iter_fixedptii_fp \l__nmc_iter_fixedpti_fp
+        \__nmc_calc_fn_val:VNnN \l__nmc_iter_var_tl \l__nmc_formula_tl
+            { \l__nmc_result_fp } \l__nmc_result_fp
+        \fp_set_eq:NN \l__nmc_iter_fixedpti_fp \l__nmc_result_fp
+        \int_compare:nNnT {\l__nmc_iter_total_int} > {\l__nmc_iter_max_int}
+          {
+            \bool_gset_true:N \g__nmc_error_bool
+            \int_decr:N \l__nmc_iter_max_int
+            \__nmc_error_what:n 
+                { 
+                  No~fixed~point~attained~after~$ \int_use:N 
+                  \l__nmc_iter_max_int $~iterations~of 
+                }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_iter_environ:
+  { 
+    \tl_set:Nx \l__nmc_iter_begin_tl 
+        { 
+          \mode_if_math:F { \exp_not:o \l__nmc_math_delimi_tl } 
+          \exp_not:N \begin{array}{r@{}l} 
+          \bool_if:NTF \l__nmc_see_formula_bool
+            { \exp_not:o \l__nmc_formula_dup_tl &{}= }
+            { &{} }
+        }
+    \tl_set:Nx \l__nmc_iter_end_tl 
+        { 
+          \exp_not:N \end{array}
+          \mode_if_math:F { \exp_not:o \l__nmc_math_delimii_tl } 
+        }
+  }
+\cs_new_protected:Npn \__nmc_iter_write:
+  { 
+    \__nmc_num_format:nNnN { \l__nmc_iter_first_fp } \l_tmpa_tl
+         { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+    \tl_gset:Nx \g__nmc_info_iter_tl { \int_use:N \l__nmc_iter_total_int }
+    \tl_set:Nx \l__nmc_result_tl 
+      {
+        \exp_not:o \l__nmc_iter_begin_tl
+        \l_tmpa_tl 
+        \exp_not:o \l__nmc_vv_tl
+        \int_compare:nNnT 
+            { \l__nmc_iter_total_int } > { \l__nmc_iter_view_int + 1 }
+          {
+            \\ & \exp_not:N \ldots
+            \ \exp_not:N\mbox{final\ 
+            \int_use:N \l__nmc_iter_view_int\ of\ \g__nmc_info_iter_tl :}
+          }
+        \int_compare:nNnT { \l__nmc_iter_total_int } > { 1 }
+          { \\ & \exp_not:N \hookrightarrow }
+        \seq_use:Nn \l__nmc_iter_result_seq { \\ & \hookrightarrow } 
+        \exp_not:o \l__nmc_iter_end_tl
+      }
+    \__nmc_plus_reuse:N \l__nmc_iter_result_seq
+  }
+%--------------------------------------
+%\nmcSolve
+\tl_new:N \l__nmc_solve_to_tl
+\int_new:N \l__nmc_solve_round_int
+\int_new:N \l__nmc_solve_steps_int
+\int_new:N \l__nmc_solve_slope_int
+\int_new:N \l__nmc_solve_slopei_int 
+\int_new:N \l__nmc_solve_signs_int
+\fp_new:N \l__nmc_solvea_fp
+\fp_new:N \l__nmc_solveb_fp
+\fp_new:N \l__nmc_solvec_fp
+\fp_new:N \l__nmc_solved_fp
+
+\fp_new:N \l__nmc_solvefa_fp
+\fp_new:N \l__nmc_solvefb_fp
+\fp_new:N \l__nmc_solvefc_fp
+\bool_new:N \l__nmc_solve_stop_bool
+
+\nmc_define:NnN \nmcSolve { solve } \solve
+
+\cs_gset_protected:Npn \__nmc_solve_initialize:
+  {
+    \tl_set:Nn \l__nmc_dbg_idii_tl { function }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { stored }
+    \tl_clear:N \l__nmc_show_tl
+    \__nmc_env_initialize:
+  }
+\cs_gset_protected:Npn \__nmc_solve_settings: 
+  {
+    \bool_set_false:N \l__nmc_allow_TF_out_bool
+    \tl_if_empty:NF \l__nmc_solve_step_tl
+      { 
+        \__nmc_fpify_set:NV \l__nmc_solve_step_fp \l__nmc_solve_step_tl
+        \fp_compare:nNnT \l__nmc_solve_step_fp = { 0 }
+          { \__nmc_error_what:n { Non-zero~initial~step~required~in } }
+      } 
+    \__nmc_env_settings:
+  }
+\cs_gset_protected:Npn \__nmc_solve_formula:
+  { \__nmc_env_formula: }
+\cs_gset_protected:Npn \__nmc_solve_vv_digest:N #1
+  { 
+    \__nmc_plus_vv_digest:NNNn #1 
+        \l__nmc_solve_var_tl \nmcSolve {equation} 
+  }
+\cs_gset_protected:Npn \__nmc_solve_process:
+  { 
+    \int_set:Nn \l__nmc_solve_round_int 
+        { \l__nmc_round_int + \l__nmc_solve_extra_int }
+    \bool_if:NF \g__nmc_error_bool
+      { \__nmc_solve_get_trial_vals: }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_error_where:n { function }
+        \__nmc_solve_do:
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \__nmc_num_format:nNnN { \l__nmc_solvea_fp } \l__nmc_result_tl
+            { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+        \tl_gset:Nx \g__nmc_info_solve_tl 
+          { \clist_use:Nn \g__nmc_info_solve_tl { + } }
+        \tl_set_eq:NN \l__nmc_fp_expr_tl \l__nmc_fp_exprn_tl
+      }
+    \int_if_zero:nF \l__nmc_dbg_int
+      { 
+        \__nmc_dbg_get_data: 
+        \__nmc_if_mod_zero:nnT \l__nmc_dbg_int { 11 }
+          { \__nmc_solve_display: }
+      }  
+  }
+\cs_gset_protected:Npn \__nmc_solve_display:
+  { 
+    \tl_gset_eq:NN \g__nmc_reuse_tl \l__nmc_result_tl
+    \bool_if:NTF \l__nmc_num_only_bool
+      { \tl_set_eq:NN \l__nmc_show_tl \l__nmc_result_tl }
+      { 
+        \__nmc_num_format:nNnN { \l__nmc_solvefa_fp } \l_tmpa_tl
+          { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+        \tl_clear:N \l__nmc_display_tl
+        \tl_put_right:Nx \l__nmc_display_tl
+          {
+            \bool_if:NTF \l__nmc_see_formula_bool
+              {
+                \exp_not:o \l__nmc_formula_tl = \l_tmpa_tl
+                \bool_if:nT { \l__nmc_see_vv_bool 
+                    && !\l__nmc_env_rbrace_bool }
+                  { \exp_not:o \l__nmc_vv_tl }
+                \l__nmc_solve_to_tl \l__nmc_solve_var_tl = \l__nmc_result_tl
+              }
+              { \exp_not:o \l__nmc_solve_var_tl = \l__nmc_result_tl }
+          }
+        \__nmc_eval_rdisplay:ooo \l__nmc_display_tl 
+            \l__nmc_punc_tl \l__nmc_math_delimii_tl
+        \__nmc_eval_ldisplay:noo {} 
+            \l__nmc_math_delimi_tl \l__nmc_env_arg_tl
+      }
+    \__nmc_if_mod_zero:nnF { \l__nmc_dbg_int } { 11 }
+      { \l__nmc_show_tl }
+  }
+%%%%%%%%%
+\cs_new_protected:Npn \__nmc_solve_get_trial_vals:
+  {
+    \prop_get:NVN \l__nmc_subst_var_prop 
+        \l__nmc_solve_var_tl \l__nmc_subst_tl
+    % ensure a < b
+    \int_case:nn { \fp_sign:n { \l__nmc_solve_step_fp } }
+      { 
+        { 1 } 
+          { 
+            \fp_set:Nn \l__nmc_solvea_fp { \l__nmc_subst_tl }
+            \fp_set:Nn \l__nmc_solveb_fp 
+                  { \l__nmc_solvea_fp + \l__nmc_solve_step_fp }
+          }
+        { -1 } 
+          { 
+            \fp_set:Nn \l__nmc_solveb_fp { \l__nmc_subst_tl }
+            \fp_set:Nn \l__nmc_solvea_fp 
+                  { \l__nmc_solveb_fp + \l__nmc_solve_step_fp }
+          }
+      }
+  }
+% find opp. signs, zero, or fn min.
+% a b = var vals; fa fb = fn vals
+\cs_new_protected:Npn \__nmc_solve_do:
+  { 
+    \__nmc_solve_calc_values:
+    \int_zero:N \l__nmc_solve_steps_int
+    \tl_gclear:N \g__nmc_info_solve_tl
+    \bool_do_until:nn 
+        {
+          \g__nmc_error_bool || \l__nmc_solve_stop_bool
+          || \int_compare_p:nNn 
+              { \l__nmc_solve_steps_int } > { \l__nmc_solve_max_int } 
+          || \fp_compare_p:nNn { 0 } = 
+                  { round(\l__nmc_solveb_fp - \l__nmc_solvea_fp, 
+                      \l__nmc_solve_round_int) }
+        }
+      {
+        \int_incr:N \l__nmc_solve_steps_int
+        \int_case:nn { \l__nmc_solve_signs_int }
+          {
+            { 0 }  { \__nmc_solve_do_bingo: }
+            { -1 } { \__nmc_solve_do_bisect: }
+            { 1 }  { \__nmc_solve_do_slope: }
+          }
+      }
+    \bool_if:nF { \g__nmc_error_bool || \l__nmc_solve_stop_bool }
+      {
+        \__nmc_error_where:n { $\l__nmc_formula_tl$ }
+        \__nmc_error_what:n 
+            { 
+              No~zero/extremum~found~after~$\int_use:N 
+              \l__nmc_solve_max_int$~steps~for~function 
+            }
+      } 
+  }
+\cs_new_protected:Npn \__nmc_solve_do_bingo:
+  { % fn = 0 to 16 figures
+    \fp_compare:nNnTF { \l__nmc_solvefb_fp } = { 0 }
+      { 
+        \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solveb_fp
+        \fp_set_eq:NN \l__nmc_solvefa_fp \l__nmc_solvefb_fp
+      }
+      {
+        \fp_set_eq:NN \l__nmc_solveb_fp \l__nmc_solvea_fp
+        \fp_set_eq:NN \l__nmc_solvefb_fp \l__nmc_solvefa_fp
+      }
+    \bool_set_true:N \l__nmc_solve_stop_bool
+  }
+\cs_new_protected:Npn \__nmc_solve_do_bisect:
+  { 
+    \tl_gset:Nx \g__nmc_info_solve_tl { \int_use:N \l__nmc_solve_steps_int }
+    \int_zero:N \l__nmc_solve_steps_int
+    \fp_set:Nn \l__nmc_solvec_fp { ( \l__nmc_solvea_fp + \l__nmc_solveb_fp ) / 2 }
+    \__nmc_calc_fn_val:VNnN \l__nmc_solve_var_tl \l__nmc_formula_tl 
+        { \l__nmc_solvec_fp } \l__nmc_solvefc_fp 
+    \fp_set:Nn \l__nmc_solved_fp { \l__nmc_solvec_fp + 1 }
+    \bool_until_do:nn
+        { 
+          \g__nmc_error_bool ||
+          \fp_compare_p:nNn { 0 } =
+              { round( \l__nmc_solvec_fp - \l__nmc_solved_fp ,
+                  \l__nmc_solve_round_int ) }
+        }
+      { 
+        \int_incr:N \l__nmc_solve_steps_int
+        \fp_set_eq:NN \l__nmc_solved_fp \l__nmc_solvec_fp
+        \fp_compare:nNnTF { 0 } = { \l__nmc_solvefc_fp }
+          { 
+            \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solvec_fp 
+            \fp_set_eq:NN \l__nmc_solvefa_fp \l__nmc_solvefc_fp
+          }
+          {
+            \fp_compare:nNnTF 
+                { sign(\l__nmc_solvefa_fp)sign(\l__nmc_solvefc_fp) } = { 1 }
+              { 
+                \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solvec_fp 
+                \fp_set_eq:NN \l__nmc_solvefa_fp \l__nmc_solvefc_fp
+              }
+              { 
+                \fp_set_eq:NN \l__nmc_solveb_fp \l__nmc_solvec_fp 
+                \fp_set_eq:NN \l__nmc_solvefb_fp \l__nmc_solvefc_fp
+              }
+            \fp_set:Nn \l__nmc_solvec_fp 
+                { ( \l__nmc_solvea_fp + \l__nmc_solveb_fp ) / 2 }
+            \__nmc_calc_fn_val:VNnN \l__nmc_solve_var_tl 
+                \l__nmc_formula_tl { \l__nmc_solvec_fp } \l__nmc_solvefc_fp 
+          }
+      }
+    \bool_set_true:N \l__nmc_solve_stop_bool
+    \clist_gput_right:Nx \g__nmc_info_solve_tl { \int_use:N \l__nmc_solve_steps_int }
+  }
+\cs_new_protected:Npn \__nmc_solve_do_slope:
+  {
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \int_if_zero:nTF { \l__nmc_solve_slope_int }
+          { % contract
+            \fp_add:Nn \l__nmc_solvea_fp 
+                { ( \l__nmc_solveb_fp - \l__nmc_solvea_fp ) / 4 }
+            \fp_sub:Nn \l__nmc_solveb_fp 
+                { ( \l__nmc_solveb_fp - \l__nmc_solvea_fp ) / 4 }
+          }
+          { % always towards x-axis
+            \fp_compare:nNnTF { 0 } <
+                { \l__nmc_solvefa_fp * \l__nmc_solve_slope_int }
+              { \__nmc_solve_do_slope_left: }
+              { \__nmc_solve_do_slope_right: }
+          }
+        \fp_set_eq:NN \l__nmc_solved_fp \l__nmc_solvea_fp
+        \int_set_eq:NN \l__nmc_solve_slopei_int \l__nmc_solve_slope_int
+        \__nmc_solve_calc_values:
+      }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \int_compare:nNnF { \l__nmc_solve_slope_int } = 
+            { \l__nmc_solve_slopei_int }
+          { 
+            \fp_set:Nn \l__nmc_solvec_fp { ( \l__nmc_solvea_fp + \l__nmc_solveb_fp ) / 2 }
+            \int_case:nn { \l__nmc_solve_slopei_int }
+              {
+                { 1 }  { \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solvec_fp }
+                { -1 } { \fp_set_eq:NN \l__nmc_solveb_fp \l__nmc_solvec_fp }
+              }
+            \__nmc_solve_calc_values:
+          }
+      }
+    \fp_compare:nNnT { 0 } = 
+        { round(\l__nmc_solveb_fp - \l__nmc_solvea_fp,
+            \l__nmc_solve_round_int) }
+      { \bool_set_true:N \l__nmc_solve_stop_bool }
+  }
+\cs_new_protected:Npn \__nmc_solve_do_slope_left:
+  {
+    \fp_set:Nn \l__nmc_solvec_fp { 2 \l__nmc_solvea_fp - \l__nmc_solveb_fp }
+    \fp_set_eq:NN \l__nmc_solveb_fp \l__nmc_solvea_fp
+    \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solvec_fp
+  }
+\cs_new_protected:Npn \__nmc_solve_do_slope_right:
+  {
+    \fp_set:Nn \l__nmc_solvec_fp { 2 \l__nmc_solveb_fp - \l__nmc_solvea_fp }
+    \fp_set_eq:NN \l__nmc_solvea_fp \l__nmc_solveb_fp
+    \fp_set_eq:NN \l__nmc_solveb_fp \l__nmc_solvec_fp
+  }
+\cs_new_protected:Npn \__nmc_solve_calc_values:
+  {
+    \__nmc_calc_fn_val:VNnN \l__nmc_solve_var_tl \l__nmc_formula_tl 
+        { \l__nmc_solvea_fp } \l__nmc_solvefa_fp 
+
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_calc_fn_val:VNnN \l__nmc_solve_var_tl \l__nmc_formula_tl 
+            { \l__nmc_solveb_fp } \l__nmc_solvefb_fp 
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \int_set:Nn \l__nmc_solve_slope_int 
+          { \fp_eval:n { sign(\l__nmc_solvefb_fp - \l__nmc_solvefa_fp) } }
+        \int_set:Nn \l__nmc_solve_signs_int 
+          { \fp_eval:n { sign(\l__nmc_solvefa_fp) sign(\l__nmc_solvefb_fp) } }
+      }
+  }
+%--------------------------------------
+% \nmcRecur
+\bool_new:N \l__nmc_recur_ellipsis_bool
+\int_new:N \l__nmc_recur_last_int
+\fp_new:N  \l__nmc_recur_result_fp
+
+\int_new:N \l__nmc_recur_subscr_ini_int
+\int_new:N \l__nmc_recur_subscr_val_int
+\int_new:N \l__nmc_recur_order_int
+\int_new:N \l__nmc_recur_var_int
+
+\tl_new:N \l__nmc_recurrence_tl
+\tl_new:N \l__nmc_recur_base_var_tl
+\tl_new:N \l__nmc_recur_subscr_var_tl
+
+\seq_new:N \l__nmc_recur_result_seq
+\seq_new:N \l__nmc_recur_vars_seq
+
+\nmc_define:NnN \nmcRecur { recur } \recur
+
+\cs_set_protected:Npn \__nmc_recur_initialize:
+  {
+    \tl_set:Nn \l__nmc_dbg_idii_tl { relation }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { stored }
+    \__nmc_env_initialize:
+  }
+\cs_set_protected:Npn \__nmc_recur_settings:
+  { 
+    \bool_set_false:N \l__nmc_allow_TF_out_bool
+    \int_set:Nn \l__nmc_recur_total_int 
+        { \int_max:nn { \l__nmc_recur_total_int } { 1 } }
+    \int_set:Nn \l__nmc_recur_last_int
+        { \int_max:nn { 0 } { \int_min:nn
+             { \l__nmc_recur_last_int } { \l__nmc_recur_total_int } } }
+    \int_set:Nn \l__nmc_recur_first_int
+        { \int_max:nn { 0 } { \int_min:nn { \l__nmc_recur_first_int }
+             { \l__nmc_recur_total_int - \l__nmc_recur_last_int } } }
+    \int_if_zero:nT { \l__nmc_recur_first_int }
+      { \int_decr:N \l__nmc_recur_first_int }
+   \__nmc_env_settings:
+  }
+\cs_set_protected:Npn \__nmc_recur_formula: 
+  { 
+    \__nmc_env_formula: 
+    \tl_set_eq:NN \l__nmc_formula_dup_tl \l__nmc_formula_tl
+  }
+\cs_set_protected:Npn \__nmc_recur_vv_digest:N #1
+  { % #1 = reversed vv seq
+    \bool_set_true:N \l__nmc_multitok_bool
+    \__nmc_recur_elements:
+    \__nmc_recur_vars_change:N #1
+    \__nmc_vv_digest:N #1 
+    \__nmc_recur_vv_post:
+    \tl_set_eq:NN \l__nmc_formula_tl \l__nmc_recurrence_tl
+    \int_if_zero:nF \l__nmc_dbg_int
+      { \__nmc_dbg_get_data: }
+  }
+\cs_set_protected:Npn \__nmc_recur_process:
+  { % store initial vals; generate later vals
+    \__nmc_recur_store_ini:
+    \__nmc_error_where:n { recurrence~formula }
+    \__nmc_recur_generate:
+    \seq_get_right:NN \l__nmc_recur_result_seq \l__nmc_result_tl
+    \tl_set_eq:NN \l__nmc_fp_expr_tl \l__nmc_fp_exprn_tl
+  }
+\cs_set_protected:Npn \__nmc_recur_display:
+  { 
+    \tl_clear:N \l__nmc_show_tl
+    \bool_if:NTF \l__nmc_num_only_bool
+      {
+        \tl_gset_eq:NN \g__nmc_reuse_tl \l__nmc_result_tl
+        \l__nmc_result_tl
+      }
+      { 
+        \seq_clear:N \l_tmpa_seq
+        \seq_clear:N \l_tmpb_seq
+        \seq_clear:N \l_tmpc_seq
+        \__nmc_recur_result:NN \l_tmpa_seq \l_tmpb_seq
+        \tl_clear:N \l__nmc_display_tl
+        \tl_set:Nx \l__nmc_display_tl
+          {
+            \bool_if:NT \l__nmc_see_formula_bool
+              {
+                \exp_not:o \l__nmc_formula_dup_tl
+                \exp_not:o \l__nmc_vv_tl
+                \l__nmc_recur_to_tl
+              }
+            \seq_use:Nn \l_tmpa_seq { \c__nmc_vv_delim_tl\ } 
+          }
+        \__nmc_plus_reuse:N \l_tmpb_seq
+        \__nmc_eval_rdisplay:ooo \l__nmc_display_tl 
+            \l__nmc_punc_tl \l__nmc_math_delimii_tl
+        \__nmc_eval_ldisplay:noo {} 
+            \l__nmc_math_delimi_tl \l__nmc_env_arg_tl
+        \l__nmc_show_tl
+      }
+  }
+% \l__nmc_recurrence_tl, \l__nmc_recur_base_var_tl,
+% \l__nmc_recur_subscr_var_tl, \l__nmc_recur_subscr_val_int
+\cs_new_protected:Npn \__nmc_recur_elements:
+  {
+    \tl_clear:N \l_tmpa_tl
+    \bool_set_false:N \l_tmpa_bool
+    \tl_map_inline:Nn \l__nmc_formula_tl
+      {
+        \bool_if:NTF \l_tmpa_bool
+          { 
+            \tl_set:Nn \l_tmpa_tl { ##1 } 
+            \tl_map_break:
+          }
+          {
+            \token_if_math_subscript:NTF ##1
+              { 
+                \tl_set:NV \l__nmc_recur_base_var_tl \l_tmpa_tl 
+                \bool_set_true:N \l_tmpa_bool
+              }
+              { \tl_put_right:Nn \l_tmpa_tl { ##1 } }
+          }
+      }
+    \__nmc_recur_parse_subscr:N \l_tmpa_tl
+    \exp_last_unbraced:NV\__nmc_split_eq:w \l__nmc_formula_tl \q_stop
+    \tl_set:NV \l__nmc_recurrence_tl \l__nmc_eq_val_tl
+     \tl_set_rescan:Nno \l__nmc_recurrence_tl { \ExplSyntaxOn } \l__nmc_recurrence_tl
+  }
+\cs_new_protected:Npn \__nmc_recur_parse_subscr:N #1
+  {
+    \tl_clear:N \l__nmc_recur_subscr_var_tl
+    \tl_set:Nn \l_tmpb_tl { 0 }
+    \int_zero:N \l__nmc_recur_subscr_val_int
+    \bool_set_false:N \l_tmpa_bool
+    \tl_map_inline:Nn #1
+      {
+        \bool_if:NTF \l_tmpa_bool
+          { \tl_put_right:Nn \l_tmpb_tl { ##1 } }
+          {
+            \tl_if_in:nnTF { +- } { ##1 }
+              { 
+                \tl_put_right:Nn \l_tmpb_tl { ##1 }
+                \bool_set_true:N \l_tmpa_bool
+              }
+              { \tl_put_right:Nn \l__nmc_recur_subscr_var_tl { ##1 } }
+          }
+      }
+    \int_set:Nn \l__nmc_recur_subscr_val_int { \l_tmpb_tl }
+  }
+\clist_new:N \l__nmca_clist
+\cs_new_protected:Npn \__nmc_recur_vars_change:N #1
+  { % f_{1} etc ==> f_{n-1} etc in #1 (reverse order vv-list)
+    \seq_reverse:N #1
+    \clist_set:Nx \l__nmca_clist { \seq_use:Nn #1 {,} }
+    \int_zero:N \l__nmc_recur_order_int
+    \clist_clear:N \l_tmpa_clist % --> \l__nmc_recur_vars_seq
+    \clist_clear:N \l_tmpb_clist % --> #1
+    \int_set:Nn \l_tmpb_int { \l__nmc_recur_subscr_val_int - 1 }
+    % \tl_set_rescan:Nno #1 { \ExplSyntaxOn } #1 
+    % \clist_map_inline:Nn #1
+    \tl_set_rescan:Nno \l__nmca_clist { \ExplSyntaxOn } \l__nmca_clist 
+    \clist_map_inline:Nn \l__nmca_clist
+      {
+        \seq_set_split:Nnn \l_tmpa_seq {_} { ##1 }
+        \seq_pop:NN \l_tmpa_seq \l_tmpa_tl
+        \seq_if_empty:NTF \l_tmpa_seq
+          { \clist_put_left:NV \l_tmpb_clist \l_tmpa_tl }
+          {
+            \tl_if_eq:NNTF \l_tmpa_tl \l__nmc_recur_base_var_tl
+              { % change e.g. f_{1}(x) to f_{n-1}(x)
+                \int_incr:N \l__nmc_recur_order_int
+                \tl_put_right:Nn \l_tmpa_tl { _ }
+                \tl_set_eq:NN \l_tmpb_tl \l__nmc_recur_subscr_var_tl
+                \int_case:nn { \int_sign:n { \l_tmpb_int } }
+                  { 
+                    { -1 } 
+                      { 
+                        \tl_put_right:Nx \l_tmpb_tl 
+                            { \int_use:N \l_tmpb_int }
+                      }
+                    { 0 } { \prg_do_nothing: }
+                    { 1 } 
+                      { 
+                        \tl_put_right:Nn \l_tmpb_tl { + }
+                        \tl_put_right:Nx \l_tmpb_tl 
+                            { \int_use:N \l_tmpb_int } 
+                      }
+                  }
+                \tl_put_right:Nx \l_tmpa_tl { { \l_tmpb_tl } }
+                \int_decr:N \l_tmpb_int
+                \seq_pop:NN \l_tmpa_seq \l_tmpb_tl
+                \int_set:Nn \l__nmc_recur_subscr_ini_int 
+                    { \tl_head:N \l_tmpb_tl }
+                \tl_put_right:Nx \l_tmpa_tl 
+                    { \tl_range:Nnn \l_tmpb_tl { 2 } { -1 } }
+                \clist_put_left:NV \l_tmpb_clist \l_tmpa_tl
+                \seq_set_split:NnV \l_tmpb_seq { = } \l_tmpa_tl
+                \seq_pop:NN \l_tmpb_seq \l_tmpa_tl
+                \clist_put_left:NV \l_tmpa_clist \l_tmpa_tl
+              }
+              { \clist_put_left:Nn \l_tmpb_clist { ##1 } }
+          }
+      }
+    \int_set:Nn \l__nmc_recur_var_int 
+        { \l__nmc_recur_subscr_ini_int + \l__nmc_recur_order_int
+            - \l__nmc_recur_subscr_val_int  }
+    \clist_set_eq:NN \l__nmca_clist \l_tmpb_clist
+    \seq_set_from_clist:NN #1  \l__nmca_clist
+    \clist_put_left:NV \l_tmpa_clist \l__nmc_recur_subscr_var_tl
+    \clist_concat:NNN \l__nmc_formula_tl \l__nmc_recurrence_tl \l_tmpa_clist
+  }
+\cs_new_protected:Npn \__nmc_recur_vv_post:
+  { 
+    \clist_pop:NN \l__nmc_formula_tl \l__nmc_recurrence_tl
+    \clist_pop:NN \l__nmc_formula_tl \l__nmc_recur_subscr_var_tl
+    \tl_set:Nx \l_tmpa_tl { \int_use:N \l__nmc_recur_var_int }
+    \__nmc_vv_record:NVN \l__nmc_recur_subscr_var_tl \l_tmpa_tl \c_empty_prop
+    \tl_set_eq:NN \l_tmpa_tl \l__nmc_recur_subscr_var_tl
+    \tl_put_right:Nn \l_tmpa_tl { =0 } % formal value
+    \seq_put_left:NV \l__nmc_calc_fn_seq \l_tmpa_tl
+    \seq_set_from_clist:NN \l__nmc_recur_vars_seq \l__nmc_formula_tl
+  }
+%%%%%%%%%%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_recur_store_ini:
+  {
+    \seq_set_eq:NN \l_tmpa_seq \l__nmc_recur_vars_seq
+    \int_step_inline:nnnn { 1 } { 1 } { \l__nmc_recur_order_int } 
+      {
+        \seq_pop:NN \l_tmpa_seq \l_tmpa_tl
+        \prop_get:NVN \l__nmc_subst_var_prop \l_tmpa_tl \l__nmc_subst_tl
+        \__nmc_num_format:nNnN { \l__nmc_subst_tl } \l_tmpa_tl 
+            { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+        \seq_put_right:NV \l__nmc_recur_result_seq \l_tmpa_tl
+        \tl_set:Nx \l_tmpb_tl { \int_eval:n 
+            { \l__nmc_recur_subscr_ini_int + ##1 -1 } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_recur_generate:
+  { 
+    \prop_get:NVN \l__nmc_subst_var_prop 
+        \l__nmc_recur_subscr_var_tl \l__nmc_subst_tl
+    \int_set:Nn \l__nmc_recur_var_int { \l__nmc_subst_tl }
+    \int_set:Nn \l_tmpa_int { \l__nmc_recur_var_int +
+        \l__nmc_recur_total_int - \l__nmc_recur_order_int - 1 }
+    \__nmc_error_where:n { recurrence~relation }
+    \__nmc_if_mod_zero:nnT { \l__nmc_dbg_int } { 7 }
+      { \__nmc_fpify:VN \l__nmc_recurrence_tl \l__nmc_fp_expr_tl }
+    \int_step_function:nnnN { \l__nmc_recur_var_int } { 1 }
+         {\l_tmpa_int } \__nmc_recur_generate_loop:n
+  }
+\cs_new_protected:Npn \__nmc_recur_generate_loop:n #1
+  { 
+    \bool_if:NF \g__nmc_error_bool
+      { % calc. next
+        \fp_set:Nn \l_tmpa_fp { #1 }
+        \__nmc_calc_fn_val:VNnN \l__nmc_recur_subscr_var_tl
+            \l__nmc_recurrence_tl { \l_tmpa_fp } \l__nmc_recur_result_fp
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { % store result
+        \__nmc_num_format:nNnN { \l__nmc_recur_result_fp } 
+            \l_tmpa_tl { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+        \seq_put_right:NV \l__nmc_recur_result_seq \l_tmpa_tl
+        % shift vals "down variable"; tmpa above, tmpb below
+        \seq_set_eq:NN \l_tmpa_seq \l__nmc_recur_vars_seq
+        \seq_pop:NN \l_tmpa_seq \l_tmpb_tl % low var
+        \int_step_inline:nnnn {2} { 1 } { \l__nmc_recur_order_int }
+          {
+            \seq_pop:NN \l_tmpa_seq \l_tmpa_tl % hi var
+            \prop_get:NVN \l__nmc_subst_var_prop \l_tmpa_tl \l__nmc_subst_tl
+            \prop_put:NVV \l__nmc_subst_var_prop \l_tmpb_tl \l__nmc_subst_tl
+            \prop_put:NVV \l__nmc_vv_change_prop \l_tmpb_tl \l__nmc_subst_tl
+            \tl_set_eq:NN \l_tmpb_tl \l_tmpa_tl
+          }
+          % use tmpb, not tmpa, in case order = 1
+          \prop_put:NVx \l__nmc_subst_var_prop \l_tmpb_tl
+              { \fp_use:N \l__nmc_recur_result_fp }
+          \prop_put:NVx \l__nmc_vv_change_prop \l_tmpb_tl
+              { \fp_use:N \l__nmc_recur_result_fp }
+      }
+  }
+\cs_new_protected:Npn \__nmc_recur_result:NN #1#2
+  {
+    \int_zero:N \l_tmpa_int
+    \seq_map_inline:Nn \l__nmc_recur_result_seq
+      { 
+        \int_compare:nNnTF { \l_tmpa_int } < { \l__nmc_recur_first_int }
+          { \seq_put_right:Nn #1 { ##1 } }
+          {
+            \int_compare:nTF { \l_tmpa_int = \l__nmc_recur_first_int 
+                < \l__nmc_recur_total_int - \l__nmc_recur_last_int }
+              { \seq_put_right:Nn #1 { \ldots } }
+              {
+                \int_compare:nNnT { 1 + \l_tmpa_int } > 
+                    { \l__nmc_recur_total_int - \l__nmc_recur_last_int }
+                  { 
+                    \seq_put_right:Nn #1 { ##1 }
+                    \seq_put_right:Nn #2 { ##1 }
+                    \seq_put_right:Nx \l_tmpc_seq { \int_eval:n { \l_tmpa_int + \l__nmc_recur_subscr_ini_int } }
+                  }
+              }
+          }
+        \int_incr:N \l_tmpa_int
+      }
+    \bool_if:NT \l__nmc_recur_ellipsis_bool
+      { \seq_put_right:Nn #1 { \ldots } }
+  }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\keys_define:nn { numerica/iter }
+  {
+    view     .code:n = \__nmc_dbg_int:nn { 1 } { 2*3*5*7*11 },
+    var    .tl_set:N = \l__nmc_iter_var_tl,
+    +     .int_set:N = \l__nmc_iter_extra_int,
+    +     .initial:n = 0,
+    max   .int_set:N = \l__nmc_iter_max_int,
+    max   .initial:n = 100,
+    do    .int_set:N = \l__nmc_iter_total_int,
+    do    .initial:n = 5,
+    see   .int_set:N = \l__nmc_iter_view_int,
+    see   .initial:n = 4
+  }
+\keys_define:nn { numerica/solve }
+  {
+    view      .code:n = \__nmc_dbg_int:nn { 1 } { 2*3*5*7*11 },
+    var     .tl_set:N = \l__nmc_solve_var_tl,
+    +      .int_set:N = \l__nmc_solve_extra_int,
+    +      .initial:n = 0,
+    max    .int_set:N = \l__nmc_solve_max_int,
+    max    .initial:n = 100,
+    dvar    .tl_set:N = \l__nmc_solve_step_tl,
+    dvar   .initial:n = 1,
+    to   .tl_set:N = \l__nmc_solve_to_tl,
+    to  .initial:n = {\,\to\,} ,
+  }
+\keys_define:nn { numerica/recur }
+  {
+    do   .int_set:N = \l__nmc_recur_total_int,
+    do   .initial:n = 7,
+    see1 .int_set:N = \l__nmc_recur_first_int,
+    see1 .initial:n = 3,
+    see2 .int_set:N = \l__nmc_recur_last_int,
+    see2 .initial:n = 2,
+    ...     .code:n = \bool_set_true:N \l__nmc_recur_ellipsis_bool,
+    to  .tl_set:N = \l__nmc_recur_to_tl,
+    to .initial:n = {\,\to\,}
+  }
+% end of `numerica-plus.sty'.
