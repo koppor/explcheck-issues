@@ -1,0 +1,462 @@
+%%
+%% This is file `soup.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% soup.dtx  (with options: `package')
+%%   This is a generated file.
+%%   Copyright (C) 2017 by Thomas Simers.
+%% 
+%%   This file may be distributed and/or modified under the
+%%   conditions of the LaTeX Project Public License, either
+%%   version 1.3 of this license or (at your option) any later
+%%   version.
+%% 
+%%   The latest version of this license is in:
+%%     http://www.latex-project.org/lppl.txt
+%%   and version 1.3 or later is part of all distributions of
+%%   LaTeX version 2005/12/01 or later.
+\NeedsTeXFormat{LaTeX2e}[2005/12/01]
+\ProvidesPackage{soup}[2019/04/05 v1.0.2 Package for word search puzzles.]
+\RequirePackage{xparse}
+\RequirePackage{expl3}
+\RequirePackage{l3keys2e}
+\ExplSyntaxOn
+
+\msg_new:nnn{soup}{mismatch}{
+    Clue~mismatch~at~#1.~Will~appear~as~#2/#3~in~the~soup.
+}
+
+\bool_new:N \g_soup_use_tikz_bool
+\bool_gset_true:N \g_soup_use_tikz_bool
+
+\bool_new:N \g_soup_highlight_bool
+\bool_gset_false:N \g_soup_highlight_bool
+
+\tl_new:N \g_soup_highlight_color
+\tl_gset:Nn \g_soup_highlight_color {orange}
+
+\tl_new:N \g_soup_line_color
+\tl_gset:Nn \g_soup_line_color {red}
+
+\keys_define:nn { soup }{
+  highlightcolor .initial:n        = orange,
+  highlightcolor .value_required:n = true,
+  highlightcolor .code:n           = \tl_set:Nn \g_soup_highlight_color {#1},
+  linecolor      .initial:n        = red,
+  linecolor      .value_required:n = true,
+  linecolor      .code:n           = \tl_set:Nn \g_soup_line_color {#1},
+  highlight      .default:n        = true,
+  highlight      .bool_set:N       = \g_soup_highlight_bool,
+  usetikz        .default:n        = true,
+  usetikz        .bool_set:N       = \g_soup_use_tikz_bool,
+}
+
+\ProcessKeysPackageOptions{ soup }
+\IfBooleanT \g_soup_use_tikz_bool {
+    \RequirePackage{tikz}
+}
+\clist_const:Nn \c_soup_Alphabet_clist {
+    A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,
+    E,T,A,O,H,N,I,S,R,D,L,U,W,M,C,G,F,Y,P,V,K,B,J,
+    E,T,A,O,H,N,I,S,R,D,L,U,W,M,C,G,F,Y,P,V,K,B,
+    E,T,A,O,H,N,I,S,R,D,L,U,W,M,
+    E,T,A,O,H,N,I,S,
+    E,T,A,O,H,
+}
+
+\clist_const:Nn \c_soup_alphabet_clist {
+    a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,
+    e,t,a,o,h,n,i,s,r,d,l,u,w,m,c,g,f,y,p,v,k,b,j,
+    e,t,a,o,h,n,i,s,r,d,l,u,w,m,c,g,f,y,p,v,k,b,
+    e,t,a,o,h,n,i,s,r,d,l,u,w,m,
+    e,t,a,o,h,n,i,s,
+    e,t,a,o,h,
+}
+
+\prop_new:N \g_soup_data_prop
+\seq_new:N \g_soup_clue_seq
+\cs_new:Nn \__soup_init:nn {
+    \clist_clear_new:N \g_soup_symbol_clist
+    \dim_gzero_new:N \g_soup_highlight_dim
+    \dim_gzero_new:N \g_soup_spacing_dim
+    \int_gzero_new:N \g_soup_columns_int
+    \int_gzero_new:N \g_soup_number_max_int
+    \int_gzero_new:N \g_soup_number_min_int
+    \int_gzero_new:N \g_soup_number_range_int
+    \int_gzero_new:N \g_soup_rows_int
+    \int_gzero_new:N \g_soup_symbol_count_int
+    \prop_clear_new:N \g_soup_data_prop
+    \seq_clear_new:N \g_soup_clue_seq
+    \seq_clear_new:N \g_soup_highlight_seq
+    \int_gset:Nn \g_soup_columns_int {#1}
+    \IfNoValueTF{#2} {
+       \int_gset:Nn \g_soup_rows_int {\g_soup_columns_int}
+    }{
+       \int_gset:Nn \g_soup_rows_int {#2}
+    }
+    \dim_gset:Nn \g_soup_spacing_dim {\textwidth / (\g_soup_columns_int + 1)}
+    \dim_gset:Nn \g_soup_highlight_dim {\g_soup_spacing_dim * 7 / 10}
+    \tl_clear_new:N \g_soup_font_tl
+    \tl_gset:Nn \g_soup_font_tl {\normalfont}
+}
+\int_gzero_new:N \g__soup_random_previous_int
+\int_gzero_new:N \g__soup_random_current_int
+\cs_new:Nn \__soup_random_int:nn {
+    \int_compare:nNnT \g__soup_random_previous_int = 0 {
+        \int_gset:Nn \g__soup_random_previous_int {\time}
+    }
+    % A = 16807,  Q = 127773 (M / A), R = 2836 (M % A), M = 2147483647 (2^31-1)
+    \int_zero_new:N \l__hi_int
+    \int_zero_new:N \l__lo_int
+    \int_set:Nn \l__hi_int {\g__soup_random_previous_int / 127773}
+    \int_set:Nn \l__lo_int {\int_mod:nn{\g__soup_random_previous_int}{127773}}
+    \int_gset:Nn \g__soup_random_previous_int {
+        16807 * \l__hi_int - 2836 * \l__lo_int
+    }
+    \int_compare:nNnT \g__soup_random_previous_int < 1 {
+        \int_gadd:Nn \g__soup_random_previous_int {2147483647}
+    }
+    \int_gset:Nn \g__soup_random_current_int {
+        #1 + \int_mod:nn{\g__soup_random_previous_int}{#2 - #1 + 1}
+    }
+}
+\cs_new:Nn \__soup_draw_nodes: {
+    \int_step_variable:nnnNn {1} {1} {\g_soup_columns_int} \l_tmpb_int {
+        \int_step_variable:nnnNn {1} {1} {\g_soup_rows_int} \l_tmpc_int {
+            \exp_args:Nnx
+            \prop_get:NnNTF \g_soup_data_prop {
+                (\l_tmpb_int,\l_tmpc_int)
+            } \l_tmpa_tl {
+                \node
+                    at (\l_tmpb_int,\l_tmpc_int)
+                    {\l_tmpa_tl};
+            }{
+                \node
+                    at (\l_tmpb_int,\l_tmpc_int)
+                    {\__soup_show_random_symbol:};
+            }
+        }
+    }
+}
+\cs_new:Nn \__soup_draw_highlights: {
+    \seq_map_inline:Nn \g_soup_highlight_seq {
+        \draw[
+            double=\g_soup_highlight_color,
+            double~distance=\g_soup_highlight_dim,
+            line~width=2pt,
+            color=\g_soup_line_color,
+            opacity=0.4,
+            line~cap=round
+        ] ##1;
+    }
+}
+\cs_new:Nn \__soup_draw_soup_tikz: {
+
+    \tikzset{
+        every~node/.style={
+            font=\g_soup_font_tl,
+        },
+    }
+    \begin{tikzpicture}[
+        x=\g_soup_spacing_dim,
+        y=-\g_soup_spacing_dim,
+    ]
+        \draw[rounded~corners=6pt, use~as~bounding~box]
+            (0.5,0)
+            ++(0,0.5) rectangle +(\g_soup_columns_int, \g_soup_rows_int);
+        \__soup_draw_highlights:
+        \__soup_draw_nodes:
+    \end{tikzpicture}
+}
+\cs_new:Nn \__soup_draw_soup_tabular: {
+    \dim_zero_new:N \l_soup_colwidth_dim
+    \exp_args:Nnx
+    \dim_set:Nn \l_soup_colwidth_dim {\fp_to_dim:n {0.45 * \textwidth / (\g_soup_columns_int + 1)}}
+
+    \dim_zero_new:N \l_soup_lineheight_dim
+    \dim_set:Nn \l_soup_lineheight_dim {2\l_soup_colwidth_dim - \baselineskip}
+
+    \setlength{\tabcolsep}{\l_soup_colwidth_dim}
+    \vspace{0.25\g_soup_spacing_dim}\par
+    \noindent
+    \begin{tabular*}{\textwidth}{
+        @{\extracolsep{\fill}}
+        | *{\g_soup_columns_int}{c@{\hskip\l_soup_colwidth_dim}} |
+    }
+        \hline\rule{0pt}{\g_soup_spacing_dim}
+        \int_step_inline:nnnn {1} {1} {\g_soup_rows_int } {
+            \int_gset:Nn \g_tmpa_int {##1}
+            \int_step_variable:nnnNn {1} {1} {\g_soup_columns_int} \l_tmpb_int {
+                \exp_args:Nnx
+                \prop_get:NnNTF \g_soup_data_prop {
+                    (\l_tmpb_int,\the\g_tmpa_int)
+                } \l_tmpa_tl {
+                    \g_soup_font_tl
+                    \IfBooleanTF{\g_soup_highlight_bool}{
+                        {\bfseries\l_tmpa_tl}
+                    }{
+                        \l_tmpa_tl
+                    }
+                }{
+                    \g_soup_font_tl\__soup_show_random_symbol:
+                }
+                \int_compare:nNnT \l_tmpb_int < \g_soup_columns_int {
+                    &
+                }
+            }
+            \int_compare:nNnTF \g_tmpa_int < \g_soup_rows_int {
+                \\[\l_soup_lineheight_dim]
+            }{
+                \\[\l_soup_lineheight_dim]\hline\end{tabular*}
+            }
+        }
+}
+\cs_new:Nn \__soup_show_random_symbol: {
+    \int_compare:nNnTF \g_soup_symbol_count_int = 0 {
+        \__soup_random_int:nn {\g_soup_number_min_int}{\g_soup_number_max_int}
+        \the\g__soup_random_current_int
+    }{
+        \__soup_random_int:nn {1}{\g_soup_symbol_count_int}
+        \clist_item:Nn \g_soup_symbol_clist {\g__soup_random_current_int}
+    }
+}
+\NewDocumentCommand \listofclues { +o } {
+    \tl_clear_new:N \theclue
+    \IfNoValueTF{#1}{
+        \tl_set:Nn \l_tmpa_tl {\theclue\par}
+    }{
+        \tl_set:Nn \l_tmpa_tl {#1}
+    }
+    \seq_map_variable:NNn \g_soup_clue_seq \theclue {
+        \l_tmpa_tl
+    }
+}
+\NewDocumentCommand \highlightinsoup { m m m m }{
+  \bool_if:NT \g_soup_highlight_bool {
+    \seq_gput_left:Nx \g_soup_highlight_seq {(#1, #2) -- (#3, #4)}
+  }
+}
+\NewDocumentCommand \hideinsoup { smmmmo } {
+    \int_zero_new:N \l__soup_dx_int
+    \int_zero_new:N \l__soup_dy_int
+
+    \str_case:nn {#4} {
+        {left}{
+            \int_set:Nn \l__soup_dx_int {-1}
+            \int_set:Nn \l__soup_dy_int { 0}
+        }
+        {right}{
+            \int_set:Nn \l__soup_dx_int { 1}
+            \int_set:Nn \l__soup_dy_int { 0}
+        }
+        {up}{
+            \int_set:Nn \l__soup_dx_int { 0}
+            \int_set:Nn \l__soup_dy_int {-1}
+        }
+        {upleft}{
+            \int_set:Nn \l__soup_dx_int {-1}
+            \int_set:Nn \l__soup_dy_int {-1}
+        }
+        {upright}{
+            \int_set:Nn \l__soup_dx_int { 1}
+            \int_set:Nn \l__soup_dy_int {-1}
+        }
+        {down}{
+            \int_set:Nn \l__soup_dx_int { 0}
+            \int_set:Nn \l__soup_dy_int { 1}
+        }
+        {downleft}{
+            \int_set:Nn \l__soup_dx_int {-1}
+            \int_set:Nn \l__soup_dy_int { 1}
+        }
+        {downright}{
+            \int_set:Nn \l__soup_dx_int { 1}
+            \int_set:Nn \l__soup_dy_int { 1}
+        }
+    }
+
+    \clist_set:Nn \l__soup_clue_clist {#5}
+    \int_zero_new:N \l__soup_clue_count_int
+    \int_set:Nn \l__soup_clue_count_int {\clist_count:N \l__soup_clue_clist}
+
+    \int_zero_new:N \l__soup_cx_int
+    \int_zero_new:N \l__soup_cy_int
+    \tl_clear_new:N \l__soup_ci_tl
+    \tl_clear_new:N \l__soup_ch_tl
+    \tl_clear_new:N \l__soup_nn_tl
+
+    \int_step_variable:nnnNn {1} {1} {\l__soup_clue_count_int} \l__soup_ci_tl {
+        \int_set:Nn \l__soup_cx_int
+            {#2 + \l__soup_dx_int * (\l__soup_ci_tl - 1)}
+
+        \int_set:Nn \l__soup_cy_int
+            {#3 + \l__soup_dy_int * (\l__soup_ci_tl - 1)}
+
+        \exp_args:Nnx
+        \tl_set:Nn \l__soup_ch_tl
+            {\clist_item:Nn \l__soup_clue_clist {\l__soup_ci_tl}}
+
+        \exp_args:Nnx
+        \tl_set:Nn \l__soup_nn_tl
+            {(\the\l__soup_cx_int,\the\l__soup_cy_int)}
+
+        \exp_args:Nnx
+        \tl_set:Nn \l__soup_cv_tl
+            {\exp_args:Nno \prop_item:Nn \g_soup_data_prop \l__soup_nn_tl}
+
+        \str_if_empty:NTF \l__soup_cv_tl {
+            \exp_args:Nnx \prop_gput:Noo \g_soup_data_prop {
+                \l__soup_nn_tl
+            } {\l__soup_ch_tl}
+        }{
+            \str_if_eq:NNF \l__soup_cv_tl \l__soup_ch_tl {
+                \msg_warning:nnxxx{soup}{mismatch}{
+                    \l__soup_nn_tl
+                }{\l__soup_cv_tl}{\l__soup_ch_tl}
+
+                \tl_put_left:Nx \l__soup_ch_tl
+                    {\l__soup_cv_tl/}
+
+                \exp_args:Nnx
+                \prop_gput:Noo \g_soup_data_prop {\l__soup_nn_tl}
+                    {\l__soup_ch_tl}
+            }
+        }
+    }
+
+    \IfBooleanF{#1}{
+        \exp_args:Nnx
+        \int_set:Nn \l__soup_cx_int
+            {#2 + \l__soup_dx_int * (\l__soup_clue_count_int - 1)}
+
+        \exp_args:Nnx
+        \int_set:Nn \l__soup_cy_int
+            {#3 + \l__soup_dy_int * (\l__soup_clue_count_int - 1)}
+
+        \exp_args:Nnx
+        \tl_set:Nn \l__soup_nn_tl
+            {(\the\l__soup_cx_int,\the\l__soup_cy_int)}
+
+        \exp_args:Nnx
+        \seq_gput_left:Nx \g_soup_highlight_seq
+            {(#2, #3) -- \l__soup_nn_tl}
+    }
+    \IfNoValueF{#6}{
+        \seq_gput_left:No \g_soup_clue_seq {#6}
+    }
+}
+\NewDocumentEnvironment{alphabetsoup}{ sO{15}oo }
+{
+    \par\noindent
+    \__soup_init:nn {#2}{#3}
+    \IfBooleanTF{#1}{
+        \def\showlist{}
+    }{
+        \def\showlist{\par\vspace*{1em}\listofclues}
+    }
+    \IfNoValueF{#4}{
+        \tl_gset:Nn \g_soup_font_tl {#4}
+    }
+
+    \clist_gset_eq:NN \g_soup_symbol_clist
+        \c_soup_alphabet_clist
+
+    \int_gset:Nn \g_soup_symbol_count_int
+        {\clist_count:N \g_soup_symbol_clist}
+}{
+    \IfBooleanTF \g_soup_use_tikz_bool {
+        \__soup_draw_soup_tikz:
+    }{
+        \__soup_draw_soup_tabular:
+    }
+    \showlist
+}
+\NewDocumentEnvironment{Alphabetsoup}{ sO{15}oo }
+{
+    \par\noindent
+    \__soup_init:nn {#2}{#3}
+    \IfBooleanTF{#1}{
+        \def\showlist{}
+    }{
+        \def\showlist{\par\vspace*{1em}\listofclues}
+    }
+    \IfNoValueF{#4}{
+        \tl_gset:Nn \g_soup_font_tl {#4}
+    }
+
+    \clist_gset_eq:NN \g_soup_symbol_clist
+        \c_soup_Alphabet_clist
+
+    \int_gset:Nn \g_soup_symbol_count_int
+        {\clist_count:N \g_soup_symbol_clist}
+}{
+    \IfBooleanTF \g_soup_use_tikz_bool {
+        \__soup_draw_soup_tikz:
+    }{
+        \__soup_draw_soup_tabular:
+    }
+    \showlist
+}
+\NewDocumentEnvironment{homemadesoup}{ sO{15}omo }
+{
+    \par\noindent
+    \__soup_init:nn {#2}{#3}
+    \IfBooleanTF{#1}{
+        \def\showlist{}
+    }{
+        \def\showlist{\par\vspace*{1em}\listofclues}
+    }
+    \IfNoValueF{#5}{
+        \tl_gset:Nn \g_soup_font_tl {#5}
+    }
+
+    \clist_gset:Nn \g_soup_symbol_clist
+        {#4}
+
+    \int_gset:Nn \g_soup_symbol_count_int
+        {\clist_count:N \g_soup_symbol_clist}
+}
+{
+    \IfBooleanTF \g_soup_use_tikz_bool {
+        \__soup_draw_soup_tikz:
+    }{
+        \__soup_draw_soup_tabular:
+    }
+    \showlist
+}
+\NewDocumentEnvironment{numbersoup}{ sO{15}omO{0}o }
+{
+    \par\noindent
+    \__soup_init:nn{#2}{#3}
+    \IfBooleanTF{#1}{
+        \def\showlist{}
+    }{
+        \def\showlist{\par\vspace*{1em}\listofclues}
+    }
+    \IfNoValueF{#6}{
+        \tl_gset:Nn \g_soup_font_tl {#6}
+    }
+
+    \int_gset:Nn \g_soup_number_max_int
+        {#4}
+
+    \int_gset:Nn \g_soup_number_min_int
+        {#5}
+
+    \int_gset:Nn \g_soup_number_range_int
+        {\g_soup_number_max_int - \g_soup_number_min_int}
+}
+{
+    \IfBooleanTF \g_soup_use_tikz_bool {
+        \__soup_draw_soup_tikz:
+    }{
+        \__soup_draw_soup_tabular:
+    }
+    \showlist
+}
+\ExplSyntaxOff
+\endinput
+%%
+%% End of file `soup.sty'.

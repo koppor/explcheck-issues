@@ -1,0 +1,173 @@
+\RequirePackage{xparse}
+\ProvidesExplPackage{stripsemantex}{2023/01/23}{0.525}{}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%																		%
+%		stripSemanTeX -- strip the document of SemanTeX markup			%
+%		https://ctan.org/pkg/semantex									%
+%		(C) 2021 Sebastian Ørsted										%
+%       sorsted@gmail.com												%
+%																		%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\msg_new:nnn { stripsemantex } { not_luatex } { This~package~only~works~with~LuaTeX;~the~current~TeX~run~has~been~terminated. }
+
+\msg_new:nnn { stripsemantex } { source_not_expected } { The~source~code~in~the~file~did~not~fit~the~code~in~the~.semtex~file.~We~expected~#1~but~got~#2.~This~is~not~supposed~to~happen.~Please~report~this~bug~ASAP. }
+
+\msg_new:nnn { stripsemantex } { no_semtex_file } { The~file~#1.semtex~was~not~found.~Did~you~remember~to~do \\ \token_to_str:N\SemantexSetup{semtexfile=true}? }
+
+\msg_new:nnn { stripsemantex } { begin_document_not_found } { No~\token_to_str:N\begin{document}~found~in~the~file~#1;~it~has~to~be~in~the~main~document. }
+
+\msg_new:nnn { stripsemantex } { rerun_stripsemantex } { Some~SemanTeX~commands~are~still~remaining~in~your~document;~please~(re)run~TeX~on~the~file~#1_prestripped.tex,~and~then~rerun~LuaTeX~on~the~file~\jobname.tex. }
+
+\sys_if_engine_luatex:F { \msg_fatal:nn { stripsemantex } { not_luatex } }
+
+\lua_now:n { require('stripsemantex.lua') }
+
+\cs_new_protected:Npn\stripsemantex_create_prestripped_file:n#1
+{	
+	\file_if_exist:nF { #1.semtex }
+	{
+		\msg_fatal:nnn { stripsemantex } { no_semtex_file } { #1 }
+	}
+	
+	\lua_now:e {
+		copy_file('\lua_escape:e{#1}.tex', '\lua_escape:e{#1}_prestripped.tex')
+	}
+
+	\lua_now:e
+	{
+		openFile('\lua_escape:e{#1}_prestripped.tex')
+	}
+	
+	\cs_set:Npn\RegisterObject##1
+	{
+		\lua_now:e { addIDsToRegisters ( '\cs_to_str:N ##1' ) }
+	}
+	
+	\cs_set:Npn\RegisterClass##1{
+		\lua_now:e { addIDsToRegisters ( '\cs_to_str:N ##1' ) }
+	}
+	
+	\cs_set:Npn\BeginSource##1\EndSource\BeginOutput##2\EndOutput{}
+	
+	\file_input:n { #1.semtex }
+	
+	\lua_now:e
+	{
+		removeSuperfluousIDs()
+		addNumbersToIDs()
+		closeFile('\lua_escape:e{#1}_prestripped.tex')
+	}
+	
+	\msg_warning:nnn { stripsemantex } { rerun_stripsemantex } { #1 }
+}
+
+\bool_new:N\g_stripsemantex_something_left_to_strip_bool
+
+\cs_new_protected:Npn\stripsemantex_strip_file:n#1
+{
+	\file_if_exist:nF { #1_prestripped.semtex }
+	{
+		\msg_fatal:nnn { stripsemantex } { no_semtex_file } { #1_prestripped }
+	}
+
+	\lua_now:e {
+		openFile('\lua_escape:e{#1}_prestripped.tex')
+	}
+	
+	\DeclareDocumentCommand\RegisterID{ m t{\BeginSource} }
+	{
+		\IfBooleanT{##2}
+		{
+			\strip_semantex_id_command:w ##1 \BeginSource
+		}
+	}
+	
+	
+	\cs_set:Npn\strip_semantex_id_command:w##1\BeginSource##2\EndSource\BeginOutput##3\EndOutput
+	{
+		\bool_set_true:N \g_stripsemantex_something_left_to_strip_bool
+		\lua_now:e
+		{
+			semantexIDluacommand( '\lua_escape:e{\tl_trim_spaces:n{##1}}' , '\lua_escape:e{\exp_not:n{##2}}' , '\lua_escape:e{\exp_not:n{##3}}' )
+		}
+	}
+	
+	\cs_set:Npn\RegisterObject##1{}
+	
+	\cs_set:Npn\RegisterClass##1{}
+	
+	\cs_set:Npn\BeginSource##1\EndSource\BeginOutput##2\EndOutput{}
+	
+	\file_input:n { #1_prestripped.semtex }
+	
+	\lua_now:e
+	{
+		stripRemainingSemantexIDs()
+	}
+	
+	\bool_if:NTF \g_stripsemantex_something_left_to_strip_bool
+	{
+		\cs_set:Npn\RegisterObject##1
+		{
+			\lua_now:e { addIDsToRegisters ( '\cs_to_str:N ##1' ) }
+		}
+		
+		\cs_set:Npn\RegisterClass##1
+		{
+			\lua_now:e { addIDsToRegisters ( '\cs_to_str:N ##1' ) }
+		}
+		
+		\cs_set:Npn\RegisterID##1 {}
+		
+		\cs_set:Npn\BeginSource##1\EndSource\BeginOutput##2\EndOutput {}
+		
+		\file_input:n { #1.semtex }
+		
+		\lua_now:e
+		{
+			removeSuperfluousIDs()
+			addNumbersToIDs()
+			closeFile('\lua_escape:e{#1}_prestripped.tex')
+		}
+		
+		\msg_warning:nnn { stripsemantex } { rerun_stripsemantex } { #1 }
+	}
+	{
+		\lua_now:e
+		{
+			removeParenthesisCommands()
+			addSemtexPackageToFile()
+			closeFile('\lua_escape:e{#1}_prestripped.tex')
+			copy_file('\lua_escape:e{#1}_prestripped.tex', '\lua_escape:e{#1}_stripped.tex')
+		}
+	}
+}
+
+
+\cs_new_protected:Npn\StripSemantex#1
+{
+	\group_begin:
+	\ExplSyntaxOn 	% this will prevent the inserting of the annoying extra spaces
+					% from the .semtex file into the document.
+	\file_compare_timestamp:nNnTF { #1.semtex } < { #1_prestripped.semtex }
+	{
+		\stripsemantex_strip_file:n { #1 }
+	}
+	{
+		\stripsemantex_create_prestripped_file:n { #1 }
+	}
+	\group_end:
+}
+
+\cs_new_protected:Npn\StripSemantexStripComments#1
+{
+	\lua_now:e
+	{
+		copy_file('\lua_escape:e{#1}.tex', '\lua_escape:e{#1}_comments_stripped.tex')
+		openFile('\lua_escape:e{#1}_comments_stripped.tex')
+		stripComments()
+		closeFile('\lua_escape:e{#1}_comments_stripped.tex')
+	}
+}

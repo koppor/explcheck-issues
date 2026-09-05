@@ -1,0 +1,847 @@
+%%
+%% This is file `recorder-fingerings.sty'
+% Copyright 2023-2025 by Alan Munn
+%
+% This package provides support for generating fingering diagrams for baroque fingering recorders. 
+% Standard fingerings are provided for recorders in both C and F, along with methods to create and
+% display alternate fingerings for trills, etc. 
+%
+% This package may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3
+% of this license or any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3 or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This package has the LPPL maintenance status ‘maintained’.
+% 
+% The Current Maintainer of this package is Alan Munn.
+%
+% This package consists of the file 
+%
+% recorder-fingering.sty 
+%
+% and documentation files:
+%
+% recorder-fingering.tex, recorder-fingering.pdf
+%
+% Version 1.5 2025/11/09
+\NeedsTeXFormat{LaTeX2e}[2022/11/01]
+\ProvidesPackage{recorder-fingering}[2025/11/09 v1.5 Recorder fingering diagrams]
+\RequirePackage{tikz} 
+\usetikzlibrary{calc} 
+\RequirePackage{graphicx}
+% First set up TikZ styles for the diagrams
+% Split node code from 
+% https://tex.stackexchange.com/a/657282/2693
+% These styles are local to the package
+\pgfkeys{/fingering/.style={ 
+  node split radius/.initial=1, 
+  node split color 1/.initial=white, 
+  node split color 2/.initial=black, 
+  node split color 3/.initial=blue, 
+  node split half/.style={node split={##1,##1+180}}, 
+  node split/.style args={##1,##2}{ 
+    path picture={ 
+      \tikzset{ 
+        x=($(path picture bounding box.east)-(path picture bounding box.center)$), 
+        y=($(path picture bounding box.north)-(path picture bounding box.center)$), 
+        radius=\pgfkeysvalueof{/tikz/node split radius}} 
+      \foreach \ang[count=\iAng, remember=\ang as \prevAng (initially ##1)] in {##2,360+##1} 
+        \fill[line join=round, draw, fill=\pgfkeysvalueof{/tikz/node split color \iAng}] 
+          (path picture bounding box.center) 
+          --++(\prevAng:\pgfkeysvalueof{/tikz/node split radius}) 
+          arc[start angle=\prevAng, end angle=\ang] --cycle; 
+} }, 
+hole/.style={circle,draw,##1}, 
+1/.style={fill=black}, % closed hole
+0/.style={fill=none}, % open hole
+t/.style={node split half=0}, % thumb half hole
+h/.style={node split half=90}, % finger half hole
+o/.style={fill=none,font={\textbullet},inner sep=.5pt,align=center}, % hole closed if required
+top double rev/.style={circle,minimum size=7pt,inner sep=0pt,draw,##1}, 
+bottom double rev/.style={circle,minimum size=6pt,inner sep=0pt,draw,##1},
+top double/.style={circle,minimum size=6pt,inner sep=0pt,draw,##1}, 
+bottom double/.style={circle,minimum size=7pt,inner sep=0pt,draw,##1},
+nodes={anchor=center}
+}}
+
+\ExplSyntaxOn
+% Error messages
+\msg_new:nnnn {recorder-fingering}{too-few}{\\You\ haven't\ provided\ enough\ holes!}{Fingerings\ must\ specify\ all\ 8\ holes\ (thumb\ +\ all\ 7\ fingers)}
+\msg_new:nnnn {recorder-fingering}{o-not-allowed}{\\You\ can’t\ use\ this\ hole\ specification\ in\ holes\ 6\ and\ 7\ !}{Only\ 0,1,2\ are\ permitted\ here.}
+\msg_new:nnnn {recorder-fingering}{key-exists}{\\This\ fingering\ is\ already\ defined!}{Use\ the\ starred\ version\ of\ the\ command\ or\ \token_to_str:N \AddFingerings\ instead\ to\ override\ existing\ fingerings.}
+\msg_new:nnnn {recorder-fingering}{wrong-instrument}{\\This\ command\ only\ permits\ F, \ C,\ and\ D\ fingerings!}{}
+\msg_new:nnnn {recorder-fingering}{deprecated}{\\This\ command\ is\ deprecated.\ Please\ use\  \token_to_str:N \Alto\ or\  \token_to_str:N \Soprano\ instead.}{}
+\msg_new:nnnn {recorder-fingering}{no-hole}{\\The\ instrument\ does't\ have\ enough\ holes\ to\ trill\ here.\ Please\ use\ hole\ numbers\ between\ 1\ and\ 7\ (or\ 6\ for\ tin\ whistle)!}{}
+\msg_new:nnnn {recorder-fingering}{key-not-found}{\\Key\ not\ found}{}
+
+% Set up the property lists for F and C fingerings
+\prop_new:N \l_fingering_F_prop
+\prop_new:N \l_fingering_C_prop
+\prop_new:N \l_fingering_D_prop
+
+% Set up property lists for trills
+\prop_new:N \l_fingering_trill_F_prop
+\prop_new:N \l_fingering_trill_C_prop
+\prop_new:N \l_fingering_trill_D_prop
+
+% Temporary property list for adding trills
+\prop_new:N \l_fingering_trills_prop
+
+% Set up sharp/flat conversion list
+\prop_new:N \l_fingering_F_sharp_flat_prop
+\prop_new:N \l_fingering_C_sharp_flat_prop
+\prop_new:N \l_fingering_D_sharp_flat_prop
+
+% Set up transposition tables for later
+\prop_new:N \l_fingering_C_to_F_prop
+\prop_new:N \l_fingering_F_to_C_prop
+
+% Set up the clists for the fingering vectors themselves
+\clist_new:N \l_fingering_fing_clist
+\clist_new:N \l_fingering_topholes_clist
+\clist_new:N \l_fingering_botholes_clist
+
+% some tmp macros to replace \l_tmpa_tl etc.  Changed 1.3b
+
+\tl_new:N \l_fingering_tmpa_tl
+\tl_new:N \l_fingering_tmpb_tl
+\int_new:N \l_fingering_tmpa_int
+
+% Set up the trill holes clist
+\clist_new:N \l_fingering_trill_holes_clist
+
+\prop_new:N \l_fingering_pointer_prop
+\prop_set_from_keyval:Nn \l_fingering_pointer_prop {
+ LPointer = {$\rightarrow$},
+ RPointer = {$\leftarrow$}
+ }
+
+
+
+% Definitions of the hole positions. To be used to add trill notation.
+% Some vary depending on the instrument (Recorder vs. Tin whistle)
+% Some are constants since they are only used by one of the two instruments. 
+
+\tl_new:N  \l_fingering_one_tl 
+\tl_new:N  \l_fingering_two_tl 
+\tl_new:N  \l_fingering_three_tl 
+\tl_new:N  \l_fingering_four_tl 
+\tl_new:N  \l_fingering_five_tl
+\tl_new:N \l_fingering_bell_tl
+\tl_new:N \l_fingering_six_seven_half_top_tl
+\tl_new:N \l_fingering_six_seven_half_bot_tl
+\tl_new:N \l_fingering_six_bot_tl 
+\tl_new:N \l_fingering_six_top_tl 
+\tl_new:N \l_fingering_seven_bot_tl 
+\tl_new:N \l_fingering_seven_top_tl
+\tl_new:N \l_fingering_top_double_style_tl
+\tl_new:N \l_fingering_bot_double_style_tl
+
+\tl_const:Nn \c_fingering_thumb_tl {0.5}
+\tl_const:Nn \c_fingering_six_tl {3.0}
+\tl_const:Nn \c_fingering_six_seven_x_tl {0.15}
+\tl_const:Nn \c_fingering_six_seven_half_one_tl {1}
+\tl_const:Nn \c_fingering_six_seven_half_zero_tl {0}
+
+
+
+% Manage the thumb offset parameters
+\tl_set:Nn \l_fingering_thumboffset_x {-.5}
+\tl_set:Nn \l_fingering_thumboffset_y {-.25}
+\cs_new:Nn \fingering_offset_reset:
+{\tl_gset:Nn \l_fingering_thumboffset_x {-.5}
+\tl_gset:Nn \l_fingering_thumboffset_y {-.25}
+}
+\cs_new:Nn \fingering_offset_zero:
+{\tl_gset:Nn \l_fingering_thumboffset_x {0}
+\tl_gset:Nn \l_fingering_thumboffset_y {0}
+}
+\cs_new:Nn \fingering_set_thumboffset: {
+\bool_if:nTF {\l_fingering_thumboffset_bool}
+			{\fingering_offset_reset:}
+			{\fingering_offset_zero:}
+}
+
+% Manage the orientation of the double holes for the revdouble option
+\cs_new:Nn \fingering_reverse_double: {
+	\tl_set:Nn \l_fingering_six_seven_half_top_tl {1}
+	\tl_set:Nn \l_fingering_six_seven_half_bot_tl {0}
+	\tl_set:Nn  \l_fingering_six_bot_tl {3.575}
+	 \tl_set:Nn  \l_fingering_six_top_tl {3.5}
+	 \tl_set:Nn  \l_fingering_seven_bot_tl {4.075}
+	 \tl_set:Nn  \l_fingering_seven_top_tl {4.0}
+	 \tl_set:Nn  \l_fingering_top_double_style_tl {top~double~rev}
+	 \tl_set:Nn  \l_fingering_bot_double_style_tl {bottom~double~rev}
+}
+
+\cs_new:Nn \fingering_default_double: {
+	\tl_set:Nn \l_fingering_six_seven_half_top_tl {0}
+	\tl_set:Nn \l_fingering_six_seven_half_bot_tl {1}
+	\tl_set:Nn  \l_fingering_six_bot_tl {3.5}
+	 \tl_set:Nn  \l_fingering_six_top_tl {3.575}
+	 \tl_set:Nn  \l_fingering_seven_bot_tl {4.0}
+	 \tl_set:Nn  \l_fingering_seven_top_tl {4.075}
+	 \tl_set:Nn  \l_fingering_top_double_style_tl {top~double}
+	 \tl_set:Nn  \l_fingering_bot_double_style_tl {bottom~double}
+}
+
+\tl_new:N \l_fingering_top_bottom_space_tl
+\tl_new:N \l_fingering_trill_offset_tl	
+\bool_new:N \l_fingering_trill_offset_LR_bool
+
+
+% Macro to set hole positions for each instrument (R=recorder, W=tin whistle)
+\cs_new:Nn \l_fingering_set_hole_positions:n {
+	\str_case:nn {#1}{
+	{R}{
+	\tl_set:Nn \l_fingering_one_tl {1.0}
+\tl_set:Nn \l_fingering_two_tl {1.5}
+\tl_set:Nn \l_fingering_three_tl {2.0}
+\tl_set:Nn \l_fingering_four_tl {2.5}
+\tl_set:Nn \l_fingering_five_tl {3.0}
+\tl_set:Nn \l_fingering_bell_tl {4.5}
+}
+	{W}{
+\tl_set:Nn \l_fingering_one_tl {.5}
+\tl_set:Nn \l_fingering_two_tl {1}
+\tl_set:Nn \l_fingering_three_tl {1.5}
+\tl_set:Nn \l_fingering_four_tl {2.0}
+\tl_set:Nn \l_fingering_five_tl {2.5}
+\tl_set:Nn \l_fingering_bell_tl {3.0}
+}
+}}
+
+% Command parameters
+\keys_define:nn {fingering}{
+	thumboffset.bool_set:N = \l_fingering_thumboffset_bool,
+	width.dim_set:N = \l_fingering_size_dim,
+	thumboffset.initial:n = {true},
+	width.initial:n = {20pt},
+	LHRHspace.tl_set:N = \l_fingering_top_bottom_space_tl,
+	LHRHspace.initial:n = {4pt},
+	LHRHdivider.bool_set:N = \l_fingering_LHRH_divider_bool,
+	LHRHdivider.initial:n = {false},
+	LPointer.prop_put:N = \l_fingering_pointer_prop,
+	RPointer.prop_put:N = \l_fingering_pointer_prop,
+	trill.clist_set:N = \l_fingering_trill_holes_clist,
+		trilldir.choice:,
+		trilldir / L .code:n = 
+			{\bool_set_false:N \l_fingering_trill_offset_LR_bool
+			\tl_set:Nn \l_fingering_trill_offset_tl {-.5}
+			\prop_get:NnN \l_fingering_pointer_prop {LPointer} \l_fingering_trill_pointer_tl},
+		trilldir / R .code:n = 
+			{\bool_set_false:N \l_fingering_trill_offset_LR_bool
+			\tl_set:Nn \l_fingering_trill_offset_tl {.5}
+			\prop_get:NnN \l_fingering_pointer_prop {RPointer} \l_fingering_trill_pointer_tl},
+		trilldir / LR .code:n = {
+		\bool_set_true:N \l_fingering_trill_offset_LR_bool },
+	trilldir.initial:n = LR,
+	revdouble.bool_set:N = \l_fingering_revdouble_bool,
+}
+
+
+\NewDocumentCommand{\fingeringSetup}{m}{
+	\keys_set:nn {fingering} {#1}
+	\keys_set:nn {fingering} {trill={}} % trill makes no sense as a global option
+}
+% Set defaults for recorder
+\fingeringSetup{thumboffset=true,trilldir=LR,LHRHdivider=true,LHRHspace=10pt,width=20pt}
+
+% Generic fingering generator: takes a clist, splits it between top holes and bottom holes
+% and produces the corresponding diagram
+% basic idea for splitting the clist using step_inline and pop from Jonathan P. Spratte (Skillmon)
+
+\cs_new_protected:Nn \fingering_generate_recorder_fingering:n
+{
+\clist_set:Nn \l_fingering_holes_clist {#1}
+\l_fingering_set_hole_positions:n {R}
+\bool_if:nTF {\l_fingering_revdouble_bool}
+	{\fingering_reverse_double:}
+	{\fingering_default_double:}
+	\clist_clear:N \l_fingering_topholes_clist
+	\int_step_inline:nn { 4 } { 
+		\clist_pop:NNF \l_fingering_holes_clist \l_fingering_tmpa_tl { \msg_error:nn { recorder-fingering } { too-few }}
+		\clist_put_right:NV \l_fingering_topholes_clist \l_fingering_tmpa_tl }
+		\resizebox{\l_fingering_size_dim}{!}{
+		\begin{tikzpicture}[/fingering]
+% display the thumb and first three topholes
+		\fingering_set_thumboffset:
+			\foreach[expand~list]~\x~[count=\xi]~in~\l_fingering_topholes_clist {
+			\node[hole=\x]~at~(0+\l_fingering_thumboffset_x,-\xi/2+\l_fingering_thumboffset_y)~{};
+			\fingering_offset_zero:}
+% add the divider if selected
+			\bool_if:NTF \l_fingering_LHRH_divider_bool
+			{\draw[overlay]~($(-.5,-2.25)+(0,-\l_fingering_top_bottom_space_tl/2)$)~
+							--($(.5,-2.25)+(0,-\l_fingering_top_bottom_space_tl/2)$);}
+			{}
+% now shift the bottom holes to make a small space between LH and RH holes and change orientation of half holes
+			\begin{scope}[yshift=-\l_fingering_top_bottom_space_tl,h/.style={node~split~half=-90}]
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_four_tl)~{};
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_five_tl)~{};
+% display the bottom two paired holes
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\str_case:enTF {\l_fingering_tmpa_tl}{ 
+			 {0}	{\node[\l_fingering_top_double_style_tl=0]~at~
+			 			(\c_fingering_six_seven_x_tl,-\l_fingering_six_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=0]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_six_bot_tl)~{};}
+			 {2}	{\node[\l_fingering_top_double_style_tl=1,]~at~
+			 			(\c_fingering_six_seven_x_tl,-\l_fingering_six_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=1]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_six_bot_tl)~{};}
+			 {1}	{\node[\l_fingering_top_double_style_tl=\l_fingering_six_seven_half_top_tl]~at~
+			 			(\c_fingering_six_seven_x_tl,-\l_fingering_six_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=\l_fingering_six_seven_half_bot_tl]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_six_bot_tl)~{};}
+					}
+			{}
+			{\msg_error:nn { recorder-fingering } { o-not-allowed }}
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\str_case:enTF {\l_fingering_tmpa_tl}{
+			{0}		{\node[\l_fingering_top_double_style_tl=0,]~at~
+						(\c_fingering_six_seven_x_tl,-\l_fingering_seven_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=0]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_seven_bot_tl)~{};}
+			{2}		{\node[\l_fingering_top_double_style_tl=1,]~at~
+						(\c_fingering_six_seven_x_tl,-\l_fingering_seven_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=1]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_seven_bot_tl)~{};}
+			{1}		{\node[\l_fingering_top_double_style_tl=\l_fingering_six_seven_half_top_tl]~at~
+						(\c_fingering_six_seven_x_tl,-\l_fingering_seven_top_tl)~{}; 
+					\node[\l_fingering_bot_double_style_tl=\l_fingering_six_seven_half_bot_tl]~at~
+						(-\c_fingering_six_seven_x_tl,-\l_fingering_seven_bot_tl)~{};}
+					}
+			{}
+			{\msg_error:nn { recorder-fingering } { o-not-allowed }}
+% display the bell hole if present
+			\clist_if_empty:NTF \l_fingering_holes_clist
+				{}
+				{\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+				\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_bell_tl)~{};}
+% display trill arrows if present
+			\clist_if_empty:NTF \l_fingering_trill_holes_clist
+				{}
+				{
+				\clist_map_variable:NNn \l_fingering_trill_holes_clist \l_fingering_tmpa_tl
+					{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {7}
+						{\msg_warning:nn { recorder-fingering } { no-hole }}
+						{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {3}
+							{\tl_set:Nn \l_fingering_top_bottom_space_tl {0}}
+							{}
+						\bool_if:nTF {\l_fingering_trill_offset_LR_bool}
+							{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {3}
+								{\tl_set:Nn \l_fingering_trill_offset_tl {.5}
+								\prop_get:NnN \l_fingering_pointer_prop {RPointer}
+								 	\l_fingering_trill_pointer_tl }
+								{\tl_set:Nn \l_fingering_trill_offset_tl {-.5}
+								\prop_get:NnN \l_fingering_pointer_prop {LPointer}
+								 \l_fingering_trill_pointer_tl }
+							}
+							{}
+						 \int_set:Nn \l_fingering_tmpa_int {\l_fingering_tmpa_tl+1}
+						 \node[overlay]~at~($(\l_fingering_trill_offset_tl,
+							-\l_fingering_tmpa_int/2)+(0,\l_fingering_top_bottom_space_tl)
+							$)~{\l_fingering_trill_pointer_tl};
+						}
+					}
+				}
+		\end{scope}		
+		\end{tikzpicture}}
+		}
+
+\cs_new_protected:Nn \fingering_generate_whistle_fingering:n
+{	\l_fingering_set_hole_positions:n {W}
+	\clist_set:Nn \l_fingering_holes_clist {#1}
+		\resizebox{\l_fingering_size_dim}{!}{
+		\begin{tikzpicture}[/fingering]
+% display the top three holes
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_one_tl)~{};
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_two_tl)~{};
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_three_tl)~{};
+% add the divider if selected
+			\bool_if:NTF \l_fingering_LHRH_divider_bool
+			{\draw[overlay]~($(-.5,-1.75)+(0,-\l_fingering_top_bottom_space_tl/2)$)~
+							--($(.5,-1.75)+(0,-\l_fingering_top_bottom_space_tl/2)$);}
+			{}
+% now shift the bottom holes to make a small space between LH and RH holes
+			\begin{scope}[yshift=-\l_fingering_top_bottom_space_tl]
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_four_tl)~{};
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_five_tl)~{};
+			\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+			\node[hole=\l_fingering_tmpa_tl]~at~(0,-\c_fingering_six_tl)~{};
+% display the bell hole if present
+			\clist_if_empty:NTF \l_fingering_holes_clist
+				{}
+				{\clist_pop:NN \l_fingering_holes_clist \l_fingering_tmpa_tl
+				\node[hole=\l_fingering_tmpa_tl]~at~(0,-\l_fingering_bell_tl)~{};}
+% display trill arrows if present
+			\clist_if_empty:NTF \l_fingering_trill_holes_clist
+				{}
+				{
+				\clist_map_variable:NNn \l_fingering_trill_holes_clist \l_fingering_tmpa_tl
+					{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {6}
+						{\msg_warning:nn { recorder-fingering } { no-hole }}
+						{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {3}
+							{\tl_set:Nn \l_fingering_top_bottom_space_tl {0}}
+							{}
+						\bool_if:nTF {\l_fingering_trill_offset_LR_bool}
+							{\int_compare:nNnTF {\l_fingering_tmpa_tl} > {3}
+								{\tl_set:Nn \l_fingering_trill_offset_tl {.5}
+								\prop_get:NnN \l_fingering_pointer_prop {RPointer}
+								 	\l_fingering_trill_pointer_tl }
+								{\tl_set:Nn \l_fingering_trill_offset_tl {-.5}
+								\prop_get:NnN \l_fingering_pointer_prop {LPointer}
+								 \l_fingering_trill_pointer_tl }
+							}
+							{}
+						 \int_set:Nn \l_fingering_tmpa_int {\l_fingering_tmpa_tl}
+						 \node[overlay]~at~($(\l_fingering_trill_offset_tl,
+							-\l_fingering_tmpa_int/2)+(0,\l_fingering_top_bottom_space_tl)
+							$)~{\l_fingering_trill_pointer_tl};
+						}
+					}
+				}
+		\end{scope}		
+		\end{tikzpicture}}
+		}
+
+
+\cs_generate_variant:Nn \fingering_generate_whistle_fingering:n { V }
+% create variable version of the command
+\cs_generate_variant:Nn \fingering_generate_recorder_fingering:n { V }
+
+% Main user commands and synonyms
+% First basic commands to display the fingering for any note
+\NewDocumentCommand{\Alto}{O{}m}{
+	\group_begin:
+		\keys_set:nn {fingering} {#1}
+		\prop_get:NnNTF \l_fingering_F_prop {#2} \l_fingering_tmpa_tl
+		{\fingering_generate_recorder_fingering:V \l_fingering_tmpa_tl}
+		{\msg_error:nn {recorder-fingering} {key-not-found}}
+	\group_end:
+}
+\cs_set_eq:NN \Sopranino \Alto
+\cs_set_eq:NN \Bass \Alto
+
+\NewDocumentCommand{\Soprano}{O{}m}{
+	\group_begin:
+		\keys_set:nn {fingering} {#1}
+		\prop_get:NnNTF \l_fingering_C_prop {#2} \l_fingering_tmpa_tl
+		{\fingering_generate_recorder_fingering:V \l_fingering_tmpa_tl}
+		{\msg_error:nn {recorder-fingering} {key-not-found}}
+	\group_end:
+}
+\cs_set_eq:NN \Tenor \Soprano
+
+\NewDocumentCommand{\Whistle}{O{}m}{
+	\group_begin:
+		\keys_set:nn {fingering} {#1}
+		\prop_get:NnNTF \l_fingering_D_prop {#2} \l_fingering_tmpa_tl
+		{\fingering_generate_whistle_fingering:V \l_fingering_tmpa_tl}
+		{\msg_error:nn {recorder-fingering} {key-not-found}}
+	\group_end:
+}
+
+% Trill version of the commands; this allows you to store trill holes 
+% with a key name, so that the trill doesn’t have to be specified manually
+\NewDocumentCommand{\Ftrill}{O{}m}{
+	\prop_get:NnNTF \l_fingering_trill_F_prop {#2} \l_fingering_tmpa_tl
+	{\group_begin:
+		\keys_set:nx {fingering} {#1,trill={\l_fingering_tmpa_tl}}
+		\prop_get:NnN \l_fingering_F_prop {#2} \l_fingering_tmpb_tl
+		\fingering_generate_recorder_fingering:V \l_fingering_tmpb_tl
+	 \group_end:}
+	{\msg_error:nn {recorder-fingering} {key-not-found}}
+}
+\NewDocumentCommand{\Ctrill}{O{}m}{
+	\prop_get:NnNTF \l_fingering_trill_C_prop {#2} \l_fingering_tmpa_tl
+	{\group_begin:
+		\keys_set:nx {fingering} {#1,trill={\l_fingering_tmpa_tl}}
+		\prop_get:NnN \l_fingering_C_prop {#2} \l_fingering_tmpb_tl
+		\fingering_generate_recorder_fingering:V \l_fingering_tmpb_tl
+	 \group_end:}
+	{\msg_error:nn {recorder-fingering} {key-not-found}}
+}
+\NewDocumentCommand{\Dtrill}{O{}m}{
+	\prop_get:NnNTF \l_fingering_trill_D_prop {#2} \l_fingering_tmpa_tl
+	{\group_begin:
+		\keys_set:nx {fingering} {#1,trill={\l_fingering_tmpa_tl}}
+		\prop_get:NnN \l_fingering_D_prop {#2} \l_fingering_tmpb_tl
+		\fingering_generate_recorder_fingering:V \l_fingering_tmpb_tl
+	 \group_end:}
+	{\msg_error:nn {recorder-fingering} {key-not-found}}
+}
+
+% Now commands to add new fingerings: 
+% First, a note = { } version for multiple fingerings
+% This command will override existing fingerings
+\NewDocumentCommand{\AddFingerings}{mm}{
+	\str_case:nnTF {#1}{
+	{F}{\prop_put_from_keyval:Nn \l_fingering_F_prop {#2}}
+	{C}{\prop_put_from_keyval:Nn \l_fingering_C_prop {#2}}
+	{D}{\prop_put_from_keyval:Nn \l_fingering_D_prop {#2}}
+	}
+	{}
+	{\msg_error:nn { recorder-fingering }{ wrong-instrument}}
+}
+
+% Add trills version of the above command
+% Syntax is key = {{hole-list},{trill-list}}
+% 
+% \AddTrills{C}{C#D={{1,1,1,0,1,1,1,0},{4,5}}}
+
+\NewDocumentCommand{\AddTrills}{mm}{
+	\prop_set_from_keyval:Nn \l_fingering_trills_prop {#2}
+	\str_case:nnTF {#1}{
+	{F}{\prop_map_function:NN \l_fingering_trills_prop \fingering_F_trill_copy:nn}
+	{C}{\prop_map_function:NN \l_fingering_trills_prop \fingering_C_trill_copy:nn}
+	{D}{\prop_map_function:NN \l_fingering_trills_prop \fingering_D_trill_copy:nn}
+	}
+	{}
+	{\msg_error:nn { recorder-fingering }{ wrong-instrument}}
+}
+
+% Trill copy functions
+\cs_new_protected:Nn \fingering_F_trill_copy:nn {
+	\clist_set:Nn \l_tmpa_clist {#2}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_F_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_trill_F_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}
+}	
+
+\cs_new_protected:Nn \fingering_C_trill_copy:nn {
+	\clist_set:Nn \l_tmpa_clist {#2}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_C_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_trill_C_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}}	
+
+\cs_new_protected:Nn \fingering_D_trill_copy:nn {
+	\clist_set:Nn \l_tmpa_clist {#2}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_D_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}
+	\clist_pop:NNTF \l_tmpa_clist \l_fingering_tmpa_tl
+		{\prop_put:Nnx \l_fingering_trill_D_prop {#1}{\l_fingering_tmpa_tl}}
+		{\show\notfound}
+}	
+
+% Second individual fingerings for alto and soprano
+% These commands will throw an error if the note is already defined
+\NewDocumentCommand{\NewFfingering}{smm}{
+\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_F_prop {#2} {#3}}
+	{\prop_get:NnNTF \l_fingering_F_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_F_prop {#2} {#3}}
+	}}
+	
+\NewDocumentCommand{\NewCfingering}{smm}{
+\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_C_prop {#2} {#3}}
+	{\prop_get:NnNTF \l_fingering_C_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_C_prop {#2} {#3}}
+	}}
+
+\NewDocumentCommand{\NewDfingering}{smm}{
+\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_D_prop {#2} {#3}}
+	{\prop_get:NnNTF \l_fingering_D_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_D_prop {#2} {#3}}
+	}}
+	
+% Macros to add trill fingerings. This stores the trill keys as well so that they
+% can be automatically displayed
+
+\NewDocumentCommand{\NewFtrill}{smmm}{
+	\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_F_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_F_prop {#2} {#4}}
+	{\prop_get:NnNTF \l_fingering_F_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_F_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_F_prop {#2} {#4}}}
+}
+\NewDocumentCommand{\NewCtrill}{smmm}{
+	\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_C_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_C_prop {#2} {#4}}
+	{\prop_get:NnNTF \l_fingering_C_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_C_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_C_prop {#2} {#4}}}
+}
+\NewDocumentCommand{\NewDtrill}{smmm}{
+	\IfBooleanTF{#1}
+	{\prop_put:Nnn \l_fingering_D_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_D_prop {#2} {#4}}
+	{\prop_get:NnNTF \l_fingering_D_prop {#2} \l_fingering_tmpa_tl
+	{\msg_error:nn { recorder-fingering } { key-exists }}
+	{\prop_put:Nnn \l_fingering_D_prop {#2} {#3}
+	 \prop_put:Nnn \l_fingering_trill_D_prop {#2} {#4}}}
+}
+
+
+% macros to copy fingerings (for now internal only)
+\cs_new_protected:Nn \fingering_add_F_fingering:nn {\prop_put:Nnn \l_fingering_F_prop {#1} {#2}}
+\cs_new_protected:Nn \fingering_add_C_fingering:nn {\prop_put:Nnn \l_fingering_C_prop {#1} {#2}}
+\cs_new_protected:Nn \fingering_add_D_fingering:nn {\prop_put:Nnn \l_fingering_D_prop {#1} {#2}}
+\cs_generate_variant:Nn \fingering_add_F_fingering:nn {nV}
+\cs_generate_variant:Nn \fingering_add_C_fingering:nn {nV}
+\cs_generate_variant:Nn \fingering_add_D_fingering:nn {nV}
+	 
+% These macros take two arguments: a new key and an existing key, and create a new
+% fingering in the associated property list with the new key name and the existing key
+% fingering
+ \cs_new_protected:Nn \fingering_copy_F:nn 
+	{\prop_get:NnN \l_fingering_F_sharp_flat_prop {#1} \l_fingering_tmpa_tl
+	 \prop_get:NoN \l_fingering_F_prop {\l_fingering_tmpa_tl} \l_fingering_tmpb_tl
+	 \fingering_add_F_fingering:nV {#1} {\l_fingering_tmpb_tl}}
+
+\cs_new_protected:Nn \fingering_copy_C:nn 
+	{\prop_get:NnN \l_fingering_C_sharp_flat_prop {#1} \l_fingering_tmpa_tl
+	 \prop_get:NoN \l_fingering_C_prop {\l_fingering_tmpa_tl} \l_fingering_tmpb_tl
+	 \fingering_add_C_fingering:nV {#1} {\l_fingering_tmpb_tl}}
+	 
+ \cs_new_protected:Nn \fingering_copy_D:nn 
+	{\prop_get:NnN \l_fingering_D_sharp_flat_prop {#1} \l_fingering_tmpa_tl
+	 \prop_get:NoN \l_fingering_D_prop {\l_fingering_tmpa_tl} \l_fingering_tmpb_tl
+	 \fingering_add_D_fingering:nV {#1} {\l_fingering_tmpb_tl}}
+
+\NewDocumentCommand{\debug}{O{f}m}{
+	\str_case:nn {#1}{
+		{f}{\prop_get:NnNTF \l_fingering_F_prop {#2} \l_fingering_tmpa_tl 
+			{}{\msg_error:nn { recorder-fingering } { key-not-found }}
+			\l_fingering_tmpa_tl}
+		{c}{\prop_get:NnNTF \l_fingering_C_prop {#2} \l_fingering_tmpa_tl 
+			{}{\msg_error:nn { recorder-fingering } { key-not-found }}
+			\l_fingering_tmpa_tl
+			}
+	}
+}
+
+% Now add all of the basic fingerings
+\AddFingerings{F}{
+		F = {1,1,1,1,1,1,2,2}, 
+		Gb = {1,1,1,1,1,1,2,1}, 
+		G = {1,1,1,1,1,1,2,0}, 
+		Ab = {1,1,1,1,1,1,0,0}, 
+		A = {1,1,1,1,1,1,0,0}, 
+		Bb = {1,1,1,1,1,0,2,2}, 
+		B = {1,1,1,1,0,1,2,0}, 
+		C = {1,1,1,1,0,0,0,0}, 
+		Db = {1,1,1,0,1,1,1,0},
+		D = {1,1,1,0,0,0,0,0}, 
+		Eb = {1,1,0,1,1,0,0,0}, 
+		E = {1,1,0,0,0,0,0,0}, 
+		f = {1,0,1,0,0,0,0,0}, 
+		gb = {0,1,1,0,0,0,0,0},
+		g = {0,0,1,0,0,0,0,0}, 
+		ab = {0,0,1,1,1,1,2,0}, 
+		a = {t,1,1,1,1,1,0,0}, 
+		bb = {t,1,1,1,1,0,2,0}, 
+		b = {t,1,1,1,0,1,0,0},
+		c = {t,1,1,1,0,0,0,0}, 
+		db = {t,1,1,0,1,0,0,0},
+		d = {t,1,1,0,0,0,0,0},
+		eb = {t,1,1,0,0,1,2,1},
+		e = {t,1,1,0,1,1,0,0}, 
+		f' = {t,1,0,0,1,1,0,0}, 
+		gb' = {t,1,0,1,1,0,2,2,1}, 
+		g' = {t,1,0,1,1,0,2,2}, 
+		ab' = {t,0,1,1,0,1,2,0} 
+	} 
+\AddFingerings{C}{
+		C = {1,1,1,1,1,1,2,2},
+		Db = {1,1,1,1,1,1,2,1}, 
+		D = {1,1,1,1,1,1,2,0}, 
+		Eb = {1,1,1,1,1,1,1,0},
+		E = {1,1,1,1,1,1,0,0}, 
+		F = {1,1,1,1,1,0,2,2},
+		Gb = {1,1,1,1,0,1,2,0}, 
+		G = {1,1,1,1,0,0,0,0},
+		Ab = {1,1,1,0,1,1,1,0},
+		A = {1,1,1,0,0,0,0,0},
+		Bb = {1,1,0,1,1,0,0,0}, 
+		B = {1,1,0,0,0,0,0,0}, 
+		c = {1,0,1,0,0,0,0,0}, 
+		db = {0,1,1,0,0,0,0,0}, 
+		d = {0,0,1,0,0,0,0,0}, 
+		eb = {0,0,1,1,1,1,2,0}, 
+		e = {t,1,1,1,1,1,0,0}, 
+		f = {t,1,1,1,1,0,2,0}, 
+		gb = {t,1,1,1,0,1,0,0}, 
+		g = {t,1,1,1,0,0,0,0}, 
+		ab = {t,1,1,0,1,0,0,0}, 
+		a = {t,1,1,0,0,0,0,0}, 
+		bb = {t,1,1,0,1,1,2,0}, 
+		b = {t,1,1,0,1,1,0,0}, 
+		c' = {t,1,0,0,1,1,0,0}, 
+		db' = {t,1,0,1,1,0,2,2,1}, 
+		d' = {t,1,0,1,1,0,2,2},
+		eb' = {t,0,1,1,0,1,2,0}
+}
+
+\AddFingerings{D}{
+	D ={1,1,1,1,1,1},
+	D# ={1,1,1,1,1,h},
+	E = {1,1,1,1,1,0},
+	F = {1,1,1,1,h,0},
+	F# ={1,1,1,1,0,0},
+	G = {1,1,1,0,0,0},
+	G# ={1,1,h,0,0,0},
+	A = {1,1,0,0,0,0},
+	A#= {1,h,0,0,0,0},
+	B = {1,0,0,0,0,0},
+	C = {0,1,1,0,0,0},
+	C# ={0,0,0,0,0,0},
+	d = {0,1,1,1,1,1},
+	c = {h,0,0,0,0,0},
+	d = {0,1,1,1,1,1},
+	d' = {0,1,1,0,0,0}
+}
+
+
+% These are equivalent lists for generating the # versions
+% new_key = {existing_key}
+\prop_set_from_keyval:Nn \l_fingering_F_sharp_flat_prop {
+		F# = {Gb},
+		G# = {Ab},
+		A# = {Bb},
+		C# = {Db},
+		D# = {Eb},
+		f# = {gb},
+		g# = {ab},
+		a# = {bb},
+		c# = {db},
+		d# = {eb},
+		f#' = {gb'},
+		g#' = {ab'}
+}
+\prop_set_from_keyval:Nn \l_fingering_C_sharp_flat_prop {
+		C# = {Db},
+		D# = {Eb},
+		F# = {Gb},
+		G# = {Ab},
+		A# = {Bb},
+		c# = {db},
+		d# = {eb},
+		f# = {gb},
+		g# = {ab},
+		a# = {bb},
+		c#' = {db'},
+		d#' = {eb'}
+}
+
+\prop_set_from_keyval:Nn \l_fingering_D_sharp_flat_prop {
+	d# = {D#},
+	Eb = {D#},
+	eb = {D#},
+	e = {E},
+	f = {F},
+	f# = {F#},
+	Gb = {F#},
+	gb = {F#},
+	g = {G},
+	g# = {G#},
+	a = {A},
+	a# = {A#},
+	Bb = {A#},
+	bb = {A#},
+	b = {B},
+	c# = {C#},
+	Db = {C#},
+	db = {C#}
+}
+
+% Add all the sharp fingerings.
+ \prop_map_function:NN \l_fingering_F_sharp_flat_prop \fingering_copy_F:nn
+ \prop_map_function:NN \l_fingering_C_sharp_flat_prop \fingering_copy_C:nn
+ \prop_map_function:NN \l_fingering_D_sharp_flat_prop \fingering_copy_D:nn
+ 
+% Transposition tables (may be useful; currently not used)
+\prop_set_from_keyval:Nn \l_fingering_F_to_C_prop {
+		C = {F},
+		Db = {Gb},
+		D = {G},
+		Eb = {Ab},
+		E = {A},
+		F = {Bb},
+		Gb = {B},
+		G = {C},
+		Ab = {Db},
+		A = {D},
+		Bb = {Eb},
+		B = {E},
+		c = {f},
+		db = {gb},
+		d = {g},
+		eb = {ab},
+		e = {a},
+		f = {bb},
+		gb = {b},
+		g = {c},
+		ab = {db},
+		a = {d},
+		bb = {eb},
+		b = {e},
+		c' = {f'},
+		db' = {gb'},
+		d' = {g'},
+		eb' = {ab'}
+	}
+	
+\prop_set_from_keyval:Nn \l_fingering_C_to_F_prop {		
+		F = {C},
+		Gb = {Db},
+		G = {D},
+		Ab = {Eb},
+		A = {E},
+		Bb = {F},
+		B = {Gb},
+		C = {G},
+		Db = {Ab},
+		D = {A},
+		Eb = {Bb},
+		E = {B},
+		f = {c},
+		gb = {db},
+		g = {d},
+		ab = {eb},
+		a = {e},
+		bb = {f},
+		b = {gb},
+		c = {g},
+		db = {ab},
+		d = {a},
+		eb = {bb},
+		e = {b},
+		f' = {c'},
+		gb' = {db'},
+		g' = {d'},
+		ab' = {eb'}
+ }
+
+% Backwards (in)compatibility with the initial version of the package
+
+\NewDocumentCommand{\fingering}{}{
+	\msg_error:nn {recorder-fingering}{deprecated}}
+\ExplSyntaxOff
+\endinput

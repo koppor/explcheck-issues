@@ -1,0 +1,623 @@
+%% Copyright (C) 2018-2026 Oliver Kopp and contributors
+%%
+%% SPDX-License-Identifier: LPPL-1.3c+
+\NeedsTeXFormat{LaTeX2e}\relax
+\ProvidesPackage{plantuml}
+  [2026/06/29 v0.7.0
+  Embed PlantUML diagrams in latex documents.]
+
+% Required by PlantUML LaTeX output
+\RequirePackage{tikz}
+
+% Enable checking for active -shell-escape
+% Source: https://tex.stackexchange.com/a/88620/9075
+% pdftexcmds also provides the engine-agnostic helpers used by the pdflatex
+% path below: \pdf@filemdfivesum (content-hash cache), \pdf@filesize, and
+% \pdf@filedump (hex-encode the source for the PlantUML server).
+\RequirePackage{pdftexcmds}
+
+% Robust \ifluatex (and friends) across engines, needed to branch between the
+% LuaTeX and pdfTeX code paths.
+\RequirePackage{iftex}
+
+% Prepare writing contents of a self-defined environment to a file
+% Source: https://tex.stackexchange.com/a/130298/9075
+\RequirePackage{fancyvrb}
+
+\RequirePackage{l3keys2e}
+\RequirePackage{xparse}
+
+\RequirePackage{ifthen}
+
+\RequirePackage{adjustbox}
+
+% \captionof is needed for the in-place (non-floating) caption option (#8). KOMA
+% classes and the caption package already provide it; only pull in the tiny
+% capt-of otherwise (loading capt-of when \captionof exists would clash, e.g.
+% with KOMA). Load caption/koma before plantuml if you customize captions.
+\makeatletter
+\@ifundefined{captionof}{\RequirePackage{capt-of}}{}
+\makeatother
+
+\newcounter{PlantUmlFigureNumberSVG}
+\def\UMLcountUp{\stepcounter{PlantUmlFigureNumberSVG} \def\PlantUMLJobname{PlantUML\thePlantUmlFigureNumberSVG}}
+
+% Code snippet from Joseph Wright (https://ctan.org/home/josephwright)
+% Source: https://tex.stackexchange.com/questions/418670/avoid-quotation-marks-when-using-jobname-or-currfilename
+% according to https://tex.stackexchange.com/users/73/joseph-wright, his code on the site is placed in the public domain
+\newcommand*{\myjobname}{}
+\newcommand*{\setmyjobname}{\expanded{\noexpand\setmyjobnameaux
+  \jobname"\jobname"\relax}}
+\newcommand*{\setmyjobnameaux}{}
+\def\setmyjobnameaux#1"#2"#3\relax{\def\myjobname{#2}}
+\setmyjobname
+
+\def\PlantUMLJobname{\myjobname\thePlantUmlFigureNumberSVG}
+
+\ExplSyntaxOn
+\tl_new:N \l_plantuml_server
+\keys_define:nn { plantuml } {
+  output .choices:nn = {
+    {latex, png, svg}
+    { \tl_gset:NV \l_plantuml_mode \l_keys_choice_tl }
+  },
+  output .initial:n = latex,
+  % PlantUML server base URL, e.g. https://www.plantuml.com/plantuml. When set,
+  % png/svg diagrams are rendered by the server instead of the local jar (#6).
+  server .tl_gset:N = \l_plantuml_server,
+  server .initial:n = ,
+}
+\ProcessKeysOptions { plantuml }
+\ExplSyntaxOff
+
+% Per-diagram options (#8):
+%   caption={...}  add a caption (numbered, \ref-able as a figure)
+%   label={...}    set a \label for the caption
+%   float          place the diagram in a floating figure (default placement tbp;
+%   float=htbp     a value sets the placement; float=H needs the float package)
+% Without `float` the diagram and its caption are typeset in place (no floating),
+% like listings' caption= -- which is what most users want.
+%
+% \plantumlinput takes these as an optional [..] argument. The plantuml
+% environment cannot (an optional argument on a verbatim environment without a
+% mandatory argument is not supported by fancyvrb), so options for the next
+% environment are set with \plantumlset{..}, in the spirit of \lstset.
+\ExplSyntaxOn
+\tl_new:N \l_plantuml_caption_tl
+\tl_new:N \l_plantuml_label_tl
+\tl_new:N \l_plantuml_float_tl
+\keys_define:nn { plantuml / diagram } {
+  caption .tl_set:N = \l_plantuml_caption_tl ,
+  label   .tl_set:N = \l_plantuml_label_tl ,
+  float   .tl_set:N = \l_plantuml_float_tl ,
+  float   .default:n = tbp ,
+  unknown .code:n =
+    \msg_warning:nnx { plantuml } { unknown-option } { \l_keys_key_str } ,
+}
+\msg_new:nnn { plantuml } { unknown-option }
+  { Unknown~plantuml~option~'#1'~ignored. }
+% \plantumlResetOpts: clear the per-diagram options (run after each diagram so a
+% caption/label does not leak to the next one).
+\cs_new_protected:Npn \plantumlResetOpts {
+  \tl_clear:N \l_plantuml_caption_tl
+  \tl_clear:N \l_plantuml_label_tl
+  \tl_clear:N \l_plantuml_float_tl
+}
+% \plantumlParseOpts{<keyvals>}: reset and parse the per-diagram options. Exposed
+% as the public \plantumlset for configuring the next plantuml environment.
+\cs_new_protected:Npn \plantumlParseOpts #1 {
+  \plantumlResetOpts
+  \keys_set:nn { plantuml / diagram } { #1 }
+}
+\cs_new_eq:NN \plantumlset \plantumlParseOpts
+% \begin{figure} parses the placement as literal characters, so it must be
+% expanded from the tl var first (otherwise figure sees a control sequence).
+\cs_new_protected:Npn \plantuml_begin_figure:n #1 { \begin { figure } [ #1 ] }
+% \plantumlEmit: typeset the just-generated diagram (\plantuml@includeresult)
+% honoring the caption/label/float options. \use:c reaches the @-named macro.
+\cs_new_protected:Npn \plantumlEmit {
+  \tl_if_empty:NTF \l_plantuml_float_tl
+    {
+      % In place, no float; caption (if any) goes below, like listings.
+      \bool_lazy_and:nnTF
+        { \tl_if_empty_p:N \l_plantuml_caption_tl }
+        { \tl_if_empty_p:N \l_plantuml_label_tl }
+        { \use:c { plantuml@includeresult } }
+        {
+          \par \begingroup \centering
+            \use:c { plantuml@includeresult } \par
+            \captionof { figure } { \l_plantuml_caption_tl }
+            \tl_if_empty:NF \l_plantuml_label_tl { \label { \l_plantuml_label_tl } }
+          \endgroup \par
+        }
+    }
+    {
+      \exp_args:NV \plantuml_begin_figure:n \l_plantuml_float_tl
+        \centering
+        \use:c { plantuml@includeresult }
+        \tl_if_empty:NF \l_plantuml_caption_tl { \caption { \l_plantuml_caption_tl } }
+        \tl_if_empty:NF \l_plantuml_label_tl { \label { \l_plantuml_label_tl } }
+      \end { figure }
+    }
+}
+\ExplSyntaxOff
+
+%hint from https://tex.stackexchange.com/a/86355/9075
+\makeatletter
+\def\maxwidth#1{\ifdim\Gin@nat@width>#1 #1\else\Gin@nat@width\fi}
+\makeatother
+
+\ExplSyntaxOn
+\let\PlantUmlMode\l_plantuml_mode
+\let\PlantUmlServer\l_plantuml_server
+\ExplSyntaxOff
+
+% Font applied to latex/TikZ diagram text. PlantUML measures and lays out boxes
+% with a sans-serif font, so rendering the TikZ text sans-serif makes it fit the
+% boxes; the document's default (serif) font otherwise causes uneven margins (#14).
+% Override with \renewcommand (e.g. \rmfamily, or to match a serif
+% skinparam defaultFontName); set it empty to use the surrounding document font.
+\newcommand{\PlantUmlTikzFont}{\sffamily}
+
+% PlantUML runs as a shell-escape subprocess, which executes in the real
+% working directory. LaTeX's own writes (\openout) and reads (\input,
+% \IfFileExists, ...) are instead redirected into -output-directory when one is
+% set, so the two sides disagree about where the generated *-plantuml.* files
+% live. Two prefixes bridge that gap:
+%
+%   \CurrentDirectory  prefixes LaTeX's \openout of the source file.
+%   \PlantUmlIODir     prefixes everything the shell side touches (reading the
+%                      source, writing the diagram) so it reaches into the
+%                      output directory.
+%
+% Modern TeX Live (>=2023) exposes the output directory to subprocesses via the
+% TEXMF_OUTPUT_DIRECTORY environment variable. When present we keep the source
+% \openout relative (TeX redirects it into the output directory, which
+% openout_any=p allows) and point the shell side at that directory -- this fixes
+% -output-directory (#27), including the paranoid openout_any=p default of local
+% TeX installations (#47, #50).
+%
+% Without that variable (older engines, some Overleaf setups, #42) we probe:
+% write a relative file and let Lua check whether it landed in the working
+% directory. If yes, everything stays relative; if not (the write was
+% redirected), fall back to the absolute working directory for both sides --
+% exactly what #42 did.
+\ifluatex
+  \RequirePackage{luacode}
+  \newwrite\PlantUmlProbeStream
+  \immediate\openout\PlantUmlProbeStream=openout-probe-plantuml.tmp\relax
+  \immediate\write\PlantUmlProbeStream{probe}%
+  \immediate\closeout\PlantUmlProbeStream
+  \directlua{
+      local lfs = require("lfs")
+      local outdir = os.getenv("TEXMF_OUTPUT_DIRECTORY")
+      if outdir and outdir:len() > 0 then
+        outdir = outdir:gsub("\\", "/") .. "/"
+        os.remove(outdir .. "openout-probe-plantuml.tmp")
+        os.remove("openout-probe-plantuml.tmp")
+        tex.sprint("\\gdef\\CurrentDirectory{}")
+        tex.sprint("\\gdef\\PlantUmlIODir{" .. outdir .. "}")
+      else
+        local probe = "openout-probe-plantuml.tmp"
+        if lfs.attributes(probe) then
+          os.remove(probe)
+          tex.sprint("\\gdef\\CurrentDirectory{}")
+          tex.sprint("\\gdef\\PlantUmlIODir{}")
+        else
+          local currentdir = lfs.currentdir():gsub("\\", "/")
+          tex.sprint("\\gdef\\CurrentDirectory{" .. currentdir .. "/}")
+          tex.sprint("\\gdef\\PlantUmlIODir{" .. currentdir .. "/}")
+        end
+      end
+    }
+\else
+  % Non-Lua engines (e.g. pdflatex) drive PlantUML directly via shell escape
+  % (see the \plantuml@... helpers below). \CurrentDirectory stays empty (the
+  % source \openout is relative, so TeX redirects it into any -output-directory);
+  % \PlantUmlIODir is filled in from TEXMF_OUTPUT_DIRECTORY in the shell-escape
+  % branch below so the \write18 invocation can reach the files there (#27).
+  \newcommand{\CurrentDirectory}{}
+  \newcommand{\PlantUmlIODir}{}
+  % PlantUML (the JVM) hangs when TEXMF_OUTPUT_DIRECTORY holds a relative path,
+  % which is what pdflatex sets under a relative -output-directory. We clear it
+  % for the PlantUML child by prefixing the call with \PlantUmlEnvReset, which is
+  % set to \PlantUmlUnsetPrefix only while an output directory is in effect (#27).
+  % POSIX uses "env -u"; on Windows the prefix is left empty (untested combo).
+  \newcommand{\PlantUmlEnvReset}{}
+  \ExplSyntaxOn
+    \sys_if_platform_windows:TF
+      { \gdef\PlantUmlUnsetPrefix { } }
+      { \gdef\PlantUmlUnsetPrefix { env\space-u\space TEXMF_OUTPUT_DIRECTORY\space } }
+  \ExplSyntaxOff
+\fi
+
+\makeatletter
+
+% Content hash of the current diagram; the generated file is plantuml-<hash>.<ext>
+% (#2). Set per diagram by the converter; default empty as a safety net. With a
+% global preamble (#5) the hash is "<source-md5>-<preamble-md5>".
+\newcommand{\PlantUmlHash}{}
+
+% Global PlantUML preamble (skinparam etc.) applied to every diagram (#5). Two
+% paths, like the diagram source: ...Md5 for \pdf@filemdfivesum (located via TeX's
+% input search, so a relative name works under -output-directory) and ...IO for
+% the shell side (-config / hex dump / lua io.open). Empty means no preamble.
+\def\PlantUmlPreambleMd5{}
+\def\PlantUmlPreambleIO{}
+
+% \plantuml@notgenerated: visible, non-fatal placeholder typeset in the document
+% when a diagram could not be generated (e.g. PLANTUML_JAR unset, no server, or
+% PlantUML failed). This keeps compilation going -- the error is shown in the
+% output, similar to a missing reference -- instead of aborting on a missing
+% \input/\includegraphics. (#16)
+\newcommand{\plantuml@notgenerated}{%
+  \PackageWarning{plantuml}{PlantUML diagram could not be generated; is
+    PLANTUML_JAR set (or a server configured) and -shell-escape enabled?}%
+  \fbox{%
+    \begin{minipage}{0.8\linewidth}%
+      \raggedright
+      \textbf{PlantUML diagram could not be generated.}\par
+      Ensure \texttt{PLANTUML\_JAR} is set (or a \texttt{server} is configured)
+      and that \texttt{-shell-escape} is enabled.%
+    \end{minipage}%
+  }%
+}
+
+% \plantuml@includeresult: typeset the diagram named plantuml-\PlantUmlHash, which
+% the converter has just produced (or found cached). Shared by the plantuml
+% environment and \plantumlinput so both behave identically: latex/TikZ is scaled
+% with adjustbox, png/svg via \includegraphics, and a missing file falls back to
+% the placeholder (#16).
+\newcommand{\plantuml@includeresult}{%
+  \ifthenelse{\equal{\PlantUmlMode}{latex}}{%
+    \IfFileExists{\PlantUmlIODir plantuml-\PlantUmlHash-converted-to.tex}{%
+      \begin{adjustbox}{max width=\linewidth}%
+        % \PlantUmlTikzFont (default \sffamily) makes the TikZ text match the
+        % font PlantUML measured the boxes with, avoiding uneven margins (#14).
+        {\PlantUmlTikzFont\input{\PlantUmlIODir plantuml-\PlantUmlHash-converted-to.tex}}%
+      \end{adjustbox}%
+    }{%
+      \plantuml@notgenerated
+    }%
+  }{%
+    \IfFileExists{\PlantUmlIODir plantuml-\PlantUmlHash-converted-to.\PlantUmlMode}{%
+      \includegraphics[width=\maxwidth{\textwidth}]{\PlantUmlIODir plantuml-\PlantUmlHash-converted-to.\PlantUmlMode}%
+    }{%
+      \plantuml@notgenerated
+    }%
+    \UMLcountUp
+  }%
+}
+
+% --- Non-Lua (e.g. pdflatex) PlantUML driver ----------------------------------
+% The LuaTeX path (plantuml.lua) shells out with io.popen, reads PLANTUML_JAR
+% with os.getenv and checks files with lfs. For pdfTeX we reproduce the same
+% behaviour with engine primitives: \write18 for execution, kpsewhich (run via a
+% piped \openin) to read PLANTUML_JAR cross-platform, and the MD5/file helpers
+% from pdftexcmds to skip re-running PlantUML when the source is unchanged (the
+% same caching that plantuml.lua does, which avoids latexmk rebuild loops).
+\ifluatex\else
+  \newread\plantuml@stream
+  \let\plantuml@jar\@empty
+
+  % The PlantUML server expects hex-encoded source after a "~h" marker. "~" is an
+  % active character in TeX (\nobreakspace), so capture a catcode-12 "~h" literal
+  % for safe use inside the \edef that builds the curl URL. (#6)
+  {\catcode`\~=12 \gdef\plantuml@hexmarker{~h}}
+
+  % \plantuml@readjar: read the PLANTUML_JAR environment variable into
+  % \plantuml@jar, cross-platform, via kpsewhich. Needs full shell escape, so it
+  % is only called from the shell-escape-enabled branch below.
+  \newcommand*{\plantuml@readjar}{%
+    \begingroup
+      \endlinechar=-1\relax
+      \openin\plantuml@stream=|"kpsewhich --var-value=PLANTUML_JAR"\relax
+      \ifeof\plantuml@stream
+        \global\let\plantuml@jar\@empty
+      \else
+        \readline\plantuml@stream to \plantuml@line
+        \global\let\plantuml@jar\plantuml@line
+      \fi
+      \closein\plantuml@stream
+    \endgroup
+    \ifx\plantuml@jar\@empty
+      % A PlantUML server (if configured) renders png/svg without the jar, so
+      % only warn about a missing jar when no server is set (#6).
+      \edef\plantuml@tmp{\PlantUmlServer}%
+      \ifx\plantuml@tmp\@empty
+        \PackageWarning{plantuml}{Environment variable PLANTUML_JAR not set}%
+      \fi
+    \fi
+  }
+
+  % Strip a trailing slash from \PlantUmlServer so "/<format>/~h..." appends
+  % cleanly. Defined under \ExplSyntaxOn so the l3regex name tokenizes correctly,
+  % under a letters-only name so it stays callable from normal catcodes. (#6)
+  \ExplSyntaxOn
+  \cs_new_protected:Npn \PlantumlStripTrailingSlash {
+    \regex_replace_once:nnN { /+ \Z } { } \PlantUmlServer
+  }
+  \ExplSyntaxOff
+
+  % \plantuml@readserver: resolve the PlantUML server URL. Uses the package option
+  % value if given, else the PLANTUML_SERVER environment variable (read via
+  % kpsewhich, like the jar). Any trailing slash is stripped so the format/source
+  % can be appended cleanly. Needs shell escape (for the kpsewhich pipe). (#6)
+  \newcommand*{\plantuml@readserver}{%
+    \edef\plantuml@tmp{\PlantUmlServer}%
+    \ifx\plantuml@tmp\@empty
+      \begingroup
+        \endlinechar=-1\relax
+        \openin\plantuml@stream=|"kpsewhich --var-value=PLANTUML_SERVER"\relax
+        \ifeof\plantuml@stream
+          \global\let\PlantUmlServer\@empty
+        \else
+          \readline\plantuml@stream to \plantuml@line
+          \global\let\PlantUmlServer\plantuml@line
+        \fi
+        \closein\plantuml@stream
+      \endgroup
+    \fi
+    \edef\plantuml@tmp{\PlantUmlServer}%
+    \ifx\plantuml@tmp\@empty\else
+      \PlantumlStripTrailingSlash
+    \fi
+  }
+
+  % \plantuml@readoutdir: read TEXMF_OUTPUT_DIRECTORY into \PlantUmlIODir (with a
+  % trailing slash) so the \write18 PlantUML call can reach files written into a
+  % -output-directory. Cross-platform via kpsewhich, like \plantuml@readjar. Left
+  % empty when no output directory is in effect. Needs shell escape.
+  \newcommand*{\plantuml@readoutdir}{%
+    \begingroup
+      \endlinechar=-1\relax
+      \openin\plantuml@stream=|"kpsewhich --var-value=TEXMF_OUTPUT_DIRECTORY"\relax
+      \ifeof\plantuml@stream
+      \else
+        \readline\plantuml@stream to \plantuml@line
+        \ifx\plantuml@line\@empty
+        \else
+          \xdef\PlantUmlIODir{\plantuml@line/}%
+          \global\let\PlantUmlEnvReset\PlantUmlUnsetPrefix
+        \fi
+      \fi
+      \closein\plantuml@stream
+    \endgroup
+  }
+
+  % \plantuml@iffilenonempty{<file>}{<then>}{<else>}: run <then> if <file> exists
+  % and is non-empty, else <else>.
+  \newcommand{\plantuml@iffilenonempty}[3]{%
+    \IfFileExists{#1}{\ifnum\pdf@filesize{#1}>0\relax #2\else #3\fi}{#3}%
+  }
+
+  % \plantuml@convert{<jobname>}{<mode>}: render <jobname>-plantuml.txt to the
+  % content-addressed file plantuml-<md5>.{tex|<mode>}. PlantUML runs only when no
+  % such file exists yet, so identical or reordered diagrams reuse the cached
+  % output (#2). Sets \PlantUmlHash to the md5 (empty on failure) so the
+  % environment can include the matching file.
+  \newcommand{\plantuml@convert}[2]{%
+    \begingroup
+      % Environment source: written into the (output) directory as a relative file
+      % whose md5 is found via TeX's input search (\plantuml@srcmd5), while the
+      % shell and the byte-level helpers reach it through the explicit
+      % \PlantUmlIODir prefix (\plantuml@srcio) (#27).
+      \edef\plantuml@srcmd5{#1-plantuml.txt}%
+      \edef\plantuml@srcio{\PlantUmlIODir#1-plantuml.txt}%
+      \plantuml@convert@core{#2}%
+    \endgroup
+  }
+
+  % \plantuml@convertfile{<sourcepath>}{<mode>}: like \plantuml@convert but renders
+  % an existing PlantUML source file (#3). The user file is read from its own path
+  % (no output-directory prefix); only the generated diagram lands in \PlantUmlIODir.
+  \newcommand{\plantuml@convertfile}[2]{%
+    \begingroup
+      \edef\plantuml@srcmd5{#1}%
+      \edef\plantuml@srcio{#1}%
+      \plantuml@convert@core{#2}%
+    \endgroup
+  }
+
+  % \plantuml@convert@core{<mode>}: shared backend used by both entry points above.
+  % Reads the source via the \plantuml@srcmd5 (for \pdf@filemdfivesum) and
+  % \plantuml@srcio (for the shell redirect and \pdf@filesize/\pdf@filedump) path
+  % macros, content-addresses the output as plantuml-<md5>-converted-to.<ext>, runs
+  % PlantUML (or the server) only on a cache miss, and sets \PlantUmlHash (empty on
+  % failure, for #16).
+  \newcommand{\plantuml@convert@core}[1]{%
+    \ifthenelse{\equal{#1}{latex}}{%
+      % PlantUML emits the file with a .tex extension since v1.2023.0.
+      \def\plantuml@ext{tex}%
+      \def\plantuml@topt{latex:nopreamble}%
+    }{%
+      \def\plantuml@ext{#1}%
+      \def\plantuml@topt{#1}%
+    }%
+    \IfFileExists{\plantuml@srcmd5}{%
+      \edef\plantuml@hash{\pdf@filemdfivesum{\plantuml@srcmd5}}%
+      % Fold the global preamble (#5) into the hash so changing it rebuilds every
+      % diagram. \plantuml@usepre records whether a preamble is in effect.
+      \def\plantuml@usepre{0}%
+      \edef\plantuml@pretmp{\PlantUmlPreambleMd5}%
+      \ifx\plantuml@pretmp\@empty\else
+        \IfFileExists{\PlantUmlPreambleMd5}{%
+          \def\plantuml@usepre{1}%
+          \edef\plantuml@hash{\plantuml@hash-\pdf@filemdfivesum{\PlantUmlPreambleMd5}}%
+        }{%
+          \PackageWarning{plantuml}{Preamble file \PlantUmlPreambleMd5\space not found; ignoring}%
+        }%
+      \fi
+      % The "-converted-to." infix makes these cache files match the standard
+      % TeX .gitignore pattern *-converted-to.*, so no custom entry is needed (#2).
+      \edef\plantuml@tgt{plantuml-\plantuml@hash-converted-to.\plantuml@ext}%
+      \plantuml@iffilenonempty{\PlantUmlIODir\plantuml@tgt}{%
+        \typeout{[plantuml] cache hit \plantuml@tgt;\space skipping PlantUML.}%
+      }{%
+        % Pick the backend: a configured server renders png/svg; latex (TikZ),
+        % which the server cannot produce, and the no-server case use the jar (#6).
+        \edef\plantuml@tmp{\PlantUmlServer}%
+        \def\plantuml@useserver{0}%
+        \ifx\plantuml@tmp\@empty\else
+          \ifthenelse{\equal{#1}{latex}}{}{\def\plantuml@useserver{1}}%
+        \fi
+        \let\plantuml@cmd\@empty
+        \ifthenelse{\equal{\plantuml@useserver}{1}}{%
+          % Server backend: GET <server>/<format>/~h<hex-source> via curl.
+          % \pdf@filedump emits the file as (uppercase) hex, which the server
+          % accepts after the ~h marker. With a preamble (#5) the server has no
+          % -config, so prepend it (hex(preamble) + "0A" newline + hex(source)).
+          \edef\plantuml@hex{\pdf@filedump{0}{\pdf@filesize{\plantuml@srcio}}{\plantuml@srcio}}%
+          \ifthenelse{\equal{\plantuml@usepre}{1}}{%
+            \edef\plantuml@prehex{\pdf@filedump{0}{\pdf@filesize{\PlantUmlPreambleIO}}{\PlantUmlPreambleIO}}%
+            \edef\plantuml@hex{\plantuml@prehex 0A\plantuml@hex}%
+          }{}%
+          \edef\plantuml@cmd{%
+            curl -sS -f -o "\PlantUmlIODir\plantuml@tgt"%
+            \space "\PlantUmlServer/\plantuml@topt/\plantuml@hexmarker\plantuml@hex"}%
+        }{%
+          \ifx\plantuml@jar\@empty
+            \PackageWarning{plantuml}{PLANTUML_JAR not set; cannot run PlantUML}%
+          \else
+            % Jar backend applies the preamble via PlantUML's -config (#5).
+            \ifthenelse{\equal{\plantuml@usepre}{1}}{%
+              \edef\plantuml@configopt{\space -config "\PlantUmlPreambleIO"}%
+            }{%
+              \let\plantuml@configopt\@empty
+            }%
+            \edef\plantuml@cmd{%
+              \PlantUmlEnvReset
+              java -Djava.awt.headless=true -jar "\plantuml@jar"%
+              \space -charset UTF-8\plantuml@configopt
+              \space -pipe -t\plantuml@topt
+              \space < "\plantuml@srcio" > "\PlantUmlIODir\plantuml@tgt"}%
+          \fi
+        }%
+        \ifx\plantuml@cmd\@empty\else
+          \typeout{[plantuml] \plantuml@cmd}%
+          \immediate\write18{\plantuml@cmd}%
+          \plantuml@iffilenonempty{\PlantUmlIODir\plantuml@tgt}{}{%
+            \PackageWarning{plantuml}{PlantUML did not generate \plantuml@tgt}%
+          }%
+        \fi
+      }%
+      % Expose the hash only if a non-empty output now exists, else empty so the
+      % environment shows the missing-diagram placeholder (#16).
+      \plantuml@iffilenonempty{\PlantUmlIODir\plantuml@tgt}{%
+        \global\let\PlantUmlHash\plantuml@hash
+      }{%
+        \global\let\PlantUmlHash\@empty
+      }%
+    }{%
+      \PackageWarning{plantuml}{Source \plantuml@srcmd5\space does not exist}%
+      \global\let\PlantUmlHash\@empty
+    }%
+  }
+\fi
+% ------------------------------------------------------------------------------
+
+\ifcase\pdf@shellescape
+  \message{No shell escape. PlantUML cannot be called. Start pdflatex/lualatex with -shell-escape.}
+  \newenvironment{plantuml}{%
+    No shell escape. PlantUML cannot be called. Start pdflatex/lualatex with -shell-escape.
+  }{}
+\or
+  \ifluatex
+    \directlua{
+      local plantUmlJar = os.getenv("PLANTUML_JAR")
+      local server = \luastring{\PlantUmlServer}
+      if server == "" then server = os.getenv("PLANTUML_SERVER") or "" end
+      if not plantUmlJar and server == "" then
+        texio.write_nl("Environment variable PLANTUML_JAR not set.")
+      end
+    }
+  \else
+    \plantuml@readserver
+    \plantuml@readjar
+    \plantuml@readoutdir
+  \fi
+  % Caption/label/float options come from a preceding \plantumlset (#8); an
+  % optional argument cannot be read here without breaking the verbatim capture.
+  \NewDocumentEnvironment{plantuml}{}{%
+    \VerbatimOut{"\CurrentDirectory\PlantUMLJobname-plantuml.txt"}}
+  {%
+    \endVerbatimOut
+    % \PlantUmlHash is set to the content hash of the diagram; the generated file
+    % is named plantuml-<hash>.<ext> so identical diagrams share one cached file (#2).
+    \ifluatex
+      \directlua{
+        local jobname=\luastring{\PlantUMLJobname}
+        local plantUmlMode=\luastring{\PlantUmlMode}
+        local plantUmlIODir=\luastring{\PlantUmlIODir}
+        local plantUmlServer=\luastring{\PlantUmlServer}
+        local plantUmlPreamble=\luastring{\PlantUmlPreambleIO}
+        require("plantuml.lua")
+        local hash = convertPlantUmlToTikz(jobname, plantUmlMode, plantUmlIODir, plantUmlServer, nil, plantUmlPreamble)
+        tex.sprint("\\gdef\\PlantUmlHash{" .. (hash or "") .. "}")
+      }
+    \else
+      \plantuml@convert{\PlantUMLJobname}{\PlantUmlMode}
+    \fi
+    \plantumlEmit
+    \plantumlResetOpts
+  }
+\or
+  \message{Restricted shell escape. PlantUML cannot be called. Start pdflatex/lualatex with -shell-escape.}
+  \newenvironment{plantuml}{%
+    Restricted shell escape. PlantUML cannot be called. Start pdflatex/lualatex with -shell-escape.
+  }{}
+\fi
+
+% \plantumlinput{<file>}: render a diagram from an existing PlantUML source file,
+% analogous to \inputminted (minted) and \lstinputlisting (listings). It honors
+% the output mode and reuses the same caching, server, -output-directory, and
+% missing-diagram handling as the plantuml environment (#3). The file is read
+% relative to the current working directory (like \write18), so paths in
+% subdirectories work when compiling from the project root. Accepts the same
+% optional [caption=...,label=...,float=...] argument as the environment (#8).
+\NewDocumentCommand{\plantumlinput}{O{} m}{%
+  \plantumlParseOpts{#1}%
+  \ifluatex
+    \directlua{
+      local sourceFile=\luastring{#2}
+      local plantUmlMode=\luastring{\PlantUmlMode}
+      local plantUmlIODir=\luastring{\PlantUmlIODir}
+      local plantUmlServer=\luastring{\PlantUmlServer}
+      local plantUmlPreamble=\luastring{\PlantUmlPreambleIO}
+      require("plantuml.lua")
+      local hash = convertPlantUmlToTikz("", plantUmlMode, plantUmlIODir, plantUmlServer, sourceFile, plantUmlPreamble)
+      tex.sprint("\\gdef\\PlantUmlHash{" .. (hash or "") .. "}")
+    }%
+  \else
+    \plantuml@convertfile{#2}{\PlantUmlMode}%
+  \fi
+  \plantumlEmit
+  \plantumlResetOpts
+}
+
+% --- Global preamble (#5) -----------------------------------------------------
+% A preamble (skinparam etc.) applied to every diagram. Set it from a file with
+% \plantumlpreamblefile, or write it inline in the plantumlpreamble environment.
+% The local jar applies it via PlantUML's -config; the server prepends it to the
+% source (which requires the diagram to omit @startuml -- the default since #4).
+
+% \plantumlpreamblefile{<file>}: use <file> as the global preamble. The file is a
+% real source-tree file, so both the md5 and the shell side use its path as-is.
+\newcommand{\plantumlpreamblefile}[1]{%
+  \gdef\PlantUmlPreambleMd5{#1}%
+  \gdef\PlantUmlPreambleIO{#1}%
+}
+
+% plantumlpreamble environment: capture an inline preamble verbatim into a file
+% and use it. Like the diagram source, it is written through \CurrentDirectory (so
+% it lands in any -output-directory) and read back via the \PlantUmlIODir prefix.
+% Name kept as *-plantuml.* so the existing .gitignore entry covers it.
+\def\PlantUmlPreambleName{\myjobname-plantuml.preamble}
+\NewDocumentEnvironment{plantumlpreamble}{}{%
+  \VerbatimOut{"\CurrentDirectory\PlantUmlPreambleName"}%
+}{%
+  \endVerbatimOut
+  \gdef\PlantUmlPreambleMd5{\PlantUmlPreambleName}%
+  \xdef\PlantUmlPreambleIO{\PlantUmlIODir\PlantUmlPreambleName}%
+}
+\makeatother

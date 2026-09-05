@@ -1,0 +1,978 @@
+%%
+%% This is file `mahjong-tiles.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% mahjong-tiles.dtx  (with options: `package')
+%% 
+%% This is a generated file.
+%% 
+%% Project: mahjong-tiles -- Typeset Japanese/Riichi Mahjong hands and discard rivers.
+%% 
+%% Copyright (c) 2021 Daniel Schmitz
+%% Copyright (c) 2026 Lilia Chen May wither
+%% This file was generated from mahjong-tiles.dtx by docstrip.
+%% 
+%% The package code is distributed under the MIT Licence; see LICENCE for the
+%% complete licence text and tile-artwork attribution.
+%% 
+%% mahjong-tiles.sty -- Typeset Japanese/Riichi Mahjong tiles from compact MPSZ notation.
+%%
+%% This package is derived from and extends Daniel Schmitz's mahjong package.
+%% Copyright (c) 2021 Daniel Schmitz.
+%% mahjong-tiles modifications are copyright (c) 2026 Lilia Chen May wither.
+%%
+%% The package name and file prefix are mahjong-tiles; the LaTeX3 namespace is mahjongtiles.
+%% The public hand command is \mahjong for compact document markup.
+%% Distributed under the MIT Licence; see LICENCE.
+%% Tile artwork in tiles/ is credited to FluffyStuff/riichi-mahjong-tiles;
+%% see README.md and LICENCE for details.
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{expl3}
+\ProvidesExplPackage{mahjong-tiles}{2026/07/01}{2.2.0}{Typeset Japanese/Riichi Mahjong hands and discard rivers}
+
+\RequirePackage{xparse}
+\RequirePackage{l3keys2e}
+\RequirePackage{graphicx}
+\RequirePackage{xcolor}
+\definecolor{mahjongtilesbackred}{rgb}{1,0.215576,0.215576}
+\RequirePackage{tikz}
+\RequirePackage{stackengine}
+
+\ExplSyntaxOn
+
+\msg_new:nnnn { mahjong-tiles } { invalid-token }
+  { Token~'#1'~is~not~valid~in~Mahjong~MPSZ~notation. }
+  { Valid~tokens~are~0--9,~m,~p,~s,~z,~x,~?,~-,~',~",~*,~+,~[text],~\mj\{tile\},~and~spaces. }
+
+\msg_new:nnnn { mahjong-tiles } { unknown-tile }
+  { I~cannot~find~tile~'#1'. }
+  { Check~that~the~tile~PDF~exists~under~the~configured~tile-dir. }
+
+\msg_new:nnnn { mahjong-tiles } { unknown-orientation }
+  { Orientation~'#1'~is~unknown. }
+  { This~is~an~internal~error;~valid~orientations~are~0,~1,~and~2. }
+
+\msg_new:nnnn { mahjong-tiles } { missing-suit }
+  { Tile~digit(s)~'#1'~do~not~have~a~suit. }
+  { Add~m,~p,~s,~or~z~after~the~digit~group,~or~use~N-~for~a~separator. }
+
+\msg_new:nnnn { mahjong-tiles } { missing-rotation-target }
+  { Rotation~marker~'#1'~has~no~tile~to~rotate. }
+  { Put~the~marker~after~a~digit,~x,~?,~or~a~completed~tile~group. }
+
+\msg_new:nnnn { mahjong-tiles } { missing-overlay-target }
+  { Overlay~text~'#1'~has~no~tile~to~annotate. }
+  { Put~[text]~after~a~digit,~x,~?,~or~a~completed~tile~group. }
+
+\msg_new:nnnn { mahjong-tiles } { unclosed-overlay }
+  { Overlay~text~was~started~with~'['~but~no~closing~']'~was~found. }
+  { Add~a~closing~']'.~Nested~literal~square~brackets~are~not~supported. }
+
+\msg_new:nnnn { mahjong-tiles } { concealed-kong-overlay }
+  { Overlay~text~'#1'~is~attached~to~the~final~back~tile~of~a~concealed~kong. }
+  { This~warning~confirms~that~the~postfix~annotation~targets~the~expanded~kong~tail. }
+
+\msg_new:nnnn { mahjong-tiles } { nested-mj }
+  { The~\mj~command~cannot~be~nested. }
+  { mahjong-tiles~only~expands~one~level~of~\mj\{...\}. }
+
+\msg_new:nnnn { mahjong-tiles } { inline-mj-single-tile }
+  { Inline~\mj\{#1\}~must~contain~exactly~one~Mahjong~tile. }
+  { Use~one~simple~tile~such~as~\mj\{2z\}.~Do~not~put~a~hand,~gap,~or~meld~inside~inline~\mj. }
+
+\msg_new:nnnn { mahjong-tiles } { inline-mj-tile-only }
+  { Inline~\mj\{#1\}~did~not~produce~a~plain~tile. }
+  { Inline~\mj~inside~\mahjong\{...\}~is~reserved~for~one~drawn~tile. }
+
+\msg_new:nnnn { mahjong-tiles } { invalid-bool }
+  { Boolean~option~'#1'~must~be~one~of~true,~false,~1,~0,~yes,~no,~on,~or~off. }
+  { Use~for~example~no-aka=1~to~replace~red~fives~with~regular~fives. }
+
+\dim_new:N \g__mahjongtiles_default_height_dim
+\fp_new:N  \g__mahjongtiles_default_scale_fp
+\tl_new:N  \g__mahjongtiles_tile_dir_tl
+\int_new:N \g__mahjongtiles_river_cols_int
+\dim_new:N \g__mahjongtiles_river_row_gap_dim
+
+\dim_gset:Nn \g__mahjongtiles_default_height_dim { \baselineskip }
+\fp_gset:Nn  \g__mahjongtiles_default_scale_fp  { 0.75 }
+\tl_gset:Nn  \g__mahjongtiles_tile_dir_tl       { tiles }
+\int_gset:Nn \g__mahjongtiles_river_cols_int    { 6 }
+\dim_gset:Nn \g__mahjongtiles_river_row_gap_dim { 0pt }
+
+\tl_new:N   \g__mahjongtiles_back_color_tl
+\tl_new:N   \g__mahjongtiles_overlay_style_tl
+\bool_new:N \g__mahjongtiles_back_recolor_bool
+\bool_new:N \g__mahjongtiles_no_aka_bool
+
+\tl_gclear:N \g__mahjongtiles_back_color_tl
+\tl_gset:Nn \g__mahjongtiles_overlay_style_tl
+  {
+    font = \scriptsize,
+    align = center,
+    anchor = south,
+    inner~sep = 0.2pt,
+    outer~sep = 0pt,
+    yshift = 0.35em
+  }
+
+\bool_gset_false:N \g__mahjongtiles_back_recolor_bool
+\bool_gset_false:N \g__mahjongtiles_no_aka_bool
+
+\cs_new_protected:Npn \__mahjongtiles_set_back_color_global:n #1
+  {
+    \tl_if_blank:nTF {#1}
+      {
+        \tl_gclear:N \g__mahjongtiles_back_color_tl
+        \bool_gset_false:N \g__mahjongtiles_back_recolor_bool
+      }
+      {
+        \str_if_eq:nnTF {#1} { none }
+          {
+            \tl_gclear:N \g__mahjongtiles_back_color_tl
+            \bool_gset_false:N \g__mahjongtiles_back_recolor_bool
+          }
+          {
+            \tl_gset:Nn \g__mahjongtiles_back_color_tl {#1}
+            \bool_gset_true:N \g__mahjongtiles_back_recolor_bool
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_back_color_local:n #1
+  {
+    \tl_if_blank:nTF {#1}
+      {
+        \tl_clear:N \g__mahjongtiles_back_color_tl
+        \bool_set_false:N \g__mahjongtiles_back_recolor_bool
+      }
+      {
+        \str_if_eq:nnTF {#1} { none }
+          {
+            \tl_clear:N \g__mahjongtiles_back_color_tl
+            \bool_set_false:N \g__mahjongtiles_back_recolor_bool
+          }
+          {
+            \tl_set:Nn \g__mahjongtiles_back_color_tl {#1}
+            \bool_set_true:N \g__mahjongtiles_back_recolor_bool
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_no_aka_global:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        { true }  { \bool_gset_true:N  \g__mahjongtiles_no_aka_bool }
+        { 1 }     { \bool_gset_true:N  \g__mahjongtiles_no_aka_bool }
+        { yes }   { \bool_gset_true:N  \g__mahjongtiles_no_aka_bool }
+        { on }    { \bool_gset_true:N  \g__mahjongtiles_no_aka_bool }
+        { false } { \bool_gset_false:N \g__mahjongtiles_no_aka_bool }
+        { 0 }     { \bool_gset_false:N \g__mahjongtiles_no_aka_bool }
+        { no }    { \bool_gset_false:N \g__mahjongtiles_no_aka_bool }
+        { off }   { \bool_gset_false:N \g__mahjongtiles_no_aka_bool }
+      }
+      { \msg_error:nnn { mahjong-tiles } { invalid-bool } { no-aka=#1 } }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_no_aka_local:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        { true }  { \bool_set_true:N  \g__mahjongtiles_no_aka_bool }
+        { 1 }     { \bool_set_true:N  \g__mahjongtiles_no_aka_bool }
+        { yes }   { \bool_set_true:N  \g__mahjongtiles_no_aka_bool }
+        { on }    { \bool_set_true:N  \g__mahjongtiles_no_aka_bool }
+        { false } { \bool_set_false:N \g__mahjongtiles_no_aka_bool }
+        { 0 }     { \bool_set_false:N \g__mahjongtiles_no_aka_bool }
+        { no }    { \bool_set_false:N \g__mahjongtiles_no_aka_bool }
+        { off }   { \bool_set_false:N \g__mahjongtiles_no_aka_bool }
+      }
+      { \msg_error:nnn { mahjong-tiles } { invalid-bool } { no-aka=#1 } }
+  }
+
+\keys_define:nn { mahjong-tiles }
+  {
+    height   .dim_gset:N = \g__mahjongtiles_default_height_dim,
+    scale    .fp_gset:N  = \g__mahjongtiles_default_scale_fp,
+    tile-dir .tl_gset:N  = \g__mahjongtiles_tile_dir_tl,
+    river-cols .int_gset:N = \g__mahjongtiles_river_cols_int,
+    river-cols .value_required:n = true,
+    river-row-gap .dim_gset:N = \g__mahjongtiles_river_row_gap_dim,
+    river-row-gap .value_required:n = true,
+    overlay-style .tl_gset:N = \g__mahjongtiles_overlay_style_tl,
+    overlay-style .value_required:n = true,
+
+    color .code:n =
+      { \__mahjongtiles_set_back_color_global:n {#1} },
+    color .value_required:n = true,
+
+    no-aka .code:n =
+      { \__mahjongtiles_set_no_aka_global:n {#1} },
+    no-aka .default:n = true,
+  }
+\ProcessKeysOptions { mahjong-tiles }
+
+\dim_new:N \l__mahjongtiles_tile_height_dim
+\dim_new:N \l__mahjongtiles_tile_width_dim
+\dim_new:N \l__mahjongtiles_symbol_height_dim
+\dim_new:N \l__mahjongtiles_baseline_offset_dim
+\fp_new:N  \l__mahjongtiles_tile_scale_fp
+\int_new:N \l__mahjongtiles_river_cols_int
+\dim_new:N \l__mahjongtiles_river_row_gap_dim
+\tl_new:N  \l__mahjongtiles_overlay_style_tl
+\int_new:N \l__mahjongtiles_river_col_int
+\int_new:N \l__mahjongtiles_river_seen_tiles_int
+\int_new:N \l__mahjongtiles_river_total_tiles_int
+
+\seq_new:N \l__mahjongtiles_tiles_seq
+\seq_new:N \l__mahjongtiles_pending_seq
+\tl_new:N  \l__mahjongtiles_pending_digits_tl
+\tl_new:N  \l__mahjongtiles_tmp_tl
+\tl_new:N  \l__mahjongtiles_tmpa_tl
+\tl_new:N  \l__mahjongtiles_tmpb_tl
+\tl_new:N  \l__mahjongtiles_first_face_tl
+\tl_new:N  \l__mahjongtiles_file_tl
+\box_new:N \l__mahjongtiles_tile_box
+\int_new:N \l__mahjongtiles_tmp_int
+\int_new:N \l__mahjongtiles_mj_depth_int
+\bool_new:N \l__mahjongtiles_concealed_kong_bool
+\bool_new:N \l__mahjongtiles_last_concealed_kong_tail_bool
+
+\tl_new:N   \g__mahjongtiles_inline_mj_face_tl
+\tl_new:N   \g__mahjongtiles_inline_mj_suit_tl
+\bool_new:N \g__mahjongtiles_inline_mj_valid_bool
+
+\keys_define:nn { mahjong-tiles / local }
+  {
+    height .dim_set:N = \l__mahjongtiles_tile_height_dim,
+    scale  .fp_set:N  = \l__mahjongtiles_tile_scale_fp,
+    river-cols .int_set:N = \l__mahjongtiles_river_cols_int,
+    river-cols .value_required:n = true,
+    river-row-gap .dim_set:N = \l__mahjongtiles_river_row_gap_dim,
+    river-row-gap .value_required:n = true,
+    overlay-style .tl_set:N = \l__mahjongtiles_overlay_style_tl,
+    overlay-style .value_required:n = true,
+
+    color .code:n =
+      { \__mahjongtiles_set_back_color_local:n {#1} },
+    color .value_required:n = true,
+
+    no-aka .code:n =
+      { \__mahjongtiles_set_no_aka_local:n {#1} },
+    no-aka .default:n = true,
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_pending_put:nn #1#2
+  { \seq_put_right:Nn \l__mahjongtiles_pending_seq { {#1} {#2} { } } }
+
+\cs_new_protected:Npn \__mahjongtiles_tile_put:nnnn #1#2#3#4
+  {
+    \seq_put_right:Nn \l__mahjongtiles_tiles_seq { { tile } {#1} {#2} {#3} {#4} }
+    \bool_set_false:N \l__mahjongtiles_last_concealed_kong_tail_bool
+  }
+\cs_new_protected:Npn \__mahjongtiles_tile_put:nnn #1#2#3
+  { \__mahjongtiles_tile_put:nnnn {#1} {#2} {#3} { } }
+\cs_generate_variant:Nn \__mahjongtiles_tile_put:nnn { Vnn }
+\cs_generate_variant:Nn \__mahjongtiles_tile_put:nnnn { Vnnn }
+
+\cs_new_protected:Npn \__mahjongtiles_tile_put_aka_aware:nnnn #1#2#3#4
+  {
+    \bool_if:NTF \g__mahjongtiles_no_aka_bool
+      {
+        \str_if_eq:nnTF {#1} {0}
+          {
+            \tl_if_in:nnTF { mps } {#2}
+              { \__mahjongtiles_tile_put:nnnn {5} {#2} {#3} {#4} }
+              { \__mahjongtiles_tile_put:nnnn {#1} {#2} {#3} {#4} }
+          }
+          { \__mahjongtiles_tile_put:nnnn {#1} {#2} {#3} {#4} }
+      }
+      { \__mahjongtiles_tile_put:nnnn {#1} {#2} {#3} {#4} }
+  }
+\cs_new_protected:Npn \__mahjongtiles_tile_put_aka_aware:nnn #1#2#3
+  { \__mahjongtiles_tile_put_aka_aware:nnnn {#1} {#2} {#3} { } }
+\cs_generate_variant:Nn \__mahjongtiles_tile_put_aka_aware:nnn { Vnn }
+\cs_generate_variant:Nn \__mahjongtiles_tile_put_aka_aware:nnnn { Vnnn }
+
+\cs_new_protected:Npn \__mahjongtiles_gap_put:n #1
+  {
+    \seq_put_right:Nn \l__mahjongtiles_tiles_seq { { gap } {#1} { } { } { } }
+    \bool_set_false:N \l__mahjongtiles_last_concealed_kong_tail_bool
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_draw_put:nn #1#2
+  {
+    \seq_put_right:Nn \l__mahjongtiles_tiles_seq { { draw } {#1} {#2} { } { } }
+    \bool_set_false:N \l__mahjongtiles_last_concealed_kong_tail_bool
+  }
+\cs_generate_variant:Nn \__mahjongtiles_draw_put:nn { VV }
+
+\cs_new_protected:Npn \__mahjongtiles_pending_set_last_orientation:n #1
+  {
+    \seq_pop_right:NNTF \l__mahjongtiles_pending_seq \l__mahjongtiles_tmp_tl
+      { \exp_last_unbraced:NV \__mahjongtiles_pending_set_last_orientation_aux:nnnn \l__mahjongtiles_tmp_tl {#1} }
+      { \msg_error:nnn { mahjong-tiles } { missing-rotation-target } {#1} }
+  }
+\cs_new_protected:Npn \__mahjongtiles_pending_set_last_orientation_aux:nnnn #1#2#3#4
+  { \seq_put_right:Nn \l__mahjongtiles_pending_seq { {#1} {#4} {#3} } }
+
+\cs_new_protected:Npn \__mahjongtiles_output_set_last_orientation:n #1
+  {
+    \seq_pop_right:NNTF \l__mahjongtiles_tiles_seq \l__mahjongtiles_tmp_tl
+      { \exp_last_unbraced:NV \__mahjongtiles_output_set_last_orientation_aux:nnnnnn \l__mahjongtiles_tmp_tl {#1} }
+      { \msg_error:nnn { mahjong-tiles } { missing-rotation-target } {#1} }
+  }
+\cs_new_protected:Npn \__mahjongtiles_output_set_last_orientation_aux:nnnnnn #1#2#3#4#5#6
+  {
+    \str_if_eq:nnTF {#1} { tile }
+      { \seq_put_right:Nn \l__mahjongtiles_tiles_seq { { tile } {#2} {#3} {#6} {#5} } }
+      {
+        \seq_put_right:Nn \l__mahjongtiles_tiles_seq { {#1} {#2} {#3} {#4} {#5} }
+        \msg_error:nnn { mahjong-tiles } { missing-rotation-target } {#6}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_last_orientation:n #1
+  {
+    \seq_if_empty:NTF \l__mahjongtiles_pending_seq
+      { \__mahjongtiles_output_set_last_orientation:n {#1} }
+      { \__mahjongtiles_pending_set_last_orientation:n {#1} }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_pending_set_last_overlay:n #1
+  {
+    \seq_pop_right:NNTF \l__mahjongtiles_pending_seq \l__mahjongtiles_tmp_tl
+      { \exp_last_unbraced:NV \__mahjongtiles_pending_set_last_overlay_aux:nnnn \l__mahjongtiles_tmp_tl {#1} }
+      { \msg_error:nnn { mahjong-tiles } { missing-overlay-target } {#1} }
+  }
+\cs_new_protected:Npn \__mahjongtiles_pending_set_last_overlay_aux:nnnn #1#2#3#4
+  { \seq_put_right:Nn \l__mahjongtiles_pending_seq { {#1} {#2} {#4} } }
+
+\cs_new_protected:Npn \__mahjongtiles_output_set_last_overlay:n #1
+  {
+    \seq_pop_right:NNTF \l__mahjongtiles_tiles_seq \l__mahjongtiles_tmp_tl
+      { \exp_last_unbraced:NV \__mahjongtiles_output_set_last_overlay_aux:nnnnnn \l__mahjongtiles_tmp_tl {#1} }
+      { \msg_error:nnn { mahjong-tiles } { missing-overlay-target } {#1} }
+  }
+\cs_generate_variant:Nn \__mahjongtiles_output_set_last_overlay:n { V }
+\cs_new_protected:Npn \__mahjongtiles_output_set_last_overlay_aux:nnnnnn #1#2#3#4#5#6
+  {
+    \str_if_eq:nnTF {#1} { tile }
+      {
+        \tl_if_blank:nF {#6}
+          {
+            \bool_if:NT \l__mahjongtiles_last_concealed_kong_tail_bool
+              { \msg_warning:nnn { mahjong-tiles } { concealed-kong-overlay } {#6} }
+          }
+        \seq_put_right:Nn \l__mahjongtiles_tiles_seq { { tile } {#2} {#3} {#4} {#6} }
+      }
+      {
+        \seq_put_right:Nn \l__mahjongtiles_tiles_seq { {#1} {#2} {#3} {#4} {#5} }
+        \msg_error:nnn { mahjong-tiles } { missing-overlay-target } {#6}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_last_overlay:n #1
+  {
+    \seq_if_empty:NTF \l__mahjongtiles_pending_seq
+      { \__mahjongtiles_output_set_last_overlay:n {#1} }
+      { \__mahjongtiles_pending_set_last_overlay:n {#1} }
+  }
+
+\quark_new:N \q__mahjongtiles_parse_stop
+\quark_new:N \q__mahjongtiles_parse_done
+
+\cs_new_protected:Npn \__mahjongtiles_parse:n #1
+  {
+    \seq_clear:N \l__mahjongtiles_tiles_seq
+    \seq_clear:N \l__mahjongtiles_pending_seq
+    \bool_set_false:N \l__mahjongtiles_last_concealed_kong_tail_bool
+    \__mahjongtiles_parse_loop:w #1 \q__mahjongtiles_parse_stop ] \q__mahjongtiles_parse_done
+    \seq_if_empty:NF \l__mahjongtiles_pending_seq
+      {
+        \tl_clear:N \l__mahjongtiles_pending_digits_tl
+        \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+          { \__mahjongtiles_collect_pending_digits:nnn ##1 }
+        \msg_error:nnV { mahjong-tiles } { missing-suit } \l__mahjongtiles_pending_digits_tl
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_loop:w #1
+  {
+    \tl_if_eq:nnTF {#1} { \q__mahjongtiles_parse_stop }
+      { \__mahjongtiles_parse_finish:w }
+      {
+        \token_if_eq_meaning:NNTF #1 \mj
+          {
+            \int_compare:nNnTF { \l__mahjongtiles_mj_depth_int } > {0}
+              { \__mahjongtiles_parse_nested_mj:n }
+              { \__mahjongtiles_parse_inline_mj:n }
+          }
+          {
+            \str_if_eq:nnTF {#1} { [ }
+              { \__mahjongtiles_parse_overlay:w }
+              {
+                \__mahjongtiles_parse_token:n {#1}
+                \__mahjongtiles_parse_loop:w
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_nested_mj:n #1
+  {
+    \msg_error:nnn { mahjong-tiles } { nested-mj } {#1}
+    \__mahjongtiles_parse_loop:w
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_inline_mj:n #1
+  {
+    \seq_if_empty:NF \l__mahjongtiles_pending_seq
+      {
+        \tl_clear:N \l__mahjongtiles_pending_digits_tl
+        \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+          { \__mahjongtiles_collect_pending_digits:nnn ##1 }
+        \msg_error:nnV { mahjong-tiles } { missing-suit } \l__mahjongtiles_pending_digits_tl
+        \seq_clear:N \l__mahjongtiles_pending_seq
+      }
+    \__mahjongtiles_draw_put_from_notation:n {#1}
+    \__mahjongtiles_parse_loop:w
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_draw_put_from_notation:n #1
+  {
+    \bool_gset_false:N \g__mahjongtiles_inline_mj_valid_bool
+    \tl_gclear:N \g__mahjongtiles_inline_mj_face_tl
+    \tl_gclear:N \g__mahjongtiles_inline_mj_suit_tl
+    \group_begin:
+      \int_incr:N \l__mahjongtiles_mj_depth_int
+      \__mahjongtiles_parse:n {#1}
+      \int_compare:nNnTF { \seq_count:N \l__mahjongtiles_tiles_seq } = {1}
+        {
+          \seq_get_left:NN \l__mahjongtiles_tiles_seq \l__mahjongtiles_tmp_tl
+          \exp_last_unbraced:NV \__mahjongtiles_extract_inline_mj_tile:nnnnnn
+            \l__mahjongtiles_tmp_tl {#1}
+        }
+        { \msg_error:nnn { mahjong-tiles } { inline-mj-single-tile } {#1} }
+    \group_end:
+    \bool_if:NT \g__mahjongtiles_inline_mj_valid_bool
+      { \__mahjongtiles_draw_put:VV \g__mahjongtiles_inline_mj_face_tl \g__mahjongtiles_inline_mj_suit_tl }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_extract_inline_mj_tile:nnnnnn #1#2#3#4#5#6
+  {
+    \str_if_eq:nnTF {#1} { tile }
+      {
+        \tl_gset:Nn \g__mahjongtiles_inline_mj_face_tl {#2}
+        \tl_gset:Nn \g__mahjongtiles_inline_mj_suit_tl {#3}
+        \bool_gset_true:N \g__mahjongtiles_inline_mj_valid_bool
+      }
+      { \msg_error:nnn { mahjong-tiles } { inline-mj-tile-only } {#6} }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_finish:w #1 \q__mahjongtiles_parse_done { }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_overlay:w #1 ]
+  {
+    \tl_if_in:nnTF {#1} { \q__mahjongtiles_parse_stop }
+      {
+        \msg_error:nn { mahjong-tiles } { unclosed-overlay }
+        \__mahjongtiles_parse_finish:w
+      }
+      {
+        \__mahjongtiles_set_last_overlay:n {#1}
+        \__mahjongtiles_parse_loop:w
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_collect_pending_digits:nnn #1#2#3
+  { \tl_put_right:Nn \l__mahjongtiles_pending_digits_tl {#1} }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_token:n #1
+  {
+    \tl_if_blank:nTF {#1}
+      { }
+      {
+        \tl_set:Nx \l__mahjongtiles_tmp_tl { \text_lowercase:n {#1} }
+        \exp_args:NV \__mahjongtiles_parse_normalized_token:n \l__mahjongtiles_tmp_tl
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_parse_normalized_token:n #1
+  {
+    \tl_if_in:nnTF { 0123456789 } {#1}
+      { \__mahjongtiles_pending_put:nn {#1} {0} }
+      {
+        \tl_if_in:nnTF { mpsz } {#1}
+          { \__mahjongtiles_flush_suit:n {#1} }
+          {
+            \str_case:nnF {#1}
+              {
+                { - } { \__mahjongtiles_handle_dash: }
+                { x } { \__mahjongtiles_tile_put:nnn { x } { } {0} }
+                { ? } { \__mahjongtiles_tile_put:nnn { ? } { } {0} }
+                { ' } { \__mahjongtiles_set_last_orientation:n {1} }
+                { * } { \__mahjongtiles_set_last_orientation:n {1} }
+                { " } { \__mahjongtiles_set_last_orientation:n {2} }
+                { + } { \__mahjongtiles_set_last_orientation:n {2} }
+              }
+              { \msg_error:nnn { mahjong-tiles } { invalid-token } {#1} }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_handle_dash:
+  {
+    \seq_if_empty:NTF \l__mahjongtiles_pending_seq
+      { \__mahjongtiles_gap_put:n {7} }
+      {
+        \tl_clear:N \l__mahjongtiles_pending_digits_tl
+        \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+          { \__mahjongtiles_collect_pending_digits:nnn ##1 }
+        \__mahjongtiles_gap_put:V \l__mahjongtiles_pending_digits_tl
+        \seq_clear:N \l__mahjongtiles_pending_seq
+      }
+  }
+\cs_generate_variant:Nn \__mahjongtiles_gap_put:n { V }
+
+\cs_new_protected:Npn \__mahjongtiles_flush_suit:n #1
+  {
+    \seq_if_empty:NF \l__mahjongtiles_pending_seq
+      {
+        \__mahjongtiles_detect_concealed_kong:
+        \bool_if:NTF \l__mahjongtiles_concealed_kong_bool
+          { \__mahjongtiles_flush_concealed_kong:n {#1} }
+          {
+            \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+              { \__mahjongtiles_flush_pending_item:nnnn ##1 {#1} }
+          }
+        \seq_clear:N \l__mahjongtiles_pending_seq
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_flush_pending_item:nnnn #1#2#3#4
+  { \__mahjongtiles_tile_put_aka_aware:nnnn {#1} {#4} {#2} {#3} }
+
+\cs_new_protected:Npn \__mahjongtiles_detect_concealed_kong:
+  {
+    \bool_set_false:N \l__mahjongtiles_concealed_kong_bool
+    \int_compare:nNnT { \seq_count:N \l__mahjongtiles_pending_seq } = {5}
+      {
+        \seq_get_left:NN \l__mahjongtiles_pending_seq \l__mahjongtiles_tmp_tl
+        \exp_last_unbraced:NV \__mahjongtiles_remember_first_pending:nnn \l__mahjongtiles_tmp_tl
+        \bool_set_true:N \l__mahjongtiles_concealed_kong_bool
+        \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+          { \__mahjongtiles_check_concealed_kong_item:nnn ##1 }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_remember_first_pending:nnn #1#2#3
+  { \tl_set:Nn \l__mahjongtiles_first_face_tl {#1} }
+
+\cs_new_protected:Npn \__mahjongtiles_check_concealed_kong_item:nnn #1#2#3
+  {
+    \str_if_eq:VnF \l__mahjongtiles_first_face_tl {#1}
+      { \bool_set_false:N \l__mahjongtiles_concealed_kong_bool }
+    \int_compare:nNnF {#2} = {0}
+      { \bool_set_false:N \l__mahjongtiles_concealed_kong_bool }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_remember_pending_overlay:nnn #1#2#3
+  {
+    \tl_if_blank:nF {#3}
+      { \tl_set:Nn \l__mahjongtiles_tmpb_tl {#3} }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_flush_concealed_kong:n #1
+  {
+    % Five repeated digits followed by a suit are rendered as a concealed kong:
+    % back, two visible tiles, back.  For 55555m/p/s the visible pair is red 5
+    % plus normal 5 by default; no-aka=1 turns that visible pair into two
+    % regular fives.
+    \tl_clear:N \l__mahjongtiles_tmpb_tl
+    \seq_map_inline:Nn \l__mahjongtiles_pending_seq
+      { \__mahjongtiles_remember_pending_overlay:nnn ##1 }
+    \__mahjongtiles_tile_put:nnn { x } { } {0}
+    \str_if_eq:VnTF \l__mahjongtiles_first_face_tl {5}
+      {
+        \tl_if_in:nnTF { mps } {#1}
+          {
+            \__mahjongtiles_tile_put_aka_aware:nnn {0} {#1} {0}
+            \__mahjongtiles_tile_put_aka_aware:nnn {5} {#1} {0}
+          }
+          {
+            \__mahjongtiles_tile_put:nnn {5} {#1} {0}
+            \__mahjongtiles_tile_put:nnn {5} {#1} {0}
+          }
+      }
+      {
+        \__mahjongtiles_tile_put_aka_aware:Vnn \l__mahjongtiles_first_face_tl {#1} {0}
+        \__mahjongtiles_tile_put_aka_aware:Vnn \l__mahjongtiles_first_face_tl {#1} {0}
+      }
+    \__mahjongtiles_tile_put:nnn { x } { } {0}
+    \bool_set_true:N \l__mahjongtiles_last_concealed_kong_tail_bool
+    \tl_if_blank:VF \l__mahjongtiles_tmpb_tl
+      { \__mahjongtiles_output_set_last_overlay:V \l__mahjongtiles_tmpb_tl }
+  }
+
+\cs_new:Npn \__mahjongtiles_file:n #1
+  { \g__mahjongtiles_tile_dir_tl / mahjong-tiles-#1.pdf }
+
+\cs_new_protected:Npn \__mahjongtiles_render_hand:n #1
+  {
+    \dim_set:Nn \l__mahjongtiles_symbol_height_dim
+      { \fp_to_decimal:N \l__mahjongtiles_tile_scale_fp \l__mahjongtiles_tile_height_dim }
+    \dim_set:Nn \l__mahjongtiles_baseline_offset_dim
+      { ( \l__mahjongtiles_tile_height_dim - \l__mahjongtiles_symbol_height_dim ) / 2 }
+    \dim_set:Nn \l__mahjongtiles_tile_width_dim
+      { 0.75 \l__mahjongtiles_tile_height_dim }
+    \__mahjongtiles_parse:n {#1}
+    \leavevmode
+    \raisebox { -\l__mahjongtiles_baseline_offset_dim }
+      { \seq_map_inline:Nn \l__mahjongtiles_tiles_seq { \__mahjongtiles_render_item:nnnnn ##1 } }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_render_river:n #1
+  {
+    \dim_set:Nn \l__mahjongtiles_symbol_height_dim
+      { \fp_to_decimal:N \l__mahjongtiles_tile_scale_fp \l__mahjongtiles_tile_height_dim }
+    \dim_set:Nn \l__mahjongtiles_baseline_offset_dim
+      { ( \l__mahjongtiles_tile_height_dim - \l__mahjongtiles_symbol_height_dim ) / 2 }
+    \dim_set:Nn \l__mahjongtiles_tile_width_dim
+      { 0.75 \l__mahjongtiles_tile_height_dim }
+    \__mahjongtiles_parse:n {#1}
+    \int_zero:N \l__mahjongtiles_river_total_tiles_int
+    \seq_map_inline:Nn \l__mahjongtiles_tiles_seq
+      { \__mahjongtiles_count_river_tile:nnnnn ##1 }
+    \leavevmode
+    \vtop \bgroup
+      \offinterlineskip
+      \int_zero:N \l__mahjongtiles_river_seen_tiles_int
+      \int_zero:N \l__mahjongtiles_river_col_int
+      \hbox \bgroup
+        \seq_map_inline:Nn \l__mahjongtiles_tiles_seq
+          { \__mahjongtiles_render_river_item:nnnnn ##1 }
+      \egroup
+    \egroup
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_count_river_tile:nnnnn #1#2#3#4#5
+  {
+    \str_if_eq:nnF {#1} { gap }
+      { \int_incr:N \l__mahjongtiles_river_total_tiles_int }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_render_river_item:nnnnn #1#2#3#4#5
+  {
+    \str_if_eq:nnTF {#1} { gap }
+      { \__mahjongtiles_render_gap:n {#2} }
+      {
+        \str_if_eq:nnTF {#1} { draw }
+          { \__mahjongtiles_render_draw_tile:nn {#2} {#3} }
+          { \__mahjongtiles_render_tile_with_overlay:nnnn {#2} {#3} {#4} {#5} }
+        \int_incr:N \l__mahjongtiles_river_seen_tiles_int
+        \int_incr:N \l__mahjongtiles_river_col_int
+        \int_compare:nT { \l__mahjongtiles_river_cols_int > 0 }
+          {
+            \int_compare:nT { \l__mahjongtiles_river_col_int >= \l__mahjongtiles_river_cols_int }
+              {
+                \int_compare:nT
+                  { \l__mahjongtiles_river_seen_tiles_int < \l__mahjongtiles_river_total_tiles_int }
+                  {
+                    \egroup
+                    \vskip \l__mahjongtiles_river_row_gap_dim
+                    \hbox \bgroup
+                    \int_zero:N \l__mahjongtiles_river_col_int
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_render_item:nnnnn #1#2#3#4#5
+  {
+    \str_case:nnF {#1}
+      {
+        { gap }  { \__mahjongtiles_render_gap:n {#2} }
+        { draw } { \__mahjongtiles_render_draw_tile:nn {#2} {#3} }
+      }
+      { \__mahjongtiles_render_tile_with_overlay:nnnn {#2} {#3} {#4} {#5} }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_render_gap:n #1
+  { \hspace { \dim_eval:n { #1 \l__mahjongtiles_tile_width_dim / 7 } } }
+
+\cs_new_protected:Npn \__mahjongtiles_render_tile_with_overlay:nnnn #1#2#3#4
+  {
+    \tl_if_blank:nTF {#4}
+      { \__mahjongtiles_render_tile:nnn {#1} {#2} {#3} }
+      { \__mahjongtiles_make_overlay_tile:nnnn {#1} {#2} {#3} {#4} }
+  }
+
+  \cs_new_protected:Npn \__mahjongtiles_make_overlay_tile:nnnn #1#2#3#4
+  {
+    \hbox_set:Nn \l__mahjongtiles_tile_box
+      { \__mahjongtiles_render_tile:nnn {#1} {#2} {#3} }
+
+    \tikz [ baseline = (base.base), inner~sep = 0pt, outer~sep = 0pt ]
+      {
+        \node [ inner~sep = 0pt, outer~sep = 0pt ] (base)
+          { \box_use:N \l__mahjongtiles_tile_box };
+
+        \exp_args:NV \__mahjongtiles_make_overlay_node:nn
+          \l__mahjongtiles_overlay_style_tl
+          {#4}
+
+        \path [ use~as~bounding~box ]
+          (base.south~west)
+          rectangle
+          (base.north~east |- mahjongtilesoverlay.north);
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_make_overlay_node:nn #1#2
+  {
+    \node [ #1, overlay ] (mahjongtilesoverlay) at (base.north) {#2};
+  }
+\cs_new_protected:Npn \__mahjongtiles_render_draw_tile:nn #1#2
+  {
+    \hbox_to_wd:nn { 0pt }
+      {
+        \tikz [ baseline = (base.base), inner~sep = 0pt, outer~sep = 0pt ]
+          {
+            % This phantom only provides the hand-height reference.
+            \node [ inner~sep = 0pt, outer~sep = 0pt ] (base)
+              { \phantom { \__mahjongtiles_render_tile:nnn {#1} {#2} {0} } };
+            \node [
+              inner~sep = 0pt,
+              outer~sep = 0pt,
+              anchor = south~west
+            ] at (base.north~west)
+              { \__mahjongtiles_render_tile:nnn {#1} {#2} {1} };
+          }
+        \hss
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_render_tile:nnn #1#2#3
+  {
+    \str_case:nnF {#1}
+      {
+        { x } { \__mahjongtiles_make_back_tile:n {#3} }
+        { ? } { \__mahjongtiles_make_symbol_tile:nn { \__mahjongtiles_file:n { Blank } } {#3} }
+      }
+      {
+        \__mahjongtiles_make_symbol_tile:nn { \__mahjongtiles_file:n { #1#2 } } {#3}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_make_symbol_tile:nn #1#2
+  {
+    \file_if_exist:nTF {#1}
+      {
+        \int_case:nnF {#2}
+          {
+            {0}
+              {
+                \stackinset { c } { 0pt } { c } { 0pt }
+                  { \includegraphics [ height = \l__mahjongtiles_symbol_height_dim ] {#1} }
+                  { \includegraphics [ height = \l__mahjongtiles_tile_height_dim ] { \__mahjongtiles_file:n { Front } } }
+              }
+            {1}
+              {
+                \stackinset { c } { 0pt } { c } { 0pt }
+                  { \includegraphics [ angle = 90, width = \l__mahjongtiles_symbol_height_dim ] {#1} }
+                  { \includegraphics [ angle = 90, width = \l__mahjongtiles_tile_height_dim ] { \__mahjongtiles_file:n { Front } } }
+              }
+            {2}
+              {
+                \stackon [0pt]
+                  { \__mahjongtiles_make_symbol_tile:nn {#1} {1} }
+                  { \__mahjongtiles_make_symbol_tile:nn {#1} {1} }
+              }
+          }
+          {
+            \msg_fatal:nnn { mahjong-tiles } { unknown-orientation } {#2}
+          }
+      }
+      {
+        \msg_error:nnn { mahjong-tiles } { unknown-tile } {#1}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_make_back_tile:n #1
+  {
+    \int_case:nnF {#1}
+      {
+        {0}
+          {
+            \__mahjongtiles_make_back_tile_upright:
+          }
+        {1}
+          {
+            \rotatebox { 90 } { \__mahjongtiles_make_back_tile_upright: }
+          }
+        {2}
+          {
+            \stackon [0pt]
+              { \__mahjongtiles_make_back_tile:n {1} }
+              { \__mahjongtiles_make_back_tile:n {1} }
+          }
+      }
+      {
+        \msg_fatal:nnn { mahjong-tiles } { unknown-orientation } {#1}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_make_back_tile_upright:
+  {
+    \bool_if:NTF \g__mahjongtiles_back_recolor_bool
+      {
+        \__mahjongtiles_make_back_tile_upright_recolored:
+      }
+      {
+        \includegraphics
+          [ height = \l__mahjongtiles_tile_height_dim ]
+          { \__mahjongtiles_file:n { Back } }
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_back_clip_path:
+  {
+    \path [ clip ]
+      (30,300.059)
+      -- (195.043,300.059)
+      .. controls (211.664,300.059) and (225.043,286.68) .. (225.043,270.059)
+      -- (225.043,29.477)
+      .. controls (225.043,12.8551) and (211.664,-0.523047) .. (195.043,-0.523047)
+      -- (30,-0.523047)
+      .. controls (13.3789,-0.523047) and (0,12.8551) .. (0,29.477)
+      -- (0,270.059)
+      .. controls (0,286.68) and (13.3789,300.059) .. (30,300.059)
+      -- cycle;
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_make_back_tile_upright_recolored:
+  {
+    \tikz
+      [
+        baseline = 0pt,
+        x = { \dim_eval:n { \l__mahjongtiles_tile_width_dim / 225 } },
+        y = { \dim_eval:n { \l__mahjongtiles_tile_height_dim / 300 } },
+        inner~sep = 0pt,
+        outer~sep = 0pt
+      ]
+      {
+        \path [ use~as~bounding~box ] (0,0) rectangle (225,300);
+        \begin{scope}
+          \__mahjongtiles_back_clip_path:
+          \fill
+            [
+              \tl_use:N \g__mahjongtiles_back_color_tl,
+              opacity = 1
+            ]
+            (0,-1) rectangle (226,301);
+        \end{scope}
+      }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_set_local_defaults:
+  {
+    \dim_set_eq:NN \l__mahjongtiles_tile_height_dim \g__mahjongtiles_default_height_dim
+    \fp_set_eq:NN  \l__mahjongtiles_tile_scale_fp  \g__mahjongtiles_default_scale_fp
+    \tl_set_eq:NN  \l__mahjongtiles_overlay_style_tl \g__mahjongtiles_overlay_style_tl
+    \int_set_eq:NN \l__mahjongtiles_river_cols_int \g__mahjongtiles_river_cols_int
+    \dim_set_eq:NN \l__mahjongtiles_river_row_gap_dim \g__mahjongtiles_river_row_gap_dim
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_apply_local_options:nnnn #1#2#3#4
+  {
+    \__mahjongtiles_set_local_defaults:
+    \tl_if_in:nnTF {#1} { = }
+      { \keys_set:nn { mahjong-tiles / local } {#1} }
+      {
+        \dim_set:Nn \l__mahjongtiles_tile_height_dim {#1}
+        \fp_set:Nn  \l__mahjongtiles_tile_scale_fp  {#2}
+        \IfNoValueF {#3}
+          { \__mahjongtiles_set_back_color_local:n {#3} }
+      }
+    \tl_if_blank:nF {#4}
+      { \keys_set:nn { mahjong-tiles / local } {#4} }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_ensure_local_defaults:
+  {
+    \dim_compare:nNnT { \l__mahjongtiles_tile_height_dim } = { 0pt }
+      { \__mahjongtiles_set_local_defaults: }
+  }
+
+\cs_new_protected:Npn \__mahjongtiles_mj:n #1
+  {
+    \int_compare:nNnTF { \l__mahjongtiles_mj_depth_int } > {0}
+      { \msg_error:nnn { mahjong-tiles } { nested-mj } {#1} }
+      {
+        \group_begin:
+          \__mahjongtiles_ensure_local_defaults:
+          \int_incr:N \l__mahjongtiles_mj_depth_int
+          \__mahjongtiles_render_hand:n {#1}
+        \group_end:
+      }
+  }
+
+\cs_new_protected:Npn \mahjongtiles_typeset_hand:n #1
+  {
+    \group_begin:
+      \__mahjongtiles_set_local_defaults:
+      \__mahjongtiles_render_hand:n {#1}
+    \group_end:
+  }
+
+\cs_new_protected:Npn \mahjongtiles:n #1
+  { \mahjongtiles_typeset_hand:n {#1} }
+
+\cs_new_protected:Npn \mahjongtiles_typeset_river:n #1
+  {
+    \group_begin:
+      \__mahjongtiles_set_local_defaults:
+      \__mahjongtiles_render_river:n {#1}
+    \group_end:
+  }
+
+\cs_new_protected:Npn \mahjongtilesriver:n #1
+  { \mahjongtiles_typeset_river:n {#1} }
+
+\NewDocumentCommand \mj { m }
+  { \__mahjongtiles_mj:n {#1} }
+
+\NewDocumentCommand \mahjong { O{\g__mahjongtiles_default_height_dim} O{\g__mahjongtiles_default_scale_fp} o O{} m }
+  {
+    \group_begin:
+      \__mahjongtiles_apply_local_options:nnnn {#1} {#2} {#3} {#4}
+      \__mahjongtiles_render_hand:n {#5}
+    \group_end:
+  }
+
+\NewDocumentCommand \mahjongriver { O{\g__mahjongtiles_default_height_dim} O{\g__mahjongtiles_default_scale_fp} o O{} m }
+  {
+    \group_begin:
+      \__mahjongtiles_apply_local_options:nnnn {#1} {#2} {#3} {#4}
+      \__mahjongtiles_render_river:n {#5}
+    \group_end:
+  }
+
+\NewDocumentCommand \mahjongtilessetup { m }
+  {
+    \keys_set:nn { mahjong-tiles } {#1}
+  }
+
+\ExplSyntaxOff
+\endinput
+%% 
+%% End of generated file.
+%% 
+%%
+%% End of file `mahjong-tiles.sty'.

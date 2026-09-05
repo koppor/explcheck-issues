@@ -1,0 +1,1532 @@
+%%
+%% chemidentifier-v1.sty
+%%
+%% Numerotation logique et hyperliens pour les composes chimiques.
+%% Logical numbering and hyperlinking of chemical compounds.
+%%
+%% Copyright (C) 2026 Aliocha SKRZYPCZAK <aliochask.pro@gmail.com>
+%%
+%% This work may be distributed and/or modified under the conditions of
+%% the LaTeX Project Public License, either version 1.3c of this license
+%% or (at your option) any later version.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Aliocha SKRZYPCZAK.
+%%
+%% ------------------------------------------------------------------
+%% FROZEN.  This is version 1 of the package, kept unchanged for the
+%% documents written against it; it is loaded by chemidentifier.sty on
+%% \usepackage[version=1]{chemidentifier}.  New work goes into
+%% chemidentifier-v2.sty.  Nothing here is to be fixed, extended or
+%% tidied up: the whole point of the file is that its behaviour never
+%% moves again.  Only three things were touched when it was split off
+%% chemidentifier.sty, none of them functional:
+%%   - this header (\ProvidesExplFile instead of \ProvidesExplPackage,
+%%     since the file is now read by the loader rather than by
+%%     \usepackage; \NeedsTeXFormat and \RequirePackage{expl3} moved
+%%     to that loader);
+%%   - a no-op 'version' key, so that the option the loader has already
+%%     acted upon is not reported as unknown here;
+%%   - \ProcessKeyOptions is kept, so class-wide options still reach
+%%     the package exactly as they used to.
+%% The regression suite proves the rest: every v1 test still compiles
+%% to its original reference, byte for byte.
+%% ------------------------------------------------------------------
+\ProvidesExplFile {chemidentifier-v1.sty} {2026-08-17} {1.0.0}
+  {Logical numbering and hyperlinking of chemical compounds (frozen v1)}
+
+%% ------------------------------------------------------------------
+%% 1. Variants used throughout
+%% ------------------------------------------------------------------
+
+\cs_generate_variant:Nn \prop_gput:Nnn      { NVn, NVV, NVe }
+\cs_generate_variant:Nn \prop_get:NnN       { NVN }
+\cs_generate_variant:Nn \prop_item:Nn       { NV, Ne }
+\cs_generate_variant:Nn \prop_if_in:NnTF    { NVTF, NeTF }
+\cs_generate_variant:Nn \prop_if_in_p:Nn    { NV }
+\cs_generate_variant:Nn \prop_gremove:Nn    { NV }
+\cs_generate_variant:Nn \tl_if_blank_p:n    { V }
+\cs_generate_variant:Nn \seq_set_split:Nnn  { NnV }
+\cs_generate_variant:Nn \msg_error:nnn      { nnV }
+\cs_generate_variant:Nn \msg_error:nnnn     { nnVV }
+\cs_generate_variant:Nn \msg_warning:nnn    { nnV }
+\cs_generate_variant:Nn \msg_info:nnnn      { nnVV }
+\cs_generate_variant:Nn \str_case:nnF       { VnF }
+
+%% ------------------------------------------------------------------
+%% 2. Variables
+%% ------------------------------------------------------------------
+
+% Main counter: incremented once per new parent key.
+\int_new:N \g__chemid_main_int
+
+% key -> main number
+\prop_new:N \g__chemid_num_prop
+% key -> sub index (0 when the key is a parent)
+\prop_new:N \g__chemid_sub_prop
+% key -> parent part of the key
+\prop_new:N \g__chemid_parent_prop
+% key -> rich (typeset) custom name, empty when the key is auto-numbered
+\prop_new:N \g__chemid_rich_prop
+% key -> raw (PDF-string) custom name
+\prop_new:N \g__chemid_raw_prop
+% key -> number of \herechemid anchors placed so far
+\prop_new:N \g__chemid_anchor_prop
+% parent -> current sub counter
+\prop_new:N \g__chemid_subcount_prop
+% parent -> created implicitly by a child, not yet declared on its own
+\prop_new:N \g__chemid_implicit_prop
+% key -> used at least once by \chemid
+\prop_new:N \g__chemid_used_prop
+% key -> an "undefined key" error was already raised for it
+\prop_new:N \g__chemid_reported_prop
+% key -> anchored during the *previous* run (read back from the .aux file)
+\prop_new:N \g__chemid_prevanchor_prop
+% babel/polyglossia language name -> separator before the last family,
+% e.g. { french } -> { ~et~ }, { german } -> { ~und~ }.
+\prop_new:N \g__chemid_lang_lastsep_prop
+
+% "Previous pass" mirrors of the five tables above, read back from the
+% .aux file at \begin{document} (\chemidregister, written once per key
+% at \end{document}).  They let \chemid / \herechemid be used *before*
+% the corresponding \chemid* in the source, exactly the way \ref
+% resolves against \label -- a second compilation away, and stable
+% afterwards, since the declaration order itself never depends on where
+% the uses sit.
+\prop_new:N \g__chemid_prev_num_prop
+\prop_new:N \g__chemid_prev_sub_prop
+\prop_new:N \g__chemid_prev_parent_prop
+\prop_new:N \g__chemid_prev_rich_prop
+\prop_new:N \g__chemid_prev_raw_prop
+
+% Declaration order == logical order of synthesis.
+\seq_new:N \g__chemid_order_seq
+
+% Scratch
+\seq_new:N  \l__chemid_parts_seq
+\clist_new:N \l__chemid_pendingkeys_clist
+\str_new:N  \l__chemid_key_str
+\str_new:N  \l__chemid_parent_str
+\str_new:N  \l__chemid_child_str
+\str_new:N  \l__chemid_name_str
+\tl_new:N   \l__chemid_tmp_tl
+\tl_new:N   \l__chemid_rich_tl
+\tl_new:N   \l__chemid_raw_tl
+\bool_new:N \l__chemid_ok_bool
+\dim_new:N  \l__chemid_prevdepth_dim
+
+% True while a .toc/.lof/.lot file is being typeset: links must be
+% suppressed there, the entry being already a link to the section.
+\bool_new:N \l__chemid_toc_bool
+% True when hyperref is available.
+\bool_new:N \g__chemid_hyper_bool
+
+%% ------------------------------------------------------------------
+%% 3. Package options
+%% ------------------------------------------------------------------
+
+\tl_new:N   \l__chemid_listsep_tl
+\tl_new:N   \l__chemid_lastsep_tl
+\tl_new:N   \l__chemid_subsep_tl
+\tl_new:N   \l__chemid_rangesep_tl
+\tl_new:N   \l__chemid_format_tl
+\tl_new:N   \l__chemid_mainstyle_tl
+\tl_new:N   \l__chemid_substyle_tl
+\tl_new:N   \l__chemid_prefix_tl
+\tl_new:N   \l__chemid_unknown_tl
+\int_new:N  \l__chemid_threshold_int
+\bool_new:N \l__chemid_purify_bool
+\bool_new:N \l__chemid_implicit_bool
+\bool_new:N \g__chemid_strict_bool
+\bool_new:N \l__chemid_autolang_bool
+\tl_new:N   \l__chemid_pdftexfont_tl
+
+\keys_define:nn { chemidentifier }
+  {
+    list-sep         .tl_set:N    = \l__chemid_listsep_tl ,
+    list-sep         .initial:n   = { ,~ } ,
+    last-sep         .tl_set:N    = \l__chemid_lastsep_tl ,
+    last-sep         .initial:n   = { ~and~ } ,
+    sub-sep          .tl_set:N    = \l__chemid_subsep_tl ,
+    sub-sep          .initial:n   = { , } ,
+    range-sep        .tl_set:N    = \l__chemid_rangesep_tl ,
+    range-sep        .initial:n   = { - } ,
+    range-threshold  .int_set:N   = \l__chemid_threshold_int ,
+    range-threshold  .initial:n   = { 3 } ,
+    format           .tl_set:N    = \l__chemid_format_tl ,
+    format           .initial:n   = { } ,
+    main-style       .tl_set:N    = \l__chemid_mainstyle_tl ,
+    main-style       .initial:n   = { arabic } ,
+    sub-style        .tl_set:N    = \l__chemid_substyle_tl ,
+    sub-style        .initial:n   = { alph } ,
+    prefix           .tl_set:N    = \l__chemid_prefix_tl ,
+    prefix           .initial:n   = { chemid. } ,
+    unknown-text     .tl_set:N    = \l__chemid_unknown_tl ,
+    unknown-text     .initial:n   = { ?? } ,
+    purify           .bool_set:N  = \l__chemid_purify_bool ,
+    purify           .initial:n   = { true } ,
+    implicit-parent  .bool_set:N  = \l__chemid_implicit_bool ,
+    implicit-parent  .initial:n   = { true } ,
+    strict-anchors   .bool_gset:N = \g__chemid_strict_bool ,
+    strict-anchors   .initial:n   = { false } ,
+    auto-lang        .bool_set:N  = \l__chemid_autolang_bool ,
+    auto-lang        .initial:n   = { true } ,
+    pdftex-font      .tl_set:N    = \l__chemid_pdftexfont_tl ,
+    pdftex-font      .initial:n   = { \normalfont } ,
+    % Already consumed by the loader (chemidentifier.sty), which picked
+    % this file on the strength of it: accepted and ignored here.
+    version          .code:n      = { } ,
+    unknown          .code:n      =
+      { \msg_warning:nnV { chemidentifier } { unknown-option } \l_keys_key_str } ,
+  }
+
+% Les options du paquetage sont traitees plus bas, une fois les messages
+% declares : l'option inconnue doit pouvoir etre signalee.
+
+\NewDocumentCommand \chemidsetup { m }
+  { \keys_set:nn { chemidentifier } {#1} }
+
+% --- Multilingue : "et" / "and" suivant la langue babel courante ------
+%
+% \languagename est mise a jour par babel a chaque \selectlanguage : une
+% simple macro, lue ici de facon pleinement expansible, sans imposer
+% babel comme dependance.
+%
+% \languagename existe desormais TOUJOURS (le noyau LaTeX la definit,
+% valeur 'english' par defaut, meme sans babel) : elle ne peut donc pas
+% servir a detecter babel.  \bbl@error, elle, n'est definie que par
+% babel.sty lui-meme : c'est ce qu'on teste.  Le nom contient '@', qui
+% n'est pas touche par \ExplSyntaxOn (seuls _ et : le sont) : il faut
+% donc \makeatletter autour de cette seule ligne.
+\group_begin:
+  \char_set_catcode_letter:N \@
+  \cs_new:Npn \__chemid_babel_loaded_p: { \cs_if_exist_p:N \bbl@error }
+\group_end:
+
+\NewDocumentCommand \chemidaddlanguage { m m }
+  { \prop_gput:Nnn \g__chemid_lang_lastsep_prop {#1} {#2} }
+
+% Anglais (defaut du paquetage)
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { english }    { ~and~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { american }   { ~and~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { british }    { ~and~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { australian } { ~and~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { UKenglish }  { ~and~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { USenglish }  { ~and~ }
+% Francais
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { french }     { ~et~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { francais }   { ~et~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { acadian }    { ~et~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { canadien }   { ~et~ }
+% Allemand
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { german }     { ~und~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { ngerman }    { ~und~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { austrian }   { ~und~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { naustrian }  { ~und~ }
+% Espagnol
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { spanish }    { ~y~ }
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { mexican }    { ~y~ }
+% Italien
+\prop_gput:Nnn \g__chemid_lang_lastsep_prop { italian }    { ~e~ }
+
+% Fully expandable: usable inside the render engine (text, ToC, bookmarks
+% alike).  Falls back to the static 'last-sep' when auto-lang is off,
+% babel is absent, or the current language has no registered entry.
+\cs_new:Npn \__chemid_effective_lastsep:
+  {
+    \bool_if:NTF \l__chemid_autolang_bool
+      {
+        \bool_if:nTF { \__chemid_babel_loaded_p: }
+          {
+            \prop_if_in:NeTF \g__chemid_lang_lastsep_prop { \languagename }
+              { \prop_item:Ne \g__chemid_lang_lastsep_prop { \languagename } }
+              { \l__chemid_lastsep_tl }
+          }
+          { \l__chemid_lastsep_tl }
+      }
+      { \l__chemid_lastsep_tl }
+  }
+
+%% ------------------------------------------------------------------
+%% 4. Messages
+%% ------------------------------------------------------------------
+
+\msg_new:nnnn { chemidentifier } { undefined-key }
+  { Compound~key~'#1'~has~not~been~declared. }
+  {
+    Every~key~must~be~declared~with~\iow_char:N \\chemid*{#1}~*before*~it~is~
+    used;~ '\l__chemid_unknown_tl'~is~printed~instead.
+  }
+
+\msg_new:nnnn { chemidentifier } { duplicate-key }
+  { Compound~key~'#1'~is~declared~twice. }
+  { The~second~declaration~is~ignored;~the~first~one~keeps~its~number. }
+
+\msg_new:nnnn { chemidentifier } { key-too-deep }
+  { Compound~key~'#1'~has~more~than~one~level~of~hierarchy. }
+  {
+    Only~'parent'~and~'parent.child'~are~supported;~
+    the~declaration~is~ignored.
+  }
+
+\msg_new:nnnn { chemidentifier } { invalid-key }
+  { Compound~key~'#1'~is~empty~or~malformed. }
+  { A~key~and~each~of~its~parts~must~be~non-empty;~the~declaration~is~ignored. }
+
+\msg_new:nnnn { chemidentifier } { comma-in-key }
+  { Compound~key~'#1'~contains~a~comma. }
+  {
+    Commas~separate~keys~in~\iow_char:N \\chemid*{key1,key2,...}~and~
+    \iow_char:N \\chemid{key1,key2,...};~a~single~key~cannot~contain~one~
+    itself.~The~declaration~is~ignored.
+  }
+
+\msg_new:nnnn { chemidentifier } { multi-key-custom-name }
+  { A~custom~name~cannot~be~given~to~several~keys~at~once~('#1'). }
+  {
+    \iow_char:N \\chemid*{key1,key2}{rich~name}~would~be~ambiguous:~which~
+    key~gets~the~name?~Declare~that~key~on~its~own,~or~drop~the~name~and~
+    let~every~key~be~numbered~automatically.~The~whole~declaration~is~
+    ignored.
+  }
+
+\msg_new:nnnn { chemidentifier } { missing-anchor }
+  { Compound~'#1'~is~used~but~has~no~\iow_char:N \\herechemid~anchor. }
+  {
+    Add~\iow_char:N \\herechemid{#1}~in~the~scheme~or~figure~showing~this~
+    compound,~otherwise~the~link~has~no~target.
+  }
+
+\msg_new:nnnn { chemidentifier } { duplicate-anchor }
+  { Compound~'#1'~has~more~than~one~\iow_char:N \\herechemid~anchor. }
+  {
+    Only~one~anchor~per~key~is~meaningful:~the~PDF~target~is~ambiguous~
+    and~most~viewers~keep~the~last~one.
+  }
+
+\msg_new:nnnn { chemidentifier } { anchor-undefined-key }
+  { \iow_char:N \\herechemid~used~with~the~undeclared~key~'#1'. }
+  { Declare~it~first~with~\iow_char:N \\chemid*{#1};~the~anchor~is~not~placed. }
+
+\msg_new:nnnn { chemidentifier } { implicit-parent }
+  { Parent~key~'#1'~created~implicitly~by~the~declaration~of~'#2'. }
+  {
+    Declaring~the~parent~first~makes~the~numbering~easier~to~follow.~
+    Set~'implicit-parent=false'~to~turn~this~into~an~error.
+  }
+
+\msg_new:nnnn { chemidentifier } { no-implicit-parent }
+  { Parent~key~'#1'~of~'#2'~has~not~been~declared. }
+  { 'implicit-parent'~is~false,~so~the~declaration~of~'#2'~is~ignored. }
+
+\msg_new:nnnn { chemidentifier } { no-hyperref }
+  { Package~'hyperref'~is~not~loaded. }
+  {
+    chemidentifier~still~numbers~everything,~but~nothing~is~clickable.~
+    Load~hyperref~to~get~the~links.
+  }
+
+\msg_new:nnn { chemidentifier } { unknown-option }
+  { Unknown~package~option~'#1'~ignored. }
+
+%% Toutes les options peuvent maintenant etre traitees.
+\ProcessKeyOptions [ chemidentifier ]
+
+%% ------------------------------------------------------------------
+%% 5. hyperref interface
+%% ------------------------------------------------------------------
+
+% hyperref is detected, not loaded: the user keeps full control over its
+% options and over the loading order.
+\hook_gput_code:nnn { begindocument } { chemidentifier }
+  {
+    \cs_if_exist:NTF \hyperlink
+      { \bool_gset_true:N \g__chemid_hyper_bool }
+      {
+        \bool_gset_false:N \g__chemid_hyper_bool
+        \msg_warning:nn { chemidentifier } { no-hyperref }
+      }
+  }
+
+% Bookmarks and PDF metadata: \chemid must expand to plain text there.
+% \pdfstringdefDisableCommands is hyperref's sanctioned hook for this;
+% the replacement is fully expandable, as \pdfstringdef uses \edef.
+\hook_gput_code:nnn { begindocument/before } { chemidentifier }
+  {
+    \cs_if_exist:NT \pdfstringdefDisableCommands
+      {
+        \pdfstringdefDisableCommands
+          {
+            \cs_set:Npn \chemid #1 { \__chemid_render:nn { plain } {#1} }
+            \cs_set:Npn \herechemid #1 { }
+            \cs_set:Npn \chemidreset { }
+          }
+      }
+  }
+
+% Links must not be nested inside the link of a table-of-contents entry.
+% \@starttoc covers \tableofcontents, \listoffigures and \listoftables in
+% one single place, whatever the class does to \contentsline.
+\hook_gput_code:nnn { begindocument/end } { chemidentifier }
+  {
+    \cs_if_exist:NT \@starttoc
+      {
+        \cs_gset_eq:NN \__chemid_orig_starttoc:n \@starttoc
+        \cs_gset_protected:Npn \@starttoc #1
+          {
+            \group_begin:
+              \bool_set_true:N \l__chemid_toc_bool
+              \__chemid_orig_starttoc:n {#1}
+            \group_end:
+          }
+      }
+  }
+
+%% ------------------------------------------------------------------
+%% 6. Key parsing and validation
+%% ------------------------------------------------------------------
+
+% #1 : raw key.  Sets \l__chemid_key_str, \l__chemid_parent_str and
+% \l__chemid_child_str (the latter empty for a parent key).  Returns
+% false on a malformed key, the caller then giving up silently.
+\prg_new_protected_conditional:Npnn \__chemid_parse:n #1 { TF }
+  {
+    \bool_set_false:N \l__chemid_ok_bool
+    \str_set:Ne \l__chemid_key_str { \tl_trim_spaces:n {#1} }
+    % Commas are the list separator of \chemid and \chemid* alike: a key
+    % should never see one at this point, since both callers already
+    % split on commas before reaching here.  Caught here nonetheless, as
+    % a safety net against a key built by macro expansion.
+    \str_if_in:NnTF \l__chemid_key_str { , }
+      { \msg_error:nnV { chemidentifier } { comma-in-key } \l__chemid_key_str }
+      { \__chemid_parse_aux: }
+    \bool_if:NTF \l__chemid_ok_bool
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+% Sets \l__chemid_ok_bool ; split out of the conditional above only to
+% keep the comma safety-net readable.
+\cs_new_protected:Npn \__chemid_parse_aux:
+  {
+    \seq_set_split:NnV \l__chemid_parts_seq { . } \l__chemid_key_str
+    \int_case:nnF { \seq_count:N \l__chemid_parts_seq }
+      {
+        { 1 }
+          {
+            \str_set_eq:NN \l__chemid_parent_str \l__chemid_key_str
+            \str_clear:N \l__chemid_child_str
+            \str_if_empty:NTF \l__chemid_parent_str
+              { \msg_error:nnV { chemidentifier } { invalid-key } \l__chemid_key_str }
+              { \bool_set_true:N \l__chemid_ok_bool }
+          }
+        { 2 }
+          {
+            \str_set:Ne \l__chemid_parent_str
+              { \seq_item:Nn \l__chemid_parts_seq { 1 } }
+            \str_set:Ne \l__chemid_child_str
+              { \seq_item:Nn \l__chemid_parts_seq { 2 } }
+            \bool_lazy_or:nnTF
+              { \str_if_empty_p:N \l__chemid_parent_str }
+              { \str_if_empty_p:N \l__chemid_child_str }
+              { \msg_error:nnV { chemidentifier } { invalid-key } \l__chemid_key_str }
+              { \bool_set_true:N \l__chemid_ok_bool }
+          }
+      }
+      { \msg_error:nnV { chemidentifier } { key-too-deep } \l__chemid_key_str }
+  }
+
+%% ------------------------------------------------------------------
+%% 7. Declaration -- \chemid*{key}
+%% ------------------------------------------------------------------
+
+% Registers a brand new parent key with the next main number.
+\cs_new_protected:Npn \__chemid_new_parent:N #1
+  {
+    \int_gincr:N \g__chemid_main_int
+    \prop_gput:NVe \g__chemid_num_prop #1 { \int_use:N \g__chemid_main_int }
+    \prop_gput:NVn \g__chemid_sub_prop #1 { 0 }
+    \prop_gput:NVV \g__chemid_parent_prop #1 #1
+    \prop_gput:NVn \g__chemid_rich_prop #1 { }
+    \prop_gput:NVn \g__chemid_raw_prop #1 { }
+    \prop_gput:NVn \g__chemid_anchor_prop #1 { 0 }
+    \prop_gput:NVn \g__chemid_subcount_prop #1 { 0 }
+    \seq_gput_right:NV \g__chemid_order_seq #1
+  }
+
+% #1 key, #2 rich name, #3 raw name
+\cs_new_protected:Npn \__chemid_declare:nnn #1#2#3
+  {
+    \__chemid_parse:nTF {#1}
+      {
+        \bool_lazy_and:nnTF
+          { \prop_if_in_p:NV \g__chemid_num_prop \l__chemid_key_str }
+          { ! \prop_if_in_p:NV \g__chemid_implicit_prop \l__chemid_key_str }
+          { \msg_error:nnV { chemidentifier } { duplicate-key } \l__chemid_key_str }
+          {
+            \str_if_empty:NTF \l__chemid_child_str
+              { \__chemid_declare_parent: }
+              { \__chemid_declare_child: }
+            \__chemid_store_names:nn {#2} {#3}
+          }
+      }
+      { }
+  }
+
+% A parent key.  It may already exist, having been created implicitly by
+% one of its children: it then keeps its number and is merely completed.
+\cs_new_protected:Npn \__chemid_declare_parent:
+  {
+    \prop_if_in:NVTF \g__chemid_implicit_prop \l__chemid_key_str
+      { \prop_gremove:NV \g__chemid_implicit_prop \l__chemid_key_str }
+      { \__chemid_new_parent:N \l__chemid_key_str }
+  }
+
+\cs_new_protected:Npn \__chemid_declare_child:
+  {
+    \prop_if_in:NVTF \g__chemid_num_prop \l__chemid_parent_str
+      { } { \__chemid_implicit_parent: }
+    % the parent may have been refused, hence the second test
+    \prop_if_in:NVTF \g__chemid_num_prop \l__chemid_parent_str
+      {
+        \prop_get:NVN \g__chemid_subcount_prop \l__chemid_parent_str
+          \l__chemid_tmp_tl
+        \tl_set:Ne \l__chemid_tmp_tl { \int_eval:n { \l__chemid_tmp_tl + 1 } }
+        \prop_gput:NVV \g__chemid_subcount_prop \l__chemid_parent_str
+          \l__chemid_tmp_tl
+        \prop_gput:NVe \g__chemid_num_prop \l__chemid_key_str
+          { \prop_item:NV \g__chemid_num_prop \l__chemid_parent_str }
+        \prop_gput:NVV \g__chemid_sub_prop \l__chemid_key_str \l__chemid_tmp_tl
+        \prop_gput:NVV \g__chemid_parent_prop \l__chemid_key_str
+          \l__chemid_parent_str
+        \prop_gput:NVn \g__chemid_rich_prop \l__chemid_key_str { }
+        \prop_gput:NVn \g__chemid_raw_prop \l__chemid_key_str { }
+        \prop_gput:NVn \g__chemid_anchor_prop \l__chemid_key_str { 0 }
+        \seq_gput_right:NV \g__chemid_order_seq \l__chemid_key_str
+      }
+      { }
+  }
+
+\cs_new_protected:Npn \__chemid_implicit_parent:
+  {
+    \bool_if:NTF \l__chemid_implicit_bool
+      {
+        \msg_info:nnVV { chemidentifier } { implicit-parent }
+          \l__chemid_parent_str \l__chemid_key_str
+        \__chemid_new_parent:N \l__chemid_parent_str
+        \prop_gput:NVn \g__chemid_implicit_prop \l__chemid_parent_str { }
+      }
+      {
+        \msg_error:nnVV { chemidentifier } { no-implicit-parent }
+          \l__chemid_parent_str \l__chemid_key_str
+      }
+  }
+
+% Rich name and its PDF-string counterpart.
+\cs_new_protected:Npn \__chemid_store_names:nn #1#2
+  {
+    \bool_lazy_and:nnT
+      { \prop_if_in_p:NV \g__chemid_num_prop \l__chemid_key_str }
+      { ! \tl_if_blank_p:n {#1} }
+      {
+        \prop_gput:NVn \g__chemid_rich_prop \l__chemid_key_str {#1}
+        \tl_if_blank:nTF {#2}
+          {
+            \bool_if:NTF \l__chemid_purify_bool
+              { \tl_set:Ne \l__chemid_raw_tl { \text_purify:n {#1} } }
+              { \tl_set:Nn \l__chemid_raw_tl {#1} }
+          }
+          { \tl_set:Nn \l__chemid_raw_tl {#2} }
+        \prop_gput:NVV \g__chemid_raw_prop \l__chemid_key_str \l__chemid_raw_tl
+      }
+  }
+
+% Keep the *content* of \textsubscript & friends when deriving the raw
+% name automatically.
+\text_declare_purify_equivalent:Nn \textsubscript   { \use:n }
+\text_declare_purify_equivalent:Nn \textsuperscript { \use:n }
+
+%% ------------------------------------------------------------------
+%% 8. Expandable accessors
+%% ------------------------------------------------------------------
+
+% Each accessor reads the current pass first, and falls back to the
+% previous pass's registration when the key has not been declared *yet*
+% this time round -- see the \g__chemid_prev_*_prop block above.
+\cs_new:Npn \__chemid_num:n #1
+  {
+    \prop_if_in:NnTF \g__chemid_num_prop {#1}
+      { \prop_item:Nn \g__chemid_num_prop {#1} }
+      { \prop_item:Nn \g__chemid_prev_num_prop {#1} }
+  }
+\cs_new:Npn \__chemid_sub:n #1
+  {
+    \prop_if_in:NnTF \g__chemid_sub_prop {#1}
+      { \prop_item:Nn \g__chemid_sub_prop {#1} }
+      { \prop_item:Nn \g__chemid_prev_sub_prop {#1} }
+  }
+\cs_new:Npn \__chemid_parent:n #1
+  {
+    \prop_if_in:NnTF \g__chemid_parent_prop {#1}
+      { \prop_item:Nn \g__chemid_parent_prop {#1} }
+      { \prop_item:Nn \g__chemid_prev_parent_prop {#1} }
+  }
+\cs_new:Npn \__chemid_rich:n #1
+  {
+    \prop_if_in:NnTF \g__chemid_rich_prop {#1}
+      { \prop_item:Nn \g__chemid_rich_prop {#1} }
+      { \prop_item:Nn \g__chemid_prev_rich_prop {#1} }
+  }
+\cs_new:Npn \__chemid_raw:n #1
+  {
+    \prop_if_in:NnTF \g__chemid_raw_prop {#1}
+      { \prop_item:Nn \g__chemid_raw_prop {#1} }
+      { \prop_item:Nn \g__chemid_prev_raw_prop {#1} }
+  }
+\cs_generate_variant:Nn \__chemid_sub:n { e }
+\cs_generate_variant:Nn \__chemid_num:n { e }
+
+\prg_new_conditional:Npnn \__chemid_known:n #1 { p, TF }
+  {
+    \bool_lazy_or:nnTF
+      { \prop_if_in_p:Nn \g__chemid_num_prop {#1} }
+      { \prop_if_in_p:Nn \g__chemid_prev_num_prop {#1} }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_generate_variant:Nn \__chemid_known:nTF { V }
+
+% A key may be merged with its neighbours only if it is a plain,
+% auto-numbered child: a custom name always stands alone.
+\prg_new_conditional:Npnn \__chemid_groupable:n #1 { p, TF }
+  {
+    \bool_lazy_all:nTF
+      {
+        { \__chemid_known_p:n {#1} }
+        { \int_compare_p:nNn { 0 \__chemid_sub:n {#1} } > { 0 } }
+        { \tl_if_blank_p:e { \__chemid_rich:n {#1} } }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+% Symmetric test for a plain, auto-numbered *parent* (sub = 0): used to
+% contract a run of several such top-level citations into a range, e.g.
+% \chemid{mol1,mol2,mol3} -> '1-3' instead of '1, 2 and 3'.  A custom
+% name still stands alone, exactly as for children.
+\prg_new_conditional:Npnn \__chemid_topgroupable:n #1 { p, TF }
+  {
+    \bool_lazy_all:nTF
+      {
+        { \__chemid_known_p:n {#1} }
+        { \int_compare_p:nNn { 0 \__chemid_sub:n {#1} } = { 0 } }
+        { \tl_if_blank_p:e { \__chemid_rich:n {#1} } }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+% #1 style, #2 integer
+\cs_new:Npn \__chemid_format_int:Nn #1#2
+  {
+    \str_case:VnF #1
+      {
+        { arabic } { \int_to_arabic:n {#2} }
+        { alph }   { \int_to_alph:n   {#2} }
+        { Alph }   { \int_to_Alph:n   {#2} }
+        { roman }  { \int_to_roman:n  {#2} }
+        { Roman }  { \int_to_Roman:n  {#2} }
+      }
+      { \int_to_arabic:n {#2} }
+  }
+
+\cs_new:Npn \__chemid_main_text:n #1
+  { \__chemid_format_int:Nn \l__chemid_mainstyle_tl { \__chemid_num:n {#1} } }
+\cs_new:Npn \__chemid_sub_text:n #1
+  { \__chemid_format_int:Nn \l__chemid_substyle_tl { \__chemid_sub:n {#1} } }
+
+%% ------------------------------------------------------------------
+%% 9. Expandable renderer
+%% ------------------------------------------------------------------
+%%
+%% Rendering is *fully expandable* so that one single implementation
+%% serves the three contexts a compound identifier may end up in:
+%%   (a) ordinary typesetting,
+%%   (b) a .toc / .lof / .lot entry, where links must be dropped,
+%%   (c) hyperref's \pdfstringdef, which is an \edef (bookmarks).
+%%
+%% Modes: 'rich'  -> typeset material, links unless we sit in a ToC
+%%        'plain' -> raw text, never any link
+
+\prg_new_conditional:Npnn \__chemid_links:n #1 { p, TF }
+  {
+    \bool_lazy_all:nTF
+      {
+        { \str_if_eq_p:nn {#1} { rich } }
+        { ! \bool_if_p:N \l__chemid_toc_bool }
+        { \bool_if_p:N \g__chemid_hyper_bool }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+% Whether this key may carry a link.  Under 'strict-anchors', only if an
+% anchor is known to exist: placed already, or recorded in the .aux file
+% by the previous run.
+\prg_new_conditional:Npnn \__chemid_anchored:n #1 { p, TF }
+  {
+    \bool_lazy_or:nnTF
+      { ! \bool_if_p:N \g__chemid_strict_bool }
+      {
+        \bool_lazy_or_p:nn
+          { \int_compare_p:nNn { 0 \prop_item:Nn \g__chemid_anchor_prop {#1} } > { 0 } }
+          { \prop_if_in_p:Nn \g__chemid_prevanchor_prop {#1} }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+% Anchor names are always built from a catcode-12 string, so that the
+% target laid by \herechemid and the link laid by \chemid match whatever
+% the catcodes of the key were (an underscore in a key, typically).
+\cs_new:Npn \__chemid_name:n #1
+  { \l__chemid_prefix_tl \tl_to_str:n {#1} }
+
+% #1 mode, #2 key, #3 text
+\cs_new:Npn \__chemid_link:nnn #1#2#3
+  {
+    \bool_lazy_and:nnTF
+      { \__chemid_links_p:n {#1} }
+      { \__chemid_anchored_p:n {#2} }
+      { \exp_args:Ne \__chemid_hyperlink:nn { \__chemid_name:n {#2} } {#3} }
+      {#3}
+  }
+\cs_new:Npn \__chemid_hyperlink:nn #1#2 { \hyperlink {#1} {#2} }
+
+% #1 mode, #2 text: the user format (bold numbers...) except in PDF strings
+\cs_new:Npn \__chemid_fmt:nn #1#2
+  {
+    \str_if_eq:nnTF {#1} { plain }
+      {#2}
+      { \l__chemid_format_tl {#2} }
+  }
+
+% Full identifier (number + letter).
+\cs_new:Npn \__chemid_full:nn #1#2
+  {
+    \__chemid_link:nnn {#1} {#2}
+      {
+        \__chemid_fmt:nn {#1}
+          { \__chemid_main_text:n {#2} \__chemid_subtext:n {#2} }
+      }
+  }
+\cs_new:Npn \__chemid_subtext:n #1
+  {
+    \int_compare:nNnT { \__chemid_sub:n {#1} } > { 0 }
+      { \__chemid_sub_text:n {#1} }
+  }
+
+% Letter alone, for the continuation of a family: the '1' of '1a,b'.
+\cs_new:Npn \__chemid_letter:nn #1#2
+  {
+    \__chemid_link:nnn {#1} {#2}
+      { \__chemid_fmt:nn {#1} { \__chemid_sub_text:n {#2} } }
+  }
+
+% A lone key: custom name, unknown key, or plain identifier.
+\cs_new:Npn \__chemid_single:nn #1#2
+  {
+    \__chemid_known:nTF {#2}
+      {
+        \tl_if_blank:eTF { \__chemid_rich:n {#2} }
+          { \__chemid_full:nn {#1} {#2} }
+          {
+            \__chemid_link:nnn {#1} {#2}
+              {
+                \str_if_eq:nnTF {#1} { plain }
+                  { \__chemid_raw:n {#2} }
+                  { \__chemid_fmt:nn {#1} { \__chemid_rich:n {#2} } }
+              }
+          }
+      }
+      { \l__chemid_unknown_tl }
+  }
+
+\cs_generate_variant:Nn \__chemid_full:nn   { nf }
+\cs_generate_variant:Nn \__chemid_letter:nn { nf, ne }
+\cs_generate_variant:Nn \__chemid_single:nn { nf }
+
+%% -- entry point ---------------------------------------------------
+
+\cs_new:Npn \__chemid_render:nn #1#2
+  {
+    \use:e
+      {
+        \exp_not:N \__chemid_start:nnn {#1} { }
+        \clist_map_function:nN {#2} \__chemid_brace:n
+        { \exp_not:N \q_recursion_tail } \exp_not:N \q_recursion_stop
+      }
+  }
+% Keys are expanded here exactly as \__chemid_parse:n expands them at
+% declaration time, so that a key built by a macro resolves on both
+% sides.  (The whole thing already sits inside \use:e.)
+\cs_new:Npn \__chemid_brace:n #1 { {#1} }
+
+% #1 mode, #2 empty (keeps the signature regular), #3 first key
+\cs_new:Npn \__chemid_start:nnn #1#2#3
+  {
+    \quark_if_recursion_tail_stop_do:nn {#3} { }
+    \__chemid_scan:nnnnn {#1} { } { {#3} } { \__chemid_newparent:n {#3} }
+  }
+
+% Split the list into families.  #1 mode, #2 completed groups,
+% #3 current group, #4 current family (empty = "do not merge"), #5 key.
+\cs_new:Npn \__chemid_scan:nnnnn #1#2#3#4#5
+  {
+    \quark_if_recursion_tail_stop_do:nn {#5}
+      { \__chemid_join:ne {#1} { \__chemid_topcontract:n { #2 {#3} } } }
+    \bool_lazy_and:nnTF
+      { \__chemid_groupable_p:n {#5} }
+      { \str_if_eq_p:ee { \__chemid_parent:n {#5} } {#4} }
+      { \__chemid_scan:nnnnn {#1} {#2} { #3 {#5} } {#4} }
+      { \__chemid_scan:nnnnn {#1} { #2 {#3} } { {#5} } { \__chemid_newparent:n {#5} } }
+  }
+
+\cs_new:Npn \__chemid_newparent:n #1
+  { \__chemid_groupable:nTF {#1} { \__chemid_parent:n {#1} } { } }
+
+%% -- contracting plain top-level runs into a range ------------------
+%%
+%% Children of one parent are already cut into runs and contracted by
+%% \__chemid_group:nn / \__chemid_runs_*:  (\S 'one family' below).  This
+%% does the same for *parents* cited several times in a row: it walks
+%% the family list produced by \__chemid_scan:nnnnn and merges any
+%% maximal run of plain, auto-numbered, consecutively-numbered singleton
+%% families into one two-key {first}{last} family, which
+%% \__chemid_group:nn then renders as a range.  A run shorter than
+%% 'range-threshold', a custom name, an unknown key, or an existing
+%% multi-key (children) family is passed through untouched -- so with no
+%% qualifying run anywhere, the family list this produces is token-for-
+%% token identical to the input, and \chemid renders exactly as before.
+
+% #1 family list (as built by \__chemid_scan:nnnnn)
+\cs_new:Npn \__chemid_topcontract:n #1
+  { \__chemid_topcontract_loop:nnn { } { } {#1} }
+
+% #1 finished families, #2 pending run of plain keys, #3 remaining
+% families
+\cs_new:Npn \__chemid_topcontract_loop:nnn #1#2#3
+  {
+    \tl_if_empty:nTF {#3}
+      { \__chemid_topflush:nn {#1} {#2} }
+      { \__chemid_topcontract_ii:nnff {#1} {#2} { \tl_head:n {#3} } { \tl_tail:n {#3} } }
+  }
+
+% #3 = next family's key list (unwrapped, already forced plain by the
+% ':nnff' call above), #4 = families still after it (likewise plain).
+\cs_new:Npn \__chemid_topcontract_ii:nnnn #1#2#3#4
+  { \__chemid_topcontract_iii:nnnnf {#1} {#2} {#3} {#4} { \tl_head:n {#3} } }
+\cs_generate_variant:Nn \__chemid_topcontract_ii:nnnn { nnff }
+
+% #5 = that family's sole key, forced plain by the call above -- only
+% meaningful once the count test below confirms #3 *is* a singleton.
+\cs_new:Npn \__chemid_topcontract_iii:nnnnn #1#2#3#4#5
+  {
+    \bool_lazy_and:nnTF
+      { \int_compare_p:nNn { \tl_count:n {#3} } = { 1 } }
+      { \__chemid_topgroupable_p:n {#5} }
+      {
+        \tl_if_empty:nTF {#2}
+          { \__chemid_topcontract_loop:nnn {#1} { {#5} } {#4} }
+          {
+            \int_compare:nNnTF
+                { \__chemid_num:n {#5} }
+                = { \__chemid_num:e { \tl_item:nn {#2} { -1 } } + 1 }
+              { \__chemid_topcontract_loop:nnn {#1} { #2 {#5} } {#4} }
+              {
+                \__chemid_topcontract_loop:nnn
+                  { \__chemid_topflush:nn {#1} {#2} } { {#5} } {#4}
+              }
+          }
+      }
+      {
+        \__chemid_topcontract_loop:nnn
+          { \__chemid_topflush:nnn {#1} {#2} {#3} } { } {#4}
+      }
+  }
+\cs_generate_variant:Nn \__chemid_topcontract_iii:nnnnn { nnnnf }
+
+% Close the pending run: below the threshold, explode it back into one
+% singleton family per key (untouched-looking, list-sep/last-sep join
+% applies to them exactly as if they had never been merged); at or
+% above the threshold, contract it into one {first}{last} range family.
+\cs_new:Npn \__chemid_topflush:nn #1#2
+  {
+    \tl_if_empty:nTF {#2}
+      { #1 }
+      {
+        \int_compare:nNnTF { \tl_count:n {#2} } < { \l__chemid_threshold_int }
+          { #1 \__chemid_topexplode:n {#2} }
+          { #1 \__chemid_toprange:ff { \tl_head:n {#2} } { \tl_item:nn {#2} { -1 } } }
+      }
+  }
+% Same, plus a family #3 (already forced plain) to carry over unchanged
+% right after.
+\cs_new:Npn \__chemid_topflush:nnn #1#2#3
+  { \__chemid_topflush:nn {#1} {#2} { #3 } }
+
+\cs_new:Npn \__chemid_toprange:nn #1#2 { { {#1} {#2} } }
+\cs_generate_variant:Nn \__chemid_toprange:nn { ff }
+
+\cs_new:Npn \__chemid_topexplode:n #1
+  {
+    \tl_if_empty:nF {#1}
+      {
+        \__chemid_topsingle:f { \tl_head:n {#1} }
+        \__chemid_topexplode:f { \tl_tail:n {#1} }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_topexplode:n { f }
+\cs_new:Npn \__chemid_topsingle:n #1 { { {#1} } }
+\cs_generate_variant:Nn \__chemid_topsingle:n { f }
+
+%% -- joining the families ------------------------------------------
+
+\cs_new:Npn \__chemid_join:nn #1#2
+  {
+    \tl_if_empty:nF {#2}
+      {
+        \__chemid_group:nf {#1} { \tl_head:n {#2} }
+        \__chemid_join_ii:nf {#1} { \tl_tail:n {#2} }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_join:nn { ne }
+
+\cs_new:Npn \__chemid_join_ii:nn #1#2
+  {
+    \tl_if_empty:nF {#2}
+      {
+        \int_compare:nNnTF { \tl_count:n {#2} } = { 1 }
+          { \__chemid_effective_lastsep: }
+          { \l__chemid_listsep_tl }
+        \__chemid_join:nn {#1} {#2}
+      }
+  }
+\cs_generate_variant:Nn \__chemid_join_ii:nn { nf }
+
+%% -- one family ----------------------------------------------------
+
+% #1 mode, #2 braced list of keys belonging to one family
+\cs_new:Npn \__chemid_group:nn #1#2
+  {
+    \int_compare:nNnTF { \tl_count:n {#2} } = { 1 }
+      { \__chemid_single:nf {#1} { \tl_head:n {#2} } }
+      {
+        % A two-key family whose first key has no sub-index can only be
+        % a range synthesised by \__chemid_topcontract:n: a genuine
+        % children family always has sub > 0.  Render it as a number
+        % range instead of running it through the letter-run logic.
+        \int_compare:nNnTF { \__chemid_sub:e { \tl_head:n {#2} } } = { 0 }
+          {
+            \__chemid_full:nf {#1} { \tl_head:n {#2} }
+            \l__chemid_rangesep_tl
+            \__chemid_full:nf {#1} { \tl_item:nn {#2} { -1 } }
+          }
+          { \__chemid_runs_start:nff {#1} { \tl_head:n {#2} } { \tl_tail:n {#2} } }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_group:nn { nf }
+
+\cs_new:Npn \__chemid_runs_start:nnn #1#2#3
+  { \__chemid_runs:nnn {#1} { {#2} } {#3} }
+\cs_generate_variant:Nn \__chemid_runs_start:nnn { nff }
+
+% Cut the family into maximal runs of consecutive letters.
+% #1 mode, #2 current run, #3 remaining keys
+\cs_new:Npn \__chemid_runs:nnn #1#2#3
+  {
+    \tl_if_empty:nTF {#3}
+      { \__chemid_run:nn {#1} {#2} }
+      { \__chemid_runs_ii:nnff {#1} {#2} { \tl_head:n {#3} } { \tl_tail:n {#3} } }
+  }
+
+% #1 mode, #2 current run, #3 next key, #4 rest
+\cs_new:Npn \__chemid_runs_ii:nnnn #1#2#3#4
+  {
+    \int_compare:nNnTF
+        { \__chemid_sub:n {#3} }
+        = { \__chemid_sub:e { \tl_item:nn {#2} { -1 } } + 1 }
+      { \__chemid_runs:nnn {#1} { #2 {#3} } {#4} }
+      {
+        \__chemid_run:nn {#1} {#2}
+        \l__chemid_subsep_tl
+        \__chemid_runs:nnn {#1} { {#3} } {#4}
+      }
+  }
+\cs_generate_variant:Nn \__chemid_runs_ii:nnnn { nnff }
+
+% One run of consecutive letters: 1a / 1a,b / 1a-c
+\cs_new:Npn \__chemid_run:nn #1#2
+  {
+    \__chemid_full:nf {#1} { \tl_head:n {#2} }
+    \int_compare:nNnF { \tl_count:n {#2} } = { 1 }
+      {
+        \int_compare:nNnTF { \tl_count:n {#2} } < { \l__chemid_threshold_int }
+          { \__chemid_run_all:nf {#1} { \tl_tail:n {#2} } }
+          {
+            \l__chemid_rangesep_tl
+            \__chemid_letter:ne {#1} { \tl_item:nn {#2} { -1 } }
+          }
+      }
+  }
+
+\cs_new:Npn \__chemid_run_all:nn #1#2
+  {
+    \tl_if_empty:nF {#2}
+      {
+        \l__chemid_subsep_tl
+        \__chemid_letter:nf {#1} { \tl_head:n {#2} }
+        \__chemid_run_all:nf {#1} { \tl_tail:n {#2} }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_run_all:nn { nf }
+
+%% ------------------------------------------------------------------
+%% 10. Usage -- \chemid{key,key,...}
+%% ------------------------------------------------------------------
+
+\cs_new_protected:Npn \__chemid_record_one:n #1
+  {
+    \__chemid_known:nTF {#1}
+      { \prop_gput:Nnn \g__chemid_used_prop {#1} { } }
+      {
+        \prop_if_in:NnF \g__chemid_reported_prop {#1}
+          {
+            \prop_gput:Nnn \g__chemid_reported_prop {#1} { }
+            \msg_error:nnn { chemidentifier } { undefined-key } {#1}
+          }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_record_one:n { V }
+
+% Book-keeping pass: record the use, complain once per unknown key.
+\cs_new_protected:Npn \__chemid_record:n #1
+  {
+    \clist_map_inline:nn {#1}
+      {
+        \tl_if_blank:nF {##1}
+          {
+            \str_set:Ne \l__chemid_key_str {##1}
+            \__chemid_record_one:V \l__chemid_key_str
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__chemid_use:n #1
+  {
+    \__chemid_record:n {#1}
+    \cs_if_exist:NTF \texorpdfstring
+      {
+        \texorpdfstring
+          { \__chemid_render:nn { rich } {#1} }
+          { \__chemid_render:nn { plain } {#1} }
+      }
+      { \__chemid_render:nn { rich } {#1} }
+  }
+
+%% ------------------------------------------------------------------
+%% 11. Anchor -- \herechemid{key}
+%% ------------------------------------------------------------------
+
+\cs_new_protected:Npn \__chemid_hypertarget:n #1 { \hypertarget {#1} { } }
+\cs_generate_variant:Nn \__chemid_hypertarget:n { V }
+
+% A zero-sized, layout-neutral hypertarget, in horizontal mode as well
+% as in vertical mode (inside a figure, next to the \caption...).
+\cs_new_protected:Npn \__chemid_target:n #1
+  {
+    \bool_if:NT \g__chemid_hyper_bool
+      {
+        \str_set:Ne \l__chemid_name_str { \__chemid_name:n {#1} }
+        \mode_if_vertical:TF
+          {
+            \dim_set:Nn \l__chemid_prevdepth_dim { \tex_prevdepth:D }
+            \nointerlineskip
+            \vbox_to_zero:n
+              { \hbox:n { \__chemid_hypertarget:V \l__chemid_name_str } \vss }
+            \tex_prevdepth:D \l__chemid_prevdepth_dim
+          }
+          { \hbox_overlap_right:n { \__chemid_hypertarget:V \l__chemid_name_str } }
+      }
+  }
+\cs_generate_variant:Nn \__chemid_target:n { V }
+
+\cs_new_protected:Npn \__chemid_here:n #1
+  {
+    \__chemid_parse:nTF {#1}
+      {
+        % 'known' accepts a key seen only in the previous pass (forward
+        % declaration) -- see the accessors above -- so the anchor-count
+        % read below cannot assume \g__chemid_anchor_prop was pre-seeded
+        % at declaration time: it may not have happened yet this pass.
+        \__chemid_known:VTF \l__chemid_key_str
+          {
+            \prop_if_in:NVTF \g__chemid_anchor_prop \l__chemid_key_str
+              {
+                \prop_get:NVN \g__chemid_anchor_prop \l__chemid_key_str
+                  \l__chemid_tmp_tl
+              }
+              { \tl_set:Nn \l__chemid_tmp_tl { 0 } }
+            \int_compare:nNnT { \l__chemid_tmp_tl } > { 0 }
+              {
+                \msg_warning:nnV { chemidentifier } { duplicate-anchor }
+                  \l__chemid_key_str
+              }
+            \prop_gput:NVe \g__chemid_anchor_prop \l__chemid_key_str
+              { \int_eval:n { \l__chemid_tmp_tl + 1 } }
+            \__chemid_target:V \l__chemid_key_str
+            \bool_if:NT \g__chemid_strict_bool
+              { \__chemid_write_aux:V \l__chemid_key_str }
+          }
+          {
+            \msg_error:nnV { chemidentifier } { anchor-undefined-key }
+              \l__chemid_key_str
+          }
+      }
+      { }
+  }
+
+% strict-anchors: remember the anchors in the .aux file so that the next
+% run can drop the links that would have no target at all.
+\cs_new_protected:Npn \__chemid_write_aux:n #1
+  {
+    \legacy_if:nT { @filesw }
+      { \iow_now:Ne \@auxout { \token_to_str:N \chemidanchored {#1} } }
+  }
+\cs_generate_variant:Nn \__chemid_write_aux:n { V }
+
+\ProvideDocumentCommand \chemidanchored { m }
+  { \prop_gput:Nnn \g__chemid_prevanchor_prop {#1} { } }
+
+% Forward declaration: every key gets its final state (number, letter,
+% parent, rich/raw name) written to the .aux at \end{document}, and read
+% back automatically at the next \begin{document} -- same mechanism and
+% same trade-off as \label/\ref.  \chemid / \herechemid may then be used
+% *before* the corresponding \chemid* in the source: undefined and '??'
+% on the run that first introduces the forward reference, resolved from
+% the second run on, and stable afterwards, because the declaration
+% order itself never depends on where the uses sit in the document.
+\ProvideDocumentCommand \chemidregister { m m m m m m }
+  {
+    \prop_gput:Nnn \g__chemid_prev_num_prop    {#1} {#2}
+    \prop_gput:Nnn \g__chemid_prev_sub_prop    {#1} {#3}
+    \prop_gput:Nnn \g__chemid_prev_parent_prop {#1} {#4}
+    \prop_gput:Nnn \g__chemid_prev_rich_prop   {#1} {#5}
+    \prop_gput:Nnn \g__chemid_prev_raw_prop    {#1} {#6}
+  }
+
+\cs_new_protected:Npn \__chemid_write_register:n #1
+  {
+    \iow_now:Ne \@auxout
+      {
+        \token_to_str:N \chemidregister
+          {#1}
+          { \__chemid_num:n {#1} }
+          { \__chemid_sub:n {#1} }
+          { \__chemid_parent:n {#1} }
+          { \__chemid_rich:n {#1} }
+          { \__chemid_raw:n {#1} }
+      }
+  }
+
+\cs_new_protected:Npn \__chemid_write_all_registers:
+  {
+    \legacy_if:nT { @filesw }
+      { \seq_map_function:NN \g__chemid_order_seq \__chemid_write_register:n }
+  }
+
+%% ------------------------------------------------------------------
+%% 12. Reset
+%% ------------------------------------------------------------------
+
+\NewDocumentCommand \chemidreset { }
+  { \int_gzero:N \g__chemid_main_int }
+
+%% ------------------------------------------------------------------
+%% 13. End of document check
+%% ------------------------------------------------------------------
+
+% Hook code is stored verbatim, so the inline mapping takes #1, not ##1.
+\cs_new_protected:Npn \__chemid_check_anchors:
+  {
+    \seq_map_inline:Nn \g__chemid_order_seq
+      {
+        \bool_lazy_and:nnT
+          { \prop_if_in_p:Nn \g__chemid_used_prop {##1} }
+          { \int_compare_p:nNn { 0 \prop_item:Nn \g__chemid_anchor_prop {##1} } = { 0 } }
+          { \msg_warning:nnn { chemidentifier } { missing-anchor } {##1} }
+      }
+  }
+
+\hook_gput_code:nnn { enddocument } { chemidentifier }
+  {
+    \__chemid_check_anchors:
+    \__chemid_write_all_registers:
+  }
+
+%% ------------------------------------------------------------------
+%% 14. User interface
+%% ------------------------------------------------------------------
+
+\NewDocumentCommand \chemid { s m }
+  {
+    \IfBooleanTF {#1}
+      { \__chemid_declare_peek:n {#2} }
+      { \__chemid_use:n {#2} }
+  }
+
+% Only the *starred* form takes further arguments, and they are peeked
+% at here rather than declared in the signature: a brace group following
+% a plain \chemid{...} is thus never swallowed.  Accepted forms:
+%     \chemid*{key}              \chemid*{key}{rich}
+%     \chemid*{key}{rich}[raw]   \chemid*{key}[rich][raw]
+%
+% The peeks are strict (no \ignore_spaces): {rich} or [rich] is only
+% captured when it is glued directly to the key, with *zero* intervening
+% space or newline -- exactly the style used in every example of the
+% manual.  Any space (a single end of line included) makes the peek
+% fail, and everything that follows is left untouched as ordinary body
+% text.  This is what rules out the classic footgun of a paragraph that
+% happens to start with a brace on the very next source line.
+\tl_new:N \l__chemid_pendingkey_tl
+
+\cs_new_protected:Npn \__chemid_declare_peek:n #1
+  {
+    \tl_set:Nn \l__chemid_pendingkey_tl {#1}
+    \tl_clear:N \l__chemid_rich_tl
+    \tl_clear:N \l__chemid_raw_tl
+    \peek_catcode:NTF \c_group_begin_token
+      { \__chemid_grab_rich:n }
+      { \__chemid_peek_bracket_i: }
+  }
+
+% {rich} present: grab it, then look for an optional [raw].
+\cs_new_protected:Npn \__chemid_grab_rich:n #1
+  {
+    \tl_set:Nn \l__chemid_rich_tl {#1}
+    \__chemid_peek_bracket_ii:
+  }
+
+% No brace group: [rich] may still come, followed by [raw].
+\cs_new_protected:Npn \__chemid_peek_bracket_i:
+  {
+    \peek_charcode:NTF [
+      { \__chemid_grab_rich_bracket:w }
+      { \__chemid_declare_now: }
+  }
+\cs_new_protected:Npn \__chemid_grab_rich_bracket:w [#1]
+  {
+    \tl_set:Nn \l__chemid_rich_tl {#1}
+    \__chemid_peek_bracket_ii:
+  }
+
+\cs_new_protected:Npn \__chemid_peek_bracket_ii:
+  {
+    \peek_charcode:NTF [
+      { \__chemid_grab_raw_bracket:w }
+      { \__chemid_declare_now: }
+  }
+\cs_new_protected:Npn \__chemid_grab_raw_bracket:w [#1]
+  {
+    \tl_set:Nn \l__chemid_raw_tl {#1}
+    \__chemid_declare_now:
+  }
+
+\cs_generate_variant:Nn \__chemid_declare:nnn { VVV }
+
+% \chemid*{key} declares one key ; \chemid*{key1,key2,...} declares
+% several at once, each auto-numbered in turn -- exactly the comma
+% convention already used by \chemid.  A custom {rich}[raw] name cannot
+% be attached to a multi-key declaration: it would be ambiguous which
+% key it belongs to.
+\cs_new_protected:Npn \__chemid_declare_now:
+  {
+    \clist_set:NV \l__chemid_pendingkeys_clist \l__chemid_pendingkey_tl
+    \int_compare:nNnTF { \clist_count:N \l__chemid_pendingkeys_clist } > { 1 }
+      {
+        \bool_lazy_or:nnTF
+          { ! \tl_if_blank_p:V \l__chemid_rich_tl }
+          { ! \tl_if_blank_p:V \l__chemid_raw_tl }
+          {
+            \msg_error:nnV { chemidentifier } { multi-key-custom-name }
+              \l__chemid_pendingkey_tl
+          }
+          {
+            \clist_map_inline:Nn \l__chemid_pendingkeys_clist
+              { \__chemid_declare:nnn {##1} { } { } }
+          }
+      }
+      {
+        \__chemid_declare:VVV
+          \l__chemid_pendingkey_tl \l__chemid_rich_tl \l__chemid_raw_tl
+      }
+  }
+
+\NewDocumentCommand \herechemid { m }
+  { \__chemid_here:n {#1} }
+
+%% ------------------------------------------------------------------
+%% 15. Text substitution in Inkscape .pdf_tex figures (LuaLaTeX only)
+%% ------------------------------------------------------------------
+%%
+%% A ChemDraw/Inkscape scheme is exported once, with a plain-text
+%% placeholder ("TMP1", "cpdA"...) standing in for each compound label.
+%% \chemidscheme reads the .pdf_tex line by line and substitutes every
+%% placeholder for the corresponding \chemid{key} -- or any other
+%% replacement text -- *as the file is read*, without ever touching the
+%% file on disk: re-exporting from Inkscape loses nothing. This mirrors
+%% what psfrag once did for .eps figures, without the .eps baggage: a
+%% .pdf_tex is plain LaTeX + \includegraphics{...pdf}, so the trick is
+%% just a literal, per-line text substitution done in Lua, which needs
+%% LuaLaTeX. No support is provided for the old .eps/psfrag route.
+%%
+%% USAGE
+%%   \chemidsetup{ pdftex-font = \sffamily\small }   % base style, once
+%%   \chemid*{precursor}  \chemid*{product}
+%%   ...
+%%   \begin{figure}
+%%     \chemidkey{TMP1}{precursor}   % TMP1 -> \chemid{precursor}
+%%     \chemidkey[1.4]{TMP2}{product}         % 1.4x bigger than the rest
+%%     \chemidnote{TMPCOND}{K$_2$CO$_3$, acetone, 70~\si{\celsius}}
+%%     \chemidscheme[0.8]{figures/scheme.pdf_tex}   % scale is optional
+%%     \herechemid{precursor}\herechemid{product}
+%%     \caption{...}
+%%   \end{figure}
+%%
+%% The placeholder must sit ISOLATED in the figure text (not a substring
+%% of another word): the substitution is literal and global on each
+%% line. \chemidscheme consumes the pending list as it reads the file,
+%% so the next figure starts from an empty list automatically -- there
+%% is no separate "clear" step to remember.
+%%
+%% SIZE OF THE SUBSTITUTED TEXT
+%% Three factors multiply together, so a figure scaled down still reads
+%% fine without retouching every label by hand:
+%%   1. pdftex-font (\chemidsetup)     -- the base style, set once
+%%   2. the [scale] of \chemidscheme   -- same number as the figure's
+%%      own \svgscale, so labels shrink/grow together with the drawing
+%%   3. the optional [factor] of \chemidkey/\chemidnote -- one label
+%%      singled out, relative to the other labels of the same figure
+%% The combined factor is applied with \scalebox (graphicx, already
+%% needed by the .pdf_tex itself): a geometric zoom on top of whatever
+%% pdftex-font selected, so this works regardless of what that style
+%% declaration contains.
+
+\bool_new:N \g__chemid_pdftex_repl_bool % true once the Lua table exists
+\tl_new:N   \l__chemid_pdftex_dir_tl
+
+\msg_new:nnnn { chemidentifier } { pdftex-needs-lualatex }
+  { \iow_char:N \\chemidscheme~requires~LuaLaTeX. }
+  {
+    Text~substitution~in~a~.pdf_tex~figure~is~done~by~a~small~Lua~
+    routine,~so~this~document~must~be~compiled~with~lualatex~(or~any~
+    engine~providing~\iow_char:N \\directlua).~Compile~with~
+    'lualatex'~instead,~or~drop~\iow_char:N \\chemidscheme~and~
+    \iow_char:N \\includegraphics~the~figure~as~usual.
+  }
+
+\msg_new:nnnn { chemidentifier } { pdftex-file-not-found }
+  { File~'#1'~not~found. }
+  { Check~the~path~given~to~\iow_char:N \\chemidscheme. }
+
+% Letter-only name (no '_' or ':'), on purpose: this is what Lua prints
+% back into the document to report a missing file, and at that point
+% TeX is reading it under whatever catcodes the *document* uses -- not
+% expl3's -- so an expl3-named function such as \msg_error:nnn would
+% not even tokenize as one control sequence there.
+\cs_new_protected:Npn \__chemid_pdftex_filenotfound:n #1
+  { \msg_error:nnn { chemidentifier } { pdftex-file-not-found } {#1} }
+\cs_generate_variant:Nn \__chemid_pdftex_filenotfound:n { V }
+\ProvideDocumentCommand \chemidpdftexfilenotfound { m }
+  { \__chemid_pdftex_filenotfound:n {#1} }
+
+% expl3 gives the space character catcode 9 (ignored): harmless for
+% ordinary expl3 code, fatal for the Lua source embedded below, whose
+% keywords ('if', 'then', 'end'...) would otherwise run together with
+% no separator at all. Restore the ordinary catcode 10 (space) until
+% the end of this section, then set it back; no \group_begin: here on
+% purpose -- \NewDocumentCommand defines its macros *locally*, and a
+% group would silently discard them all again at \group_end:. Only the
+% space character is touched, so expl3 names (letters '_' and ':')
+% read below are completely unaffected.
+%
+% A second, sneakier consequence of the same toggle: for a *raw*
+% \cs_new(_protected):Npn definition (\NewDocumentCommand is immune --
+% see below), any whitespace between the parameter text and the body's
+% opening brace -- a same-line space, or even just a line break, since
+% crossing a line end inserts a space token exactly like a literal one
+% typed there -- now becomes a REAL token instead of vanishing, and
+% TeX reads it as a trailing DELIMITER on the last parameter: the
+% macro silently stops taking that parameter as "the next {...} group"
+% and starts taking it as "everything up to the next space", which is
+% *empty* the moment two such calls sit next to each other as
+% \foo{a} {b}. Every \cs_new(_protected):Npn below therefore glues its
+% opening brace directly onto the parameter text (or the bare name, if
+% it takes none), with zero characters in between -- ugly, but the
+% only reliably safe spelling here. \NewDocumentCommand does not have
+% this problem: its body is just an ordinary argument grabbed by
+% \NewDocumentCommand itself, not raw \def parameter-text syntax.
+\catcode`\ =10\relax
+
+% Lazily create the Lua replacement table: keeps this section a no-op,
+% including under a non-Lua engine, until \chemidkey/\chemidnote is
+% actually used.
+\cs_new_protected:Npn \__chemid_pdftex_init:{
+    \bool_if:NF \g__chemid_pdftex_repl_bool
+      {
+        \bool_gset_true:N \g__chemid_pdftex_repl_bool
+        \directlua{ __chemidentifier_pdftex_repl = { } }
+      }
+  }
+
+% \chemidnote[factor]{motif}{replacement} -- free-form substitution:
+% any TeX material is allowed on the right-hand side, expanded when the
+% figure is read (so \chemid{key} used here reflects its value at that
+% point). [factor] singles this one label out, on top of pdftex-font
+% and the \chemidscheme scale -- see "SIZE OF THE SUBSTITUTED TEXT"
+% above; it defaults to 1, i.e. no effect beyond the other two factors.
+\NewDocumentCommand \chemidnote { O{1} m m }
+  {
+    \sys_if_engine_luatex:T
+      {
+        \__chemid_pdftex_init:
+        \directlua{
+          table.insert(__chemidentifier_pdftex_repl, {
+            from   = [[\detokenize{#2}]],
+            to     = [[\detokenize{#3}]],
+            factor = [[\detokenize{#1}]]
+          })
+        }
+      }
+  }
+
+% \chemidkey[factor]{motif}{key} -- shorthand for
+% \chemidnote[factor]{motif}{\chemid{key}}: the placeholder becomes the
+% compound's current number (and its clickable link), without declaring
+% or renumbering it.
+\NewDocumentCommand \chemidkey { O{1} m m }
+  {
+    \sys_if_engine_luatex:T
+      {
+        \__chemid_pdftex_init:
+        \directlua{
+          table.insert(__chemidentifier_pdftex_repl, {
+            from   = [[\detokenize{#2}]],
+            to     = [[\noexpand\chemid{\detokenize{#3}}]],
+            factor = [[\detokenize{#1}]]
+          })
+        }
+      }
+  }
+
+% Engine-agnostic core: read #2 line by line, apply the pending
+% replacements -- each one scaled by #1 (the \chemidscheme scale) times
+% its own [factor] -- typeset the result, then empty the list, so the
+% next \chemidscheme starts clean with no separate "clear" step to
+% forget.
+%
+% No Lua comment ('--') appears in this block, on purpose: \directlua
+% folds a multi-line brace argument into one logical Lua line (each
+% newline becomes a plain space, not a real \n), so a '--' comment
+% would swallow everything typed after it, all the way to the end of
+% the chunk. Two more characters get the same "must not appear
+% literally" treatment for a different reason: '%' is still a *TeX*
+% comment marker even inside \directlua{...} (it would eat the rest of
+% that physical line, braces included, before Lua ever sees it), and
+% '~' is active in this file already (the non-breaking space used
+% elsewhere in the package) -- string.char(37) and 'not (eff == 1)'
+% below sidestep the two of them.
+\cs_new_protected:Npn \__chemid_pdftex_apply:nn #1#2{
+    \group_begin:
+      \l__chemid_pdftexfont_tl \selectfont
+      \directlua{
+        local scheme_scale = tonumber([[\detokenize{#1}]]) or 1
+        local filename = [[\detokenize{#2}]]
+        local repl = __chemidentifier_pdftex_repl
+
+        local function replace_plain(s, needle, replacement)
+          if needle == "" then return s end
+          local out, i = {}, 1
+          while true do
+            local j, k = s:find(needle, i, true)
+            if not j then table.insert(out, s:sub(i)); break end
+            table.insert(out, s:sub(i, j - 1))
+            table.insert(out, replacement)
+            i = k + 1
+          end
+          return table.concat(out)
+        end
+
+        local f = io.open(filename, "r")
+        if not f then
+          tex.print("\\chemidpdftexfilenotfound{" .. filename .. "}")
+        else
+          for line in f:lines() do
+            if line:sub(-1) == string.char(13) then
+              line = line:sub(1, -2)
+            end
+            for _, r in ipairs(repl) do
+              local eff = scheme_scale * (tonumber(r.factor) or 1)
+              local to = r.to
+              if not (eff == 1) then
+                local fmt = string.char(37) .. ".5f"
+                to = "\\scalebox{" .. string.format(fmt, eff) .. "}{" .. to .. "}"
+              end
+              line = replace_plain(line, r.from, to)
+            end
+            tex.print(line)
+          end
+          f:close()
+        end
+        __chemidentifier_pdftex_repl = { }
+      }
+    \group_end:
+  }
+
+% Directory part of #1, as a detokenized string (Lua pattern match) --
+% used to add the figure's own folder to \graphicspath, since a
+% .pdf_tex calls \includegraphics{<name>.pdf} without any path. Unlike
+% \__chemid_pdftex_apply:nn and \__chemid_pdftex_init: above, this
+% function's *result* is used as data (spliced into \graphicspath by
+% the caller), not just executed for effect: any stray leading or
+% trailing space token baked in from the usual multi-line indented
+% layout -- harmless for those two, invisible in typeset output --
+% would corrupt this one, turning "figures/" into " figures/ " and
+% breaking every file lookup in the figure. One line, glued tight at
+% both ends, avoids that entirely.
+\cs_new:Npn \__chemid_pdftex_dirof:n #1{\directlua{tex.sprint((string.match([[\detokenize{#1}]], "^.*/") or ""))}}
+
+% Space goes back to being ignored here: \chemidscheme below contains
+% no raw Lua of its own (it only orchestrates calls to the functions
+% above, already safely captured), so it belongs back in expl3's usual
+% regime -- catcode 10 would otherwise bake the cosmetic spaces of
+% '{ \__chemid_pdftex_dirof:n {#2} }' straight into the *value* that
+% \tl_set:Ne (a full, \edef-like expansion) assigns to
+% \l__chemid_pdftex_dir_tl, silently turning "figures/" into
+% "  figures/  " and breaking every \includegraphics lookup in the
+% figure.
+\catcode`\ =9\relax
+
+% \chemidscheme[scale]{path} -- the command to actually use. [scale]
+% defaults to 1: it both feeds \svgscale (the figure's own geometry --
+% up to the .pdf_tex file to use it) and multiplies into the font size
+% of every substituted label, so the two stay in step.
+\NewDocumentCommand \chemidscheme { O{1} m }
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \group_begin:
+          \def\svgscale {#1}
+          \tl_set:Ne \l__chemid_pdftex_dir_tl { \__chemid_pdftex_dirof:n {#2} }
+          \tl_if_empty:NF \l__chemid_pdftex_dir_tl
+            { \graphicspath { { \l__chemid_pdftex_dir_tl } { ./ } } }
+          \__chemid_pdftex_apply:nn {#1} {#2}
+        \group_end:
+      }
+      { \msg_error:nn {chemidentifier} {pdftex-needs-lualatex} }
+  }
