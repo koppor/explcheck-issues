@@ -1,0 +1,976 @@
+%#!./run.bash test.tex
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage {spotxcolor} {2026-03-29} {1.7} {Modern Spot Color Support for xcolor}
+
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%%
+
+\RequirePackage{xcolor}
+\RequirePackage{iftex}
+
+% --- Variable Declarations ---
+\prop_new:N \g_spotxcolor_db_prop
+\tl_new:N \l_spotxcolor_pdfname_tl
+\tl_const:Nx \c_spotxcolor_hash_str { \string # }
+\tl_new:N \g_spotxcolor_resource_tl
+
+% NnV variant for PDF Name escaping
+\cs_generate_variant:Nn \tl_replace_all:Nnn { NnV }
+
+% --- Variables for \set@color patch (spot color auto-detection) ---
+% Base CMYK values for each spot color: name -> "c m y k" (space-separated)
+\prop_new:N \g__spotxcolor_base_prop
+% Detection result flags
+\bool_new:N \g__spotxcolor_matched_bool
+\tl_new:N \g__spotxcolor_matched_name_tl
+\tl_new:N \g__spotxcolor_matched_tint_tl
+% Working variables
+\seq_new:N \l__spotxcolor_parts_seq
+\seq_new:N \l__spotxcolor_base_seq
+\tl_new:N \l__spotxcolor_cc_tl
+\tl_new:N \l__spotxcolor_cm_tl
+\tl_new:N \l__spotxcolor_cy_tl
+\tl_new:N \l__spotxcolor_ck_tl
+\tl_new:N \l__spotxcolor_bc_tl
+\tl_new:N \l__spotxcolor_bm_tl
+\tl_new:N \l__spotxcolor_by_tl
+\tl_new:N \l__spotxcolor_bk_tl
+\fp_new:N \l__spotxcolor_maxbase_fp
+\fp_new:N \l__spotxcolor_tint_fp
+
+% --- Variables for dvipdfmx/XeTeX \pagecolor support ---
+% Flag: spot color page background is active (dvipdfmx/XeTeX only)
+\bool_new:N \g__spotxcolor_page_active_bool
+% Operator string for the page background (e.g., "/DIC161s cs 1 sc")
+\tl_new:N \g__spotxcolor_page_ops_tl
+
+% --- Separation object reference per spot color ---
+% Maps xcolor name -> Separation array reference (e.g., "6 0 R" for pdfTeX,
+% "@spot_space_NAME" for dvipdfmx).
+% Used to create [/Pattern sepRef] objects.
+\prop_new:N \g__spotxcolor_sep_ref_prop
+
+% --- pdfmanagement detection (Issue #2) ---
+% When pdfmanagement (l3pdf) is active, it redefines
+% \pgfutil@addpdfresource@colorspaces with its own parser
+% (\__pdfmanagement_patch_pgfcolorspaces:w), which expects a different
+% argument format. Direct \pdfpageresources access is also forbidden.
+% We detect this at load time and route all resource registration through
+% \pdfmanagement_add:nne instead.
+\bool_new:N \g__spotxcolor_pdfmanagement_bool
+\IfPDFManagementActiveTF
+  {
+    \bool_gset_true:N \g__spotxcolor_pdfmanagement_bool
+    % Generate nne variant: the third argument (object reference)
+    % must be e-expanded at call time, because \pdfmanagement_add:nnn
+    % stores it lazily. Without expansion, all entries end up sharing
+    % the last value of \l_tmpb_tl.
+    \cs_generate_variant:Nn \pdfmanagement_add:nnn { nne }
+  }
+  { }
+
+% --- Database Registration ---
+\cs_new_protected:Npn \spotxcolor_register_db:nnn #1#2#3
+  {
+    \prop_gput:Nnn \g_spotxcolor_db_prop {#1} { {#2} {#3} }
+  }
+
+% --- Safe Resource Management Helper ---
+\cs_new_protected:Npn \spotxcolor_add_colorspace_resource:nn #1#2
+  {
+    % When pdfmanagement is active, use its API exclusively.
+    % Bypassing \pgfutil@addpdfresource@colorspaces entirely avoids
+    % the Runaway argument error from
+    % \__pdfmanagement_patch_pgfcolorspaces:w (Issue #2).
+    \bool_if:NTF \g__spotxcolor_pdfmanagement_bool
+      {
+        \pdfmanagement_add:nne { Page/Resources/ColorSpace } {#1} {#2}
+      }
+      {
+        % Traditional mode: use PGF's hook or direct resource manipulation.
+
+        % Avoid collision with pgfcolorspaces.
+        % Instead of putting it directly into @resources << /ColorSpace ... >>,
+        % we use a generic pdf:put command that dvipdfmx handles more gracefully
+        % for merging dictionaries.
+
+        % Check if TikZ/PGF is loaded and use its official hook to avoid dictionary overwrites
+        \cs_if_exist:NTF \pgfutil@addpdfresource@colorspaces
+          {
+            % If TikZ/PGF is loaded, inject into its dictionary
+            \pgfutil@addpdfresource@colorspaces { /#1~#2 }
+          }
+          {
+            % Fallback if PGF is NOT loaded
+            \legacy_if:nTF { pdf }
+              {
+                \tl_gput_right:Nx \g_spotxcolor_resource_tl { /#1 \space #2 \space }
+              }
+              {
+                % use the standard approach
+                \special { pdf:put~@resources~<<~/ColorSpace~<<~/#1~#2~>>~>> }
+              }
+          }
+      }
+  }
+
+% --- PDF Object Generation ---
+\cs_new_protected:Npn \spotxcolor_create_pdf_obj:nnn #1#2#3
+  {
+    % Escape spaces in PDF name (#2) as #20 per ISO 32000-1, §7.3.5
+    \tl_set:Nn \l_spotxcolor_pdfname_tl { #2 }
+    % Build "#20" at runtime: step 1 = x-expand hash alone (no digit after #),
+    % step 2 = append "20" via n-type (no \edef).
+    % This avoids the TeX issue where \edef treats '#' (even catcode 12)
+    % followed by a digit specially.
+    \tl_set:Nx \l_tmpa_tl { \c_spotxcolor_hash_str }		% → "#"
+    \tl_put_right:Nn \l_tmpa_tl { 20 }						% → "#20"
+    \tl_replace_all:NnV \l_spotxcolor_pdfname_tl { ~ } \l_tmpa_tl
+
+    \legacy_if:nTF { pdf }
+      {
+        \sys_if_engine_pdftex:T
+          {
+            \immediate \pdfobj {<</C0[0~0~0~0]/FunctionType~2/C1[#3]/Domain[0~1]/N~1>>}
+            \tl_set:Nx \l_tmpa_tl { \the\pdflastobj }
+            \pdfrefobj \l_tmpa_tl
+
+            \immediate \pdfobj { [/Separation~/\l_spotxcolor_pdfname_tl~/DeviceCMYK~\l_tmpa_tl\space 0~R] }
+            \tl_set:Nx \l_tmpb_tl { \the\pdflastobj }
+            \pdfrefobj \l_tmpb_tl
+
+            \spotxcolor_add_colorspace_resource:nn {#1} { \l_tmpb_tl \space 0~R }
+            % Store Separation reference for Pattern CS creation
+            \tl_set:Nx \l_tmpa_tl { \l_tmpb_tl \space 0~R }
+            \prop_gput:NnV \g__spotxcolor_sep_ref_prop {#1} \l_tmpa_tl
+          }
+        \sys_if_engine_luatex:T
+          {
+            \immediate \pdfextension obj {<</C0[0~0~0~0]/FunctionType~2/C1[#3]/Domain[0~1]/N~1>>}
+            \tl_set:Nx \l_tmpa_tl { \pdffeedback lastobj }
+            \pdfextension refobj \l_tmpa_tl
+
+            \immediate \pdfextension obj { [/Separation~/\l_spotxcolor_pdfname_tl~/DeviceCMYK~\l_tmpa_tl\space 0~R] }
+            \tl_set:Nx \l_tmpb_tl { \pdffeedback lastobj }
+            \pdfextension refobj \l_tmpb_tl
+
+            \spotxcolor_add_colorspace_resource:nn {#1} { \l_tmpb_tl \space 0~R }
+            % Store Separation reference for Pattern CS creation
+            \tl_set:Nx \l_tmpa_tl { \l_tmpb_tl \space 0~R }
+            \prop_gput:NnV \g__spotxcolor_sep_ref_prop {#1} \l_tmpa_tl
+          }
+      }
+      {
+        % For dvipdfmx, XeLaTeX
+        \special { pdf:obj~@spot_func_#1~<</C0[0~0~0~0]/FunctionType~2/C1[#3]/Domain[0~1]/N~1>> }
+        \special { pdf:obj~@spot_space_#1~[/Separation~/\l_spotxcolor_pdfname_tl~/DeviceCMYK~@spot_func_#1] }
+
+        \spotxcolor_add_colorspace_resource:nn {#1} { @spot_space_#1 }
+        % Store Separation reference for Pattern CS creation
+        \prop_gput:Nnn \g__spotxcolor_sep_ref_prop {#1} { @spot_space_#1 }
+      }
+  }
+
+\cs_generate_variant:Nn \spotxcolor_create_pdf_obj:nnn { nnV }
+% Ensure NnV variant exists for safe prop storage
+\cs_generate_variant:Nn \prop_gput:Nnn { NnV }
+
+% --- Store base CMYK values for \set@color auto-detection ---
+\cs_new_protected:Npn \__spotxcolor_store_base:nn #1#2
+  {
+    % #1 = xcolor name, #2 = "c, m, y, k" (comma-separated, possibly with spaces)
+    % Use clist to normalize: "0, 0.64, 1, 0" → clist {0}{0.64}{1}{0}
+    % then rejoin with single spaces: "0 0.64 1 0"
+    \clist_set:Nn \l_tmpa_clist {#2}
+    \tl_set:Nx \l_tmpa_tl { \clist_use:Nn \l_tmpa_clist { ~ } }
+    \prop_gput:NnV \g__spotxcolor_base_prop {#1} \l_tmpa_tl
+  }
+
+% --- Native Registration for xcolor ---
+%% Try to override \color@<n> with raw PDF operators or with \xcolor@'s raw field. Both approaches fail:
+%%   - Raw operators in \color@<n> break xcolor's internal parser (\xcolor@ format is expected).
+%%   - \xcolor@'s 2nd arg (raw field) is ignored by pdfTeX/LuaTeX drivers.
+%%
+%% Leave \color@<n> as standard CMYK (via \definecolor).
+%% The \set@color patch (installed at \AtBeginDocument) intercepts ALL color pushes,
+%% detects spot color CMYK values, and converts them to spot color operators.
+%% This handles \color, \textcolor, \pagecolor, and tinted expressions uniformly across all engines.
+\cs_new_protected:Npn \spotxcolor_bind_xcolor:nnn #1#2#3
+  {
+    % Register as standard CMYK in xcolor's database.
+    % xcolor's mixing engine uses this for tinting (DIC161s!50, etc.).
+    % The \set@color patch converts the resulting CMYK to spot color operators.
+    \definecolor {#1} {cmyk} {#3}
+  }
+
+% --- Core Definition Command ---
+\cs_new_protected:Npn \spotxcolor_define_spotcolor:nnn #1#2#3
+  {
+    \spotxcolor_register_db:nnn {#1} {#2} {#3}
+    \tl_set:Nn \l_tmpa_tl { #3 }
+    \tl_replace_all:Nnn \l_tmpa_tl { , } { ~ }
+    \spotxcolor_create_pdf_obj:nnV {#1} {#2} \l_tmpa_tl
+    \spotxcolor_bind_xcolor:nnn {#1} {#2} {#3}
+    % Register base CMYK for \set@color auto-detection
+    \__spotxcolor_store_base:nn {#1} {#3}
+  }
+
+\cs_generate_variant:Nn \spotxcolor_define_spotcolor:nnn { nnV }
+
+% --- User Interface ---
+\NewDocumentCommand{\definespotcolor}{ m m m }
+  {
+    \spotxcolor_define_spotcolor:nnn {#1} {#2} {#3}
+  }
+
+% --- Manual Command to Ensure True Spot Color Output ---
+\NewDocumentCommand{\SpotColor}{ m m }
+  {
+    \legacy_if:nTF { pdf }
+      {
+        \sys_if_engine_pdftex:T { \pdfliteral { /#1~cs~/#1~CS~#2~sc~#2~SC } }
+        \sys_if_engine_luatex:T { \pdfextension literal { /#1~cs~/#1~CS~#2~sc~#2~SC } }
+      }
+      {
+        \special { pdf:code~/#1~cs~/#1~CS~#2~sc~#2~SC }
+      }
+  }
+
+% =====================================================================
+% --- \set@color Patch for Spot Color Auto-Detection ---
+% =====================================================================
+% When xcolor evaluates tinted expressions like "DIC161s!50",
+% it computes new CMYK values from the base color model, bypassing \color@<n>.
+% The resulting \current@color contains plain CMYK operators.
+%
+% This patch intercepts \set@color, parses the CMYK values from \current@color,
+% and checks if they are a scalar multiple of any registered spot color's base CMYK values.
+% If a match is found:
+%
+%   - pdfTeX/LuaTeX: \current@color is replaced with spot color operators
+%   - dvipdfmx/XeTeX: \special{pdf:code} is emitted after the color push
+%
+% Note: Only proportional tints (DIC161s!N) are auto-detected.
+%       Complex mixes like "DIC161s!50!black" produce non-proportional CMYK
+%       and correctly fall back to CMYK representation.
+% =====================================================================
+
+% --- Parse pdfTeX/LuaTeX format: "c m y k k c m y k K" ---
+\cs_new_protected:Npn \__spotxcolor_parse_pdftex:
+  {
+    \int_compare:nNnT { \seq_count:N \l__spotxcolor_parts_seq } = { 10 }
+      {
+        \str_if_eq:eeTF { \seq_item:Nn \l__spotxcolor_parts_seq { 5 } } { k }
+          {
+            \tl_set:Nx \l__spotxcolor_cc_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 1 } }
+            \tl_set:Nx \l__spotxcolor_cm_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 2 } }
+            \tl_set:Nx \l__spotxcolor_cy_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 3 } }
+            \tl_set:Nx \l__spotxcolor_ck_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 4 } }
+            \__spotxcolor_try_all_spots:
+          }
+          { }
+      }
+  }
+
+% --- Parse dvipdfmx/XeTeX format: "cmyk c m y k" ---
+\cs_new_protected:Npn \__spotxcolor_parse_dvipdfmx:
+  {
+    \int_compare:nNnT { \seq_count:N \l__spotxcolor_parts_seq } = { 5 }
+      {
+        \str_if_eq:eeTF { \seq_item:Nn \l__spotxcolor_parts_seq { 1 } } { cmyk }
+          {
+            \tl_set:Nx \l__spotxcolor_cc_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 2 } }
+            \tl_set:Nx \l__spotxcolor_cm_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 3 } }
+            \tl_set:Nx \l__spotxcolor_cy_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 4 } }
+            \tl_set:Nx \l__spotxcolor_ck_tl
+              { \seq_item:Nn \l__spotxcolor_parts_seq { 5 } }
+            \__spotxcolor_try_all_spots:
+          }
+          { }
+      }
+  }
+
+% --- Iterate registered spot colors and try matching ---
+\cs_new_protected:Npn \__spotxcolor_try_all_spots:
+  {
+    % Skip all-zero CMYK (= white) to avoid false positives
+    \fp_compare:nNnT
+      {
+        abs( \l__spotxcolor_cc_tl ) + abs( \l__spotxcolor_cm_tl )
+        + abs( \l__spotxcolor_cy_tl ) + abs( \l__spotxcolor_ck_tl )
+      } > { 0.001 }
+      {
+        \prop_map_inline:Nn \g__spotxcolor_base_prop
+          {
+            \bool_if:NF \g__spotxcolor_matched_bool
+              { \__spotxcolor_check_one:nn {##1} {##2} }
+          }
+      }
+  }
+
+% --- Check if current CMYK is a proportional tint of one spot color ---
+\cs_new_protected:Npn \__spotxcolor_check_one:nn #1#2
+  {
+    % #1 = spot color name, #2 = "bc bm by bk" (space-separated)
+    \seq_set_split:Nnn \l__spotxcolor_base_seq { ~ } {#2}
+    \tl_set:Nx \l__spotxcolor_bc_tl
+      { \seq_item:Nn \l__spotxcolor_base_seq { 1 } }
+    \tl_set:Nx \l__spotxcolor_bm_tl
+      { \seq_item:Nn \l__spotxcolor_base_seq { 2 } }
+    \tl_set:Nx \l__spotxcolor_by_tl
+      { \seq_item:Nn \l__spotxcolor_base_seq { 3 } }
+    \tl_set:Nx \l__spotxcolor_bk_tl
+      { \seq_item:Nn \l__spotxcolor_base_seq { 4 } }
+
+    % Find the maximum base component (used as tint reference)
+    \fp_set:Nn \l__spotxcolor_maxbase_fp
+      {
+        max( \l__spotxcolor_bc_tl , \l__spotxcolor_bm_tl ,
+             \l__spotxcolor_by_tl , \l__spotxcolor_bk_tl )
+      }
+
+    \fp_compare:nNnT { \l__spotxcolor_maxbase_fp } > { 0 }
+      {
+        % Compute tint = current_dominant / base_dominant
+        \fp_compare:nNnTF
+          { \l__spotxcolor_bc_tl } = { \l__spotxcolor_maxbase_fp }
+          { \fp_set:Nn \l__spotxcolor_tint_fp
+              { \l__spotxcolor_cc_tl / \l__spotxcolor_bc_tl } }
+          {
+            \fp_compare:nNnTF
+              { \l__spotxcolor_bm_tl } = { \l__spotxcolor_maxbase_fp }
+              { \fp_set:Nn \l__spotxcolor_tint_fp
+                  { \l__spotxcolor_cm_tl / \l__spotxcolor_bm_tl } }
+              {
+                \fp_compare:nNnTF
+                  { \l__spotxcolor_by_tl } = { \l__spotxcolor_maxbase_fp }
+                  { \fp_set:Nn \l__spotxcolor_tint_fp
+                      { \l__spotxcolor_cy_tl / \l__spotxcolor_by_tl } }
+                  { \fp_set:Nn \l__spotxcolor_tint_fp
+                      { \l__spotxcolor_ck_tl / \l__spotxcolor_bk_tl } }
+              }
+          }
+
+        % Validate: tint must be in [0, 1] (with tolerance)
+        \bool_set_true:N \l_tmpa_bool
+        \fp_compare:nNnF { \l__spotxcolor_tint_fp } > { -0.005 }
+          { \bool_set_false:N \l_tmpa_bool }
+        \fp_compare:nNnF { \l__spotxcolor_tint_fp } < { 1.005 }
+          { \bool_set_false:N \l_tmpa_bool }
+
+        % Validate each CMYK component: |current_i - tint * base_i| < epsilon
+        \bool_if:NT \l_tmpa_bool
+          {
+            \fp_compare:nNnF
+              { abs( \l__spotxcolor_cc_tl
+                     - \l__spotxcolor_tint_fp * \l__spotxcolor_bc_tl ) }
+              < { 0.005 }
+              { \bool_set_false:N \l_tmpa_bool }
+          }
+        \bool_if:NT \l_tmpa_bool
+          {
+            \fp_compare:nNnF
+              { abs( \l__spotxcolor_cm_tl
+                     - \l__spotxcolor_tint_fp * \l__spotxcolor_bm_tl ) }
+              < { 0.005 }
+              { \bool_set_false:N \l_tmpa_bool }
+          }
+        \bool_if:NT \l_tmpa_bool
+          {
+            \fp_compare:nNnF
+              { abs( \l__spotxcolor_cy_tl
+                     - \l__spotxcolor_tint_fp * \l__spotxcolor_by_tl ) }
+              < { 0.005 }
+              { \bool_set_false:N \l_tmpa_bool }
+          }
+        \bool_if:NT \l_tmpa_bool
+          {
+            \fp_compare:nNnF
+              { abs( \l__spotxcolor_ck_tl
+                     - \l__spotxcolor_tint_fp * \l__spotxcolor_bk_tl ) }
+              < { 0.005 }
+              { \bool_set_false:N \l_tmpa_bool }
+          }
+
+        % All checks passed → match found
+        \bool_if:NT \l_tmpa_bool
+          {
+            % Clamp tint to [0, 1]
+            \fp_compare:nNnT { \l__spotxcolor_tint_fp } < { 0 }
+              { \fp_set:Nn \l__spotxcolor_tint_fp { 0 } }
+            \fp_compare:nNnT { \l__spotxcolor_tint_fp } > { 1 }
+              { \fp_set:Nn \l__spotxcolor_tint_fp { 1 } }
+
+            % Store results globally (to survive \prop_map_inline grouping)
+            \bool_gset_true:N \g__spotxcolor_matched_bool
+            \tl_gset:Nn \g__spotxcolor_matched_name_tl {#1}
+            \tl_gset:Nx \g__spotxcolor_matched_tint_tl
+              { \fp_eval:n { round( \l__spotxcolor_tint_fp , 5 ) } }
+            \prop_map_break:
+          }
+      }
+  }
+
+% --- Helper: build spot color operator string in \l_tmpb_tl ---
+% Result: "/NAME cs /NAME CS TINT sc TINT SC"
+% Uses n-type (no expansion) for literal parts to guarantee correct spacing,
+% and V-type for variable substitution.
+% NOTE: We intentionally avoid x-type expansion (\edef / \tl_set:Nx)
+%       because ~ (catcode 10 space) gets lost during x-expansion
+%       in certain expl3 contexts.
+\cs_new_protected:Npn \__spotxcolor_build_operators:
+  {
+    \tl_clear:N \l_tmpb_tl
+    \tl_put_right:Nn \l_tmpb_tl { / }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_name_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~cs~/ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_name_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~CS~ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_tint_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~sc~ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_tint_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~SC }
+  }
+
+% --- Main interception: detect spot color in \current@color ---
+% If a registered spot color is detected, the matched flag is set,
+% \l_tmpb_tl contains the spot color operator string,
+% and (for % pdfTeX/LuaTeX) \current@color is replaced in-place.
+% NOTE: All references to \current@color use c-type access
+%       because @ is catcode 12 in expl3 but catcode 11
+%       in these LaTeX internals.
+\cs_new_protected:Npn \__spotxcolor_intercept:
+  {
+    \bool_gset_false:N \g__spotxcolor_matched_bool
+    \prop_if_empty:NF \g__spotxcolor_base_prop
+      {
+        % Copy \current@color to a temp tl (catcode-safe)
+        \tl_set_eq:Nc \l_tmpa_tl { current@color }
+        % Split into space-separated tokens
+        \seq_set_split:NnV \l__spotxcolor_parts_seq { ~ } \l_tmpa_tl
+        \legacy_if:nTF { pdf }
+          { \__spotxcolor_parse_pdftex: }
+          { \__spotxcolor_parse_dvipdfmx: }
+
+        \bool_if:NT \g__spotxcolor_matched_bool
+          {
+            % Build the spot color operator string in \l_tmpb_tl
+            \__spotxcolor_build_operators:
+            \legacy_if:nT { pdf }
+              {
+                % pdfTeX/LuaTeX: replace \current@color with spot operators.
+                % \tl_set_eq makes \current@color a copy of \l_tmpb_tl.
+                \tl_set_eq:cN { current@color } \l_tmpb_tl
+              }
+          }
+      }
+  }
+
+% Generate needed variant
+\cs_generate_variant:Nn \seq_set_split:Nnn { NnV }
+
+% --- Helper: emit \special{pdf:code ...} for dvipdfmx/XeTeX ---
+\cs_new_protected:Npn \__spotxcolor_emit_special:n #1
+  {
+    \special { pdf:code~ #1 }
+  }
+
+% --- Install patches at \AtBeginDocument ---
+\AtBeginDocument
+  {
+    % ============================================================
+    % Patch \set@color (handles \color, \textcolor)
+    % ============================================================
+    \cs_set_eq:cc { __spotxcolor_orig_set@color } { set@color }
+    \cs_gset_protected:cpn { set@color }
+      {
+        % 1. Detect spot color and modify \current@color (pdfTeX/LuaTeX)
+        \__spotxcolor_intercept:
+        % 2. Call the original \set@color (push to color stack)
+        \use:c { __spotxcolor_orig_set@color }
+        % 3. dvipdfmx/XeTeX: emit raw spot color operators after the push
+        \bool_if:NT \g__spotxcolor_matched_bool
+          {
+            \legacy_if:nF { pdf }
+              {
+                \exp_args:NV \__spotxcolor_emit_special:n \l_tmpb_tl
+              }
+          }
+      }
+
+    % ============================================================
+    % Patch \set@page@color (handles \pagecolor)
+    % ============================================================
+    % xcolor's \pagecolor calls \set@page@color WITHOUT going through
+    % \set@color, so the \set@color patch above doesn't affect it.
+    %
+    % pdfTeX/LuaTeX: intercept \current@color BEFORE the original
+    %   copies it to \current@page@color. The fill rectangle then
+    %   uses spot color operators natively.
+    %
+    % dvipdfmx/XeTeX: \special{background ...} only supports standard
+    %   color models, so we let the original run (CMYK fallback) and
+    %   ALSO store the spot color operators. A shipout/background hook
+    %   then overdraws the CMYK background with a spot-colored rectangle
+    %   using raw PDF operators with a CTM reverse-translation.
+    \cs_if_exist:cT { set@page@color }
+      {
+        \cs_set_eq:cc { __spotxcolor_orig_set@page@color } { set@page@color }
+        \cs_gset_protected:cpn { set@page@color }
+          {
+            % Detect spot color in \current@color
+            \__spotxcolor_intercept:
+            \bool_if:NTF \g__spotxcolor_matched_bool
+              {
+                % Spot color detected
+                \legacy_if:nF { pdf }
+                  {
+                    % dvipdfmx/XeTeX: store operators for shipout hook
+                    \__spotxcolor_build_operators:
+                    \tl_gset_eq:NN \g__spotxcolor_page_ops_tl \l_tmpb_tl
+                    \bool_gset_true:N \g__spotxcolor_page_active_bool
+                  }
+                % pdfTeX/LuaTeX: \current@color already modified by intercept
+              }
+              {
+                % Not a spot color: clear dvipdfmx page overlay flag
+                \bool_gset_false:N \g__spotxcolor_page_active_bool
+              }
+            % Always call original (pdfTeX: uses modified \current@color;
+            % dvipdfmx: emits \special{background cmyk ...} as CMYK fallback)
+            \use:c { __spotxcolor_orig_set@page@color }
+          }
+      }
+
+    % ============================================================
+    % Patch \nopagecolor (clears page background)
+    % ============================================================
+    \cs_if_exist:cT { nopagecolor }
+      {
+        \cs_set_eq:cc { __spotxcolor_orig_nopagecolor } { nopagecolor }
+        \cs_gset_protected:cpn { nopagecolor }
+          {
+            \bool_gset_false:N \g__spotxcolor_page_active_bool
+            \use:c { __spotxcolor_orig_nopagecolor }
+          }
+      }
+  }
+
+% =====================================================================
+% --- v1.2: dvipdfmx/XeTeX \pagecolor — shipout/background hook ---
+% =====================================================================
+% dvipdfmx wraps the main content stream with: q 1 0 0 1 TX TY cm ... Q
+% where TX = 1in + \hoffset (in bp), TY = \paperheight - 1in - \voffset (in bp).
+%
+% This hook emits a full-page rectangle using spot color operators with
+% a reverse-CTM translation so the fill uses absolute PDF coordinates:
+%   q 1 0 0 1 -TX -TY cm /NAME cs TINT sc 0 0 W H re f Q
+%
+% This overdraws the CMYK background from \special{background},
+% giving the correct spot color appearance while keeping CMYK as a fallback.
+% =====================================================================
+
+% --- Helper: emit the page background special ---
+\cs_new_protected:Npn \__spotxcolor_emit_page_bg:
+  {
+    % Build the operator string piece by piece (n-type for literals,
+    % x-type for computed values) to guarantee correct spacing.
+    % Conversion: TeX pt to PDF bp → multiply by 72/72.27
+    \tl_clear:N \l_tmpa_tl
+    \tl_put_right:Nn \l_tmpa_tl { pdf:code~q~1~0~0~1~ }
+    % -TX (negative x-offset to reach PDF origin)
+    \tl_put_right:Nx \l_tmpa_tl
+      { \fp_eval:n
+          { -round( \dim_to_fp:n { 1in + \hoffset } * 72 / 72.27 , 3 ) } }
+    \tl_put_right:Nn \l_tmpa_tl { ~ }
+    % -TY (negative y-offset to reach PDF origin)
+    \tl_put_right:Nx \l_tmpa_tl
+      { \fp_eval:n
+          { -round( ( \dim_to_fp:n { \paperheight }
+                      - \dim_to_fp:n { 1in + \voffset } )
+                    * 72 / 72.27 , 3 ) } }
+    \tl_put_right:Nn \l_tmpa_tl { ~cm~ }
+    % Spot color operators (e.g., "/DIC161s cs /DIC161s CS 1 sc 1 SC")
+    \tl_put_right:NV \l_tmpa_tl \g__spotxcolor_page_ops_tl
+    % Full-page rectangle: 0 0 W H re f
+    \tl_put_right:Nn \l_tmpa_tl { ~0~0~ }
+    \tl_put_right:Nx \l_tmpa_tl
+      { \fp_eval:n
+          { round( \dim_to_fp:n { \paperwidth } * 72 / 72.27 , 3 ) } }
+    \tl_put_right:Nn \l_tmpa_tl { ~ }
+    \tl_put_right:Nx \l_tmpa_tl
+      { \fp_eval:n
+          { round( \dim_to_fp:n { \paperheight } * 72 / 72.27 , 3 ) } }
+    \tl_put_right:Nn \l_tmpa_tl { ~re~f~Q }
+    % Emit the special
+    \exp_args:NV \special \l_tmpa_tl
+  }
+
+% --- Register the shipout hook ---
+\AddToHook { shipout/background }
+  {
+    \bool_if:NT \g__spotxcolor_page_active_bool
+      {
+        \__spotxcolor_emit_page_bg:
+      }
+  }
+
+% --- Safe Bulk Expansion and Registration of Page Resources ---
+% This handles resources accumulated in \g_spotxcolor_resource_tl
+% (used only when PGF is NOT loaded in traditional mode).
+% When pdfmanagement is active, resources are already registered
+% individually via \pdfmanagement_add:nnn, so this block is skipped.
+\AtBeginDocument
+  {
+    \bool_if:NF \g__spotxcolor_pdfmanagement_bool
+      {
+        \legacy_if:nTF { pdf }
+          {
+            \tl_if_empty:NF \g_spotxcolor_resource_tl
+              {
+                \sys_if_engine_pdftex:T
+                  {
+                    \edef \spotxcolor_temp_tl { \the\pdfpageresources \space /ColorSpace << \g_spotxcolor_resource_tl >> }
+                    \pdfpageresources = \exp_after:wN { \spotxcolor_temp_tl }
+                  }
+                \sys_if_engine_luatex:T
+                  {
+                    \edef \spotxcolor_temp_tl { \the\pdfvariable~pageresources \space /ColorSpace << \g_spotxcolor_resource_tl >> }
+                    \pdfvariable~pageresources = \exp_after:wN { \spotxcolor_temp_tl }
+                  }
+              }
+          }
+          {}
+      }
+  }
+
+% =======================================================
+% --- Backward Compatibility Wrappers for spotcolor package ---
+% =======================================================
+\NewDocumentCommand{\NewSpotColorSpace}{ m } { }
+\NewDocumentCommand{\SetPageColorSpace}{ m } { }
+
+\tl_const:Nx \SpotSpace { \c_spotxcolor_hash_str 20 }
+
+\NewDocumentCommand{\AddSpotColor}{ m m m m }
+  {
+    \tl_set:Nn \l_tmpa_tl { #4 }
+    \tl_replace_all:Nnn \l_tmpa_tl { ~ } { , }
+    \spotxcolor_define_spotcolor:nnV {#2} {#3} \l_tmpa_tl
+  }
+
+% =======================================================
+% --- Backward Compatibility Wrappers for colorspace package ---
+% =======================================================
+\NewDocumentCommand{\pagecolorspace}{ m } { }
+\NewDocumentCommand{\resetpagecolorspace}{ } { }
+
+% =====================================================================
+% --- PGF Driver Macro Patches for Spot Color ---
+% =====================================================================
+% PGF's low-level color macros (\pgfsys@color@cmyk@fill, etc.) bypass xcolor's \set@color entirely
+% and emit CMYK operators directly via \pgfsysprotocol@literal.
+% This means TikZ drawings using spot colors fall back to CMYK even though \set@color is patched.
+%
+% This patches the 4 PGF CMYK driver macros (defined in pgfsys-common-pdf.def, shared by ALL engines):
+%
+%   - \pgfsys@color@cmyk@fill#1#2#3#4    → #1 #2 #3 #4 k
+%   - \pgfsys@color@cmyk@stroke#1#2#3#4  → #1 #2 #3 #4 K
+%   - \pgfsys@color@cmy@fill#1#2#3       → #1 #2 #3 0 k
+%   - \pgfsys@color@cmy@stroke#1#2#3     → #1 #2 #3 0 K
+%
+% Each patched macro checks the CMYK values against registered spot colors.
+% If a match is found, spot color operators are emitted instead.
+% =====================================================================
+
+% --- Helper: build FILL-only spot color operators in \l_tmpb_tl ---
+% Result: "/NAME cs TINT sc"
+\cs_new_protected:Npn \__spotxcolor_build_fill_operators:
+  {
+    \tl_clear:N \l_tmpb_tl
+    \tl_put_right:Nn \l_tmpb_tl { / }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_name_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~cs~ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_tint_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~sc }
+  }
+
+% --- Helper: build STROKE-only spot color operators in \l_tmpb_tl ---
+% Result: "/NAME CS TINT SC"
+\cs_new_protected:Npn \__spotxcolor_build_stroke_operators:
+  {
+    \tl_clear:N \l_tmpb_tl
+    \tl_put_right:Nn \l_tmpb_tl { / }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_name_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~CS~ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_tint_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~SC }
+  }
+
+% --- Helper: check 4 CMYK args against registered spot colors ---
+% Sets \g__spotxcolor_matched_bool, \g__spotxcolor_matched_name_tl,
+% \g__spotxcolor_matched_tint_tl if a match is found.
+\cs_new_protected:Npn \__spotxcolor_pgf_check:nnnn #1#2#3#4
+  {
+    \tl_set:Nn \l__spotxcolor_cc_tl {#1}
+    \tl_set:Nn \l__spotxcolor_cm_tl {#2}
+    \tl_set:Nn \l__spotxcolor_cy_tl {#3}
+    \tl_set:Nn \l__spotxcolor_ck_tl {#4}
+    \bool_gset_false:N \g__spotxcolor_matched_bool
+    \__spotxcolor_try_all_spots:
+  }
+
+% --- Wrapper for \pgfsysprotocol@literal (catcode-safe) ---
+\cs_new_protected:Npn \__spotxcolor_pgf_literal:n #1
+  { \use:c { pgfsysprotocol@literal } {#1} }
+\cs_generate_variant:Nn \__spotxcolor_pgf_literal:n { V }
+
+% --- Install PGF driver patches ---
+\AtBeginDocument
+  {
+    \cs_if_exist:cT { pgfsys@color@cmyk@fill }
+      {
+        % ---- Save originals ----
+        \cs_set_eq:cc { __spotxcolor_orig_pgf_cmyk_fill }
+                      { pgfsys@color@cmyk@fill }
+        \cs_set_eq:cc { __spotxcolor_orig_pgf_cmyk_stroke }
+                      { pgfsys@color@cmyk@stroke }
+        \cs_set_eq:cc { __spotxcolor_orig_pgf_cmy_fill }
+                      { pgfsys@color@cmy@fill }
+        \cs_set_eq:cc { __spotxcolor_orig_pgf_cmy_stroke }
+                      { pgfsys@color@cmy@stroke }
+
+        % ---- Patch \pgfsys@color@cmyk@fill ----
+        \cs_gset_protected:cpn { pgfsys@color@cmyk@fill } #1#2#3#4
+          {
+            \__spotxcolor_pgf_check:nnnn {#1}{#2}{#3}{#4}
+            \bool_if:NTF \g__spotxcolor_matched_bool
+              {
+                \__spotxcolor_build_fill_operators:
+                \__spotxcolor_pgf_literal:V \l_tmpb_tl
+              }
+              {
+                \use:c { __spotxcolor_orig_pgf_cmyk_fill } {#1}{#2}{#3}{#4}
+              }
+          }
+
+        % ---- Patch \pgfsys@color@cmyk@stroke ----
+        \cs_gset_protected:cpn { pgfsys@color@cmyk@stroke } #1#2#3#4
+          {
+            \__spotxcolor_pgf_check:nnnn {#1}{#2}{#3}{#4}
+            \bool_if:NTF \g__spotxcolor_matched_bool
+              {
+                \__spotxcolor_build_stroke_operators:
+                \__spotxcolor_pgf_literal:V \l_tmpb_tl
+              }
+              {
+                \use:c { __spotxcolor_orig_pgf_cmyk_stroke } {#1}{#2}{#3}{#4}
+              }
+          }
+
+        % ---- Patch \pgfsys@color@cmy@fill ----
+        \cs_gset_protected:cpn { pgfsys@color@cmy@fill } #1#2#3
+          {
+            \__spotxcolor_pgf_check:nnnn {#1}{#2}{#3}{0}
+            \bool_if:NTF \g__spotxcolor_matched_bool
+              {
+                \__spotxcolor_build_fill_operators:
+                \__spotxcolor_pgf_literal:V \l_tmpb_tl
+              }
+              {
+                \use:c { __spotxcolor_orig_pgf_cmy_fill } {#1}{#2}{#3}
+              }
+          }
+
+        % ---- Patch \pgfsys@color@cmy@stroke ----
+        \cs_gset_protected:cpn { pgfsys@color@cmy@stroke } #1#2#3
+          {
+            \__spotxcolor_pgf_check:nnnn {#1}{#2}{#3}{0}
+            \bool_if:NTF \g__spotxcolor_matched_bool
+              {
+                \__spotxcolor_build_stroke_operators:
+                \__spotxcolor_pgf_literal:V \l_tmpb_tl
+              }
+              {
+                \use:c { __spotxcolor_orig_pgf_cmy_stroke } {#1}{#2}{#3}
+              }
+          }
+      }
+  }
+
+% =====================================================================
+% --- Pattern Color Space for Spot Colors ---
+% =====================================================================
+% PGF uncolored patterns use /pgfpcmyk [/Pattern /DeviceCMYK] as the
+% color space, with operands: C M Y K /pgfpatN scn
+%
+% For spot colors, we need [/Pattern [/Separation ...]] as the color
+% space, with operands: TINT /pgfpatN scn
+%
+% This section creates [/Pattern sepRef] objects for each registered spot color
+% and registers them as /pgfpspot_NAME in page resources.
+% Then \pgfsys@setpatternuncolored is patched to use spot color pattern CS
+% when the CMYK values match a registered spot color.
+% =====================================================================
+
+% --- Helper: create Pattern CS objects for all registered spot colors ---
+% Uses \spotxcolor_add_colorspace_resource:nn for resource
+% registration, which handles the pdfmanagement branch centrally.
+\cs_new_protected:Npn \__spotxcolor_create_pattern_cs:
+  {
+    \prop_map_inline:Nn \g__spotxcolor_sep_ref_prop
+      {
+        % ##1 = spot color name, ##2 = Separation reference
+        \legacy_if:nTF { pdf }
+          {
+            \sys_if_engine_pdftex:T
+              {
+                \immediate \pdfobj { [/Pattern~ ##2 ] }
+                \tl_set:Nx \l_tmpa_tl { \the\pdflastobj \space 0~R }
+                \exp_args:NnV \spotxcolor_add_colorspace_resource:nn
+                  { pgfpspot_ ##1 } \l_tmpa_tl
+              }
+            \sys_if_engine_luatex:T
+              {
+                \immediate \pdfextension obj { [/Pattern~ ##2 ] }
+                \tl_set:Nx \l_tmpa_tl { \pdffeedback lastobj \space 0~R }
+                \exp_args:NnV \spotxcolor_add_colorspace_resource:nn
+                  { pgfpspot_ ##1 } \l_tmpa_tl
+              }
+          }
+          {
+            % dvipdfmx / XeTeX: use named references
+            \special { pdf:obj~@pgfpspot_ ##1 ~[/Pattern~ ##2 ] }
+            \spotxcolor_add_colorspace_resource:nn
+              { pgfpspot_ ##1 } { @pgfpspot_ ##1 }
+          }
+      }
+  }
+
+% --- Helper: build pattern fill operators for spot color in \l_tmpb_tl ---
+% Result: "/pgfpspot_NAME cs TINT /pgfpat PATNAME scn"
+% #1 = pattern name (from PGF)
+\cs_new_protected:Npn \__spotxcolor_build_pattern_operators:n #1
+  {
+    \tl_clear:N \l_tmpb_tl
+    \tl_put_right:Nn \l_tmpb_tl { /pgfpspot_ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_name_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~cs~ }
+    \tl_put_right:NV \l_tmpb_tl \g__spotxcolor_matched_tint_tl
+    \tl_put_right:Nn \l_tmpb_tl { ~/pgfpat }
+    \tl_put_right:Nn \l_tmpb_tl {#1}
+    \tl_put_right:Nn \l_tmpb_tl { ~scn }
+  }
+
+% --- v1.4: Wrapper to install pattern spot detection from makeatletter ---
+% This must be defined HERE (in ExplSyntax) so that _ and : tokens are
+% correctly catcoded. It is called from the makeatletter \AtBeginDocument
+% block AFTER the CMYK baseline \pgfsys@setpatternuncolored is defined.
+\cs_new_protected:Npn \__spotxcolor_install_pattern_spot_patch:
+  {
+    % Create /pgfpspot_NAME color space resources
+    \__spotxcolor_create_pattern_cs:
+    % Save the CMYK baseline and wrap with spot detection
+    \cs_set_eq:cc { __spotxcolor_orig_setpatternuncolored }
+                  { pgfsys@setpatternuncolored }
+    \cs_gset_protected:cpn { pgfsys@setpatternuncolored } ##1##2##3##4##5
+      {
+        \__spotxcolor_pgf_check:nnnn {##2}{##3}{##4}{##5}
+        \bool_if:NTF \g__spotxcolor_matched_bool
+          {
+            \__spotxcolor_build_pattern_operators:n {##1}
+            \__spotxcolor_pgf_literal:V \l_tmpb_tl
+          }
+          {
+            \use:c { __spotxcolor_orig_setpatternuncolored }
+              {##1}{##2}{##3}{##4}{##5}
+          }
+      }
+  }
+
+\ExplSyntaxOff
+
+% =======================================================
+% --- PGF Pattern CMYK→Spot Patch ---
+% This section intentionally uses LaTeX2e syntax to match the PGF source code it patches.
+% Force PGF/TikZ uncolored patterns to use CMYK instead of hardcoded RGB.
+% After defining the CMYK baseline \pgfsys@setpatternuncolored,
+% this block also creates [/Pattern [/Separation ...]] color space objects
+% for each registered spot color (step 5) and wraps \pgfsys@setpatternuncolored
+% with spot color auto-detection.
+% =======================================================
+\makeatletter
+\AtBeginDocument{
+  \@ifpackageloaded{pgfcore}{%
+    % 1. Register CMYK Pattern Colorspace
+    % Use centralized helper (handles pdfmanagement branch).
+    % Bridge catcode boundary via \csname since we are in makeatletter context.
+    \csname spotxcolor_add_colorspace_resource:nn\endcsname{pgfpcmyk}{[/Pattern /DeviceCMYK]}%
+    %
+    % 2. Define CMYK baseline of \pgfsys@setpatternuncolored
+    %    (5 parameters: PatternName, C, M, Y, K)
+    %    Step 5 below wraps this with spot color detection.
+    \def\pgfsys@setpatternuncolored#1#2#3#4#5{%
+      \pgfsysprotocol@literal{/pgfpcmyk cs #2 #3 #4 #5 /pgfpat#1\space scn}%
+    }%
+    %
+    % 3. Patch for legacy `patterns` library (pgfcorepatterns)
+    \def\pgf@set@fillpattern#1#2{%
+      \pgfutil@ifundefined{pgf@pattern@name@#1}{%
+        \pgferror{Undefined pattern `#1'}%
+      }{%
+        \csname pgf@pattern@instantiate@#1\endcsname
+        \expandafter\global\expandafter\let\csname pgf@pattern@instantiate@#1\endcsname=\relax
+        \pgf@ifpatternisinherentlycolored{#1}{%
+          \pgfsys@setpatterncolored{\csname pgf@pattern@name@#1\endcsname}%
+        }{%
+          \pgfutil@colorlet{pgf@tempcolor}{#2}%
+          \pgfutil@ifundefined{applycolormixins}{}{\applycolormixins{pgf@tempcolor}}%
+          \pgfutil@extractcolorspec{pgf@tempcolor}{\pgf@tempcolor}%
+          \expandafter\pgfutil@convertcolorspec\pgf@tempcolor{cmyk}{\pgf@cmykcolor}% <-- convert to CMYK
+          \expandafter\pgf@set@fill@patternuncolored\pgf@cmykcolor\relax{#1}%
+        }%
+      }%
+    }%
+    \def\pgf@set@fill@patternuncolored#1,#2,#3,#4\relax#5{%
+      \pgfsys@setpatternuncolored{\csname pgf@pattern@name@#5\endcsname}{#1}{#2}{#3}{#4}%
+    }%
+    %
+    % 4. Patch for modern `patterns.meta` library (pgflibrarypatterns.meta)
+    \def\pgf@pat@setpatternuncolored#1#2{%
+      \pgfutil@colorlet{pgf@tempcolor}{#2}%
+      \pgfutil@ifundefined{applycolormixins}{}{\applycolormixins{pgf@tempcolor}}%
+      \pgfutil@extractcolorspec{pgf@tempcolor}{\pgf@tempcolor}%
+      \expandafter\pgfutil@convertcolorspec\pgf@tempcolor{cmyk}{\pgf@cmykcolor}% <-- Force CMYK
+      \expandafter\pgf@pat@set@fill@patternuncolored\pgf@cmykcolor\relax{#1}%
+    }%
+    \def\pgf@pat@set@fill@patternuncolored#1,#2,#3,#4\relax#5{% <-- Expect 4 color components
+      \pgfsys@setpatternuncolored{#5}{#1}{#2}{#3}{#4}%
+    }%
+    %
+    % 5. Create [/Pattern [/Separation ...]] objects for each registered spot color,
+    %    and wrap \pgfsys@setpatternuncolored with spot color detection.
+    %    NOTE: The wrapper function is defined in ExplSyntax (above \ExplSyntaxOff)
+    %          where _ and : have correct catcodes. We call it here via \csname to bridge the catcode boundary.
+    \csname __spotxcolor_install_pattern_spot_patch:\endcsname
+  }\relax
+}
+\makeatother
+
+\endinput

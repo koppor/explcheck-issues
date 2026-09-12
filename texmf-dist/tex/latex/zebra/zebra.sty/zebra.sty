@@ -1,0 +1,657 @@
+%%
+%% This is file `zebra.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% zebra.dtx  (with options: `package')
+%% Copyright (C) 2016-2026, Ruini Xue <xueruini@gmail.com>
+%% 
+%% It may be distributed and/or modified under the conditions of
+%% the LaTeX Project Public License (LPPL), either version 1.3c of
+%% this license or (at your option) any later version.  The latest
+%% version of this license is in the file:
+%% 
+%%    http://www.latex-project.org/lppl.txt
+
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{zebra}
+  {2026/06/24}
+  {2.1.0}
+  {Writing Revision Toolkit}
+\bool_new:N \l__zebra_draft_bool
+\bool_new:N \l__zebra_emit_label_bool
+\bool_new:N \l__zebra_sort_none_bool
+\bool_new:N \l__zebra_unnumbered_bool
+\seq_new:N \g__zebra_note_types_seq
+\prop_new:N \g__zebra_note_colors_prop
+\prop_new:N \g__zebra_note_public_alias_prop
+\int_new:N \g__zebra_note_id_int
+\tl_new:N \l__zebra_note_target_tl
+\tl_new:N \l__zebra_note_color_tl
+\tl_new:N \l__zebra_note_ref_type_tl
+\tl_new:N \l__zebra_summary_rows_tl
+\int_new:N \l__zebra_total_notes_int
+\prop_new:N \g__zebra_note_symbols_prop
+\tl_new:N \l__zebra_symbol_tl
+\tl_set:Nn \l__zebra_symbol_tl { \textdbend }
+
+\msg_new:nnn { zebra } { command-taken }
+  {
+    The~command~'\iow_char:N\\#1'~is~already~defined.~
+    Use~'\iow_char:N\\zebra#1'~instead.
+  }
+\msg_new:nnn { zebra } { duplicate-note-label }
+  { Note~label~'#1'~used~by~a~different~note;~second~note~gets~
+    its~own~identity. }
+
+\prg_new_conditional:Npnn \__zebra_if_package_loaded:n #1 { T , F , TF }
+  {
+    \cs_if_exist:cTF { ver@#1.sty }
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\keys_define:nn { zebra }
+  {
+    draft .bool_set:N = \l__zebra_draft_bool,
+    draft .initial:n = true,
+    final .meta:n = { draft = false },
+    sort .choice:,
+    sort / type .code:n = { \bool_set_false:N \l__zebra_sort_none_bool },
+    sort / none .code:n = { \bool_set_true:N \l__zebra_sort_none_bool },
+    sort .initial:n = none,
+    unnumbered .bool_set:N = \l__zebra_unnumbered_bool,
+    unnumbered .initial:n = false,
+  }
+\ProcessKeyOptions [ zebra ]
+\keys_define:nn { zebra-setup / color }
+  {
+    unknown .code:n =
+      { \prop_gput:NVn \g__zebra_note_colors_prop \l_keys_key_str {#1} }
+  }
+\keys_define:nn { zebra-setup / symbol }
+  {
+    unknown .code:n =
+      { \prop_gput:NVn \g__zebra_note_symbols_prop \l_keys_key_str {#1} }
+  }
+\RequirePackage{xcolor}
+\RequirePackage{marginnote}
+\cs_new_eq:NN \__zebra_kernel_label:n \label
+%% -- dedup data structures --
+%% Maps any key (instance, stable, or content-sig) to the allocation.
+\prop_new:N \g__zebra_note_target_prop
+\prop_new:N \g__zebra_note_display_prop
+%% Content signatures of labeled notes from previous pass (.aux).
+\prop_new:N \g__zebra_note_sig_known_prop
+%% Content signatures written this pass (dedup aux writes).
+\prop_new:N \g__zebra_note_sig_written_prop
+%% Content signature stored per stable key (for label-conflict detection).
+\prop_new:N \g__zebra_note_stable_sig_prop
+%% Group-local set of targets whose \label has been emitted.  Sbox
+%% boundaries reset it (so caption replay re-emits after the sbox is
+%% discarded), while a same-source-line repeat in body text sees the
+%% prior emission and skips the redundant \label, avoiding
+%% multiply-defined labels.
+\prop_new:N \l__zebra_label_emitted_prop
+\tl_new:N \l__zebra_note_display_tl
+\tl_new:N \l__zebra_note_key_tl
+%% Instance key: unique per source location.
+\cs_new:Npn \__zebra_instance_key:nnn #1#2#3
+  {
+    \tl_to_str:n {#1}
+    | \tl_to_str:n {#2}
+    | \tl_to_str:n {#3}
+    | \int_eval:n { \tex_inputlineno:D }
+  }
+%% Content signature: body stringified with ALL \label{...} stripped.
+%% Matches across body (has labels), TOC (labels consumed by \edef),
+%% and running heads (which may uppercase the author/body text).
+%% The optional \protect prefix covers marks and \protected@write paths.
+%% Uses replace_all so that multiple labels are all stripped.
+\cs_new_protected:Npn \__zebra_content_sig:nnnN #1#2#3#4
+  {
+    \tl_set:Nx \l_tmpa_tl { \tl_to_str:n {#3} }
+    \regex_replace_all:nnN
+      { (?: \\protect \s* )? \\label \s* \{ [^{}]* \} } { } \l_tmpa_tl
+    \tl_set:Nx #4
+      {
+        \tl_to_str:n {#1}
+        | \str_lowercase:f { \tl_to_str:n {#2} }
+        | \str_lowercase:f { \l_tmpa_tl }
+      }
+  }
+%% Extract the last \label name from the stringified body
+%% (the greedy \A.* consumes up to the rightmost \label).  Both the
+%% original encounter and any replay run through this same regex,
+%% so they agree on which label to use as the stable key.
+%% Sets #2 to the label name, or clears it if none found.
+%% The optional \protect prefix covers marks and \protected@write paths.
+\cs_new_protected:Npn \__zebra_extract_label:nN #1#2
+  {
+    \tl_set:Nx \l_tmpb_tl { \tl_to_str:n {#1} }
+    \tl_set_eq:NN \l_tmpc_tl \l_tmpb_tl
+    \regex_replace_once:nnN
+      { \A .* (?: \\protect \s* )? \\label \s* \{ ([^{}]*) \} .* \Z }
+      { \1 } \l_tmpb_tl
+    \tl_if_eq:NNTF \l_tmpb_tl \l_tmpc_tl
+      { \tl_clear:N #2 }
+      { \tl_set_eq:NN #2 \l_tmpb_tl }
+  }
+%% Stable key for labeled notes.
+%% #2 is expected to be already stringified (from regex extraction),
+%% so no \tl_to_str is applied — otherwise an unexpanded variable
+%% token would be stringified instead of its value.
+\cs_new:Npn \__zebra_stable_key:nn #1#2
+  { \tl_to_str:n {#1} | label | #2 }
+%% Allocate a fresh note: increment the type counter, generate
+%% a unique hypertarget name, and record the note in the list body.
+\cs_new_protected:Npn \__zebra_allocate_note:nnn #1#2#3
+  {
+    \int_gincr:c { g__zebra_note_count_#1_int }
+    \tl_set:Nx \l__zebra_note_display_tl { \__zebra_note_count:n {#1} }
+    \int_gincr:N \g__zebra_note_id_int
+    \tl_set:Nx \l__zebra_note_target_tl
+      { zebranote.\int_use:N \g__zebra_note_id_int }
+    \__zebra_record_note:nnnnn
+      {#1}
+      { \l__zebra_note_display_tl }
+      {#2}
+      {#3}
+      { \l__zebra_note_target_tl }
+  }
+%% --- .aux callback interface (read back on the next compilation) ---
+%% \zebra@sig is the ONE macro zebra writes into the .aux file (see
+%% \@@_write_sig:NN below) and re-reads at \begin{document} on the next
+%% run.  It records a content signature together with the originating
+%% instance key; a later encounter whose instance key differs from the
+%% stored one is a replay and is suppressed.
+%%
+%% Its name MUST stay in the traditional \zebra@... ("@" catcode 11)
+%% namespace and MUST NOT be renamed to an expl3 internal such as
+%% \@@_sig:nn / \__zebra_sig:nn.  The .aux is read back with normal
+%% catcodes, where "_" and ":" are catcode 12 (other), so an expl3 name
+%% written verbatim into the .aux would not parse back as a single
+%% control sequence and the cross-compilation dedup would silently break.
+%% This is deliberate: do not "tidy" it into the @@ namespace.
+%% Re-stringify the arguments for catcode normalisation.
+\cs_new_protected:Npn \zebra@sig #1#2
+  {
+    \tl_set:Nx \l_tmpa_tl { \tl_to_str:n {#1} }
+    \tl_set:Nx \l_tmpb_tl { \tl_to_str:n {#2} }
+    \prop_gput:NVV \g__zebra_note_sig_known_prop \l_tmpa_tl \l_tmpb_tl
+  }
+%% Writes one \zebra@sig record to the .aux.  Because that token reaches
+%% the .aux verbatim, the callback above is the only safe spelling — keep
+%% the two in sync if the payload ever changes.
+\cs_new_protected:Npn \__zebra_write_sig:NN #1#2
+  {
+    \prop_if_in:NVF \g__zebra_note_sig_written_prop #1
+      {
+        \immediate\write \@auxout
+          { \string\zebra@sig { \tl_use:N #1 } { \tl_use:N #2 } }
+        \prop_gput:NVn \g__zebra_note_sig_written_prop #1 { 1 }
+      }
+  }
+\cs_if_exist:NTF \dbend
+  {
+    \cs_set_eq:NN \__zebra_saved_dbend: \dbend
+    \cs_undefine:N \dbend
+    \RequirePackage{manfnt}
+    \cs_set_eq:NN \dbend \__zebra_saved_dbend:
+  }
+  { \RequirePackage{manfnt} }
+\cs_new:Npn \__zebra_pdfstring_note:
+  #1
+  {
+    \str_if_eq:eeT { \tl_to_str:n {#1} } { [ }
+      { \__zebra_pdfstring_note_opt:w }
+  }
+\cs_new:Npn \__zebra_pdfstring_note_opt:w #1 ] #2 { }
+\cs_new:Npn \__zebra_target:nn #1#2 {#2}
+\cs_new:Npn \__zebra_link:nn #1#2 {#2}
+\cs_new:Npn \__zebra_pageref:n #1 { \pageref {#1} }
+\cs_new:Npn \__zebra_zebra_label_name:n #1 { #1@zebra }
+\cs_new:Npn \__zebra_zebra_label_type:n #1
+  {
+    \exp_after:wN \use_i:nn
+      \cs:w r@\__zebra_zebra_label_name:n {#1}\cs_end:
+      { }
+  }
+\cs_new_protected:Npn \__zebra_write_zebra_label:n #1
+  {
+    \protected@write \@auxout { }
+      {
+        \string\newlabel{\__zebra_zebra_label_name:n {#1}}
+          {{\exp_not:V \l__zebra_note_ref_type_tl}{}}
+      }
+  }
+\cs_new_protected:Npn \__zebra_note_label:n #1
+  {
+    \__zebra_kernel_label:n {#1}
+    \__zebra_write_zebra_label:n {#1}
+  }
+\cs_new_protected:Npn \__zebra_zebra_ref:n #1
+  {
+    \cs_if_exist:cTF { r@\__zebra_zebra_label_name:n {#1} }
+      { \__zebra_zebra_label_type:n {#1}~\ref{#1} }
+      { \ref{#1} }
+  }
+\NewDocumentCommand \zebraref { m }
+  {
+    \bool_if:NTF \l__zebra_unnumbered_bool
+      { \ref{#1} }
+      { \__zebra_zebra_ref:n {#1} }
+  }
+\cs_new_protected:Npn \__zebra_apply_pdfstring_defs:
+  {
+    \pdfstringdefDisableCommands
+      {
+        \cs_set:Npn \zebraref ##1 { \ref{##1} }
+        \seq_map_inline:Nn \g__zebra_note_types_seq
+          {
+            \cs_set_eq:cN { zebra##1 } \__zebra_pdfstring_note:
+            \prop_if_in:NnT \g__zebra_note_public_alias_prop { ##1 }
+              { \cs_set_eq:cN { ##1 } \__zebra_pdfstring_note: }
+          }
+      }
+  }
+\cs_new_protected:Npn \__zebra_setup_hyperref:
+  {
+    \cs_set:Npn \__zebra_target:nn ##1##2 {##2}
+    \cs_set:Npn \__zebra_link:nn ##1##2 {##2}
+    \cs_set:Npn \__zebra_pageref:n ##1 { \pageref {##1} }
+    \__zebra_if_package_loaded:nT { hyperref }
+      {
+        \cs_set:Npn \__zebra_pageref:n ##1 { \pageref* {##1} }
+        \cs_set:Npn \__zebra_target:nn ##1##2 { \hypertarget{##1}{##2} }
+        \cs_set:Npn \__zebra_link:nn ##1##2 { \hyperlink{##1}{##2} }
+        \__zebra_apply_pdfstring_defs:
+      }
+  }
+\hook_gput_code:nnn { begindocument } { zebra }
+  { \__zebra_setup_hyperref: }
+\cs_new_protected:Npn \__zebra_margin_note:nn #1#2
+  {
+    \legacy_if:nTF { @twocolumn }
+      {
+        \bool_lazy_or:nnTF
+          { \mode_if_inner_p: }
+          {
+            \bool_lazy_or_p:nn
+              { \cs_if_exist_p:N \@captype }
+              { \dim_compare_p:nNn { \hsize } > { \columnwidth } }
+          }
+          {
+            \marginnote
+              [ { \@parboxrestore \normalfont \normalsize #1 } ]
+              { \@parboxrestore \normalfont \normalsize #2 }
+          }
+          {
+            \marginpar
+              [ { \makebox[\marginparwidth][r]{#1} } ]
+              { \makebox[\marginparwidth][l]{#2} }
+          }
+      }
+      { \marginnote[#1]{#2} }
+  }
+\cs_new:Npn \__zebra_prepend:nn #1#2
+  { \tl_if_blank:nTF {#2} {} {#1#2} }
+\cs_new:Npn \__zebra_capitalize_type:n #1
+  { \text_uppercase:n { \tl_head:n {#1} } \tl_tail:n {#1} }
+\cs_new:Npn \__zebra_note_count:n #1
+  { \int_use:c { g__zebra_note_count_#1_int } }
+\cs_new:Npn \__zebra_note_color:n #1
+  { \prop_item:Nn \g__zebra_note_colors_prop {#1} }
+\cs_new:Npn \__zebra_note_symbol:n #1
+  {
+    \prop_if_in:NnTF \g__zebra_note_symbols_prop {#1}
+      { \prop_item:Nn \g__zebra_note_symbols_prop {#1} }
+      { \l__zebra_symbol_tl }
+  }
+\cs_new_protected:Npn \__zebra_new_listbody:n #1
+  { \tl_new:c { g__zebra_listbody_#1_tl } }
+\tl_new:N \g__zebra_listbody_all_tl
+\cs_new:Npn \__zebra_use_listbody:n #1
+  { \tl_use:c { g__zebra_listbody_#1_tl } }
+\cs_new_protected:Npn \__zebra_record_note:nnnnn #1#2#3#4#5
+  {
+    \tl_gput_right:cx
+      {
+        \bool_if:NTF \l__zebra_sort_none_bool
+          { g__zebra_listbody_all_tl }
+          { g__zebra_listbody_#1_tl }
+      }
+      {
+        \exp_not:N \__zebra_list_entry:nnnnn
+        { \exp_not:n {#1} }
+        {#2}
+        { \exp_not:n {#3} }
+        { \exp_not:n {#4} }
+        {#5}
+      }
+  }
+%% \@@_note_unnumbered:nnn {type}{author}{body}
+%% Fast path for the \opt{unnumbered} option: skip dedup, .aux
+%% signatures and list registration entirely.  The counter is still
+%% bumped on every call (so the summary table reflects rough counts;
+%% notes inside captions/TOC/marks may be over-counted, which is the
+%% accepted trade-off for cutting out the fragile bookkeeping).
+\cs_new_protected:Npn \__zebra_note_unnumbered:nnn #1#2#3
+  {
+    \bool_if:NT \l__zebra_draft_bool
+      {
+        \tl_set:Nx \l__zebra_note_color_tl { \__zebra_note_color:n {#1} }
+        \int_gincr:c { g__zebra_note_count_#1_int }
+        \__zebra_render_note:nnn {#1} {#2} {#3}
+      }
+  }
+%% \@@_note:nnn {type}{author}{body}
+%% Main entry point: dispatch to the lightweight unnumbered path or to
+%% the numbered path with deduplication/bookkeeping.
+\cs_new_protected:Npn \__zebra_note:nnn #1#2#3
+  {
+    \bool_if:NTF \l__zebra_unnumbered_bool
+      { \__zebra_note_unnumbered:nnn {#1} {#2} {#3} }
+      { \__zebra_note_numbered:nnn {#1} {#2} {#3} }
+  }
+%% Numbered path.  Four cases:
+%%   Case 1 — sbox reuse:   instance_key found → reuse, render
+%%   Case 2 — stable key:   label found, stable_key in prop → suppress
+%%   Case 3 — content sig:  sig in .aux data → suppress
+%%   Case 4 — new note:     allocate, render
+%% Case 1 also catches an unlabeled same-source-line same-body pair
+%% (\todo{x}\todo{x}); the second is collapsed.  Two such notes are
+%% indistinguishable at TeX level from a single note replayed by an
+%% sbox/moving argument, so this collision is documented and resolved
+%% by adding \label or splitting the line.
+\cs_new_protected:Npn \__zebra_note_numbered:nnn #1#2#3
+  {
+    \bool_if:NT \l__zebra_draft_bool
+      {
+        \tl_set:Nx \l__zebra_note_color_tl { \__zebra_note_color:n {#1} }
+        %% Case 1: sbox reuse (same \inputlineno)
+        \tl_set:Nx \l__zebra_note_key_tl
+          { \__zebra_instance_key:nnn {#1} {#2} {#3} }
+        \prop_get:NVNTF \g__zebra_note_target_prop \l__zebra_note_key_tl
+            \l__zebra_note_target_tl
+          {
+            \prop_get:NVN \g__zebra_note_display_prop \l__zebra_note_key_tl
+              \l__zebra_note_display_tl
+            \__zebra_render_note:nnn {#1} {#2} {#3}
+          }
+          {
+            %% Extract label and compute content signature
+            \__zebra_extract_label:nN {#3} \l_tmpb_tl
+            \__zebra_content_sig:nnnN {#1} {#2} {#3} \l_tmpa_tl
+            %% Case 2: stable-key suppress (labeled, marks/headers).
+            %% If the stable key exists AND the content signature
+            %% matches, this encounter is a replay → suppress.
+            %% Different content signature = label reuse → warn and
+            %% let Case 4 allocate independently.
+            \bool_set_false:N \l_tmpa_bool
+            \tl_if_empty:NF \l_tmpb_tl
+              {
+                \tl_set:Nx \l__zebra_note_key_tl
+                  { \__zebra_stable_key:nn {#1} { \l_tmpb_tl } }
+                \prop_get:NVNT \g__zebra_note_stable_sig_prop
+                    \l__zebra_note_key_tl \l_tmpc_tl
+                  {
+                    \tl_if_eq:NNTF \l_tmpa_tl \l_tmpc_tl
+                      { \bool_set_true:N \l_tmpa_bool }
+                      {
+                        \msg_warning:nnV { zebra }
+                          { duplicate-note-label } \l_tmpb_tl
+                      }
+                  }
+              }
+            %% Case 3: content-sig suppress (TOC/LOF/marks replay).
+            %% Only unlabeled current encounters may be suppressed by
+            %% content signature; labeled encounters already have a
+            %% strong identity via the stable key.  Suppress only if
+            %% the stored instance key differs from the current one —
+            %% same key means it is the original note, not a replay.
+            \bool_if:NF \l_tmpa_bool
+              {
+                \tl_if_empty:NT \l_tmpb_tl
+                  {
+                    \prop_get:NVNT \g__zebra_note_sig_known_prop
+                        \l_tmpa_tl \l_tmpc_tl
+                      {
+                        \tl_set:Nx \l_tmpd_tl
+                          { \__zebra_instance_key:nnn {#1} {#2} {#3} }
+                        \tl_if_eq:NNF \l_tmpc_tl \l_tmpd_tl
+                          { \bool_set_true:N \l_tmpa_bool }
+                      }
+                  }
+              }
+            \bool_if:NF \l_tmpa_bool
+              {
+                %% Case 4: new note — allocate and render
+                \tl_set:Nx \l__zebra_note_key_tl
+                  { \__zebra_instance_key:nnn {#1} {#2} {#3} }
+                \__zebra_allocate_note:nnn {#1} {#2} {#3}
+                \prop_gput:NVV \g__zebra_note_target_prop
+                  \l__zebra_note_key_tl \l__zebra_note_target_tl
+                \prop_gput:NVV \g__zebra_note_display_prop
+                  \l__zebra_note_key_tl \l__zebra_note_display_tl
+                %% For labeled notes: register stable key + write sig,
+                %% but only if the stable key is not already claimed by
+                %% an earlier note (label-conflict case).
+                \tl_if_empty:NF \l_tmpb_tl
+                  {
+                    \tl_set:Nx \l__zebra_note_key_tl
+                      { \__zebra_stable_key:nn {#1} { \l_tmpb_tl } }
+                    \prop_if_in:NVF \g__zebra_note_stable_sig_prop
+                        \l__zebra_note_key_tl
+                      {
+                        \prop_gput:NVV \g__zebra_note_target_prop
+                          \l__zebra_note_key_tl \l__zebra_note_target_tl
+                        \prop_gput:NVV \g__zebra_note_display_prop
+                          \l__zebra_note_key_tl \l__zebra_note_display_tl
+                        \prop_gput:NVV \g__zebra_note_stable_sig_prop
+                          \l__zebra_note_key_tl \l_tmpa_tl
+                        \tl_set:Nx \l_tmpc_tl
+                          { \__zebra_instance_key:nnn {#1} {#2} {#3} }
+                        \__zebra_write_sig:NN \l_tmpa_tl \l_tmpc_tl
+                      }
+                  }
+                \__zebra_render_note:nnn {#1} {#2} {#3}
+              }
+            %% Cases 2–3: suppress — no output
+          }
+      }
+  }
+%% Full render: hypertarget, target label, margin note, inline text.
+%% In \opt{unnumbered} mode the label/hypertarget setup is skipped so a
+%% \cs{label} inside the note body falls through to the surrounding
+%% \cs{@currentlabel} (e.g.\ the section number), and \cs{zebraref}
+%% degrades cleanly to \cs{ref}.
+\cs_new_protected:Npn \__zebra_render_note:nnn #1#2#3
+  {
+    %% Decide outside render's group whether to emit the kernel label.
+    %% The flag lives in the caller's group: sbox/parbox boundaries reset
+    %% it (so caption replay re-emits), but a same-line repeat in body
+    %% text sees the prior emission and skips the redundant \label.
+    \bool_set_false:N \l__zebra_emit_label_bool
+    \bool_if:NF \l__zebra_unnumbered_bool
+      {
+        \prop_if_in:NVF \l__zebra_label_emitted_prop \l__zebra_note_target_tl
+          {
+            \bool_set_true:N \l__zebra_emit_label_bool
+            \prop_put:NVn \l__zebra_label_emitted_prop
+              \l__zebra_note_target_tl { 1 }
+          }
+      }
+    \group_begin:
+      \bool_if:NF \l__zebra_unnumbered_bool
+        {
+          \protected@edef \@currentlabel { \l__zebra_note_display_tl }
+          \__zebra_if_package_loaded:nT { hyperref }
+            { \tl_set:Nx \@currentHref { \l__zebra_note_target_tl } }
+          \tl_set:Nx \l__zebra_note_ref_type_tl
+            { \__zebra_capitalize_type:n {#1} }
+          \__zebra_target:nn { \l__zebra_note_target_tl } {}
+          \bool_if:NT \l__zebra_emit_label_bool
+            { \exp_args:NV \__zebra_kernel_label:n \l__zebra_note_target_tl }
+        }
+      \__zebra_margin_note:nn
+        {\textcolor{\l__zebra_note_color_tl}{%
+          \bool_if:NF \l__zebra_unnumbered_bool
+            { {\bfseries\l__zebra_note_display_tl}\kern1pt }%
+          \__zebra_note_symbol:n {#1}}}
+        {\textcolor{\l__zebra_note_color_tl}{%
+          \__zebra_note_symbol:n {#1}%
+          \bool_if:NF \l__zebra_unnumbered_bool
+            { \kern1pt {\bfseries\l__zebra_note_display_tl} }}}%
+      \bool_if:NF \l__zebra_unnumbered_bool
+        { \cs_set_eq:NN \label \__zebra_note_label:n }
+      \textcolor{\l__zebra_note_color_tl}{[\colorbox[gray]{0.97}{%
+          \textcolor{\l__zebra_note_color_tl !70!black}{%
+            \textsc{\MakeLowercase{\MakeUppercase#1}}%
+            \bool_if:NF \l__zebra_unnumbered_bool
+              { ~\l__zebra_note_display_tl }%
+            \texttt{\__zebra_prepend:nn {@}{#2}}:}} #3]}%
+    \group_end:
+  }
+\cs_new_protected:Npn \__zebra_new_note_type:nn #1#2
+  { \__zebra_new_note_type:nnn {#1} {#2} {} }
+\cs_new_protected:Npn \__zebra_new_note_type:nnn #1#2#3
+  {
+    \seq_gput_right:Nn \g__zebra_note_types_seq {#1}
+    \prop_if_in:NnF \g__zebra_note_colors_prop {#1}
+      { \prop_gput:Nnn \g__zebra_note_colors_prop {#1} {#2} }
+    \tl_if_blank:nF {#3}
+      {
+        \prop_if_in:NnF \g__zebra_note_symbols_prop {#1}
+          { \prop_gput:Nnn \g__zebra_note_symbols_prop {#1} {#3} }
+      }
+    \int_new:c { g__zebra_note_count_#1_int }
+    \__zebra_new_listbody:n {#1}
+    \exp_args:Nc \NewDocumentCommand { zebra#1 } { O{} m }
+      { \__zebra_note:nnn {#1}{##1}{##2} }
+    \cs_if_exist:cTF {#1}
+      { \msg_warning:nnn { zebra } { command-taken } {#1} }
+      {
+        \cs_set_eq:cc {#1} {zebra#1}
+        \prop_gput:Nnn \g__zebra_note_public_alias_prop {#1} { true }
+      }
+    \__zebra_if_package_loaded:nT { hyperref }
+      { \__zebra_apply_pdfstring_defs: }
+  }
+\cs_new_protected:Npn \__zebra_list_entry:nnnnn #1#2#3#4#5
+  {
+    \par\noindent
+    \textcolor{\__zebra_note_color:n {#1}}{%
+      \textbf{\__zebra_capitalize_type:n {#1}~#2}%
+      \tl_if_blank:nF {#3} { \enspace \texttt{\__zebra_prepend:nn {@}{#3}} }}%
+    \nobreak\dotfill
+    \__zebra_link:nn {#5} { \__zebra_pageref:n {#5} }%
+    \par
+    \begingroup
+      \leftskip=2em
+      \rightskip=2em
+      \parindent=0pt
+      \cs_set_eq:NN \label \use_none:n
+      #4\par
+    \endgroup
+  }
+\cs_new_protected:Npn \__zebra_print_note_group:n #1
+  {
+    \int_compare:nNnT { \__zebra_note_count:n {#1} } > { 0 }
+      {
+        \par\medskip
+        \__zebra_use_listbody:n {#1}
+      }
+  }
+\cs_new_protected:Npn \__zebra_print_notes_inorder:
+  {
+    \tl_if_empty:NF \g__zebra_listbody_all_tl
+      { \par\medskip \tl_use:N \g__zebra_listbody_all_tl }
+  }
+\cs_new_protected:Npn \__zebra_summary_row:n #1
+  {
+    \int_compare:nNnT { \__zebra_note_count:n {#1} } > { 0 }
+      {
+        \int_add:Nn \l__zebra_total_notes_int { \__zebra_note_count:n {#1} }
+        \tl_put_right:Nx \l__zebra_summary_rows_tl
+          {
+            \exp_not:N \textcolor
+              { \__zebra_note_color:n {#1} }
+              {#1}
+            \exp_not:N &
+            \__zebra_note_count:n {#1}
+            \exp_not:N \\
+          }
+      }
+  }
+\cs_new_protected:Npn \__zebra_print_notes:
+  {
+    \tl_clear:N \l__zebra_summary_rows_tl
+    \int_zero:N \l__zebra_total_notes_int
+    \seq_map_inline:Nn \g__zebra_note_types_seq
+      { \__zebra_summary_row:n {##1} }
+    \tl_if_empty:NF \l__zebra_summary_rows_tl
+      {
+        \par\nobreak
+        \noindent\dotfill\par\medskip
+        \nobreak
+        \noindent\textbf{\Large Zebra~Notes}
+        \par \medskip
+        \begin{center}
+          \begin{tabular}{lr}
+            \hline
+            \textbf{Type} & \textbf{Count} \\\hline
+            \tl_use:N \l__zebra_summary_rows_tl
+            \hline
+            \textbf{Total} & \textbf{\int_use:N \l__zebra_total_notes_int} \\
+            \hline
+          \end{tabular}
+        \end{center}
+        \bool_if:NF \l__zebra_unnumbered_bool
+          {
+            \par \medskip
+            \begingroup
+              \small
+              \noindent{\bfseries List~of~notes}\par
+              \nobreak
+              \bool_if:NTF \l__zebra_sort_none_bool
+                { \__zebra_print_notes_inorder: }
+                {
+                  \seq_map_inline:Nn \g__zebra_note_types_seq
+                    { \__zebra_print_note_group:n {##1} }
+                }
+            \endgroup
+          }
+      }
+  }
+\NewDocumentCommand \zebranewnote { m m O{} }
+  { \__zebra_new_note_type:nnn {#1} {#2} {#3} }
+\NewDocumentCommand \zebrasetup { m }
+  { \keys_set:nn { zebra-setup } {#1} }
+\zebranewnote{todo}{purple}
+\zebranewnote{fixed}{green!50!black}
+\zebranewnote{comment}{blue}
+\zebranewnote{note}{violet}
+\zebranewnote{placeholder}{gray}
+%% At end of document: print the note summary and list.
+%% Content signatures are written to .aux inline (at allocation time),
+%% so no additional end-of-document aux writes are needed.
+\hook_gput_code:nnn { enddocument } { zebra }
+  {
+    \bool_if:NT \l__zebra_draft_bool
+      { \__zebra_print_notes: }
+  }
+\ExplSyntaxOff
+%% 
+%% This work is "maintained" (as per LPPL maintenance status) by
+%%   Ruini Xue.
+%% 
+%% This work consists of the file  zebra.dtx
+%%           and the derived files zebra.ins,
+%%                                 zebra.pdf,
+%%                                 zebra.sty, and
+%%                                 zebra-goodies.sty.
+%% 
+%%
+%% End of file `zebra.sty'.

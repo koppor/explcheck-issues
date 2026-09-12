@@ -1,0 +1,258 @@
+%%
+%% mayanumber.sty — Numerales mayas y notación vigesimal con colores por piso
+%%
+%% ORIGEN Y CRÉDITOS:
+%%   Macro original de @egreg en TeX StackExchange, respuesta a una pregunta
+%%   de tatojo: https://tex.stackexchange.com/a/452806/18280
+%%   Extensiones (colores por piso en ciclo de 7, vertical+color por defecto,
+%%   opción nocolor, conversión sin límite de magnitud por división larga):
+%%   Manuel López Mateos (tatojo / mlmateos), para su libro
+%%   "Aritmética vigesimal con puntos y barras".
+%%
+%% REQUISITOS: XeLaTeX o LuaLaTeX; fuente BabelStone Mayan Numerals.
+%% LICENCIA: MIT (véase LICENSE del repositorio puntoybarra).
+%%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{mayanumber}[2026-09-09 v1.0.0 Numerales mayas y base 20 con colores por piso]
+
+\RequirePackage{iftex}
+\unless\ifXeTeX
+  \unless\ifLuaTeX
+    \PackageError{mayanumber}
+      {Se~requiere~XeLaTeX~o~LuaLaTeX}
+      {mayanumber necesita fontspec para cargar la fuente de numerales mayas.}
+  \fi
+\fi
+
+\RequirePackage{xcolor}
+\RequirePackage{fontspec}
+
+% Fuente de glifos (bloque Unicode U+1D2E0–U+1D2F3).
+% Solo se declara si el usuario no la definió antes con otro nombre.
+\@ifundefined{mayanumerals}
+  {\newfontface{\mayanumerals}{BabelStone Mayan Numerals}}
+  {}
+
+% Paleta de 7 colores por piso posicional.
+% \providecolor permite que el usuario la redefina ANTES de cargar el paquete.
+\providecolor{mayaTierra}{HTML}{8B4513}      % pos 0: la tierra
+\providecolor{mayaAgua}{HTML}{005B96}        % pos 1: el agua (azul profundo)
+\providecolor{mayaVegetacion}{HTML}{2E8B57}  % pos 2: la vegetación
+\providecolor{mayaVida}{HTML}{DC143C}        % pos 3: la vida
+\providecolor{mayaCielo}{HTML}{87CEEB}       % pos 4: el cielo (azul claro)
+\providecolor{mayaSol}{HTML}{DAA520}         % pos 5: la luz, el sol
+\providecolor{mayaUniverso}{HTML}{6A0DAD}    % pos 6: el universo
+
+\ExplSyntaxOn
+
+% ----------------------------------------------------------------------------
+% Comando público \mayanumber
+%   s : asterisco → notación alfabética (0-9, A-J)
+%   O : opciones [vertical|horizontal, colors|nocolor, scale=<n>, align=<c|t|b>]
+%   m : número decimal (sin límite de dígitos)
+% ----------------------------------------------------------------------------
+\NewDocumentCommand{\mayanumber}{sO{}m}
+{
+  \IfBooleanTF { #1 }
+    { \tatojo_maya_alphabetic:nn { #2 } { #3 } }
+    { \tatojo_maya_number:nn { #2 } { #3 } }
+}
+
+% U+1D2E0 = glifo maya del CERO; los glifos 0–19 son secuenciales.
+\int_const:Nn \c__tatojo_maya_start_int { "1D2E0 }
+
+% Lista cíclica de 7 colores (índice 1 = posición 0 = unidades = tierra)
+\clist_const:Nn \c__tatojo_maya_colors_clist
+  { mayaTierra, mayaAgua, mayaVegetacion, mayaVida, mayaCielo, mayaSol, mayaUniverso }
+
+% Alfabeto vigesimal para la variante con asterisco
+\clist_const:Nn \c__tatojo_maya_alpha_clist
+  { 0,1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J }
+
+\tl_new:N   \l__tatojo_maya_rest_tl
+\tl_new:N   \l__tatojo_maya_quot_tl
+\seq_new:N  \l__tatojo_maya_digits_seq
+\bool_new:N \l__tatojo_maya_color_bool
+\bool_new:N \l__tatojo_maya_horizontal_bool
+\bool_new:N \l__tatojo_maya_started_bool
+\bool_new:N \l__tatojo_maya_continue_bool
+\tl_new:N   \l__tatojo_maya_align_tl
+\int_new:N  \l__tatojo_maya_pos_int
+\int_new:N  \l__tatojo_maya_digit_int
+\int_new:N  \l__tatojo_maya_x_int
+\int_new:N  \l__tatojo_maya_q_int
+\int_new:N  \l__tatojo_maya_rem_int
+\tl_new:N   \l__tatojo_maya_color_tl
+\tl_new:N   \l__tatojo_maya_result_tl
+
+\keys_define:nn { tatojo/maya }
+{
+  align      .tl_set:N  = \l__tatojo_maya_align_tl,
+  align      .initial:n = c,
+  horizontal .bool_set:N = \l__tatojo_maya_horizontal_bool,
+  horizontal .default:n  = true,
+  horizontal .initial:n  = false,   % DEFAULT: vertical
+  vertical   .bool_set_inverse:N = \l__tatojo_maya_horizontal_bool,
+  vertical   .default:n  = true,
+  scale      .code:n = { \fp_compare:nT { #1 != 1 } { \addfontfeatures{Scale=#1} } },
+  colors     .bool_set:N = \l__tatojo_maya_color_bool,
+  colors     .default:n  = true,
+  colors     .initial:n  = true,    % DEFAULT: con colores
+  nocolor    .bool_set_inverse:N = \l__tatojo_maya_color_bool,
+  nocolor    .default:n  = true,
+}
+
+% Inserta el glifo del dígito actual AL FRENTE de la secuencia (con/sin color).
+% Índice cíclico seguro 1..7: ((pos mod 7) + 7) mod 7 + 1
+\cs_new_protected:Nn \__tatojo_maya_push_glyph:
+{
+  \bool_if:NTF \l__tatojo_maya_color_bool
+    {
+      \tl_set:Nx \l__tatojo_maya_color_tl
+        {
+          \clist_item:Nn \c__tatojo_maya_colors_clist
+            { \int_eval:n { \int_mod:nn { \int_mod:nn { \l__tatojo_maya_pos_int } { 7 } + 7 } { 7 } + 1 } }
+        }
+      \seq_put_left:Nx \l__tatojo_maya_digits_seq
+        {
+          \exp_not:N \textcolor { \l__tatojo_maya_color_tl }
+            { \exp_not:N \symbol
+                { \int_eval:n { \c__tatojo_maya_start_int + \l__tatojo_maya_digit_int } } }
+        }
+    }
+    {
+      \seq_put_left:Nx \l__tatojo_maya_digits_seq
+        {
+          \exp_not:N \symbol
+            { \int_eval:n { \c__tatojo_maya_start_int + \l__tatojo_maya_digit_int } }
+        }
+    }
+}
+
+% Inserta la letra alfabética AL FRENTE del acumulador (con/sin color)
+\cs_new_protected:Nn \__tatojo_maya_push_letter:
+{
+  \bool_if:NTF \l__tatojo_maya_color_bool
+    {
+      \tl_set:Nx \l__tatojo_maya_color_tl
+        {
+          \clist_item:Nn \c__tatojo_maya_colors_clist
+            { \int_eval:n { \int_mod:nn { \int_mod:nn { \l__tatojo_maya_pos_int } { 7 } + 7 } { 7 } + 1 } }
+        }
+      \tl_put_left:Nx \l__tatojo_maya_result_tl
+        {
+          { \exp_not:N \color { \l__tatojo_maya_color_tl }
+              \clist_item:Nn \c__tatojo_maya_alpha_clist { \l__tatojo_maya_digit_int + 1 } }
+        }
+    }
+    {
+      \tl_put_left:Nx \l__tatojo_maya_result_tl
+        { \clist_item:Nn \c__tatojo_maya_alpha_clist { \l__tatojo_maya_digit_int + 1 } }
+    }
+}
+
+% ----------------------------------------------------------------------------
+% Glifos mayas. División larga escolar de la cadena decimal entre 20:
+% el RESIDUO es el dígito del piso actual (pos 0 = unidades) y el COCIENTE,
+% q = (x - residuo)/20, vuelve a dividirse hasta agotarse.
+% ----------------------------------------------------------------------------
+\cs_new_protected:Nn \tatojo_maya_number:nn
+{
+  \mbox
+  {
+    \mayanumerals
+    \bool_set_true:N  \l__tatojo_maya_color_bool        % default: con color
+		\bool_set_false:N \l__tatojo_maya_horizontal_bool    % default: vertical
+		\tl_set:Nn \l__tatojo_maya_align_tl { c }            % default: centrado
+		\keys_set:nn { tatojo/maya } { #1 }
+    \seq_clear:N \l__tatojo_maya_digits_seq
+    \int_zero:N \l__tatojo_maya_pos_int
+    \tl_set:Nn \l__tatojo_maya_rest_tl { #2 }
+
+    \bool_set_true:N \l__tatojo_maya_continue_bool
+    \bool_while_do:nn \l__tatojo_maya_continue_bool
+      {
+        \int_zero:N \l__tatojo_maya_rem_int
+        \tl_clear:N \l__tatojo_maya_quot_tl
+        \bool_set_false:N \l__tatojo_maya_started_bool
+        \tl_map_inline:Nn \l__tatojo_maya_rest_tl
+          {
+            \int_set:Nn \l__tatojo_maya_x_int { \l__tatojo_maya_rem_int * 10 + ##1 }
+            \int_set:Nn \l__tatojo_maya_rem_int { \int_mod:nn { \l__tatojo_maya_x_int } { 20 } }
+            \int_set:Nn \l__tatojo_maya_q_int
+              { ( \l__tatojo_maya_x_int - \l__tatojo_maya_rem_int ) / 20 }
+            \bool_if:NTF \l__tatojo_maya_started_bool
+              { \tl_put_right:Nx \l__tatojo_maya_quot_tl { \int_eval:n { \l__tatojo_maya_q_int } } }
+              {
+                \int_compare:nNnF \l__tatojo_maya_q_int = { 0 }
+                  {
+                    \tl_put_right:Nx \l__tatojo_maya_quot_tl { \int_eval:n { \l__tatojo_maya_q_int } }
+                    \bool_set_true:N \l__tatojo_maya_started_bool
+                  }
+              }
+          }
+        \bool_if:NF \l__tatojo_maya_started_bool { \tl_set:Nn \l__tatojo_maya_quot_tl { 0 } }
+
+        \int_set_eq:NN \l__tatojo_maya_digit_int \l__tatojo_maya_rem_int
+        \__tatojo_maya_push_glyph:
+        \tl_set_eq:NN \l__tatojo_maya_rest_tl \l__tatojo_maya_quot_tl
+        \int_incr:N \l__tatojo_maya_pos_int
+        \bool_set_eq:NN \l__tatojo_maya_continue_bool \l__tatojo_maya_started_bool
+      }
+
+    \bool_if:NTF \l__tatojo_maya_horizontal_bool
+      { \seq_use:Nn \l__tatojo_maya_digits_seq { } }
+      {
+        \begin{tabular}[\l__tatojo_maya_align_tl]{@{}c@{}}
+          \shortstack[c]{ \seq_use:Nn \l__tatojo_maya_digits_seq { \\[.1ex] } }
+        \end{tabular}
+      }
+  }
+}
+
+% Notación alfabética: mismo bucle, acumulando letras coloreadas
+\cs_new_protected:Nn \tatojo_maya_alphabetic:nn
+{
+  \keys_set:nn { tatojo/maya } { #1 }
+  \tl_clear:N \l__tatojo_maya_result_tl
+  \int_zero:N \l__tatojo_maya_pos_int
+  \tl_set:Nn \l__tatojo_maya_rest_tl { #2 }
+
+  \bool_set_true:N \l__tatojo_maya_continue_bool
+  \bool_while_do:nn \l__tatojo_maya_continue_bool
+    {
+      \int_zero:N \l__tatojo_maya_rem_int
+      \tl_clear:N \l__tatojo_maya_quot_tl
+      \bool_set_false:N \l__tatojo_maya_started_bool
+      \tl_map_inline:Nn \l__tatojo_maya_rest_tl
+        {
+          \int_set:Nn \l__tatojo_maya_x_int { \l__tatojo_maya_rem_int * 10 + ##1 }
+          \int_set:Nn \l__tatojo_maya_rem_int { \int_mod:nn { \l__tatojo_maya_x_int } { 20 } }
+          \int_set:Nn \l__tatojo_maya_q_int
+            { ( \l__tatojo_maya_x_int - \l__tatojo_maya_rem_int ) / 20 }
+          \bool_if:NTF \l__tatojo_maya_started_bool
+            { \tl_put_right:Nx \l__tatojo_maya_quot_tl { \int_eval:n { \l__tatojo_maya_q_int } } }
+            {
+              \int_compare:nNnF \l__tatojo_maya_q_int = { 0 }
+                {
+                  \tl_put_right:Nx \l__tatojo_maya_quot_tl { \int_eval:n { \l__tatojo_maya_q_int } }
+                  \bool_set_true:N \l__tatojo_maya_started_bool
+                }
+            }
+        }
+      \bool_if:NF \l__tatojo_maya_started_bool { \tl_set:Nn \l__tatojo_maya_quot_tl { 0 } }
+
+      \int_set_eq:NN \l__tatojo_maya_digit_int \l__tatojo_maya_rem_int
+      \__tatojo_maya_push_letter:
+      \tl_set_eq:NN \l__tatojo_maya_rest_tl \l__tatojo_maya_quot_tl
+      \int_incr:N \l__tatojo_maya_pos_int
+      \bool_set_eq:NN \l__tatojo_maya_continue_bool \l__tatojo_maya_started_bool
+    }
+
+  \ensuremath { \mathrm { \l__tatojo_maya_result_tl } \sb{20} }
+}
+
+\ExplSyntaxOff
+%%
+%% Fin de mayanumber.sty
+%%

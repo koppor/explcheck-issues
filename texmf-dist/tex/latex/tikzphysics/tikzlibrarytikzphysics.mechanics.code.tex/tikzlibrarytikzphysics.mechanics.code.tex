@@ -1,0 +1,429 @@
+%% tikzlibrarytikzphysics.mechanics.code.tex
+%% -----------------------------------------------------------
+%% Mechanics module for tikzphysics.
+%%
+%% Native mechanics primitives and connections:
+%%   - physicsblock  : simple rectangular block style
+%%   - physicspulley : circle with optional axle-dot
+%%   - spring        : configurable coil path style
+%%   - \physicsstringoverpulley : tangent string segments plus circular wrap
+%%
+%% Also provides particle/disk/ring nodes, vector/rod styles, support and
+%% pendulum pics, and the native over-pulley to path.
+%%
+%% Internal namespace : \tikzphysics@mech@...
+%% Requires           : tikz, calc, tikzphysics.core
+%%
+%% Author  : Vaibhav Blayer
+%% Version : v1.2.0 (2026-09-05)
+%% License : LPPL 1.3c
+%% -----------------------------------------------------------
+
+\usetikzlibrary{calc,decorations.pathmorphing}
+\usetikzlibrary{tikzphysics.core}
+
+\makeatletter
+
+\tikzphysics@declarehook{block}
+\tikzphysics@declarehook{pulley}
+\tikzphysics@declarehook{spring}
+\tikzphysics@declarehook{rope}
+
+%% ============================================================
+%%  INTERNAL STATE
+%% ============================================================
+
+\def\tikzphysics@mech@pulleycenterfill{2pt}
+\def\tikzphysics@mech@pulleycenterfillcolor{black}
+\def\tikzphysics@mech@stringstartsolution{2}
+\def\tikzphysics@mech@stringendsolution{1}
+\def\tikzphysics@mech@stringdelta{-(Mod(\n1-\n2,360))}
+\newdimen\tikzphysics@mech@springkeydim
+
+%% Optional command arguments are often split over lines. Trim only their
+%% leading/trailing spaces before handing the unchanged key list to TikZ.
+\ExplSyntaxOn
+\cs_new_protected:Npn \tikzphysics_mech_tikzset_trim:n #1
+  {
+    \tl_set:Nn \l_tmpa_tl {#1}
+    \tl_trim_spaces:N \l_tmpa_tl
+    \exp_args:NV \tikzset \l_tmpa_tl
+  }
+\cs_new_eq:NN \tikzphysics@mech@tikzsettrim \tikzphysics_mech_tikzset_trim:n
+\ExplSyntaxOff
+
+%% ============================================================
+%%  TIKZ KEYS (scoped, unit-aware)
+%% ============================================================
+
+\tikzset{
+  %% ---- block sizing ----
+  physics block width/.code  = {\tikzphysics@length@keyhandler{/pgf/minimum width}{#1}},
+  physics block height/.code = {\tikzphysics@length@keyhandler{/pgf/minimum height}{#1}},
+  block width/.style  = {physics block width={#1}},
+  block height/.style = {physics block height={#1}},
+  %% ---- pulley sizing ----
+  physics pulley diameter/.code = {\tikzphysics@length@keyhandler{/pgf/minimum size}{#1}},
+  pulley diameter/.style = {physics pulley diameter={#1}},
+  %% ---- spring geometry ----
+  physics spring pre length/.code={%
+    \tikzphysics@resolve@nonnegative{\tikzphysics@mech@springkeydim}{#1}%
+    \pgfkeysalso{/pgf/decoration/pre length={\the\tikzphysics@mech@springkeydim}}},
+  physics spring post length/.code={%
+    \tikzphysics@resolve@nonnegative{\tikzphysics@mech@springkeydim}{#1}%
+    \pgfkeysalso{/pgf/decoration/post length={\the\tikzphysics@mech@springkeydim}}},
+  physics spring amplitude/.code={%
+    \tikzphysics@resolve@length{\tikzphysics@mech@springkeydim}{#1}%
+    \pgfkeysalso{/pgf/decoration/amplitude={\the\tikzphysics@mech@springkeydim}}},
+  physics spring segment length/.code={%
+    \tikzphysics@resolve@length{\tikzphysics@mech@springkeydim}{#1}%
+    \pgfkeysalso{/pgf/decoration/segment length={\the\tikzphysics@mech@springkeydim}}},
+  physics spring aspect/.style={/pgf/decoration/aspect={#1}},
+  pre length/.style={physics spring pre length={#1}},
+  post length/.style={physics spring post length={#1}},
+  amplitude/.style={physics spring amplitude={#1}},
+  segment length/.style={physics spring segment length={#1}},
+  aspect/.style={physics spring aspect={#1}},
+  %% ---- pulley axle-dot ----
+  physics pulley axle radius/.code = {\def\tikzphysics@mech@pulleycenterfill{#1}},
+  physics pulley axle color/.code  = {\def\tikzphysics@mech@pulleycenterfillcolor{#1}},
+  pulley axle radius/.style = {physics pulley axle radius={#1}},
+  pulley axle color/.style  = {physics pulley axle color={#1}},
+  physics pulley axle radius       = 2pt,
+  physics pulley axle color        = black,
+  %% ---- tangent string construction ----
+  physics string start solution/.code = {\def\tikzphysics@mech@stringstartsolution{#1}},
+  physics string end solution/.code   = {\def\tikzphysics@mech@stringendsolution{#1}},
+  physics string wrap/.is choice,
+  physics string wrap/clockwise/.code = {\def\tikzphysics@mech@stringdelta{-(Mod(\n1-\n2,360))}},
+  physics string wrap/counterclockwise/.code = {\def\tikzphysics@mech@stringdelta{Mod(\n2-\n1,360)}},
+  physics string wrap/shortest/.code = {\def\tikzphysics@mech@stringdelta{Mod(\n2-\n1+180,360)-180}},
+  %% Named routes for the common case in which the first endpoint lies
+  %% generally to the left of the pulley and the second lies to its right.
+  %% The explicit solution/wrap keys remain available for every orientation.
+  physics string route/.is choice,
+  physics string route/over/.style={
+    physics string start solution=2,
+    physics string end solution=1,
+    physics string wrap=clockwise,
+  },
+  physics string route/under/.style={
+    physics string start solution=1,
+    physics string end solution=2,
+    physics string wrap=counterclockwise,
+  },
+  physics string route/surface-right/.style={
+    physics string start solution=2,
+    physics string end solution=1,
+    physics string wrap=clockwise,
+  },
+  physics string route/shortest/.style={physics string wrap=shortest},
+  string start solution/.style={physics string start solution={#1}},
+  string end solution/.style={physics string end solution={#1}},
+  string wrap/.style={physics string wrap={#1}},
+  string route/.style={physics string route={#1}},
+  physics string/.style={line width=0.5pt,
+    every physics connection, every rope,
+  },
+}
+
+%% ============================================================
+%%  BLOCK AND PULLEY SHAPES; SPRING PATH STYLE
+%% ============================================================
+
+\tikzset{
+  physicsblock/.style={
+    shape=rectangle,
+    physics logical shape=physicsblock,
+    draw=black,
+    line width=0.5pt,
+    fill=none,
+    inner sep=0pt,
+    outer sep=0pt,
+    minimum width=1cm,
+    minimum height=1cm,
+    physics debug setup, every physics object, every block,
+  },
+  physicspulley/.style={
+    shape=circle,
+    physics logical shape=physicspulley,
+    draw=black,
+    line width=0.5pt,
+    fill=none,
+    inner sep=0pt,
+    outer sep=0pt,
+    minimum size=1cm,
+    path picture={%
+      \def\tikzphysics@mech@pulley@none{none}%
+      \ifx\tikzphysics@mech@pulleycenterfill\tikzphysics@mech@pulley@none\relax
+      \else
+        \fill[\tikzphysics@mech@pulleycenterfillcolor]
+          (path picture bounding box.center)
+          circle[radius=\tikzphysics@mech@pulleycenterfill];%
+      \fi
+    },
+    physics debug setup, every physics object, every pulley,
+  },
+  physics spring/.style={
+    draw=black,
+    line width=0.5pt,
+    decorate,
+    decoration={
+      coil,
+      pre length=5pt,
+      post length=5pt,
+      amplitude=4.5pt,
+      segment length=4.5pt,
+      aspect=0.5,
+    },
+    every physics connection, every spring,
+  },
+  physicsspring/.style={physics spring},
+}
+
+%% Short public names; use the physics-prefixed forms if a document already
+%% defines generic block, pulley, or spring styles.
+\tikzset{
+  block/.style={physicsblock},
+  pulley/.style={physicspulley},
+  spring/.style={physics spring},
+}
+
+%% ============================================================
+%%  TANGENT STRING OVER A PULLEY
+%%
+%%  Usage:
+%%    \physicsstringoverpulley[<TikZ options>]{<start>}{<pulley>}{<end>}
+%%
+%%  The start and end arguments are coordinate names without parentheses;
+%%  the pulley argument is the name of a physicspulley node. The two straight
+%%  portions terminate at exact tangent points computed by TikZ's calc
+%%  library. Between them, the path follows the pulley's true circular arc.
+%%
+%%  The default surface-right route (solutions 2/1, clockwise wrap) matches a
+%%  block approaching parallel to a horizontal or rising surface. The string
+%%  passes over the pulley's upper rim before descending on its right. The
+%%  three component keys remain available for other configurations.
+%% ============================================================
+
+%% The native to path is shared by the compatibility command. TikZ supplies
+%% the resolved start/target coordinates, so ordinary coordinate expressions
+%% and node labels work without a new drawing language.
+\tikzset{
+  rope/.style={physics string},
+  physics over pulley/.style={to path={
+    let
+      \p1=(tangent cs:node=#1,point={(\tikztostart)},solution=\tikzphysics@mech@stringstartsolution),
+      \p2=(#1.center),
+      \p3=(tangent cs:node=#1,point={(\tikztotarget)},solution=\tikzphysics@mech@stringendsolution),
+      \n1={atan2(\y1-\y2,\x1-\x2)},
+      \n2={atan2(\y3-\y2,\x3-\x2)},
+      \n3={veclen(\x1-\x2,\y1-\y2)},
+      \n4={\tikzphysics@mech@stringdelta}
+    in
+      (\tikztostart) -- (\p1)
+      arc[start angle=\n1,delta angle=\n4,radius=\n3]
+      -- (\tikztotarget) \tikztonodes
+  }},
+  physics over pulley/.value required,
+  over pulley/.style={physics over pulley={#1}},
+  over pulley/.value required,
+}
+
+\newcommand{\physicsstringoverpulley}[4][]{%
+  \begin{scope}[physics string]
+    \tikzphysics@mech@tikzsettrim{#1}%
+    \draw (#2) to[physics over pulley=#3] (#4);
+  \end{scope}%
+}
+
+%% ============================================================
+%%  ANCHOR AND KEY REGISTRATION (for debug overlays)
+%%
+%%  physicsblock and physicspulley are thin styles over rectangle and
+%%  circle, so we register a curated list of anchors that are
+%%  most useful in mechanics diagrams.
+%% ============================================================
+
+\tikzphysics@registeranchors{physicsblock}{%
+  center, north, south, east, west,
+  north east, north west, south east, south west}
+
+\tikzphysics@registeranchors{physicspulley}{%
+  center, north, south, east, west,
+  north east, north west, south east, south west}
+
+\tikzphysics@registerdisplayname{physicsblock}{block}
+\tikzphysics@registerdisplayname{physicspulley}{pulley}
+
+\tikzphysics@registerkeys{physicsblock}{%
+  minimum width, minimum height}
+\tikzphysics@registerkeydefaults{physicsblock}{%
+  minimum width/1cm, minimum height/1cm}
+
+\tikzphysics@registerkeys{physicspulley}{%
+  minimum size, pulley axle radius, pulley axle color}
+\tikzphysics@registerkeydefaults{physicspulley}{%
+  minimum size/1cm, pulley axle radius/2pt, pulley axle color/black}
+
+\tikzset{
+  physics block width/.value required,
+  physics block height/.value required,
+  physics pulley diameter/.value required,
+  physics pulley axle radius/.value required,
+  physics pulley axle color/.value required,
+  physics string start solution/.value required,
+  physics string end solution/.value required,
+  physics string route/.value required,
+  physics string wrap/.value required,
+  physics spring pre length/.value required,
+  physics spring post length/.value required,
+  physics spring amplitude/.value required,
+  physics spring segment length/.value required,
+  physics spring aspect/.value required,
+}
+
+
+%% ============================================================
+%% MECHANICS PRIMITIVES: NODES, PATH STYLES, AND NAMED PICS
+%% ============================================================
+\tikzphysics@declarehook{particle}
+\tikzphysics@declarehook{disk}
+\tikzphysics@declarehook{ring}
+\tikzphysics@declarehook{force}
+\tikzphysics@declarehook{velocity}
+\tikzphysics@declarehook{acceleration}
+\tikzphysics@declarehook{torque}
+\tikzphysics@declarehook{rod}
+\tikzphysics@declarehook{support}
+\tikzphysics@declarehook{pendulum}
+
+\tikzset{
+  physicsparticle/.style={circle,draw=black,fill=black,
+    inner sep=0pt,outer sep=0pt,minimum size=3mm,
+    physics logical shape=physicsparticle,
+    physics debug setup, every physics object,every particle},
+  physicsdisk/.style={circle,draw=black,fill=white,line width=.5pt,
+    inner sep=0pt,outer sep=0pt,minimum size=15mm,
+    physics logical shape=physicsdisk,
+    physics debug setup, every physics object,every disk},
+  physicsring/.style={circle,draw=black,fill=none,line width=1pt,
+    inner sep=0pt,outer sep=0pt,minimum size=15mm,
+    physics logical shape=physicsring,
+    physics debug setup, every physics object,every ring},
+  particle/.style={physicsparticle},
+  disk/.style={physicsdisk},
+  ring/.style={physicsring},
+  physics force/.style={draw=black,-latex,line width=.7pt,
+    every physics connection,every force},
+  physics velocity/.style={draw=black,-latex,line width=.6pt,
+    every physics connection,every velocity},
+  physics acceleration/.style={draw=black,-latex,line width=.6pt,
+    every physics connection,every acceleration},
+  physics torque/.style={draw=black,-latex,line width=.7pt,
+    every physics connection,every torque},
+  physics rod/.style={draw=black,line width=2pt,line cap=round,
+    every physics connection,every rod},
+  force/.style={physics force},
+  velocity/.style={physics velocity},
+  acceleration/.style={physics acceleration},
+  torque/.style={physics torque},
+  rod/.style={physics rod},
+  support size/.initial=6mm,
+  support size/.value required,
+  physics support size/.style={support size={#1}},
+  pendulum length/.initial=2cm,
+  pendulum length/.value required,
+  pendulum angle/.initial=30,
+  pendulum angle/.value required,
+  physics pendulum length/.style={pendulum length={#1}},
+  physics pendulum angle/.style={pendulum angle={#1}},
+  pics/pin-support/.style={/tikz/.cd,every support,/tikz/pics/code={
+    \tikzphysics@resolve@length{\@tempdima}{\pgfkeysvalueof{/tikz/support size}}%
+    \edef\tikzphysics@mech@supportsize{\the\@tempdima}%
+    \coordinate (-pivot) at (0,0);
+    \coordinate (-base) at (0,-\tikzphysics@mech@supportsize);
+    \coordinate (-left) at (-.5*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize);
+    \coordinate (-right) at (.5*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize);
+    \draw (0,0) -- (-left) -- (-right) -- cycle;
+    \draw (-.7*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize)
+      -- (.7*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize);
+  }},
+  pics/roller-support/.style={/tikz/.cd,every support,/tikz/pics/code={
+    \tikzphysics@resolve@length{\@tempdima}{\pgfkeysvalueof{/tikz/support size}}%
+    \edef\tikzphysics@mech@supportsize{\the\@tempdima}%
+    \coordinate (-pivot) at (0,0);
+    \coordinate (-base) at (0,-\tikzphysics@mech@supportsize);
+    \coordinate (-left) at (-.5*\tikzphysics@mech@supportsize,-.7*\tikzphysics@mech@supportsize);
+    \coordinate (-right) at (.5*\tikzphysics@mech@supportsize,-.7*\tikzphysics@mech@supportsize);
+    \draw (0,0) -- (-left) -- (-right) -- cycle;
+    \draw (-.3*\tikzphysics@mech@supportsize,-.85*\tikzphysics@mech@supportsize)
+      circle[radius=.15*\tikzphysics@mech@supportsize];
+    \draw (.3*\tikzphysics@mech@supportsize,-.85*\tikzphysics@mech@supportsize)
+      circle[radius=.15*\tikzphysics@mech@supportsize];
+    \draw (-.7*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize)
+      -- (.7*\tikzphysics@mech@supportsize,-\tikzphysics@mech@supportsize);
+  }},
+  pics/pendulum/.style={/tikz/.cd,every pendulum,/tikz/pics/code={
+    \tikzphysics@resolve@length{\@tempdima}{\pgfkeysvalueof{/tikz/pendulum length}}%
+    \edef\tikzphysics@mech@pendulumlength{\the\@tempdima}%
+    \coordinate (-pivot) at (0,0);
+    \node[physicsparticle] (-bob) at
+      ({\pgfkeysvalueof{/tikz/pendulum angle}-90}:\tikzphysics@mech@pendulumlength) {};
+    \draw[physics string] (-pivot) -- (-bob);
+  }},
+  pics/physics pin-support/.style={pin-support},
+  pics/physics roller-support/.style={roller-support},
+  pics/physics pendulum/.style={pendulum},
+}
+
+\tikzphysics@registeranchors{physicsparticle}{center,north,south,east,west}
+\tikzphysics@registeranchors{physicsdisk}{center,north,south,east,west}
+\tikzphysics@registeranchors{physicsring}{center,north,south,east,west}
+\tikzphysics@registerdisplayname{physicsparticle}{particle}
+\tikzphysics@registerdisplayname{physicsdisk}{disk}
+\tikzphysics@registerdisplayname{physicsring}{ring}
+\tikzphysics@registerkeys{physicsparticle}{minimum size}
+\tikzphysics@registerkeys{physicsdisk}{minimum size}
+\tikzphysics@registerkeys{physicsring}{minimum size}
+\tikzphysics@registerkeydefaults{physicsparticle}{minimum size/3mm}
+\tikzphysics@registerkeydefaults{physicsdisk}{minimum size/15mm}
+\tikzphysics@registerkeydefaults{physicsring}{minimum size/15mm}
+
+\tikzphysics@registerdisplayname{physicsspring}{spring}
+\tikzphysics@registerkeydefaults{physicsspring}{pre length/5pt,post length/5pt,amplitude/4.5pt,segment length/4.5pt,aspect/0.5}
+\tikzphysics@registerdisplayname{physicsrope}{rope}
+\tikzphysics@registerkeydefaults{physicsrope}{line width/0.5pt,over pulley/required node name,string route/surface-right,string start solution/2,string end solution/1,string wrap/clockwise}
+\tikzphysics@registerdisplayname{physicsforce}{force}
+\tikzphysics@registerkeydefaults{physicsforce}{line width/0.7pt}
+\tikzphysics@registerdisplayname{physicsvelocity}{velocity}
+\tikzphysics@registerkeydefaults{physicsvelocity}{line width/0.6pt}
+\tikzphysics@registerdisplayname{physicsacceleration}{acceleration}
+\tikzphysics@registerkeydefaults{physicsacceleration}{line width/0.6pt}
+\tikzphysics@registerdisplayname{physicstorque}{torque}
+\tikzphysics@registerkeydefaults{physicstorque}{line width/0.7pt}
+\tikzphysics@registerdisplayname{physicsrod}{rod}
+\tikzphysics@registerkeydefaults{physicsrod}{line width/2pt}
+\tikzphysics@registerdisplayname{physicspinsupport}{pin-support}
+\tikzphysics@registerkeydefaults{physicspinsupport}{support size/6mm}
+\tikzphysics@registerdisplayname{physicsrollersupport}{roller-support}
+\tikzphysics@registerkeydefaults{physicsrollersupport}{support size/6mm}
+\tikzphysics@registerdisplayname{physicspendulum}{pendulum}
+\tikzphysics@registerkeydefaults{physicspendulum}{pendulum length/2cm,pendulum angle/30 degrees}
+\tikzset{
+  physics block width/.value required,
+  physics block height/.value required,
+  physics pulley diameter/.value required,
+  physics spring pre length/.value required,
+  physics spring post length/.value required,
+  physics spring amplitude/.value required,
+  physics spring segment length/.value required,
+  physics pulley axle radius/.value required,
+  physics pulley axle color/.value required,
+  physics string start solution/.value required,
+  physics string end solution/.value required,
+}
+\makeatother
+\endinput
+%%
+%% End of file `tikzlibrarytikzphysics.mechanics.code.tex'.

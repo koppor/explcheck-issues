@@ -1,0 +1,66 @@
+%% Copyright 2021-2026 Tobias Enderle
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage{pyluatex}{2026/04/17}{v0.7.0}{Execute Python code on the fly}
+
+\cs_new:Npn \__pyluatex_err:n #1 { \PackageError { PyLuaTeX } {#1} {} }
+\sys_if_engine_luatex:F { \__pyluatex_err:n { LuaTeX~is~required } }
+\sys_if_shell_unrestricted:F {
+  \__pyluatex_err:n { Shell~escape~is~required~(add~--shell-escape~option) }
+}
+
+\directlua{
+  pyluatex = require("pyluatex")
+  pyluatex.start()
+}
+
+\cs_new:Npn \__pyluatex_env:nn #1 #2 {
+  \NewDocumentEnvironment {#1} { !O{} } { \directlua{
+    pyluatex.set_options([==[##1]==], {#2})
+    pyluatex.record_env("#1")
+  } } { \directlua{pyluatex.execute_env()} }
+}
+\__pyluatex_env:nn { python } {}
+\__pyluatex_env:nn { pythonq } { quiet = true }
+\__pyluatex_env:nn { pythonrepl } { quiet = true, repl = true }
+
+\newcommand* { \PyLTVerbatimEnv } {
+  \directlua{pyluatex.set_parent_env([==[\@currenvir]==])}
+}
+
+\cs_new:Npn \__pyluatex_cmd_inner:nn [#1] #2 { \directlua{
+  pyluatex.handle_cmd([==[#1]==], [==[#2]==])
+} }
+\cs_new:Npn \__pyluatex_cmd:Nnn #1 #2 #3 {
+  \newcommand {#1} {
+    \directlua{pyluatex.prepare_cmd_handler({#2}, pyluatex.#3)}
+    \exp_after:wN \__pyluatex_cmd_inner:nn \directlua{pyluatex.opt_arg()}
+  }
+}
+\__pyluatex_cmd:Nnn \py {} { execute_with_options, true, -1 }
+\__pyluatex_cmd:Nnn \pyq { quiet = true } { execute_with_options, true, -1 }
+\__pyluatex_cmd:Nnn \pyc {} { execute_with_options, false, -1 }
+\__pyluatex_cmd:Nnn \pycq { quiet = true } { execute_with_options, false, -1 }
+\__pyluatex_cmd:Nnn \pyif {
+  quiet = false, repl = false, store = false, ignoreerrors = false
+} { py_if }
+\__pyluatex_cmd:Nnn \pyfile {} { run_file }
+\__pyluatex_cmd:Nnn \pyfileq { quiet = true } { run_file }
+\__pyluatex_cmd:Nnn \pyfilerepl { quiet = true, repl = true } { run_file }
+
+\newcommand { \pyoptions } [1] {
+  \directlua{pyluatex.set_options([==[#1]==], {}, true)}
+}
+\newcommand { \pyoption } [2] { \pyoptions { #1 = #2 } }
+\newcommand { \pysession } [1] { \pyoptions { session = #1 } }
+
+\let\@unprocessedoptions\relax % https://tex.stackexchange.com/a/615863
+\endinput

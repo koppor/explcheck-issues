@@ -1,0 +1,394 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage{morse-simple}{2026-07-04}{1.0}{Morse code strings}
+
+% ==============================
+% Style file: Preliminary declarations
+
+\RequirePackage{graphicx} % Needed for operations with dot
+\RequirePackage{color} % Needed for \cwEnlargeDot and \cw\EnlargeDah
+
+
+% By default, set the dit and dah symbols at the math axis height.
+
+% See https://tex.stackexchange.com/a/129840/339
+% #1: math style,
+%     one of\displaystyle, \textstyle, \scriptstyle, \scriptscriptstyle
+\newcommand*{\getMathAxisHgt}[1]{%
+    \newsavebox{\cwbox}
+    \savebox{\cwbox}{$#1\vcenter{}$}
+    \the\ht\cwbox}
+
+\newcommand{\mathAxisHgt}{\getMathAxisHgt{\textstyle}}
+
+
+% Thickness of a dit or dah bar
+% Comes first because height above baseline may adjust for thickness.
+\dim_new:N \g__cw_charthick_dim
+\dim_gset:Nn \g__cw_charthick_dim {0.35ex}
+
+% Height of a dit or dah bar above the baseline
+% Default is to set it to the math axis height, the height of a minus sign.
+\box_new:N \l__mathaxis_box
+\hbox_set:Nn \l__mathaxis_box {$\textstyle\vcenter{}$} %
+\dim_new:N \l__mathaxis_hgt_dim 
+\dim_set:Nn \l__mathaxis_hgt_dim {\box_ht:N \l__mathaxis_box}
+
+\dim_new:N \g__cw_charhgt_dim
+\dim_gset:Nn \g__cw_charhgt_dim {\l__mathaxis_hgt_dim - \g__cw_charthick_dim / 2}
+% Could instead set it directly, as here
+% \dim_gset:Nn \g__cw_charhgt_dim {2.5pt}
+
+% Left to right width of a dit bar
+\dim_new:N \g__cw_ditwidth_dim
+\dim_gset:Nn \g__cw_ditwidth_dim {0.20em}
+
+% If true, dah's are shown as a circle
+\bool_new:N \l_cw_dit_dot_bool  
+\bool_set_false:N \l_cw_dit_dot_bool
+
+% Factor to rescale a period to get a dot
+\tl_new:N \g__cw_dot_scale_factor_tl
+\tl_gset:Nn \g__cw_dot_scale_factor_tl {1.5}
+
+% How far to raise a dot
+\dim_new:N \g__cw_dot_raisebox_dim
+\dim_gset:Nn \g__cw_dot_raisebox_dim {1.70pt}
+
+% Width of a dah bar
+\dim_new:N \g__cw_dahwidth_dim
+\dim_gset:Nn \g__cw_dahwidth_dim {3\g__cw_ditwidth_dim}
+
+% Space between dits and dahs inside of a character
+\dim_new:N \g__cw_intrachar_space_dim
+\tl_new:N \g__cw_intrachar_space_factor_tl
+\tl_gset:Nn \g__cw_intrachar_space_factor_tl {1}
+\dim_gset:Nn \g__cw_intrachar_space_dim {\g__cw_intrachar_space_factor_tl\g__cw_ditwidth_dim}
+
+% Space between characters
+\dim_new:N \g__cw_interchar_space_dim
+\tl_new:N \g__cw_interchar_space_factor_tl
+\tl_gset:Nn \g__cw_interchar_space_factor_tl {3}
+\dim_gset:Nn \g__cw_interchar_space_dim {\g__cw_interchar_space_factor_tl\g__cw_ditwidth_dim}
+
+% Space between words
+%  Could have chosen a skip, but the design goal is not paragraphs of morse,
+% it is short snatches.  So chose a dim.
+\dim_new:N \g__cw_interword_space_dim
+\tl_new:N \g__cw_interword_space_factor_tl
+\tl_gset:Nn \g__cw_interword_space_factor_tl {7}
+\dim_gset:Nn \g__cw_interword_space_dim {\g__cw_interword_space_factor_tl\g__cw_ditwidth_dim}
+
+% Shade of gray for \morse command
+\tl_new:N \g__cw_grayshade_tl
+\tl_gset:Nn \g__cw_grayshade_tl {0.50}
+
+% ==============================
+% Style file: Options
+
+\DeclareKeys[cw]{%
+  thickness.code =  {\dim_gset:Nn \g__cw_charthick_dim {#1}},  % How thick is the dit or dah, length 
+  height.code    =  {\dim_gset:Nn \g__cw_charhgt_dim {#1}},     % Dist above the baseline, length 
+  ditwidth.code  = {\dim_gset:Nn \g__cw_ditwidth_dim {#1}},   % Width of a dit, length
+  dahwidth.code  =  {\dim_gset:Nn \g__cw_dahwidth_dim {#1}},   % Width of a dah, length
+  intracharfactor.code =  {\tl_gset:Nn \g__cw_intrachar_space_factor_tl {#1}},  % Multiply this by dit width to get intrachar space
+  intercharfactor.code =  {\tl_gset:Nn \g__cw_interchar_space_factor_tl {#1}},  % Multiply this by dit width to get interchar space
+  interwordfactor.code =  {\tl_gset:Nn \g__cw_interword_space_factor_tl {#1}},  % Multiply this by dit width to get interword space
+  grayshade.code =  {\tl_gset:Nn \g__cw_grayshade_tl {#1}},  % Gray shade for \morse command
+  ditdot.code    =  {\bool_set_true:N \l_cw_dit_dot_bool},
+  dotscale.code  =  {\tl_gset:Nn \g__cw_dot_scale_factor_tl {#1}},  % Magnify dit dot by this factor   
+  dotraise.code  =  {\dim_gset:Nn \g__cw_dot_raisebox_dim {#1}},  % Raise dit dot after rescaling
+}
+
+\ProcessKeyOptions[cw]
+
+% Set the spaces based on the factors
+\dim_gset:Nn \g__cw_intrachar_space_dim {\g__cw_intrachar_space_factor_tl\g__cw_ditwidth_dim}
+\dim_gset:Nn \g__cw_interchar_space_dim {\g__cw_interchar_space_factor_tl\g__cw_ditwidth_dim}
+\dim_gset:Nn \g__cw_interword_space_dim {\g__cw_interword_space_factor_tl\g__cw_ditwidth_dim}
+
+% Show everything in the log
+\dim_log:N \g__cw_charthick_dim
+\dim_log:N \g__cw_charhgt_dim
+\dim_log:N \g__cw_ditwidth_dim
+\dim_log:N \g__cw_dahwidth_dim
+\dim_log:N \g__cw_intrachar_space_dim
+\dim_log:N \g__cw_interchar_space_dim
+\dim_log:N \g__cw_interword_space_dim
+\tl_log:N \g__cw_grayshade_tl
+\bool_log:N \l_cw_dit_dot_bool
+\tl_log:N \g__cw_dot_scale_factor_tl
+\dim_log:N \g__cw_dot_raisebox_dim
+
+
+% ==============================
+% Style file: More declarations
+
+
+% ==============================
+% User-facing commands
+
+% Just a single word
+\NewDocumentCommand{\cwWord}{m}
+ {
+   \cw_word:n {#1}
+ }
+
+% Can have spaces inside
+\NewDocumentCommand{\cwMessage}{m}
+ {
+   \cw_message:n {#1}
+ }
+
+% Like the prior but shaded gray so ti does not to jump off the page so much
+\definecolor{morsecolor}{gray}{\g__cw_grayshade_tl}
+\NewDocumentCommand{\morse}{m}
+ {
+   {\color{morsecolor}\cw_message:n {#1}}
+ }
+
+
+% ==============================
+% Internal commands
+
+% ........ \cwDit and \cwDah
+\newcommand\cwDitDot{%
+  \makebox[\g__cw_ditwidth_dim][c]{\raisebox{\g__cw_dot_raisebox_dim}{\scalebox{\g__cw_dot_scale_factor_tl}{.}}}}
+
+\newcommand\cwDitDash{%
+  \rule[\g__cw_charhgt_dim]{\g__cw_ditwidth_dim}{\g__cw_charthick_dim}}
+
+\newcommand\cwDah{%
+  \rule[\g__cw_charhgt_dim]{\g__cw_dahwidth_dim}{\g__cw_charthick_dim}}
+
+\bool_if:nTF \l_cw_dit_dot_bool { \newcommand\cwDit{\cwDitDot} } { \newcommand\cwDit{\cwDitDash} } 
+
+% ............ Enlarge for fiddling 
+% From https://tex.stackexchange.com/a/85621/339
+% #1 = width, #2 = height
+\newcommand{\rectangle}[2]{{\setlength{\fboxrule}{0.2pt}
+  \fboxsep=-\fboxrule\sbox0{}\wd0=#1\ht0=#2\relax\fbox{\box0}}}
+
+% Tool to help visually place the dot.  It enlarges the dot and puts it in a 
+% 1ex tall box that is the width of a dit, and with a hairline at the height 
+% of a minus sign.  Then you can play with \g__cw_dot_scale_factor_tl and
+% \g__cw_dot_raisebox_dim to make it the right width and elevation.
+\NewDocumentCommand\cwEnlargeDit{ O{15}}{%
+  \scalebox{#1}{%
+    \makebox[0pt][l]{\color{green}\rectangle{\g__cw_ditwidth_dim}{1ex}}%
+    \makebox[\g__cw_ditwidth_dim][c]{\cwDit}%
+    \hspace*{-\g__cw_ditwidth_dim}\raisebox{\l__mathaxis_hgt_dim}{\color{red}\rule{\g__cw_ditwidth_dim}{0.1pt}}%
+  }
+}
+
+\NewDocumentCommand\cwEnlargeDah{ O{15}}{%
+  \scalebox{#1}{%
+    \makebox[0pt][l]{\color{green}\rectangle{\g__cw_dahwidth_dim}{1ex}}%
+    \makebox[\g__cw_dahwidth_dim][c]{\cwDah}%
+    \hspace*{-\g__cw_dahwidth_dim}\raisebox{\l__mathaxis_hgt_dim}{\color{red}\rule{\g__cw_dahwidth_dim}{0.1pt}}%
+  }
+}
+
+% ==========================================
+% Create a map from inputs to morse outputs
+
+% First is an easy to read one, which we will then convert to one with 
+% intracharacter spaces.  (When we do that we also add capital keys for those
+% chars that have a capital.)
+
+\prop_const_from_keyval:Nn \l__cw_source_letters
+  {
+  a = {.-},   
+  b = {-...},
+  c = {-.-.},
+  d = {-..},
+  e = {.},
+  f = {..-.},
+  g = {--.},
+  h = {....},
+  i = {..},
+  j = {.---},
+  k = {-.-},
+  l = {.-..},
+  m = {--},
+  n = {-.},
+  o = {---},
+  p = {.--.},
+  q = {--.-},	
+  r = {.-.},
+  s = {...},
+  t = {-},
+  u = {..-}, 	
+  v = {...-},
+  w = {.--},
+  x = {-..-},
+  y = {-.--},
+  z = {--..},
+  0 = {-----},
+  1 = {.----},
+  2 = {..---},
+  3 = {...--},
+  4 = {....-},
+  5 = {.....},
+  6 = {-....},
+  7 = {--...},
+  8 = {---..},
+  9 = {----.},
+  . = {.-.-.-},
+  {,} = {--..--},  % braces to distinguish this from an end of line comma
+  ? = {..--..},
+  ' = {.----.},
+  ! = {-.-.--},
+  / = {-..-.},
+  ( = {-.--.},
+  ) = {-.--.-},
+  & = {.-...},
+  {:} = {---...},
+  ; = {-.-.-.},
+  {=} = {-...-},
+  + = {.-.-.},
+  - = {-....-},
+  {_} = {..--.-},
+  " = {.-..-.},
+  {$} = {...-..-},
+% $ Matches the dollar sign in the proplist so the editor gets coloring right
+  % In all of history will the following ever used?
+  à = {.--.-},
+  ä = {.-.-},
+  å = {.--.-},  % shared with another a-like
+  ą = {.--.-},  % others also share
+  æ = {.-.-},
+  ć = {-.-..},
+  ĉ = {-.-..},
+  ç = {-.-..},
+  % {ch} = {----},  % ??
+  đ = {..-..},
+  ð = {..--.},
+  é = {..-..},
+  è = {.-..-},
+  ę = {..-..},
+  ĝ = {--.-.},  % ? Esperanto
+  ĥ = {----},
+  ĵ = {.---.},
+  ł = {.-..-},
+  ń = {--.--},
+  ñ = {--.--},
+  ó = {---.},
+  ö = {---.},
+  ø = {---.},
+  ś = {...-...},
+  ŝ = {...-.},
+  š = {----},
+  þ = {.--..},
+  ü = {..--},
+  ŭ = {..--},
+  ź = {--..-.},
+  ż = {--..-}
+  }
+% \prop_log:N \l__cw_source_letters
+
+% Convert . to \cwDit and - to \cwDah
+\cs_set:Nn \cw_convertsyms:n {
+  \if_charcode:w #1 .
+    \cwDit  
+  \else
+    \if_charcode:w #1 -
+      \cwDah
+    \else
+      \PackageError{cw}{Input~is~neither~a~.~nor~a~-}{Input~characters~to~convert~to~morse~symbols~must~be~either~.~for~dit~or~-~for~dah}
+    \fi
+  \fi
+}  
+
+% Put a intracharacter space between dits and dahs. 
+\bool_new:N \l_cw_format_char_firstitem_flag
+
+\cs_set_protected:Nn \cw_format_char:n {
+  \bool_set_true:N \l_cw_format_char_firstitem_flag
+  \tl_map_inline:nn {#1}
+  {
+    \bool_if:NTF \l_cw_format_char_firstitem_flag 
+    {
+      \bool_set_false:N \l_cw_format_char_firstitem_flag
+      \cw_convertsyms:n
+    } { 
+      \hspace{\g__cw_intrachar_space_dim} \cw_convertsyms:n 
+    }
+    {##1}
+  }
+}
+
+% ...... Make the map that users will use
+% Make the prop list from letters to their morse string equivalent
+% The morse string equivalent has intracharacter spaces between
+% the dits and dahs.
+\prop_new_linked:N \g__cw_alphabet_prop
+
+% #1 is the key, #2 is the value
+\cs_set:Nn \cw_store_in_db:nn {
+  \prop_gput:Nnn \g__cw_alphabet_prop {#1} {#2}
+}
+
+\cs_generate_variant:Nn \cw_store_in_db:nn {xx}
+
+\tl_new:N \l__cw_upper  % Key is also done in uppercase, if there is such a thing
+\tl_new:N \l__cw_formatted % The value has spaces put between dits and dahs
+
+\cs_set:Nn \cw_store_kv_in_db:nn {
+  % Include the lower case key
+  \prop_gput:Nnx \g__cw_alphabet_prop {#1} { \cw_format_char:n {#2} }
+  % Also include the matching upper case key (if no upper case exists then
+  % \str_uppercase:n returns the original key)    
+  \tl_set:Nx \l__cw_upper { \str_uppercase:n {#1} } 
+  \cw_store_in_db:xx {\l__cw_upper} { \cw_format_char:n {#2} }
+}
+
+\prop_map_function:NN \l__cw_source_letters \cw_store_kv_in_db:nn
+
+% For debugging: look at the map
+% \prop_log:N \g__cw_alphabet_prop
+
+\newcommand{\cwGetLetter}[1]{%
+  \prop_item:Nn  \g__cw_alphabet_prop {#1}
+}
+
+
+% From a word get its morse replacement
+\bool_new:N \l_cw_word_firstitem_flag
+\cs_set:Nn \cw_word:n 
+  {
+    \bool_set_true:N \l_cw_word_firstitem_flag
+    \mbox{% don't want to break a morse word
+      \tl_map_inline:nn {#1} {
+        \bool_if:NTF \l_cw_word_firstitem_flag {
+          \bool_set_false:N \l_cw_word_firstitem_flag
+          \cwGetLetter 
+        } {
+          \hspace{\g__cw_interchar_space_dim} \cwGetLetter
+        }
+        {##1}
+      }
+    }
+  }
+
+% From a sequence of words, get the morse message
+\seq_new:N \l_cw_message_seq
+\bool_new:N \l_cw_message_firstitem_flag
+\cs_set:Nn \cw_message:n 
+  {
+    \seq_set_split:Nnn \l_cw_message_seq {~} {#1} % break into words on spaces
+    \seq_remove_all:Nn \l_cw_message_seq  {} % remove empty items of sequence
+    \bool_set_true:N \l_cw_message_firstitem_flag
+    \seq_map_inline:Nn \l_cw_message_seq {
+        \bool_if:NTF \l_cw_message_firstitem_flag {
+          \bool_set_false:N \l_cw_message_firstitem_flag
+          \cwWord 
+        } {
+          \hspace{\g__cw_interword_space_dim} \cwWord
+        }
+        {##1}
+    }
+  }
+
+
+
+ 

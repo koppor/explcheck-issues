@@ -1,0 +1,1281 @@
+%% svg-animate — Animated SVG diagrams with TikZ
+%% Copyright (C) 2026  Sébastien Gross
+%%
+%% This program is free software: you can redistribute it and/or modify
+%% it under the terms of the GNU Affero General Public License as published by
+%% the Free Software Foundation, either version 3 of the License, or
+%% (at your option) any later version.
+%%
+%% This program is distributed in the hope that it will be useful,
+%% but WITHOUT ANY WARRANTY; without even the implied warranty of
+%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%% GNU Affero General Public License for more details.
+%%
+%% You should have received a copy of the GNU Affero General Public License
+%% along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+\NeedsTeXFormat{LaTeX2e}
+\def\svganimateversion{v1.1}
+\def\svganimatedate{2026/04/28}
+\ProvidesPackage{svg-animate}[\svganimatedate\space\svganimateversion\space Generate animated SVG diagrams with TikZ]
+
+%% ── Engine detection ─────────────────────────────────────────────────────────
+%% Must come before \RequirePackage{tikz}.
+%% Only latex in DVI output mode needs the dvisvgm PGF and graphicx drivers.
+%%
+%% \pdfoutput is defined by pdfTeX (latex/pdflatex) and LuaTeX, with value:
+%%   0 → DVI output (latex in DVI-compat mode) → needs dvisvgm
+%%   1 → PDF output                            → default drivers are fine
+%%
+%% XeTeX does not define \pdfoutput at all, so the \ifdefined guard silently
+%% skips the block for xelatex without any explicit \XeTeXversion check.
+%%
+%% \if@anim@svgmode is true only in DVI/SVG mode (latex → dvisvgm).
+%% Use it to conditionalize content: \reveal is suppressed when false,
+%% and \noanimate renders its argument only when false (static PDF).
+\newif\if@anim@svgmode
+\newif\if@anim@dvisvgm@old  %% true = dvisvgm < 3.4; set in SVG mode only
+%% Set by the /anim/noanimate key on \reveal to force rendering in PDF mode
+%% even when \noanimate is present in the animate body.
+\newif\if@anim@reveal@static
+%% True while the animate environment's begin code is executing.
+%% Used by \animstep to detect misuse outside animate.
+\newif\if@anim@inside
+%% True when the animation should loop (default).
+%% Set to false via loop=false to produce a one-shot animation.
+\newif\if@anim@loop \@anim@looptrue
+%% True when the animate environment's static=true key was set.
+%% When true, \reveal renders content at full opacity without keyframe animation.
+\newif\if@anim@envstatic
+%%
+%% When running under latex in DVI mode (pdfoutput=0), configure three things:
+%%
+%%   1. \@anim@svgmodetrue
+%%      Activates SVG-specific behaviour throughout the package: \reveal emits
+%%      SMIL keyframe animations, \noanimate is suppressed, etc.
+%%
+%%   2. \def\pgfsysdriver{pgfsys-dvisvgm.def}
+%%      Tells PGF/TikZ to use the dvisvgm backend instead of the default dvips
+%%      backend.  This must be set BEFORE \RequirePackage{tikz} because PGF
+%%      reads \pgfsysdriver at load time to select the system layer.  Without
+%%      this, TikZ would emit PostScript specials (dvips) instead of SVG-aware
+%%      specials, and dvisvgm would not produce a valid animated SVG.
+%%
+%%   3. \PassOptionsToPackage{dvisvgm}{graphicx}
+%%      Ensures the graphicx package (loaded by \RequirePackage below) also
+%%      uses the dvisvgm driver for \includegraphics.  Without this, graphicx
+%%      would default to dvips and any raster image included in the document
+%%      would not survive the DVI→SVG conversion.
+%%
+\ifdefined\pdfoutput
+  \ifnum\pdfoutput=0
+    \@anim@svgmodetrue
+    \def\pgfsysdriver{pgfsys-dvisvgm.def}
+    \PassOptionsToPackage{dvisvgm}{graphicx}
+  \fi
+\fi
+
+\RequirePackage{tikz}
+\RequirePackage{graphicx}
+\usetikzlibrary{animations}
+
+%% ── Bitmap inclusion override (SVG mode only) ────────────────────────────────
+%%
+%% WHY we override \Ginclude@bitmap
+%% ----------------------------------
+%% The graphicx dvisvgm driver (graphics-def/dvisvgm.def) implements bitmap
+%% inclusion via \special{dvisvgm:raw ...}, injecting a literal SVG fragment:
+%%
+%%   <g transform="translate({?x},{?y})">
+%%     <svg ...><image width="W" height="H" xlink:href="file.png"/></svg>
+%%   </g>
+%%
+%% dvisvgm copies this verbatim into the output SVG, leaving xlink:href as an
+%% external file reference.  The dvisvgm flag --embed-bitmaps only operates on
+%% \special{dvisvgm:img} specials — it has no effect on xlink:href attributes
+%% inside dvisvgm:raw fragments.
+%%
+%% VERSION REQUIREMENT: dvisvgm >= 3.4 (2024-07-24, TeX Live 2025).
+%% --embed-bitmaps support for dvisvgm:img was added in 3.4.  With earlier
+%% versions dvisvgm:img produces an external xlink:href regardless of
+%% --embed-bitmaps, so bitmaps remain as separate files.
+%%
+%% We detect the dvisvgm version at compile time (via io.popen in LuaTeX) and
+%% choose between two code paths:
+%%
+%%   dvisvgm >= 3.4  ->  override \Ginclude@bitmap to emit \special{dvisvgm:img}
+%%                        (no \raise; dvisvgm:img uses TeX bottom-left anchor).
+%%                        With --embed-bitmaps the output SVG is self-contained.
+%%
+%%   dvisvgm <  3.4  ->  keep the stock \Ginclude@bitmap (dvisvgm:raw + \raise).
+%%                        Bitmaps remain as external file references.
+%%                        A package warning is emitted at compile time.
+%%
+%% If the version cannot be detected (shell escape disabled), modern behaviour
+%% (>= 3.4) is assumed since TeX Live 2025+ is current.
+%%
+%% WHY no \raise in the dvisvgm:img path
+%% ---------------------------------------
+%% The stock \Ginclude@bitmap uses \raise\height\hbox{...} to compensate for
+%% the SVG top-left coordinate convention used by dvisvgm:raw ({?x},{?y}).
+%% \special{dvisvgm:img} uses the TeX bottom-left baseline convention instead,
+%% so no \raise is needed.  Adding \raise would shift the image UP by its own
+%% height — exactly the wrong direction.
+%%
+%% WHY explicit "pt" units in dvisvgm:img
+%% ----------------------------------------
+%% Without an explicit unit, dvisvgm reads the next characters as the unit; a
+%% path like "icons/foo.png" causes it to read "ic", which is invalid.
+%% \strip@pt gives a bare number; appending "pt" produces e.g. "42.52pt".
+\if@anim@svgmode
+  \ifdefined\directlua
+    \directlua{
+      local ok, f = pcall(io.popen, 'dvisvgm --version')
+      if ok and f then
+        local s = f:read('*a')
+        f:close()
+        local p = string.char(37)
+        local maj, min = s:match('dvisvgm (' ..p.. 'd+)' ..p.. '.(' ..p.. 'd+)')
+        if maj then
+          maj, min = tonumber(maj), tonumber(min)
+          if not (maj > 3 or (maj == 3 and min >= 4)) then
+            tex.print('\\@anim@dvisvgm@oldtrue')
+            texio.write_nl('(svg-animate) Warning: dvisvgm '
+              .. tostring(maj) .. '.' .. tostring(min)
+              .. ' < 3.4 detected -- --embed-bitmaps does not support'
+              .. ' dvisvgm:img in this version; bitmaps will remain as'
+              .. ' external file references.')
+          end
+        end
+      end
+    }
+  \fi
+  \if@anim@dvisvgm@old\else
+    %% dvisvgm >= 3.4 (or undetected): override \Ginclude@bitmap so that
+    %% --embed-bitmaps inlines bitmaps as base64 data URIs.
+    \def\Ginclude@bitmap#1{%
+      \special{dvisvgm:bbox \strip@pt\Gin@req@width pt \strip@pt\Gin@req@height pt transform}%
+      \hbox{%
+        \special{dvisvgm:img \strip@pt\Gin@req@width pt \strip@pt\Gin@req@height pt #1}%
+      }%
+    }%
+  \fi
+\fi
+
+%% ── Animation ────────────────────────────────────────────────────────────────
+%%
+%% /anim/.cd keys:
+%%
+%%   duration=2            seconds per step (default)
+%%   active opacity=1      opacity when the step is active
+%%   inactive opacity=0    opacity when inactive (\reveal)
+%%
+\tikzset{
+  /anim/.cd,
+  duration/.initial          = 2,    %% seconds per step (default)
+  active opacity/.initial    = 1,    %% opacity when the step is active
+  inactive opacity/.initial  = 0,    %% opacity when inactive  (\reveal)
+  blink on opacity/.initial  = 1,    %% opacity during blink "on"  half-periods
+  blink off opacity/.initial = 0,    %% opacity during blink "off" half-periods
+  noanimate/.code            = { \@anim@reveal@statictrue },
+                               %% force this \reveal to render in PDF even when
+                               %% \noanimate is present in the animate body
+  loop/.is if                = @anim@loop,
+  loop/.default              = true,
+                               %% true (default): animation loops indefinitely
+                               %% false: animation plays once and freezes on the last frame
+  static/.code               = { \csname @anim@envstatic#1\endcsname },
+  static/.default            = true,
+                               %% true: all \reveal render at full opacity (no animation)
+                               %% shorthand for the "show all steps simultaneously" idiom
+}
+
+%% ── Epsilon for instantaneous opacity snaps ──────────────────────────────────
+%%
+%% SVG SMIL interpolates linearly between consecutive keyframes.  To produce
+%% an instantaneous jump (no cross-fade between steps), each transition is
+%% represented as two keyframes separated by a very short interval:
+%%
+%%   (t - ε) s = "old_value"
+%%   t s        = "new_value"
+%%
+%% Without this gap, setting two keyframes at exactly the same time leaves the
+%% transition behaviour implementation-defined: some SVG engines treat it as
+%% instantaneous, others as undefined.  The explicit ε makes the intent clear
+%% and consistent across renderers.
+%%
+%% Why 0.001 s (1 ms)?
+%%
+%%   • Perceptually invisible: at 60 fps one frame lasts ≈ 16.7 ms, so 1 ms is
+%%     well below the threshold of visibility even on high-refresh displays.
+%%   • Numerically safe: even for long animations (e.g. total = 3600 s) the
+%%     normalised keyTime  (3600 − 0.001) / 3600 ≈ 0.999 999 7  is distinct
+%%     from 1.0 in double precision, so keyframes never collapse.
+%%   • Practical lower bound: values much smaller than 1 ms (e.g. 1 μs) could
+%%     be rounded away by some SVG renderers working in millisecond precision.
+%%
+%% Known limit: if a step duration is ≤ ε (e.g. duration=0.001) the epsilon
+%% boundary equals or exceeds the step end, producing degenerate keyframes.
+%% Such durations are not meaningful in practice.
+%%
+%% \anim@eps is a plain macro (expanded by \pgfmathsetmacro before evaluation).
+%%
+\def\anim@eps{0.001}
+
+%% ════════════════════════════════════════════════════════════════════════════════
+%% CATCODES — what they are, how they work, why they matter here
+%% ════════════════════════════════════════════════════════════════════════════════
+%%
+%% ── What is a catcode? ────────────────────────────────────────────────────────
+%%
+%% TeX reads the source file one character at a time.  Before it can interpret
+%% anything — before it knows whether '{' opens a group or '$' switches to maths
+%% — it must assign a *syntactic role* to every character it reads.  That role
+%% is the **category code** (catcode), an integer from 0 to 15.
+%%
+%% Each character has exactly one catcode at any given moment.  The full table:
+%%
+%%   0  escape        \          begins a control sequence name
+%%   1  begin-group   {          opens a TeX group
+%%   2  end-group     }          closes a TeX group
+%%   3  math-shift    $          enters/exits math mode
+%%   4  alignment     &          column separator in tabular/array/…
+%%   5  end-of-line   ↵          treated as a space (or ignored, depending on state)
+%%   6  parameter     #          introduces a macro argument: #1, #2, …
+%%   7  superscript   ^          exponent in math mode
+%%   8  subscript     _          subscript in math mode (also used by expl3)
+%%   9  ignored       (none)     character is discarded, produces no token
+%%  10  space         ⎵  \t     produces a space token (multiple → one)
+%%  11  letter        a-z A-Z   part of a control-sequence name
+%%  12  other         @ ! 1 ;…  produces a "character token", NOT part of a name
+%%  13  active        ~          the character itself IS a macro (one-token command)
+%%  14  comment       %          discards from here to end of line
+%%  15  invalid       (rare)     triggers an error if encountered
+%%
+%% ── The critical rule: control-sequence names ────────────────────────────────
+%%
+%% When TeX reads '\', it scans subsequent characters to build a name.
+%% It keeps reading as long as characters have catcode 11 (letter), and stops
+%% at the first character with any other catcode.
+%%
+%%   Source         Catcodes of a,n,i,m,…   Result
+%%   ────────────── ──────────────────────── ─────────────────────────────────────
+%%   \animstep      all 11                  one token: control sequence \animstep
+%%   \animstep{x}   all 11, then { = cc 1   \animstep + \bgroup + x + \egroup
+%%   \@anim@foo     @ = cc 12               \@ + anim + @ + foo   (FOUR tokens!)
+%%   \@anim@foo     @ = cc 11               one token: \@anim@foo ✓
+%%
+%% This is the entire reason \makeatletter exists: it changes '@' from catcode 12
+%% to 11, allowing names like \if@anim@svgmode to be single tokens.
+%% In a .sty file '@' is *always* catcode 11 (LaTeX sets it automatically before
+%% loading any package), so \makeatletter is never needed in a .sty.
+%%
+%% ── Tokenisation is final ─────────────────────────────────────────────────────
+%%
+%% TeX converts the character stream into tokens exactly ONCE, when it reads each
+%% line.  A token is a pair (character-code, catcode) and is immutable thereafter.
+%% Changing a catcode later has no effect on tokens already read.
+%%
+%% The processing pipeline is:
+%%
+%%   Source file characters
+%%         │
+%%         ▼  catcodes applied HERE — one pass, irreversible
+%%   Token stream  (each token carries its catcode permanently)
+%%         │
+%%         ▼
+%%   Macro expansion  (tokens substituted according to \def rules)
+%%         │
+%%         ▼
+%%   TeX execution   (grouping, typesetting, conditionals, …)
+%%
+%% Consequence: a \def whose body contains a space token (catcode 10) will
+%% always carry that space token when the macro expands — even if the macro
+%% is *called* inside an \ExplSyntaxOn block where spaces are catcode 9.
+%% The body was tokenised at definition time (outside \ExplSyntaxOn), so the
+%% space token is already baked in.  This is exactly the technique used by the
+%% wrapper macros \@anim@get@active@opacity below.
+%%
+%% ── What \ExplSyntaxOn changes ────────────────────────────────────────────────
+%%
+%% expl3 (the modern LaTeX programming layer) needs its own naming conventions:
+%% function names like \__anim_reveal_multistep:n embed '_' and ':' as
+%% structural separators.  To make those characters legal inside names,
+%% \ExplSyntaxOn reassigns four catcodes:
+%%
+%%   character   normal catcode   inside \ExplSyntaxOn   effect
+%%   ─────────── ──────────────── ───────────────────── ──────────────────────────
+%%   _           8  (subscript)   11 (letter)            part of a cs name
+%%   :           12 (other)       11 (letter)            part of a cs name
+%%   space       10 (space)        9 (ignored)           source whitespace ignored
+%%   ~           13 (active)      10 (space)             explicit space substitute
+%%
+%% \ExplSyntaxOn does NOT touch '@', '#', '{', '}', or any other character.
+%%
+%% The space→9 and :→11 changes are the source of the three pitfalls documented
+%% below.  Each pitfall arises because some LaTeX2e/pgf mechanism was designed
+%% assuming the *normal* catcodes for those characters.
+%%
+%% ════════════════════════════════════════════════════════════════════════════════
+%%
+%% ── PITFALL A — pgfkeys paths with internal spaces inside \ExplSyntaxOn ───────
+%%
+%% \ExplSyntaxOn changes the catcode of the space character from 10 (space)
+%% to 9 (ignored).  This is intentional: it lets expl3 code be written with
+%% generous whitespace for readability, and that whitespace is silently dropped
+%% during tokenisation rather than producing spurious space tokens.
+%%
+%% The consequence is that ANY space literal written in the SOURCE inside an
+%% \ExplSyntaxOn block is discarded at tokenisation time — before any macro
+%% expansion or execution takes place.
+%%
+%% pgfkeys stores and looks up keys by their *exact* path string, including any
+%% spaces that are part of the key name.  The keys declared in this package are:
+%%
+%%   /anim/active opacity      ← space is part of the key name
+%%   /anim/inactive opacity    ← idem
+%%
+%% Inside \ExplSyntaxOn, writing:
+%%
+%%   \pgfkeysvalueof{/anim/active opacity}
+%%
+%% causes the space between "active" and "opacity" to be catcode 9 at the
+%% moment the source is tokenised.  TeX therefore never sees a space token
+%% there; instead it reads the path string as "/anim/activeopacity" — a key
+%% that has never been declared.
+%%
+%% The failure mode is NOT obvious:
+%%   - No "undefined key" warning is emitted by pgfkeys in this context.
+%%   - The undefined key returns an empty string.
+%%   - That empty string is then passed to \pgfmathsetmacro, which tries to
+%%     evaluate it as an arithmetic expression.
+%%   - pgfmath fails internally on an empty expression, producing:
+%%       ! Undefined control sequence: \pgfmath@dimen@
+%%     which points into the depths of the pgfmath internals and gives no hint
+%%     about the real cause (a missing space in a key path).
+%%
+%% Fix: define wrapper macros HERE, outside \ExplSyntaxOn, so the space token
+%% in "/anim/active opacity" is tokenised at catcode 10 (normal) and baked
+%% permanently into the macro body.  Calling the wrapper from inside
+%% \ExplSyntaxOn is safe because TeX expands the macro body, not the source
+%% text — the space token stored in the body retains its original catcode 10.
+%%
+\def\@anim@get@active@opacity{\pgfkeysvalueof{/anim/active opacity}}
+\def\@anim@get@inactive@opacity{\pgfkeysvalueof{/anim/inactive opacity}}
+\def\@anim@get@blink@on@opacity{\pgfkeysvalueof{/anim/blink on opacity}}
+\def\@anim@get@blink@off@opacity{\pgfkeysvalueof{/anim/blink off opacity}}
+
+%% ── PITFALL B — TikZ animation-spec parser requires ':' at catcode 12 ─────────
+%%
+%% \ExplSyntaxOn also changes the catcode of ':' from 12 (other) to 11 (letter).
+%% This allows ':' to appear in expl3 function names as a separator between the
+%% base name and the argument signature, e.g.  \__anim_reveal_multistep:n.
+%%
+%% TikZ's animation library (tikzlibraryanimations.code.tex) parses the
+%% animate= key value using the following idiom to locate the ':' separator
+%% between the target entity and the attribute:
+%%
+%%   \expandafter\pgfutil@in@\expandafter:\expandafter{\tikz@key}
+%%
+%% \pgfutil@in@ performs a token-level search: it looks for a token whose
+%% *character code AND catcode* both match the searched-for token.  The ':'
+%% hardcoded in the source above has catcode 12 (it was tokenised outside any
+%% \ExplSyntaxOn block).  A ':' that was tokenised inside \ExplSyntaxOn carries
+%% catcode 11 — a different token — and is NOT found by \pgfutil@in@.
+%%
+%% Consequence: if the macro body
+%%
+%%   \begin{scope}[animate={myself : opacity = {#1}}]
+%%
+%% is tokenised inside \ExplSyntaxOn, the ':' in "myself : opacity" becomes
+%% catcode 11.  TikZ's parser then fails to find the entity:attribute boundary,
+%% the spec is not recognised, and control falls through to an error path deep
+%% inside pgfmath:
+%%
+%%   ! Undefined control sequence: \pgfmath@dimen@
+%%
+%% (same symptom as Pitfall A — completely unrelated-looking error).
+%%
+%% Fix: define this helper macro BEFORE \ExplSyntaxOn so that ':' in the macro
+%% body is tokenised at catcode 12.  The function uses an expl3-style name
+%% (__anim_emit_mf_scope:nn) which normally requires ':' to be catcode 11.
+%% We resolve this tension with \csname...\endcsname: that construct assembles
+%% a control-sequence name from arbitrary character tokens regardless of their
+%% catcodes, so we can write the name without needing ':' or '_' to be letters.
+%%
+%% Why \long?
+%%
+%% Argument #2 is the raw TikZ content of a \reveal{...} block.  Users may
+%% write blank lines inside a \reveal for readability:
+%%
+%%   \reveal{
+%%
+%%     \draw ...;
+%%     \node ...;
+%%   }
+%%
+%% A blank line produces a \par token in the token stream.  TeX normally
+%% forbids \par inside macro arguments: if a macro is not declared \long,
+%% scanning for its argument stops at the first \par and raises:
+%%
+%%   ! Paragraph ended before <macro> was complete.
+%%
+%% All callers up the chain (\reveal uses +m, expl3 functions are implicitly
+%% long) already accept \par — this macro is the only non-expl3 link in the
+%% chain, so \long must be declared here explicitly.
+%%
+%% The \long prefix is placed before the \expandafter chain.  TeX sets the
+%% long-flag when it reads \long and the flag persists through the two
+%% \expandafter expansions that resolve \csname...\endcsname, so the final
+%% definition is effectively \long\protected\def <cs>#1#2{...}.
+%%
+\long\expandafter\protected\expandafter\def
+  \csname __anim_emit_mf_scope:nn\endcsname#1#2{%
+  \begin{scope}[animate={myself : opacity = {#1}}]%
+    #2%
+  \end{scope}%
+}%
+
+%% ── High-level animate environment ───────────────────────────────────────────
+%%
+%% ── The problem ──────────────────────────────────────────────────────────────
+%%
+%%   Each \reveal needs to know its own window of activity as absolute times:
+%%
+%%     step 1 active from 0 s to 1 s    (out of 3 s total)
+%%     step 2 active from 1 s to 2 s
+%%     step 3 active from 2 s to 3 s
+%%
+%%   But to compute those numbers we first need to know the total duration —
+%%   and we are still in the middle of reading the body.  A naive single pass
+%%   cannot work because we must know the total before we emit any keyframe.
+%%
+%% ── Step 1: collect the whole body without executing it (+b) ─────────────────
+%%
+%%   The +b argument spec in \NewDocumentEnvironment tells LaTeX to grab
+%%   everything up to \end{animate} as a single token list (#2) and hand it
+%%   to us verbatim, without executing a single command inside it.
+%%   Given:
+%%
+%%     \begin{animate}[duration=1]
+%%       \reveal{\node (vm1)...}
+%%       \animstep
+%%       \reveal{\node (vm2)...}
+%%       \animstep[duration=3]
+%%       \reveal{\node (vm3)...}
+%%     \end{animate}
+%%
+%%   #2 is the raw token sequence:
+%%     \reveal{\node (vm1)...} \animstep \reveal{\node (vm2)...}
+%%     \animstep[duration=3] \reveal{\node (vm3)...}
+%%
+%% ── Step 2: split into per-step segments ─────────────────────────────────────
+%%
+%%   \seq_set_split:Nnn cuts #2 everywhere the token \animstep appears,
+%%   producing a sequence of three token lists (still not executed):
+%%
+%%     seg 1:  \reveal{\node (vm1)...}
+%%     seg 2:  \reveal{\node (vm2)...}
+%%     seg 3:  [duration=3] \reveal{\node (vm3)...}   <- note the leading [opts]
+%%
+%%   The \animstep tokens themselves are consumed as delimiters and discarded.
+%%
+%% ── Step 3: peel off per-step [opts] ─────────────────────────────────────────
+%%
+%%   When the user writes \animstep[duration=3], the [duration=3] tokens end
+%%   up at the front of the next segment (seg 3 above).  Before we can use
+%%   the segment content as TikZ code we must extract those options first.
+%%   \__anim_pop_opts:NN does this with a regex: if the segment starts with
+%%   [...], it captures the content and strips it from the token list.
+%%
+%% ── Step 4 (pass 1): sum up the total duration ───────────────────────────────
+%%
+%%   We iterate over all segments without executing their TikZ content.
+%%   For each segment we temporarily apply its options inside a TeX group
+%%   (so they don't spill into the next step) and read /anim/duration.
+%%   After the loop:  total = 1 + 1 + 3 = 5 s.
+%%
+%% ── Step 5 (pass 2): render each step with the correct timing ─────────────────
+%%
+%%   We iterate again, this time executing each segment's TikZ code.
+%%   Before executing, we set three global FP variables:
+%%     \g__anim_step_start_fp   e.g. 2.0
+%%     \g__anim_step_end_fp     e.g. 5.0
+%%     \g__anim_total_fp        5.0  (constant across all steps)
+%%
+%%   When \reveal{...} runs inside the segment, it reads those globals and
+%%   passes them to \__anim_reveal_simple:n, which emits the SVG opacity keyframes.
+%%   After execution, start advances to end, ready for the next step.
+%%
+%% ── User interface ────────────────────────────────────────────────────────────
+%%
+%%   \begin{animate}[options]
+%%     \reveal[opts]{...}      active opacity when active, inactive opacity otherwise
+%%     \animstep[opts]         step separator; opts apply to all elements of this step
+%%     ...
+%%   \end{animate}
+%%
+%%   Options cascade: animate-level → \animstep-level → per-element.
+%%   Inner options override outer ones.
+%%
+%%   /anim/.cd keys:
+%%     duration=2            seconds per step
+%%     active opacity=1      opacity when active
+%%     inactive opacity=0    opacity when inactive (0=hidden, >0=dimmed)
+%%     blink on opacity=1    opacity during blink "on"  half-periods within active step
+%%     blink off opacity=0   opacity during blink "off" half-periods within active step
+%%                             (between steps the element uses inactive opacity as usual)
+%%     static                render all \reveal at full opacity (no animation)
+%%
+%%   Note: 'duration' on \reveal is accepted but silently ignored.
+%%
+%%   Global defaults:
+%%     \tikzset{/anim/duration=2}
+%%     \tikzset{/anim/inactive opacity=0.3}
+%%
+%% ── PITFALL C — \ExplSyntaxOn does NOT change the catcode of '@' ──────────────
+%%
+%% \ExplSyntaxOn modifies exactly four catcodes: '_' (11), ':' (11),
+%% space (9), '~' (10).  It deliberately leaves '@' unchanged.
+%%
+%% In a .sty file this is a non-issue: LaTeX sets '@' to catcode 11
+%% (letter) before loading any package and restores it afterwards.
+%% So '@' is always catcode 11 throughout a .sty file, even inside
+%% \ExplSyntaxOn, with no \makeatletter needed.
+%%
+%% In a .tex document the situation is different: '@' is normally
+%% catcode 12 (other) outside \makeatletter...\makeatother blocks.
+%% If a user writes \ExplSyntaxOn directly in a .tex file without a
+%% preceding \makeatletter, '@' stays catcode 12.  Then:
+%%
+%%   \if@anim@svgmode  →  \if  @  a  n  i  m  @  s  v  g  m  o  d  e
+%%                         ^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+%%                         \if primitive    individual "other" tokens
+%%
+%% TeX executes \if (primitive token comparison) instead of the boolean
+%% flag set by \newif.  The two tokens compared are '@' (catcode 12) and
+%% 'a' (catcode 11) — different, so \if is ALWAYS false.  SVG mode is
+%% silently disabled with no error.
+%%
+%% This pitfall does not affect this package (we are in a .sty), but it
+%% would affect any .tex file that mixes \ExplSyntaxOn with @-names.
+%%
+\ExplSyntaxOn
+
+%% ── expl3 naming conventions ─────────────────────────────────────────────────
+%%
+%%   expl3 is the modern LaTeX programming layer.  Everything follows a strict
+%%   naming scheme that encodes type, scope, and module in the name itself.
+%%
+%%   Data types (prefix before the first _):
+%%     \fp_...   floating-point scalar (decimal arithmetic)
+%%     \seq_...  ordered list of items
+%%     \tl_...   token list (an arbitrary chunk of LaTeX code stored as a value)
+%%
+%%   Scope and visibility (prefix of the variable name after the type):
+%%     \g__anim_...   global variable, private to this module (__ = private)
+%%     \l__anim_...   local  variable, private to this module
+%%     Global variables persist across TeX groups; local ones are restored.
+%%
+%%   Function signatures (suffix after the last :):
+%%     :N    one unbraced token argument      e.g. \fp_new:N \myfp
+%%     :Nn   one token + one braced argument  e.g. \tl_set:Nn \mytl {hello}
+%%     :Ne   token + e-expanded braced arg    (content fully expanded before use)
+%%     :NV   token + V-expanded arg           (variable replaced by its value)
+%%     :NTF  token + true branch + false branch  (conditional)
+
+%% Absolute timing of the step currently being rendered (seconds).
+%% Set by animate before executing each step's content; read by \reveal.
+\fp_new:N   \g__anim_step_start_fp   %% start time of the active step
+\fp_new:N   \g__anim_step_end_fp     %% end   time of the active step
+\fp_new:N   \g__anim_total_fp        %% total animation duration (all steps summed)
+\fp_new:N   \g__anim_step_dur_fp     %% scratch: duration of the current step
+
+%% List of per-step token lists produced by splitting the body at \animstep.
+\seq_new:N  \l__anim_steps_seq
+\seq_new:N  \l__anim_pop_seq         %% scratch: regex capture groups
+
+%% Scratch token lists used inside the animate loops.
+\tl_new:N   \l__anim_step_opts_tl   %% options extracted from \animstep[...]
+\tl_new:N   \l__anim_seg_tl         %% one step's body (copy, modified in place)
+\tl_new:N   \l__anim_dur_tl         %% string value of /anim/duration for FP arithmetic
+
+%% True when the current animate body contains at least one \noanimate token.
+%% Set by the animate environment before pass 2; checked by \reveal in PDF mode.
+%% When true: \reveal is suppressed in PDF and \noanimate provides the static content.
+%% When false: \reveal renders normally in PDF (all steps stacked, legacy behaviour).
+\bool_new:N \g__anim_has_noanimate_bool
+
+%% Per-step timing table: item N (1-based) = "start/end" decimal string.
+%% Populated during pass 1; read by \__anim_reveal_multistep:n.
+\seq_new:N \g__anim_step_times_seq
+%% Running time cursor used during pass 1 to build \g__anim_step_times_seq.
+\fp_new:N  \g__anim_cursor_fp
+
+%% Blink period for the current \reveal call (0 = no blink).
+%% Set by the /anim/blink key; reset to 0 at the top of each \reveal group.
+\fp_new:N  \l__anim_blink_period_fp
+\fp_new:N  \l__anim_blink_h_fp       %% scratch: half-period = blink_period / 2
+
+%% step= spec for the current \reveal call (empty = use current step).
+%% Set by the /anim/step key; cleared at the top of each \reveal group.
+\tl_new:N  \l__anim_step_spec_tl
+%% The /anim/step key must be declared here (inside \ExplSyntaxOn) so that
+%% _ and : carry expl3 catcodes when the .code value is tokenised.
+\tikzset{
+  /anim/step/.code  = { \tl_set:Nn \l__anim_step_spec_tl { #1 } },
+  /anim/blink/.code = { \fp_set:Nn \l__anim_blink_period_fp { #1 } },
+}
+
+%% Generate the nVNTF variant of \regex_extract_once to allow passing the
+%% search string as a tl variable (V-expansion) rather than a literal brace group.
+\cs_generate_variant:Nn \regex_extract_once:nnNTF { nVNTF }
+
+%% \int_step_inline:nnnn loops {start}{step}{stop}{body}.
+%% The 'eeen' variant e-expands start, step, stop so \seq_item:Nn results are
+%% evaluated before the loop begins; the body is passed as-is.
+\cs_generate_variant:Nn \int_step_inline:nnnn { eeen }
+
+%% Scratch variables used by \__anim_reveal_multistep:n.
+\seq_new:N  \l__anim_windows_seq     %% raw "start/end" windows, one per step
+\seq_new:N  \l__anim_merged_seq      %% merged windows (adjacent steps collapsed)
+\seq_new:N  \l__anim_step_items_seq %% items split from frame spec on ","
+\seq_new:N  \l__anim_match_seq       %% regex capture groups
+\tl_new:N   \l__anim_kf_tl          %% keyframe token list being built
+\tl_new:N   \l__anim_ws_tl          %% scratch: window start time string
+\tl_new:N   \l__anim_we_tl          %% scratch: window end time string
+\tl_new:N   \l__anim_mstart_tl      %% scratch: current merged window start
+\tl_new:N   \l__anim_mend_tl        %% scratch: current merged window end
+\tl_new:N   \l__anim_next_tl        %% scratch: next window string
+\bool_new:N \l__anim_merge_bool     %% scratch: true = active merged window exists
+
+%% \animstep[options] — step delimiter; [options] apply to all elements of the next step.
+%% When inside animate its body is collected verbatim (+b) so \animstep is consumed as
+%% a split token by \seq_set_split and never actually executed — the error check below
+%% can therefore only fire when \animstep is (incorrectly) used outside animate.
+\NewDocumentCommand \animstep { } {
+  \if@anim@inside \else
+    \PackageError{svg-animate}
+      {\string\animstep\space used outside animate environment}
+      {%
+        \string\animstep\space is a step separator and only makes sense%
+        \MessageBreak inside \string\begin{animate}...\string\end{animate}.%
+      }%
+  \fi
+}
+
+%% \__anim_pop_opts:NN {#1} {#2}
+%%   Extract a leading [opts] group from token list variable #2 into #1.
+%%   If #2 starts with [...] (after trimming spaces), #1 receives the content
+%%   between the brackets and the [...] is removed from #2.
+%%   If there is no leading [...], #1 is cleared and #2 is left unchanged.
+%%
+%%   The regex  \A \[ ([^\]]*) \]  means:
+%%     \A        start of string
+%%     \[        literal [
+%%     ([^\]]*)  capture group: any characters except ]
+%%     \]        literal ]
+\cs_new_protected:Npn \__anim_pop_opts:NN #1 #2 {
+  \tl_trim_spaces:N #2                                           %% remove surrounding spaces
+  \regex_extract_once:nVNTF { \A \[ ([^\]]*) \] } #2 \l__anim_pop_seq {
+    %% Match found: capture group 2 holds the content between [ and ]
+    \tl_set:Ne #1 { \seq_item:Nn \l__anim_pop_seq { 2 } }       %% #1 = captured opts
+    \regex_replace_once:nnN { \A \[ [^\]]* \] } { } #2          %% strip [...] from #2
+    \tl_trim_spaces:N #2                                         %% trim again after strip
+  } {
+    \tl_clear:N #1                                               %% no match: #1 = empty
+  }
+}
+
+%% \__anim_reveal_multistep:n {content}
+%%   Called by \reveal when the step= key is set.
+%%   Reads \l__anim_step_spec_tl for the step specification (e.g. "2,5-8,10"),
+%%   looks up per-step timings from \g__anim_step_times_seq, merges adjacent
+%%   windows, then emits a single TikZ scope with multi-window SMIL keyframes.
+%%
+%%   Step timings are stored as "start/end" decimal strings (e.g. "1.5/2.0").
+%%   Steps are 1-based.
+%%
+\cs_new_protected:Npn \__anim_reveal_multistep:n #1 {
+  %% ── 1. Parse frame spec → raw windows sequence ───────────────────────────
+  %% Split "2,5-8,10" on "," into items; expand each range into individual steps;
+  %% look up each step's "start/end" timing from \g__anim_step_times_seq.
+  \seq_clear:N \l__anim_windows_seq
+  \seq_set_split:NnV \l__anim_step_items_seq { , } \l__anim_step_spec_tl
+  \seq_map_inline:Nn \l__anim_step_items_seq {
+    \regex_extract_once:nnNTF
+        { \A \s* (\d+) \s* \- \s* (\d+) \s* \Z }
+        { ##1 } \l__anim_match_seq
+    {
+      %% ── PITFALL D — '#' doubling in nested inline functions ──────────────────
+      %%
+      %% In a standard LaTeX macro definition, '#1' refers to the first argument.
+      %% When one macro definition is *nested inside* another, every '#' must be
+      %% doubled to reach the intended nesting level, because TeX halves the count
+      %% of '#' characters each time it processes a definition body.
+      %%
+      %% The nesting here is three levels deep:
+      %%
+      %%   Level 0 — \cs_new_protected:Npn \__anim_reveal_multistep:n #1 { ... }
+      %%             Parameter: #1 = TikZ content
+      %%
+      %%   Level 1 — \seq_map_inline:Nn \l__anim_step_items_seq { ... ##1 ... }
+      %%             Inline function body; ##1 = current step spec item (e.g. "5-8").
+      %%             TeX reduces '##' → '#' when scanning the level-0 body,
+      %%             so '##1' in the source becomes '#1' at run time.
+      %%
+      %%   Level 2 — \int_step_inline:eeen { }{ }{ }{ ... ####1 ... }
+      %%             Inline function nested inside the seq_map body.
+      %%             We need the step counter to appear as '#1' inside this body
+      %%             at run time.  Working backwards:
+      %%               - level 1 reduces '##' → '#', so we need '##1' to survive
+      %%                 level 1; that means we must write '##1' at level 1.
+      %%               - But we are *writing inside* level 0, so level 0 will also
+      %%                 halve our '#' count.  To have '##1' survive level 0 we
+      %%                 must write '####1' in the source.
+      %%             Reduction chain:  ####1  →(L0)→  ##1  →(L1)→  #1  ✓
+      %%
+      %% General rule:   N levels of inline nesting → 2^N '#' signs in source.
+      %%
+      %%   N=1: ##1   (one seq_map_inline or one int_step_inline, standalone)
+      %%   N=2: ####1 (seq_map_inline → int_step_inline, as here)
+      %%   N=3: ########1
+      %%
+      %% Using the wrong count silently produces the WRONG value with no error:
+      %% '##1' at level 2 would evaluate to the seq_map's loop variable, i.e. the
+      %% current step spec item ("5-8"), not the numeric step counter.
+      %% \seq_item:Nn with a string index falls back to item 0 (empty), so every
+      %% step in the range would get an empty timing string and produce garbage
+      %% keyTimes in the SVG without any TeX diagnostic.
+      %%
+      %% \int_step_inline:nnnn {start}{step}{stop}{body} — four arguments.
+      %% The 'eeen' variant e-expands arguments 1, 2, 3 before starting the loop,
+      %% so \seq_item:Nn \l__anim_match_seq { 2 } is evaluated once to the integer
+      %% string (e.g. "5") rather than being re-evaluated on every iteration.
+      %% Argument 4 (the body) is not expanded — it contains '####1' which must
+      %% remain as literal parameter tokens until the loop executes.
+      %%
+      %% Validate range bounds before looping.
+      %% \l_tmpa_int = range start (A),  \l_tmpb_int = range end (B).
+      %% All three error conditions are checked independently so the user
+      %% sees every problem in a single compilation pass.
+      \int_set:Nn \l_tmpa_int { \seq_item:Nn \l__anim_match_seq { 2 } }
+      \int_set:Nn \l_tmpb_int { \seq_item:Nn \l__anim_match_seq { 3 } }
+      \int_compare:nNnT { \l_tmpa_int } > { \l_tmpb_int } {
+        \PackageError{svg-animate}
+          {step=~range~(\int_use:N\l_tmpa_int-\int_use:N\l_tmpb_int)~is~invalid:~start~must~be~<=~end}
+          {The~start~of~a~range~must~be~<=~its~end.}
+      }
+      \int_compare:nNnT { \l_tmpa_int } < { 1 } {
+        \PackageError{svg-animate}
+          {step=~range~start~(\int_use:N\l_tmpa_int)~is~out~of~range~(steps~start~at~1)}
+          {The~step=~key~accepts~positive~integers~only.}
+      }
+      \int_compare:nNnT { \l_tmpb_int } > { \seq_count:N \g__anim_step_times_seq } {
+        \PackageError{svg-animate}
+          {step=~range~end~(\int_use:N\l_tmpb_int)~exceeds~the~number~of~steps~(\seq_count:N\g__anim_step_times_seq)}
+          {This~animate~environment~has~\seq_count:N\g__anim_step_times_seq~
+           step(s),~numbered~1~to~\seq_count:N\g__anim_step_times_seq.}
+      }
+      \int_step_inline:eeen
+          { \seq_item:Nn \l__anim_match_seq { 2 } }
+          { 1 }
+          { \seq_item:Nn \l__anim_match_seq { 3 } }
+          { \seq_put_right:Ne \l__anim_windows_seq
+                { \seq_item:Nn \g__anim_step_times_seq { ####1 } } }
+    } {
+      %% Single step: validate then look up timing.
+      %% \l_tmpa_int holds the step number for use in error messages.
+      \tl_set:Ne \l__anim_dur_tl { \tl_trim_spaces:n { ##1 } }
+      \int_set:Nn \l_tmpa_int { \l__anim_dur_tl }
+      \int_compare:nNnT { \l_tmpa_int } < { 1 } {
+        \PackageError{svg-animate}
+          {step=~value~(\int_use:N\l_tmpa_int)~is~out~of~range~(steps~start~at~1)}
+          {The~step=~key~accepts~positive~integers~only.}
+      }
+      \int_compare:nNnTF { \l_tmpa_int } > { \seq_count:N \g__anim_step_times_seq } {
+        \PackageError{svg-animate}
+          {step=~value~(\int_use:N\l_tmpa_int)~exceeds~the~number~of~steps~(\seq_count:N\g__anim_step_times_seq)}
+          {This~animate~environment~has~\seq_count:N\g__anim_step_times_seq~
+           step(s),~numbered~1~to~\seq_count:N\g__anim_step_times_seq.}
+      } {
+        \seq_put_right:Ne \l__anim_windows_seq
+            { \seq_item:Nn \g__anim_step_times_seq { \l__anim_dur_tl } }
+      }
+    }
+  }
+
+  %% ── 2. Merge adjacent windows ─────────────────────────────────────────────
+  %% Consecutive steps share a boundary (step N end == step N+1 start).
+  %% Keeping them separate would produce conflicting keyframes at the junction,
+  %% so we merge them into a single window: [step_A_start, step_B_end].
+  \seq_clear:N \l__anim_merged_seq
+  \bool_set_false:N \l__anim_merge_bool
+  \seq_map_inline:Nn \l__anim_windows_seq {
+    \regex_extract_once:nnNTF
+        { \A ([0-9.]+) \/ ([0-9.]+) \Z }
+        { ##1 } \l__anim_match_seq
+    {
+      \tl_set:Ne \l__anim_ws_tl { \seq_item:Nn \l__anim_match_seq { 2 } }
+      \tl_set:Ne \l__anim_we_tl { \seq_item:Nn \l__anim_match_seq { 3 } }
+      \bool_if:NTF \l__anim_merge_bool {
+        \tl_if_eq:NNTF \l__anim_mend_tl \l__anim_ws_tl {
+          %% Adjacent: extend the current merged window
+          \tl_set_eq:NN \l__anim_mend_tl \l__anim_we_tl
+        } {
+          %% Gap: flush current window and start a new one
+          \seq_put_right:Ne \l__anim_merged_seq
+              { \l__anim_mstart_tl / \l__anim_mend_tl }
+          \tl_set_eq:NN \l__anim_mstart_tl \l__anim_ws_tl
+          \tl_set_eq:NN \l__anim_mend_tl   \l__anim_we_tl
+        }
+      } {
+        %% First window ever
+        \bool_set_true:N \l__anim_merge_bool
+        \tl_set_eq:NN \l__anim_mstart_tl \l__anim_ws_tl
+        \tl_set_eq:NN \l__anim_mend_tl   \l__anim_we_tl
+      }
+    } { }
+  }
+  \bool_if:NT \l__anim_merge_bool {
+    \seq_put_right:Ne \l__anim_merged_seq
+        { \l__anim_mstart_tl / \l__anim_mend_tl }
+  }
+
+  %% ── 3. Build SMIL keyframe token list ────────────────────────────────────
+  %% Opacity values and total duration (same pgfmathsetmacro idiom as \__anim_reveal_simple:n).
+  \pgfmathsetmacro\animft@opA    { \@anim@get@active@opacity  }
+  \pgfmathsetmacro\animft@opI    { \@anim@get@inactive@opacity }
+  %% Pre-expand \fp_to_decimal:N into a plain decimal string before pgfmath sees it,
+  %% because pgfmath cannot call expl3 functions that take arguments.
+  \tl_set:Ne \l__anim_dur_tl { \fp_to_decimal:N \g__anim_total_fp }
+  \pgfmathsetmacro\animft@totale { \l__anim_dur_tl - \anim@eps }
+  \tl_clear:N \l__anim_kf_tl
+
+  %% Initial keyframe at t=0: active if first window starts at 0, else inactive.
+  \tl_set:Ne \l__anim_ws_tl {
+    \seq_item:Nn \l__anim_merged_seq { 1 }
+  }
+  \regex_extract_once:nVNTF
+      { \A ([0-9.]+) \/ }
+      \l__anim_ws_tl \l__anim_match_seq
+  {
+    \tl_set:Ne \l__anim_ws_tl { \seq_item:Nn \l__anim_match_seq { 2 } }
+    \fp_compare:nNnTF { \l__anim_ws_tl } = { 0 } {
+      \tl_put_right:Ne \l__anim_kf_tl { 0s = "\animft@opA", }
+    } {
+      \pgfmathsetmacro\animft@wse { \l__anim_ws_tl - \anim@eps }
+      \tl_put_right:Ne \l__anim_kf_tl {
+        0s = "\animft@opI",
+        \animft@wse s = "\animft@opI",
+        \l__anim_ws_tl s = "\animft@opA",
+      }
+    }
+  } { }
+
+  %% Per-window end keyframes, plus inter-window transitions where needed.
+  \int_step_inline:nn { \seq_count:N \l__anim_merged_seq } {
+    \tl_set:Ne \l__anim_seg_tl { \seq_item:Nn \l__anim_merged_seq { ##1 } }
+    \regex_extract_once:nVNTF
+        { \A ([0-9.]+) \/ ([0-9.]+) \Z }
+        \l__anim_seg_tl \l__anim_match_seq
+    {
+      \tl_set:Ne \l__anim_ws_tl { \seq_item:Nn \l__anim_match_seq { 2 } }
+      \tl_set:Ne \l__anim_we_tl { \seq_item:Nn \l__anim_match_seq { 3 } }
+      \pgfmathsetmacro\animft@wee { \l__anim_we_tl - \anim@eps }
+      %% Snap off at window end
+      \tl_put_right:Ne \l__anim_kf_tl {
+        \animft@wee s = "\animft@opA",
+        \l__anim_we_tl s = "\animft@opI",
+      }
+      %% Transition to next window if there is one
+      \int_compare:nNnT { ##1 } < { \seq_count:N \l__anim_merged_seq } {
+        \tl_set:Ne \l__anim_next_tl
+            { \seq_item:Nn \l__anim_merged_seq { ##1 + 1 } }
+        \regex_extract_once:nVNTF
+            { \A ([0-9.]+) \/ }
+            \l__anim_next_tl \l__anim_match_seq
+        {
+          \tl_set:Ne \l__anim_ws_tl { \seq_item:Nn \l__anim_match_seq { 2 } }
+          \pgfmathsetmacro\animft@wse { \l__anim_ws_tl - \anim@eps }
+          \tl_put_right:Ne \l__anim_kf_tl {
+            \animft@wse s = "\animft@opI",
+            \l__anim_ws_tl s = "\animft@opA",
+          }
+        } { }
+      }
+    } { }
+  }
+  %% Stay inactive until end; append repeats unless loop=false.
+  \tl_put_right:Ne \l__anim_kf_tl { \animft@totale s = "\animft@opI" }
+  \if@anim@loop \tl_put_right:Nn \l__anim_kf_tl { ,repeats, } \fi
+
+  %% ── 4. Emit TikZ scope with assembled keyframes ───────────────────────────
+  %% \__anim_emit_mf_scope:Vn expands \l__anim_kf_tl to its string value before
+  %% passing it to the scope, ensuring TikZ receives literal keyframe tokens.
+  \__anim_emit_mf_scope:Vn \l__anim_kf_tl { #1 }
+}
+
+%% :Vn variant: value-expands \l__anim_kf_tl before passing it as #1,
+%% guaranteeing the keyframe token list is fully resolved when TikZ
+%% processes the animate= key.
+\cs_generate_variant:Nn \__anim_emit_mf_scope:nn { Vn }
+
+%% \__anim_reveal_simple:n {content}
+%%   Called by \reveal when neither blink= nor step= is set.
+%%   Builds the keyframe token list
+%%   entirely in expl3 (using \tl_set:Ne + \if@anim@loop outside the spec) before
+%%   passing it to TikZ via \__anim_emit_mf_scope:Vn.
+%%
+%%   This avoids the "doesn't match its definition" error caused by putting
+%%   \if@anim@loop or any not-fully-expanded macro inside the animate={} spec.
+%%
+\cs_new_protected:Npn \__anim_reveal_simple:n #1 {
+  %% Opacity values (wrappers defined before \ExplSyntaxOn — PITFALL A)
+  \pgfmathsetmacro\animft@opA { \@anim@get@active@opacity  }
+  \pgfmathsetmacro\animft@opI { \@anim@get@inactive@opacity }
+  %% Pre-expand FP globals to decimal strings before pgfmath sees them (PITFALL A)
+  \tl_set:Ne \l__anim_dur_tl { \fp_to_decimal:N \g__anim_total_fp }
+  \tl_set:Ne \l__anim_ws_tl  { \fp_to_decimal:N \g__anim_step_start_fp }
+  \tl_set:Ne \l__anim_we_tl  { \fp_to_decimal:N \g__anim_step_end_fp   }
+  %% Epsilon boundaries
+  \pgfmathsetmacro\animft@starte { max(\l__anim_ws_tl - \anim@eps, 0) }
+  \pgfmathsetmacro\animft@ende   { \l__anim_we_tl - \anim@eps }
+  \pgfmathsetmacro\animft@totale { \l__anim_dur_tl - \anim@eps }
+  %% Build keyframe token list — \tl_set:Ne fully expands macros, so the
+  %% resulting tl contains only literal decimal strings and punctuation.
+  %% TikZ receives a pre-resolved string with no conditionals.
+  \tl_clear:N \l__anim_kf_tl
+  \fp_compare:nNnTF { \g__anim_step_start_fp } = { 0 } {
+    %% Step starts at t=0 — active immediately.
+    \tl_set:Ne \l__anim_kf_tl {
+      0s = "\animft@opA",
+      \animft@ende s = "\animft@opA",
+      \l__anim_we_tl s = "\animft@opI",
+      \animft@totale s = "\animft@opI"
+    }
+  } {
+    %% Step starts after t=0 — inactive first.
+    \tl_set:Ne \l__anim_kf_tl {
+      0s = "\animft@opI",
+      \animft@starte s = "\animft@opI",
+      \l__anim_ws_tl s = "\animft@opA",
+      \animft@ende s = "\animft@opA",
+      \l__anim_we_tl s = "\animft@opI",
+      \animft@totale s = "\animft@opI"
+    }
+  }
+  %% Append repeats modifier outside the spec — \if@anim@loop is evaluated here
+  %% in expl3 code, not inside the TikZ animate= value (which would confuse
+  %% TikZ's animation parser and trigger "doesn't match its definition").
+  \if@anim@loop \tl_put_right:Nn \l__anim_kf_tl { ,repeats, } \fi
+  \__anim_emit_mf_scope:Vn \l__anim_kf_tl { #1 }
+}
+
+%% \__anim_reveal_blink:n {content}
+%%   Called by \reveal when blink= key is set (period > 0).
+%%
+%%   Opacity rules:
+%%     - Frame inactive (before/after active step): inactive opacity
+%%     - Frame active, blink "on"  half-periods: blink on  opacity
+%%     - Frame active, blink "off" half-periods: blink off opacity
+%%
+%%   blink on/off opacity govern ONLY the intra-step oscillation.
+%%   Between steps the element follows inactive opacity, exactly like
+%%   a non-blink \reveal.  Use inactive opacity=0 on a blink element to
+%%   hide it between steps; the static key on the animate environment
+%%   overrides all per-element opacity settings.
+%%
+%%   Half-period h = blink_period / 2.
+%%   Number of half-periods: n_h = floor((e - s) / h), minimum 1.
+%%   For k = 0 .. n_h-1:
+%%     hold blink on  opacity when k is even (first half = visible)
+%%     hold blink off opacity when k is odd  (second half = hidden)
+%%   Before/after the step: hold inactive opacity.
+%%
+%%   The epsilon trick applies at each half-period boundary just as in
+%%   Epsilon trick: (t_next - ε) holds the current opacity, then t_next snaps.
+%%
+\cs_new_protected:Npn \__anim_reveal_blink:n #1 {
+  %% Opacity values (wrapper macros defined before \ExplSyntaxOn — PITFALL A).
+  %% opI    = inactive opacity: used OUTSIDE the active step (before/after).
+  %% opBon  = blink on  opacity: used for even (on)  half-periods within the step.
+  %% opBoff = blink off opacity: used for odd  (off) half-periods within the step.
+  \pgfmathsetmacro\animft@opI    { \@anim@get@inactive@opacity  }
+  \pgfmathsetmacro\animft@opBon  { \@anim@get@blink@on@opacity  }
+  \pgfmathsetmacro\animft@opBoff { \@anim@get@blink@off@opacity }
+  %% Total duration and epsilon-before-total
+  \tl_set:Ne \l__anim_dur_tl { \fp_to_decimal:N \g__anim_total_fp }
+  \pgfmathsetmacro\animft@totale { \l__anim_dur_tl - \anim@eps }
+  %% Step bounds as decimal strings (for keyframe timestamps)
+  \tl_set:Ne \l__anim_ws_tl { \fp_to_decimal:N \g__anim_step_start_fp }  %% s
+  \tl_set:Ne \l__anim_we_tl { \fp_to_decimal:N \g__anim_step_end_fp   }  %% e
+  %% Half-period h = period / 2
+  \fp_set:Nn \l__anim_blink_h_fp { \l__anim_blink_period_fp / 2 }
+  %% n_h = floor((e - s) / h): number of complete half-periods in the step.
+  %% floor() = trunc() for positive values.  Minimum 1 so the loop runs at least once
+  %% (handles the case where the step is shorter than one full period).
+  \int_set:Nn \l_tmpa_int {
+    \fp_to_int:n { floor(
+      ( \g__anim_step_end_fp - \g__anim_step_start_fp ) / \l__anim_blink_h_fp
+    ) }
+  }
+  \int_compare:nNnT { \l_tmpa_int } < { 1 } { \int_set:Nn \l_tmpa_int { 1 } }
+  %% Build keyframe token list
+  \tl_clear:N \l__anim_kf_tl
+  %% Initial inactive phase: hold opI from 0 to (s - ε), if s > 0.
+  \fp_compare:nNnT { \g__anim_step_start_fp } > { 0 } {
+    \pgfmathsetmacro\animft@starte { \l__anim_ws_tl - \anim@eps }
+    \tl_put_right:Ne \l__anim_kf_tl {
+      0s = "\animft@opI",
+      \animft@starte s = "\animft@opI",
+    }
+  }
+  %% ── PITFALL D: one level of \int_step_inline nesting inside \cs_new_protected
+  %% → ##1 in source becomes #1 in the stored definition = loop counter at runtime.
+  %%
+  %% Loop k = 0 .. n_h-1.  \int_decr:N brings \l_tmpa_int to n_h-1 as the stop value.
+  \int_decr:N \l_tmpa_int
+  \int_step_inline:eeen { 0 } { 1 } { \int_use:N \l_tmpa_int } {
+    %% t_start = s + k*h      (decimal string via FP)
+    \tl_set:Ne \l__anim_mstart_tl {
+      \fp_to_decimal:n { \g__anim_step_start_fp + ##1 * \l__anim_blink_h_fp }
+    }
+    %% t_end = min(s + (k+1)*h, e)   — caps the last half-period at the step boundary
+    \tl_set:Ne \l__anim_mend_tl {
+      \fp_to_decimal:n {
+        min( \g__anim_step_start_fp + ( ##1 + 1 ) * \l__anim_blink_h_fp ,
+             \g__anim_step_end_fp )
+      }
+    }
+    %% Epsilon before t_end
+    \pgfmathsetmacro\animft@wee { \l__anim_mend_tl - \anim@eps }
+    %% Opacity for this half-period: blink on if k even, blink off if k odd.
+    %% \tl_set:Ne expands \animft@opBon/opBoff to the decimal string immediately.
+    \int_if_odd:nTF { ##1 } {
+      \tl_set:Ne \l__anim_next_tl { \animft@opBoff }
+    } {
+      \tl_set:Ne \l__anim_next_tl { \animft@opBon }
+    }
+    %% Emit hold keyframes: opacity fixed at op for the interval [t_start, t_end - ε].
+    %% The snap at t_end is handled either by the next iteration's t_start keyframe
+    %% or by the final "e s = opI" keyframe below.
+    \tl_put_right:Ne \l__anim_kf_tl {
+      \l__anim_mstart_tl s = "\l__anim_next_tl",
+      \animft@wee s = "\l__anim_next_tl",
+    }
+  }
+  %% Snap to inactive opacity at step end; hold until total; optionally repeat.
+  \tl_put_right:Ne \l__anim_kf_tl {
+    \l__anim_we_tl s = "\animft@opI",
+    \animft@totale s = "\animft@opI"
+  }
+  \if@anim@loop \tl_put_right:Nn \l__anim_kf_tl { ,repeats, } \fi
+  %% Emit scope (PITFALL B: ':' at catcode 12 ensured by pre-ExplSyntaxOn helper)
+  \__anim_emit_mf_scope:Vn \l__anim_kf_tl { #1 }
+}
+
+%% \reveal[options]{content}
+%%   Wraps content in an opacity animation.
+%%
+%%   The key invariant: \g__anim_has_noanimate_bool is ALWAYS false in SVG mode
+%%   (the scan that sets it is skipped when \if@anim@svgmode is true).  Therefore
+%%   \bool_if:NTF below always takes the animation path in SVG mode — no explicit
+%%   SVG/PDF branch needed, and the original animation behaviour is preserved.
+%%
+%%   PDF mode, no \noanimate in body:  bool=false  →  animation emitted, but TikZ
+%%     animation keys are silently ignored by the PDF driver, so #2 is rendered at
+%%     full opacity (all steps stacked — legacy behaviour).
+%%   PDF mode, \noanimate present:     bool=true   →  animation suppressed.
+%%     Render #2 only if this element carries the /anim/noanimate key.
+%%
+%%   'duration' in [options] is accepted but silently ignored (per-element timing
+%%   has no meaning; duration is a step-level concept).
+\NewDocumentCommand \reveal { O{} +m } {
+  \@anim@reveal@staticfalse                                         %% reset per-element flag
+  \group_begin:                                                     %% isolate option scope
+    \tl_clear:N \l__anim_step_spec_tl                             %% reset step= spec
+    \fp_set:Nn \l__anim_blink_period_fp { 0 }                    %% reset blink period
+    \tikzset{ /anim/.cd, #1 }                                      %% may set flags/step spec
+    \bool_if:NTF \g__anim_has_noanimate_bool {
+      %% \noanimate present in body (PDF only — bool is always false in SVG mode).
+      %% Render #2 only if this element explicitly carries the noanimate key.
+      \if@anim@reveal@static #2 \fi
+    } {
+      %% Normal path: SVG mode (always) or PDF without \noanimate.
+      %% static mode: render content at full opacity without any keyframe animation.
+      \if@anim@envstatic #2 \else
+      \fp_compare:nNnTF { \l__anim_blink_period_fp } > { 0 } {
+        %% blink= set: oscillate during the current step.
+        %% Warn if step= was also given — the combination is undefined and blink= wins.
+        \tl_if_empty:NF \l__anim_step_spec_tl {
+          \PackageWarning{svg-animate}
+            {blink= and step= are mutually exclusive;\MessageBreak
+             blink= takes priority; step= is ignored}
+        }
+        \__anim_reveal_blink:n { #2 }
+      } {
+        \tl_if_empty:NTF \l__anim_step_spec_tl {
+          %% No step= spec: single window from current step globals (existing behaviour).
+          \__anim_reveal_simple:n { #2 }
+        } {
+          %% step= spec present: multi-window reveal.
+          \__anim_reveal_multistep:n { #2 }
+        }
+      }
+      \fi                                                            %% end \if@anim@envstatic
+    }
+  \group_end:
+}
+
+%% \noanimate{content}
+%%   PDF mode: renders content as a static element (no animation wrapper).
+%%   SVG mode: completely ignored.
+%%   Must be used inside \begin{animate}...\end{animate}; using it outside
+%%   is an error because its meaning (fallback for which animation?) would
+%%   be ambiguous.
+\NewDocumentCommand \noanimate { +m } {
+  \if@anim@inside \else
+    \PackageError{svg-animate}
+      {\string\noanimate\space used outside animate environment}
+      {%
+        \string\noanimate\space provides a static PDF fallback for a specific%
+        \MessageBreak animate environment. Use it inside%
+        \MessageBreak \string\begin{animate}...\string\end{animate}.%
+      }%
+  \fi
+  \if@anim@svgmode
+  \else
+    #1
+  \fi
+}
+
+\NewDocumentEnvironment { animate } { O{} +b } {
+  %% #1 = animate-level options (e.g. "duration=1, inactive opacity=0")
+  %% #2 = full body collected verbatim by +b, not yet executed
+  \@anim@insidetrue                              %% guard: detect \animstep outside animate
+  \@anim@envstaticfalse                          %% reset for each new environment
+  \tikzset{ /anim/.cd, #1 }                      %% apply animate-level options globally
+
+  %% PDF mode: scan the body for \noanimate before executing anything.
+  %% \tl_if_in:NnTF  var  {tokens}  {true}  {false}
+  %%   Checks whether the token \noanimate appears anywhere in the body.
+  %%   When found, \reveal will be suppressed so that only \noanimate is rendered.
+  %%   When absent, \reveal renders normally (legacy: all steps stacked in PDF).
+  %% The flag is reset first so multiple animate environments are independent.
+  \bool_gset_false:N \g__anim_has_noanimate_bool
+  \if@anim@svgmode \else
+    \tl_set:Nn \l__anim_seg_tl { #2 }
+    \tl_if_in:NnT \l__anim_seg_tl { \noanimate } {
+      \bool_gset_true:N \g__anim_has_noanimate_bool
+    }
+  \fi
+
+  %% \seq_set_split:Nnn  target-seq  {delimiter-token}  {token-list}
+  %% Cuts #2 everywhere \animstep appears; stores the pieces in \l__anim_steps_seq.
+  %% Example result for 3 steps separated by two \animstep tokens:
+  %%   item 1:  \reveal{\node (vm1)...}
+  %%   item 2:  \reveal{\node (vm2)...}
+  %%   item 3:  [duration=3] \reveal{\node (vm3)...}
+  %% None of the items has been executed yet — they are inert token lists.
+  \seq_set_split:Nnn \l__anim_steps_seq { \animstep } { #2 }
+
+  %%
+  %% Pass 1: sum up all step durations to get the total — without executing
+  %%         any TikZ content.
+  %%
+  \fp_gzero:N \g__anim_total_fp       %% total = 0.0
+  \fp_gzero:N \g__anim_cursor_fp     %% time cursor for building step timing table
+  \seq_gclear:N \g__anim_step_times_seq  %% reset per-step timing table
+  %%
+  %% \seq_map_inline:Nn  seq  { body using ##1 }
+  %% Loops over every item in the sequence.  Inside the body, ##1 is the
+  %% current item.  (Double # because we are already inside \NewDocumentEnvironment
+  %% which uses single # for its own arguments.)
+  \seq_map_inline:Nn \l__anim_steps_seq {
+    %%
+    %% \tl_set:Nn  var  {value}  — assign a token list variable.
+    %% We copy ##1 into a named variable so \__anim_pop_opts:NN can modify it
+    %% (seq items are read-only; a local copy is needed).
+    \tl_set:Nn \l__anim_seg_tl { ##1 }
+    %%
+    %% Strip the leading [opts] (e.g. [duration=3]) from \l__anim_seg_tl.
+    %% The extracted opts string goes into \l__anim_step_opts_tl.
+    %% If there were no [opts], \l__anim_step_opts_tl is left empty.
+    \__anim_pop_opts:NN \l__anim_step_opts_tl \l__anim_seg_tl
+    %%
+    %% \group_begin: / \group_end:  — standard TeX grouping ({ ... }).
+    %% Any \tikzset inside is local and does not leak into the next step.
+    \group_begin:
+      %%
+      %% \tl_if_empty:NF  var  {code}  — run {code} only if var is NOT empty (:NF = N, False).
+      \tl_if_empty:NF \l__anim_step_opts_tl {
+        %% \exp_args:Ne  cmd  {arg}  — fully expand {arg} before passing it to cmd.
+        %% \tl_use:N \l__anim_step_opts_tl expands to the string content of the variable,
+        %% e.g. "duration=3".  Without :Ne, \tikzset would receive the unexpanded macro
+        %% name instead of the string it holds.
+        \exp_args:Ne \tikzset { /anim/.cd, \tl_use:N \l__anim_step_opts_tl }
+      }
+      %%
+      %% \tl_set:Ne  var  {expr}  — assign var to the fully-expanded value of {expr}.
+      %% Reads the current /anim/duration key (possibly just overridden by step opts)
+      %% and stores it as a plain string like "3" or "1".
+      \tl_set:Ne \l__anim_dur_tl { \pgfkeysvalueof{/anim/duration} }
+      %%
+      %% \exp_args:NNV  cmd  arg1  var  — call cmd with arg1 unchanged and var
+      %% replaced by its value (:V expansion).  Equivalent here to:
+      %%   \fp_gadd:Nn \g__anim_total_fp {"3"}   (the string "3" parsed as a number)
+      %% \fp_gadd:Nn  fp-var  {fp-expr}  — adds the expression to the fp variable.
+      %%
+      %% Store "start/end" for this step before advancing the cursor.
+      %% Item index N (1-based) in \g__anim_step_times_seq holds the timing of step N.
+      \exp_args:NNV \fp_gset:Nn \g__anim_step_dur_fp \l__anim_dur_tl
+      \seq_gput_right:Ne \g__anim_step_times_seq {
+        \fp_to_decimal:N \g__anim_cursor_fp /
+        \fp_eval:n { \g__anim_cursor_fp + \g__anim_step_dur_fp }
+      }
+      \fp_gadd:Nn \g__anim_cursor_fp { \g__anim_step_dur_fp }  %% advance cursor
+      \exp_args:NNV \fp_gadd:Nn \g__anim_total_fp \l__anim_dur_tl
+    \group_end:    %% step opts are rolled back; total remains (it is global \g_...)
+  }
+  %% After the loop, \g__anim_total_fp holds the sum of all step durations, e.g. 5.0.
+
+  %%
+  %% Pass 2: iterate again, this time executing each step's TikZ content.
+  %%         We maintain a timing cursor (start) that advances step by step.
+  %%
+  \fp_gzero:N \g__anim_step_start_fp   %% cursor starts at t = 0.0
+  \seq_map_inline:Nn \l__anim_steps_seq {
+    \tl_set:Nn \l__anim_seg_tl { ##1 }
+    \__anim_pop_opts:NN \l__anim_step_opts_tl \l__anim_seg_tl
+    \group_begin:
+      \tl_if_empty:NF \l__anim_step_opts_tl {
+        \exp_args:Ne \tikzset { /anim/.cd, \tl_use:N \l__anim_step_opts_tl }
+      }
+      \tl_set:Ne \l__anim_dur_tl { \pgfkeysvalueof{/anim/duration} }
+      %%
+      %% Store the step duration as an FP variable so we can use it in an FP expression.
+      %% (:NNV passes the value of \l__anim_dur_tl, e.g. the string "3", to \fp_gset:Nn.)
+      \exp_args:NNV \fp_gset:Nn \g__anim_step_dur_fp \l__anim_dur_tl
+      %%
+      %% \fp_gset:Nn  fp-var  {fp-expr}  — evaluate an FP expression and store the result.
+      %% FP variables (prefixed \g__ or \l__) are referenced directly in expressions.
+      %% e.g. if start=2.0 and dur=3.0, this sets end=5.0.
+      \fp_gset:Nn \g__anim_step_end_fp
+        { \g__anim_step_start_fp + \g__anim_step_dur_fp }
+      %%
+      %% \tl_use:N  var  — expand and execute the token list.
+      %% This is where the TikZ code (\reveal{...} etc.) actually runs.
+      %% At this point the three timing globals hold the correct values for this step,
+      %% so every \reveal inside will emit keyframes for the right time window.
+      \tl_use:N \l__anim_seg_tl
+      %%
+      %% \fp_gset_eq:NN  a  b  — set a = b  (both are FP variables).
+      %% Advance the cursor: next step starts where this one ended.
+      %% This is global, so it survives the upcoming \group_end:.
+      \fp_gset_eq:NN \g__anim_step_start_fp \g__anim_step_end_fp
+    \group_end:
+  }
+} { \@anim@insidefalse }
+
+\ExplSyntaxOff

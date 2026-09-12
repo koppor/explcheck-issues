@@ -1,0 +1,385 @@
+%%
+%% This is file `hexdumptikz-draw.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% hexdumptikz-draw.dtx  (with options: `package')
+%% 
+%% This is a generated file.
+%% 
+%% Copyright (C) 2026 by Lukas Heindl <oss.heindl+latex@protonmail.com>
+%% --------------------------------------------------------------------------
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008/05/04 or later.
+%% 
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage {hexdumptikz-draw} {2026-06-20} {1.0.1}
+  {Common functionality for working with hexdumps and (large) addresses}
+\RequirePackage { pgfkeys }
+\RequirePackage { hexdumptikz-common }
+\RequirePackage { hexdumptikz-selector }
+\RequirePackage { hexdumptikz-parser }
+\tl_new:N \l__hexdumptikz_draw_print_selector_ctx_tl
+\hexdumptikz_selector_ctx_new:N \l__hexdumptikz_draw_print_selector_ctx_tl
+\tl_new:N \l__hexdumptikz_draw_print_styled_ctx_tl
+\hexdumptikz_selector_ctx_new:N \l__hexdumptikz_draw_print_styled_ctx_tl
+\int_new:N \g__hexdumptikz_draw_addr_index_int
+\int_new:N \g__hexdumptikz_draw_addr_used_index_int
+\int_new:N \g__hexdumptikz_draw_byte_index_int
+
+\tl_new:N \g__hexdumptikz_draw_last_addr_node_tl
+\tl_new:N \g__hexdumptikz_draw_last_byte_node_tl
+
+\tl_new:N \l__hexdumptikz_draw_cur_addr_tl
+\str_new:N \l__hexdumptikz_draw_cur_addr_padded_str
+
+\bool_new:N \g__hexdumptikz_draw_first_addr_node_bool
+\box_new:N \l__hexdumptikz_draw_tmp_box
+\hbox_set:Nn \l__hexdumptikz_draw_tmp_box { \ttfamily 0x0123456789abcdef }
+\dim_const:Nn
+  \c__hexdumptikz_draw_hexheight_dim
+  { \box_ht:N \l__hexdumptikz_draw_tmp_box }
+\dim_const:Nn
+  \c__hexdumptikz_draw_hexdepth_dim
+  { \box_dp:N \l__hexdumptikz_draw_tmp_box }
+\bool_new:N \l_hexdumptikz_draw_show_addr_padded_bool
+\bool_new:N \l_hexdumptikz_draw_show_addr_bool
+\bool_new:N \l_hexdumptikz_draw_show_addr_base_bool
+\int_new:N \l_hexdumptikz_draw_byte_sep_int
+\tl_new:N \l_hexdumptikz_draw_byte_sep_tl
+\pgfkeys {
+  /hexdumptikz,
+  % prefix for the nodenames
+  name~prefix/.code = {
+    \tl_set:Ne \l_hexdumptikz_common_nodename_prefix_tl { #1 }
+    \pgfkeys { /hexdumptikz/next~scope/.append~style = { name~prefix = #1 } }
+  },
+  name~prefix = { },
+  name~prefix/.value~required,
+
+  % insert space after that many bytes
+  bytes~sep~after/.code = {
+    \int_set:Nn \l_hexdumptikz_draw_byte_sep_int { \int_abs:n { #1 } }
+  },
+  bytes~sep~after = 64, % basically deactivated
+  bytes~sep~after/.default = { 8 },
+
+  % size of the gap
+  bytes~sep/.code = { \tl_set:Nn \l_hexdumptikz_draw_byte_sep_tl { #1 } },
+  bytes~sep = { 2em },
+  bytes~sep/.value~required,
+
+  % whether to even show the address nodes
+  % this is a bit more complicated as the address-nodes cannot be simply omitted as they are relevant for the positioning -> inner sep=0, and first byte in each row needs special placement with no 'node distance'
+  show~addr/.code = {
+    \hexdumptikz_common_parse_bool:Nn
+      \l_hexdumptikz_draw_show_addr_bool
+      { #1 }
+  },
+  show~addr = { true },
+  show~addr/.default = { true },
+
+  % whether to display 0x when showing the addresses
+  show~addr~base/.code = {
+    \hexdumptikz_common_parse_bool:Nn
+      \l_hexdumptikz_draw_show_addr_base_bool
+      { #1 }
+  },
+  show~addr~base = { true },
+  show~addr~base/.default = { true },
+
+  % whether the shown addresses should be padded (otherwise padding only for ranges, node-names and internals)
+  show~addr~padded/.code = {
+    \hexdumptikz_common_parse_bool:Nn
+      \l_hexdumptikz_draw_show_addr_padded_bool
+      { #1 }
+  },
+  show~addr~padded = { false },
+  show~addr~padded/.default = { true },
+
+  styled~bytes/.code = {
+    \hexdumptikz_selector_parse:Nn
+      \l__hexdumptikz_draw_print_styled_ctx_tl
+      { #1 }
+  }
+}
+\pgfkeys {
+  /hexdumptikz,
+  address~node~first/.style= { },
+  address~node/.style= {
+    left,
+    on~chain,
+    text~height = \c__hexdumptikz_draw_hexheight_dim,
+    text~depth  = \c__hexdumptikz_draw_hexdepth_dim,
+  },
+  byte~node/.style = {
+    on~chain,
+    text~height = \c__hexdumptikz_draw_hexheight_dim,
+    text~depth  = \c__hexdumptikz_draw_hexdepth_dim,
+  },
+}
+\prg_new_conditional:Npnn
+  \__hexdumptikz_draw_print_handle_first_node:
+  { TF }
+{
+  \bool_if:NTF \g__hexdumptikz_draw_first_addr_node_bool
+  {
+    \bool_gset_false:N \g__hexdumptikz_draw_first_addr_node_bool
+    \prg_return_true:
+  } {
+    \prg_return_false:
+  }
+}
+
+\cs_new_protected:Npn \__hexdumptikz_draw_generate_gap_node:n #1
+{
+  \tl_gset:Ne
+    \g__hexdumptikz_draw_last_addr_node_tl
+    { hexdumptikz-in- \int_use:N \g__hexdumptikz_draw_addr_index_int -gap #1 }
+  \__hexdumptikz_draw_print_handle_first_node:TF
+  {
+    \node[
+      /hexdumptikz/address~node,
+      /hexdumptikz/address~node~first,
+    ]
+    ( \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl )
+    { }
+    ;
+  } {
+    \node[
+      /hexdumptikz/address~node,
+    ]
+    ( \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl )
+    { }
+    ;
+  }
+  \pgfnodealias
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz- \str_use:N \l__hexdumptikz_draw_cur_addr_padded_str -gap #1 }
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl }
+  \pgfnodealias
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-out- \int_use:N \g__hexdumptikz_draw_addr_used_index_int -gap #1 } % noqa: S103
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl }
+}
+\cs_new_protected:Npn \__hexdumptikz_draw_generate_addr_node:n #1
+{
+  \tl_gset:Ne
+    \g__hexdumptikz_draw_last_addr_node_tl
+    { hexdumptikz-in- \int_use:N \g__hexdumptikz_draw_addr_index_int }
+  \__hexdumptikz_draw_print_handle_first_node:TF
+  {
+    \node[
+      /hexdumptikz/address~node,
+      /hexdumptikz/address~node~first,
+    ]
+      ( \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl )
+      { #1 }
+      ;
+  } {
+    \node[
+      /hexdumptikz/address~node,
+    ]
+      ( \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl )
+      { #1 }
+      ;
+  }
+}
+\cs_generate_variant:Nn \__hexdumptikz_draw_generate_addr_node:n { e }
+\cs_new_protected:Npn \__hexdumptikz_draw_generate_byte_node:nn #1 #2
+{
+  \tl_gset:Ne
+    \g__hexdumptikz_draw_last_byte_node_tl
+    {
+      hexdumptikz-in-
+      \int_use:N \g__hexdumptikz_draw_addr_index_int
+      -
+      \int_use:N \g__hexdumptikz_draw_byte_index_int
+    }
+  \int_compare:nNnTF { \g__hexdumptikz_draw_byte_index_int } = { 0 }
+  {
+    \node[right=of~hexdumptikz-in- \int_use:N \g__hexdumptikz_draw_addr_index_int ,/hexdumptikz/byte~node,#2] % noqa: S103
+    ( \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl )
+    { #1 }
+    ;
+  }
+  {
+    \int_compare:nNnTF
+    {
+      \int_mod:nn
+      { \g__hexdumptikz_draw_byte_index_int }
+      { \l_hexdumptikz_draw_byte_sep_int }
+    }
+    =
+    { 0 }
+    {
+      \node[ xshift = \tl_use:N \l_hexdumptikz_draw_byte_sep_tl ,/hexdumptikz/byte~node,#2] % noqa: S103
+      ( \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl )
+      { #1 }
+      ;
+    } {
+      \node[/hexdumptikz/byte~node,#2]
+      ( \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl )
+      { #1 }
+      ;
+    }
+  }
+}
+\cs_generate_variant:Nn \__hexdumptikz_draw_generate_byte_node:nn { ev }
+\cs_new_protected:Npn \hexdumptikz_draw_init:nn #1 #2
+{
+  \hexdumptikz_selector_parse:Ne
+    \l__hexdumptikz_draw_print_selector_ctx_tl
+    { #2 }
+  \hexdumptikz_selector_ctx_clear_iter:N
+    \l__hexdumptikz_draw_print_selector_ctx_tl
+  \hexdumptikz_selector_ctx_clear_storage:N
+    \l__hexdumptikz_draw_print_styled_ctx_tl
+  \bool_gset_true:N \g__hexdumptikz_draw_first_addr_node_bool
+  \int_gzero:N \g__hexdumptikz_draw_addr_index_int
+  \int_gzero:N \g__hexdumptikz_draw_addr_used_index_int
+  \pgfkeys {
+    /hexdumptikz,
+    #1
+  }
+  \hexdumptikz_selector_ctx_clear_iter:N
+    \l__hexdumptikz_draw_print_styled_ctx_tl
+  \begin{ scope } [
+    start~chain = hexdumptikz-rows~going~{ below=of~\tikzchainprevious.south~east,anchor=north~east }, % noqa: S103
+    node~distance = .3ex~and~.2em,
+    font = \ttfamily\small,
+    /hexdumptikz/next~scope,
+    ]
+}
+\cs_new_protected:Npn \hexdumptikz_draw:NNNN #1 #2 #3 #4
+{
+  \tl_set:Ne \l__hexdumptikz_draw_cur_addr_tl { #2 }
+  \hexdumptikz_common_pad_address:N #2
+  \str_set:Ne
+    \l__hexdumptikz_draw_cur_addr_padded_str
+    { \tl_to_str:N #2 }
+  \hexdumptikz_selector_match_rows:NnnN
+    \l__hexdumptikz_draw_print_selector_ctx_tl
+    { \g__hexdumptikz_draw_addr_index_int } % y
+    { 0 } % x
+    \l__hexdumptikz_draw_cur_addr_padded_str
+  \bool_if:cT
+  {
+    \hexdumptikz_selector_show_bool:N
+    \l__hexdumptikz_draw_print_selector_ctx_tl
+  }
+  {
+    \prop_gput:Nee
+      \g_hexdumptikz_common_cur_offsets_prop
+      { \l__hexdumptikz_draw_cur_addr_padded_str }
+      { \int_use:N \g__hexdumptikz_draw_addr_used_index_int }
+    \int_set_eq:Nc
+      \l_tmpa_int
+      {
+        \hexdumptikz_selector_gap_int:N
+        \l__hexdumptikz_draw_print_selector_ctx_tl
+      }
+    \int_step_function:nnnN
+      { 1 }
+      { 1 }
+      { \l_tmpa_int }
+      \__hexdumptikz_draw_generate_gap_node:n
+    \int_gzero:c
+    {
+      \hexdumptikz_selector_gap_int:N
+        \l__hexdumptikz_draw_print_selector_ctx_tl
+    }
+    \bool_if:NTF \l_hexdumptikz_draw_show_addr_padded_bool
+      { \tl_set:Ne \l_tmpa_tl { \l__hexdumptikz_draw_cur_addr_padded_str } }
+      { \tl_set:Ne \l_tmpa_tl { \l__hexdumptikz_draw_cur_addr_tl } }
+    \bool_if:NF \l_hexdumptikz_draw_show_addr_base_bool
+    {
+      \regex_replace_once:NnN
+      \c_hexdumptikz_common_leading_hex_base_regex
+      { }
+      \l_tmpa_tl
+    }
+
+    \__hexdumptikz_draw_generate_addr_node:e { \l_tmpa_tl }
+    \pgfnodealias
+      { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-    \str_use:N \l__hexdumptikz_draw_cur_addr_padded_str }
+      { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl }
+    \pgfnodealias
+      { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-out- \int_use:N \g__hexdumptikz_draw_addr_used_index_int }
+      { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_addr_node_tl }
+    \begin{ scope } [start~chain=hexdumptikz-row~going~right]
+      \int_zero:N \g__hexdumptikz_draw_byte_index_int
+      \seq_map_inline:Nn #3
+      {
+        \hexdumptikz_selector_match_styles:NnnN
+          \l__hexdumptikz_draw_print_styled_ctx_tl
+          { \g__hexdumptikz_draw_addr_used_index_int } % y
+          { \g__hexdumptikz_draw_byte_index_int } % x
+          \l__hexdumptikz_draw_cur_addr_padded_str
+
+        \__hexdumptikz_draw_generate_byte_node:ev
+          { ##1 }
+          {
+            \hexdumptikz_selector_style_tl:N
+            \l__hexdumptikz_draw_print_styled_ctx_tl
+          }
+        \pgfnodealias
+          { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz- \str_use:N \l__hexdumptikz_draw_cur_addr_padded_str - \int_use:N \g__hexdumptikz_draw_byte_index_int } % noqa: S103
+          { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl }
+        \pgfnodealias
+          { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-out- \int_use:N \g__hexdumptikz_draw_addr_used_index_int - \int_use:N \g__hexdumptikz_draw_byte_index_int } % noqa: S103
+          { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl }
+        \int_gincr:N \g__hexdumptikz_draw_byte_index_int
+      }
+      \pgfnodealias
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-in- \int_use:N \g__hexdumptikz_draw_addr_index_int -end }
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl }
+      \pgfnodealias
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-out- \int_use:N \g__hexdumptikz_draw_addr_used_index_int -end } % noqa: S103
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl }
+      \pgfnodealias
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz- \str_use:N \l__hexdumptikz_draw_cur_addr_padded_str -end } % noqa: S103
+        { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \tl_use:N \g__hexdumptikz_draw_last_byte_node_tl }
+    \end{ scope }
+      \int_gincr:N \g__hexdumptikz_draw_addr_used_index_int
+  }
+  \bool_set_eq:Nc
+    \l_hexdumptikz_parser_finished_bool
+    {
+      \hexdumptikz_selector_finished_bool:N
+      \l__hexdumptikz_draw_print_selector_ctx_tl
+    }
+  \int_gincr:N \g__hexdumptikz_draw_addr_index_int
+}
+\cs_new_protected:Npn \hexdumptikz_draw_fin:
+{
+  \pgfnodealias
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-end }
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \g__hexdumptikz_draw_last_addr_node_tl }
+  \pgfnodealias
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl hexdumptikz-end-end }
+    { \tl_use:N \l_hexdumptikz_common_nodename_prefix_tl \g__hexdumptikz_draw_last_byte_node_tl }
+  \end{ scope }
+  \pgfkeys { /hexdumptikz/next~scope/.style = { } }
+  \hexdumptikz_selector_ctx_clear_storage:N
+    \l__hexdumptikz_draw_print_styled_ctx_tl
+  \hexdumptikz_selector_ctx_clear_storage:N
+    \l__hexdumptikz_draw_print_selector_ctx_tl
+}
+\cs_new_protected:Npn \hexdumptikz_draw_print:nn #1 #2
+{
+  \hexdumptikz_draw_init:nn { #1 } { #2 }
+
+  \hexdumptikz_parser_parse:nN
+    { \l_hexdumptikz_common_input_file_str }
+    \hexdumptikz_draw:NNNN
+
+  \hexdumptikz_draw_fin:
+}
+\endinput
+%%
+%% End of file `hexdumptikz-draw.sty'.
