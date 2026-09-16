@@ -1,0 +1,974 @@
+%% ---------------------------------------------------------------
+%% The typoaid package --- 
+%% Maintained by Daniele Ratti
+%% E-mail: ilfuria+tya@gmail.com
+%% Released under the LaTeX Project Public License v1.3c or later
+%% See http://www.latex-project.org/lppl.txt
+%% Changelog:
+%% 0.0.7 first release
+%% 0.1.0 completed the simple-command interface
+%% 0.1.5 tested and fine tuned the simple command interface
+%% 0.2.0 through 0.2.7 introduced the font table and tuned it
+%% 0.3.0 through 0.3.7 introduced the width table and tuned it
+%% 0.3.8 special code refactoring for luatex
+%% 0.4.0 massive code refactoring, presetting tables 
+%% 0.4.1 tables and variables fine tuning
+%% 0.4.2 using the kernel provided tmpa and tmpb; starting on vertical data
+%% 0.4.3 finishing vertical table
+%% 0.4.5 updated vertical table and starred commands
+%% 0.4.7 finished vertical tst
+%% ---------------------------------------------------------------
+
+\RequirePackage{expl3}
+\ProvidesExplPackage{typoaid}{2017/05/07}{0.4.7} {Typographic Aid}
+\RequirePackage{array}
+\RequirePackage{booktabs}
+\RequirePackage{siunitx}
+
+%% CONSTANTS AND VARIABLES
+
+\dim_new:N \g__typoAid_Alphabet_dim
+
+\dim_new:N\g__typoAid_ExHeight_dim
+
+\dim_new:N\g__typoAid_EmWidth_dim
+
+\dim_new:N\g__typoAid_MeanChar_dim
+
+\box_new:N\g__typoAid_Alphabet_box
+
+\int_new:N\g__typoAid_CharPerRow_int
+
+\dim_new:N\g__typoAid_SwitchedFontSize_dim
+
+\dim_new:N\l__typoAid_local_dim
+
+\tl_const:Nn \c__typoAid_lc_alphabet_tl {abcdefghijklmnopqrstuvwxyz}
+
+\tl_const:Nn \c__typoAid_uc_alphabet_tl {ABCDEFGHIJKLMNOPQRSTUVWXYZ}
+
+\str_const:Nn\c__typoAid_name_string{TypoAid}
+
+\str_const:Nx\c__typoAid_typeout_string{TypoAid\iow_newline:*~ Font~switch~given:~}
+
+%% END CONSTANTS AND VARIABLES
+
+
+%% CALCULATIONS
+% A helper function to avoid global assignments.
+% The second argument should consist of protected
+% function and expandable ones
+\cs_new_protected:Npn \__typoAid_smuggle:nn #1 #2
+ {
+  \group_begin:
+  #1
+  \use:x { \group_end: #2 }
+ }
+ 
+\cs_new_protected:Npn\__typoAid_typoAlphabet:n #1
+{
+  \box_gclear:N \g__typoAid_Alphabet_box
+  \hbox_gset:Nn \g__typoAid_Alphabet_box
+   {
+    #1
+    % LuaTeX ignores {} as far as kerning is concerned so
+    % we need to box each character
+    \tl_map_inline:Nn \c__typoAid_lc_alphabet_tl { \hbox:n { ##1 } }
+   }
+ }
+ 
+ % A function to calculate the alphabet length and
+ % mean char width
+\cs_new_protected:Npn\__typoAid_calcAlph:n #1 
+{
+	% Typesets the alphabet
+	\__typoAid_typoAlphabet:n{#1}
+	
+	% Globally sets the alphabet dimension as the width of the alphabet box
+	\dim_gset:Nn\g__typoAid_Alphabet_dim{\box_wd:N\g__typoAid_Alphabet_box}
+	
+	% sets the local coefficient that determines the 
+	% mean char width as 26.5+ 1% alph length
+	\fp_set:Nn\l_tmpa_fp
+	{
+		26.5+1/100*\dim_to_decimal:n{\g__typoAid_Alphabet_dim}
+	}			
+	
+	% globally sets the mean char width as alphabet/coefficient
+	\dim_gset:Nn\g__typoAid_MeanChar_dim
+	{
+		\fp_to_dim:n
+		{
+			\dim_to_decimal:n
+			{
+				\g__typoAid_Alphabet_dim
+			}/\fp_use:N\l_tmpa_fp
+		}
+	}
+}
+
+%% A function to calculate the ex width for a given font switch
+\cs_new_protected:Npn\__typoAid_calcEx:n #1
+{
+	 \__typoAid_smuggle:nn { #1 }
+   {
+    \dim_gset:Nn \g__typoAid_ExHeight_dim { \dim_eval:n { 1ex } }
+   }
+}
+
+%% A function that calculates the current em width for the font switch
+\cs_new_protected:Npn\__typoAid_calcEm:n#1
+{
+	\__typoAid_smuggle:nn { #1 }
+   {
+    \dim_gset:Nn \g__typoAid_EmWidth_dim { \dim_eval:n { 1em } }
+   }
+}
+
+%% A function to store the font size for a specific switch
+\cs_new_protected:Npn\__typoAid_calcFsize:n#1
+{
+	\__typoAid_smuggle:nn{ #1 }
+	{
+		\dim_gset:Nn\g__typoAid_SwitchedFontSize_dim{\fp_to_dim:n{\f@size}}
+	}
+}
+
+%% Calculates the numer of characters that can be set in
+%% a column of a given width (parameter)
+\cs_new_protected:Npn\__typoAid_calcCharPW:n#1
+{
+	% the char per row are a global variable, thus globally set
+	\int_gset:Nn\g__typoAid_CharPerRow_int
+	{
+		\int_eval:n
+		{
+			\fp_to_int:n
+			{
+				\dim_ratio:nn	{\dim_eval:n{#1}} {\g__typoAid_MeanChar_dim}
+			}
+		}
+	}
+
+}
+
+%% Calculates all the basic things, including char per width
+\cs_new_protected:Npn\__typoAid_calcAll:nn#1#2
+{
+	\__typoAid_calcAll:n{#1}
+	\__typoAid_calcCharPW:n{#2}
+}
+
+%% Calculates the alphabet, the ex height and em width
+\cs_new_protected:Npn\__typoAid_calcAll:n#1
+{
+	\__typoAid_calcAlph:n{#1}
+	\__typoAid_calcEx:n{#1}
+	\__typoAid_calcEm:n{#1}
+	\__typoAid_calcFsize:n{#1}
+}
+
+%% Calculates the number of rows in a selected height
+%% Params
+%% 1-> font switch (for body size purposes)
+%% 2-> baseline skip
+%% 3-> height
+\cs_new_protected:Npn\__typoAid_nrRows:nnn#1#2#3
+{
+	% calculates the font size
+	\__typoAid_calcFsize:n{#1}
+	
+	% sets the local variables
+	\dim_set:Nn\l_tmpa_dim{\dim_eval:n{#2}}
+	\dim_set:Nn\l_tmpb_dim{\dim_eval:n{#3}}
+	\msg_term:n{\dim_eval:n{#2}~\dim_eval:n{#3}}
+	% subtracts the curent font size from the height
+	\dim_sub:Nn\l_tmpb_dim{\dim_use:N\g__typoAid_SwitchedFontSize_dim}
+
+	%performs the calculations
+	\fp_gset:Nn\g_tmpa_fp
+	{
+		1+\dim_ratio:nn
+		{\l_tmpb_dim}
+		{\l_tmpa_dim}
+	}
+	
+
+}
+
+%% Calculates the height for a given number of rows
+%% Params
+%% 1-> font switch for size
+%% 2-> number of desired rows (int!!)
+%% 3-> baselineskip
+\cs_new_protected:Npn\__typoAid_HeightForRows:nnn#1#2#3
+{
+	% calculates the font size
+	\__typoAid_calcFsize:n{#1}
+	
+	% sets the local variables
+	\dim_set:Nn\l_tmpa_dim{\dim_eval:n{#3}*(\int_eval:n{#2}-1)}
+	
+	\dim_add:Nn\l_tmpa_dim{\g__typoAid_SwitchedFontSize_dim}
+
+	\dim_gset:Nn\g_tmpa_dim{\dim_use:N\l_tmpa_dim}
+	
+}
+
+%% END CALCULATIONS
+
+%% LOGS AND STRINGS
+
+%% A function that logs a specific string, with "Typoaid as a header"
+\cs_new:Npn\__typoAid_log:nn #1#2
+{
+	\msg_log:n{\c__typoAid_typeout_string~#2 \\ #1}
+}
+
+%% New function that typesets the  char per width
+%% using the current column width to fit them in
+%% it also typesets the switch given
+\cs_new:Npn\__typoAid_column_string:n#1
+{
+	\__typoAid_calcCharPW:n{ \dim_eval:n{ \columnwidth } }
+%		
+	Current~column~width:~\dim_use:N\columnwidth.~ 
+	
+	Yields~\int_eval:n{\g__typoAid_CharPerRow_int}~characters~per~line,~
+	
+	with~the~selected~switch:~\tl_to_str:n{#1} 
+}
+
+%% Typesets the  alphabet length
+\cs_new:Nn\__typoAid_Alphabet_string:
+{
+	Alphabet~length:~\dim_use:N\g__typoAid_Alphabet_dim
+}
+
+%% Typesets the ex height
+\cs_new:Nn\__typoAid_ExHeight_string:
+{
+	Ex~height:~\dim_use:N\g__typoAid_ExHeight_dim
+}
+
+%% typesets the em width
+\cs_new:Nn\__typoAid_EmWidth_string:
+{
+	Em~width:~\dim_use:N\g__typoAid_EmWidth_dim
+}
+
+%% Logs a column width and char per row
+\cs_new:Npn\__typoAid_logWidthData:nn#1#2
+{
+	\c__typoAid_name_string;~data~with~font~mod:~\tl_to_str:n{#2}\\ 
+	column:~\dim_to_decimal_in_unit:nn{#1}{1pt}~pt~or~\dim_to_decimal_in_unit:nn{#1}{1pc}~pc\\
+	\int_use:N\g__typoAid_CharPerRow_int~char~per~row
+}
+
+%% Logs the data regarding a specific fontshape
+\cs_new:Npn\__typoAid_logFontshapeData:nn#1#2
+{
+	\c__typoAid_name_string.~Font~modifier: \tl_to_str:n{#1}\\
+	~Switch:~#2\\
+	~Alphabet:~\dim_use:N\g__typoAid_Alphabet_dim\\
+	~Ex~height:~\dim_use:N\g__typoAid_ExHeight_dim\\
+	~Em~width:~\dim_use:N\g__typoAid_EmWidth_dim
+}
+
+%%Saves the tokenlist for the font table
+\cs_new:Npn\__typoAid_PrepareFontshapeRow:nn #1#2
+{
+	%resets the tokenlist
+	\tl_gclear:N\g_tmpa_tl
+	
+	% % calculates the font metrics
+	\__typoAid_calcAll:n{#1#2}
+	
+	%log
+	\msg_log:n{\__typoAid_logFontshapeData:nn{#1}{#2}}
+	
+	%saves the row
+	\tl_gset:Nn\g_tmpa_tl
+		{
+			\texttt{\tl_to_str:n{#2}}&
+			\dim_use:N\g__typoAid_Alphabet_dim&
+			\dim_use:N\g__typoAid_ExHeight_dim&
+			\dim_use:N\g__typoAid_EmWidth_dim
+		}
+}
+
+%% Calculates the data for the typeseting of the width table
+%% Parameters
+%% 1-> multiplier
+%% 2-> dimension
+\cs_new:Npn\__typoAid_CalculateWidthTableData:nn#1#2
+{
+	
+	% Saves the local value of the desired dimension
+	\dim_gset:Nn\g_tmpa_dim
+		{
+			\fp_to_dim:n
+			{
+				\fp_eval:n{#1}*\dim_eval:n{#2}
+			}
+		}
+	% Calculates the char fitting in the dimension
+	\__typoAid_calcCharPW:n{\g_tmpa_dim}
+}
+
+%% Saves a row for the width table 
+%% Params
+%% 1 -> multiplier
+%% 2 -> dimension
+%% 3 -> font switch
+%% 4 -> first row text
+\cs_new:Npn\__typoAid_prepareWidthTableRow:nnnn#1#2#3#4
+{
+	
+	\__typoAid_CalculateWidthTableData:nn{#1}{#2}
+	
+	% logs
+	\msg_log:n{\__typoAid_logWidthData:nn{\g_tmpa_dim}{#3}}
+	%clears and sets the token list
+	\tl_gclear:N\g_tmpa_tl
+
+	\tl_gset:Nn\g_tmpa_tl
+	{	
+		\tl_to_str:n{#4}&
+		\dim_to_decimal_in_unit:nn{\g_tmpa_dim}{1pt}&
+		\dim_to_decimal_in_unit:nn{\g_tmpa_dim}{1pc}&
+		\int_use:N\g__typoAid_CharPerRow_int
+	}
+}
+
+%% Saves a row for the widthTable
+%% Params
+%% 1->form factor
+%% 2-> number of lines
+%% 3-> string
+%% 4-> height
+\cs_new:Nn\__typoAid_PrepareHeightTableRow_tl:nnnn
+{
+	\tl_gclear:N\g_tmpa_tl
+	\tl_gset:Nn\g_tmpa_tl
+	{
+		#3&
+		\dim_to_decimal_in_unit:nn{#4}{1pt}&
+		\dim_to_decimal_in_unit:nn{#4}{1pc}&
+		\fp_eval:n{#2}&
+		\fp_eval:n{#1}
+	}
+}
+
+%% Prepares the log and terminal for starred table version
+%% PArams
+%% 1-> multiplier
+%% 2-> dimension
+%% 3 -> switch
+\cs_new:Npn\__typoAid_WidthTableLog:nnn#1#2#3
+{
+	% Performs the calculation
+	\__typoAid_CalculateWidthTableData:nn{#1}{#2}
+	
+	\msg_term:n{\__typoAid_logWidthData:nn{\g_tmpa_dim}{#3}}
+	\msg_log:n{\__typoAid_logWidthData:nn{\g_tmpa_dim}{#3}}
+}
+
+%% Logs the data for the form factor table
+%% Params
+%% 1->width
+%% 2->switch
+%% 3->form factor
+%% 4 ->rows p height
+\cs_new:Nn\__typoAid_formfactor_log:nnnn
+{
+	\msg_log:n
+	{
+		\c__typoAid_name_string\iow_newline:.~
+		Form~factor: \fp_eval:n{#3}~for~switch:\tl_to_str:n{#2}\iow_newline:.~
+		Width:~\dim_to_decimal_in_unit:nn{#1}{1pt}~pt~(\dim_to_decimal_in_unit:nn{#1}{1pc}~pc)\iow_newline:~.
+		Rows~per~height:~\fp_eval:n{#4}
+	}
+
+}
+
+%% END LOGS AND STRINGS
+
+%% PUBLIC INTERFACE
+
+%% Public command to print the alphabet in log term and page
+\NewDocumentCommand{\typrintalph}{ s m }
+{
+	% First perform the calculation
+	\__typoAid_calcAlph:n{#2}
+	
+	% Determines whether it has to output to the term or page
+	\IfBooleanTF{#1}
+	{
+		\msg_term:n
+		{
+			\c__typoAid_typeout_string \tl_to_str:n{#2}\\ 
+			\__typoAid_Alphabet_string:
+		}
+	}{
+		 \__typoAid_Alphabet_string:
+	}
+	
+	% Always types out in the log
+	\__typoAid_log:nn{\__typoAid_Alphabet_string:}{#2}
+}
+
+%% Public command to printout the ex height
+\NewDocumentCommand{\typrintex}{ s m }
+{
+	% Calculates the height
+	\__typoAid_calcEx:n{#2}
+	
+	% decides term vs page
+	\IfBooleanTF{#1}
+	{
+		\msg_term:n
+		{
+			\c__typoAid_typeout_string \tl_to_str:n{#2}\\ 
+			\__typoAid_ExHeight_string:
+		}
+	}{
+		 \__typoAid_ExHeight_string:
+	}
+	
+	% log
+	\__typoAid_log:nn{\__typoAid_ExHeight_string:}{#2}
+}
+
+%% Public command to printout the em width
+\NewDocumentCommand{\typrintem}{s m}
+{
+	%Performs the calculation
+	\__typoAid_calcEm:n{#2}
+	
+	% Selects the main output
+	\IfBooleanTF{#1}
+	{
+		\msg_term:n
+		{
+			\c__typoAid_typeout_string\tl_to_str:n{#2}\\
+			\__typoAid_EmWidth_string:
+		}
+	}{
+		\__typoAid_EmWidth_string:
+	}
+	
+	%log
+	\__typoAid_log:nn{\__typoAid_EmWidth_string:}{ #2}
+}
+
+%% Typesets all the simple commands
+\NewDocumentCommand{\tyallsimple}{ s m}
+{
+	% Just propagates the arguments
+  	\IfBooleanTF{#1}
+ 	 {
+		\typrintalph*{#2}\\
+		\typrintex*{#2}\\
+		\typrintem*{#2}\\
+ 	 }{
+		\typrintalph{#2}\\
+		\typrintex{#2}\\
+		\typrintem{#2}\\
+	}
+}
+
+%%  Public command to typeset the font shapes table
+\NewDocumentCommand{\tyfonttable}{ s m }
+{
+	
+	% Determine the main output
+	\IfBooleanTF{#1}
+	{
+		% Calculate everything
+		\__typoAid_calcAll:n{#2}
+	
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{upshape}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{upshape}}
+
+		% redo the calculation for bfseries
+		\__typoAid_calcAll:n{\bfseries#2}
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{bfseries}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{bfseries}}
+	
+		% redo the calculation for itshape
+		\__typoAid_calcAll:n{\itshape#2}
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{itshape}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{itshape}}
+	
+		% redo the calculation for small caps
+		\__typoAid_calcAll:n{\scshape#2}
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{scshape}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{scshape}}
+
+		% redo the calculation for slanted
+		\__typoAid_calcAll:n{\slshape#2}
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{slshape}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{slshape}}
+		
+		% redo the calculation for sans serif
+		\__typoAid_calcAll:n{\sffamily#2}
+		%output
+		\msg_log:n{\__typoAid_logFontshapeData:nn{#2}{sffamily}}
+		\msg_term:n{\__typoAid_logFontshapeData:nn{#2}{sffamily}}
+	}{
+	% creates a table, centered
+	\begin{table}\centering
+		% the strut is for separating a bit the caption from the table
+		\caption{\strut Font~metrics~for~switch:~\tl_to_str:n{#2}}
+		
+		% the siuntix columns are useful for the points, but need to be reconsidered, possibly
+		\begin{tabular}{lSSS}
+			\toprule
+			% Header row; note that multicolumn is used due to the siunitx columns
+			Font~switch & 
+			\multicolumn{1}{r}{Alphabet~length} & 
+			\multicolumn{1}{r}{Ex~height} & 
+			\multicolumn{1}{r}{Em~width}\\
+		
+			\midrule
+			
+			% Calculates and typesets for each row type
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\upshape}
+			\tl_use:N\g_tmpa_tl\\
+			
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\bfseries}
+			\tl_use:N\g_tmpa_tl\\
+			
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\itshape}
+			\tl_use:N\g_tmpa_tl\\
+			
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\scshape}
+			\tl_use:N\g_tmpa_tl\\
+			
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\slshape}
+			\tl_use:N\g_tmpa_tl\\
+	
+			\__typoAid_PrepareFontshapeRow:nn{#2}{\sffamily}	
+			\tl_use:N\g_tmpa_tl\\
+			
+			\bottomrule
+		\end{tabular}
+	\end{table}
+	}
+}
+
+%% Calculates and typesets the width data
+\NewDocumentCommand{\tywidthtable}{ s m }
+{
+	\__typoAid_calcAll:nn{#2}{\columnwidth}
+	\IfBooleanTF{#1}
+	{
+
+		\msg_term:n{\__typoAid_logWidthData:nn{\columnwidth}{#2}}
+		\msg_log:n{\__typoAid_logWidthData:nn{\columnwidth}{#2}}
+		
+
+		\__typoAid_WidthTableLog:nnn{1.5}{\g__typoAid_Alphabet_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{2}{\g__typoAid_Alphabet_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{2.5}{\g__typoAid_Alphabet_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{24}{\g__typoAid_EmWidth_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{30}{\g__typoAid_EmWidth_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{66}{\g__typoAid_MeanChar_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{30}{\g__typoAid_MeanChar_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{44}{\g__typoAid_MeanChar_dim}{#2}
+		\__typoAid_WidthTableLog:nnn{50}{\g__typoAid_MeanChar_dim}{#2}
+	}{
+		\begin{table}\centering
+			\caption{\strut Width~data~for~font~modificator~\tl_to_str:n{#2} }
+			\begin{tabular}{lSSS}
+				\toprule
+				Description&
+				\multicolumn{1}{c}{Value(pt)}&
+				\multicolumn{1}{c}{Value(pc)}&
+				\multicolumn{1}{c}{Char~per~row}\\
+				\midrule
+				\msg_log:n{\__typoAid_logWidthData:nn{\columnwidth}{#2}}
+				
+				Current~column&
+				\dim_to_decimal_in_unit:nn{\columnwidth}{1pt} &
+				\dim_to_decimal_in_unit:nn{\columnwidth}{1pc}&
+				\int_use:N\g__typoAid_CharPerRow_int\\
+
+				% Prepares the row
+				\__typoAid_prepareWidthTableRow:nnnn
+				{1.5}
+				{\g__typoAid_Alphabet_dim}
+				{#2}
+				{1.5~alphabet~times~(Felici)}
+				% typesets it
+				\tl_use:N\g_tmpa_tl \\
+				
+				\__typoAid_prepareWidthTableRow:nnnn
+				{2}
+				{\g__typoAid_Alphabet_dim}
+				{#2}
+				{2~alphabet~times~(Felici)}
+				\tl_use:N\g_tmpa_tl\\
+				
+				\__typoAid_prepareWidthTableRow:nnnn
+				{2.5}
+				{\g__typoAid_Alphabet_dim}
+				{#2}
+				{2.5~alphabet~times}
+				\tl_use:N\g_tmpa_tl\\
+						
+				\__typoAid_prepareWidthTableRow:nnnn
+				{24}
+				{\g__typoAid_EmWidth_dim}
+				{#2}
+				{2~em~in~pica~(Felici)}
+				\tl_use:N\g_tmpa_tl\\
+				
+				\__typoAid_prepareWidthTableRow:nnnn
+				{30}
+				{\g__typoAid_EmWidth_dim}
+				{#2}
+				{2.5~em~in~pica~(Felici)}
+				\tl_use:N\g_tmpa_tl\\
+			
+				\__typoAid_prepareWidthTableRow:nnnn
+				{66}
+				{\g__typoAid_MeanChar_dim}
+				{#2}
+				{66~char~per~row~(Bringhurst)}
+				\tl_use:N\g_tmpa_tl\\
+				
+				\__typoAid_prepareWidthTableRow:nnnn
+				{30}
+				{\g__typoAid_MeanChar_dim}
+				{#2}
+				{30~char~per~row~multicol~(Bringhurst)}
+				\tl_use:N\g_tmpa_tl\\
+
+				\__typoAid_prepareWidthTableRow:nnnn
+				{44}
+				{\g__typoAid_MeanChar_dim}
+				{#2}
+				{44~char~per~row~multicol~(Bringhurst)}
+				\tl_use:N\g_tmpa_tl\\			
+
+				\__typoAid_prepareWidthTableRow:nnnn
+				{50}
+				{\g__typoAid_MeanChar_dim}
+				{#2}
+				{50~char~per~row~multicol~(Bringhurst)}
+				\tl_use:N\g_tmpa_tl\\			
+
+				\bottomrule
+			\end{tabular}
+		\end{table}
+	}
+}
+
+%% Calculates the number of character fitting in a row of given width
+%% Parameters
+%% 1-> star
+%% 2-> (optional) width
+%% 3 -> switch
+\NewDocumentCommand{\tychperwidth}{s o m}
+{
+	% Performs the calculations of the given switch
+	\__typoAid_calcAll:n{#3}
+	
+	% If no optional parameter is given, sets the width to the column
+	\IfNoValueTF{#2}
+	{
+		\dim_set:Nn\l_tmpa_dim{\columnwidth}
+	}
+	{
+		\dim_set:Nn\l_tmpa_dim{#2}
+	}
+	
+	% Calculates the carh per width
+	\__typoAid_calcCharPW:n{\l_tmpa_dim}
+	
+	%% determines the output
+	\IfBooleanTF{#1}
+	{
+		\msg_term:n
+		{
+			\c__typoAid_name_string;~Calculated:~\int_eval:n{\g__typoAid_CharPerRow_int}~chars~in~width:~
+			\dim_use:N\l_tmpa_dim~~ and~switch~\tl_to_str:n{#3}
+		}
+	}{
+		Calculated:~\int_eval:n{\g__typoAid_CharPerRow_int}~chars~in~width:~
+		\dim_eval:n{\l_tmpa_dim}~and~switch~\tl_to_str:n{#3}
+	}
+	
+	\msg_log:n
+	{
+		\c__typoAid_name_string;~Calculated:~\int_eval:n{\g__typoAid_CharPerRow_int}~chars~in~width:~
+		\dim_eval:n{\l_tmpa_dim}~and~switch~\tl_to_str:n{#3}
+	}
+}
+
+%% Gives the width to obtain the given char number
+%% Parameters
+%% 1-> star
+%% 2-> (optional) switch
+%% 3-> char number
+\NewDocumentCommand{\tywidthgivchar}{sO{}m}
+{
+	% Performs the calculations
+	\__typoAid_calcAll:n{#2}
+	\dim_set:Nn\l_tmpa_dim
+	{
+		\fp_to_dim:n
+		{
+			\dim_to_fp:n{\g__typoAid_MeanChar_dim}*\int_eval:n{#3}
+		}
+	}
+	
+	%Determines the output
+	\IfBooleanTF{#1}
+	{
+		\msg_term:n{\c__typoAid_name_string;~for:\tl_to_str:n{#2}
+		\iow_newline:*~for~\int_eval:n{#3}~char,\iow_newline:*~ %
+		colwidth:~\dim_eval:n{\l_tmpa_dim}~(\dim_to_decimal_in_unit:nn{\l_tmpa_dim}{1pc}~pc)}
+	}{
+		In~order~to~obtain~the~required~\int_eval:n{#3}~characters~per~column,~
+		the~column~should~have~a~width~of~
+		\dim_eval:n{\l_tmpa_dim}~(\dim_to_decimal_in_unit:nn{\l_tmpa_dim}{1pc}~pc)
+	}
+	%log
+	\msg_log:n{\c__typoAid_name_string;~for:\tl_to_str:n{#2}\ 
+	\iow_newline:.~for \int_eval:n{#3}~char,\iow_newline:.~
+	colwidth:~\dim_eval:n{\l_tmpa_dim}~(\dim_to_decimal_in_unit:nn{\l_tmpa_dim}{1pc}~pc)}
+}
+
+%% Command to evaluate the number of rows in a specific height
+%% Parameters
+%% 1-> star
+%% 2-> optional font family switch
+%% 3-> height
+%% 4-> baseline skip
+%% 5-> optional font height
+\NewDocumentCommand{\tyheight}{sO{}mmo}
+{
+ 	\tl_if_blank:nTF{#3}
+ 	{
+ 		
+ 		\dim_set:Nn\l_tmpa_dim{\dim_use:N\textheight}
+ 	}{
+
+		\dim_set:Nn\l_tmpa_dim{\dim_eval:n{#3}} 	
+ 	}
+ 	
+ 	\tl_if_blank:nTF{#4}
+ 	{
+ 		\dim_set:Nn\l_tmpb_dim{\dim_use:N\baselineskip}
+ 	}{
+		\dim_set:Nn\l_tmpb_dim{\dim_eval:n{#4}} 	
+ 	}
+ 	
+ 	\__typoAid_calcFsize:n{#2}
+ 	
+ 	\IfNoValueTF{#5}
+	{
+		\dim_gsub:Nn\l_tmpa_dim{\dim_use:N\g__typoAid_SwitchedFontSize_dim}
+	}{
+		\dim_gsub:Nn\l_tmpa_dim{\dim_eval:n{#5}}
+	}
+
+ 	\fp_set:Nn\l_tmpa_fp
+ 	{
+ 		\dim_ratio:nn{\l_tmpa_dim}{\l_tmpb_dim}+1		
+	}
+ 	
+ 	\IfBooleanTF{#1}
+ 	{
+		\msg_term:n{\c__typoAid_name_string;\iow_newline:*~The~height~of~\dim_eval:n{
+ 			\tl_if_blank:nTF{#3}{\dim_use:N\textheight}{\dim_eval:n{#3}}}
+ 		~could~contain~\fp_eval:n{\l_tmpa_fp}~lines~of~text~with~switch~\tl_to_str:n{#2}}
+ 	}{
+ 		The~height~of~\dim_eval:n
+ 		{
+ 			\tl_if_blank:nTF{#3}{\dim_use:N\textheight}{\dim_eval:n{#3}}
+ 		}~could~contain~\fp_eval:n{\l_tmpa_fp}~lines~of~text~with~switch~\tl_to_str:n{#2}
+ 	}
+ 	
+ 	\msg_log:n{\c__typoAid_name_string;\iow_newline:*~The~height~of~\dim_eval:n
+ 		{
+ 			\tl_if_blank:nTF{#3}{\dim_use:N\textheight}{\dim_eval:n{#3}}
+ 		}~could~contain~\fp_eval:n{\l_tmpa_fp}~lines~of~text~with~switch~\tl_to_str:n{#2}}
+}
+
+%% Command to evaluate the number of rows in a specific height
+%% Parameters
+%% 1-> star
+%% 2-> optional font family switch
+%% 3-> width
+%% 4-> form factor
+%% 5-> optional baselineskip
+\NewDocumentCommand{\tyformfactorheight}{ s O{} m m O{\baselineskip}}
+{
+ 	\__typoAid_calcFsize:n{#2}
+ 	
+ 	\dim_set:Nn\l__typoAid_local_dim{\dim_eval:n{#5}}
+ 	
+ 	\tl_if_blank:nTF{#3}
+ 	{
+ 		\dim_set:Nn\l_tmpa_dim{\dim_use:N\columnwidth}
+ 	}{
+ 		\dim_set:Nn\l_tmpa_dim{#3}
+ 	}	
+ 	
+	\IfBooleanTF{#1}
+	{
+		% FIRST ROW
+		\dim_gset:Nn\g_tmpb_dim
+		{
+			\fp_to_dim:n
+			{
+				\fp_eval:n{#4}*\dim_eval:n{\l_tmpa_dim}
+			}
+		}
+				
+		\__typoAid_nrRows:nnn{#2}{\l__typoAid_local_dim}{\g_tmpb_dim}
+				
+		\msg_term:n
+		{
+			\c__typoAid_name_string\iow_newline:*~
+			Form~factor: \fp_eval:n{#4}~for~switch:\tl_to_str:n{#2}\iow_newline:*~
+			Width:~ \dim_to_decimal_in_unit:nn
+			{\g_tmpb_dim}{1pt}~pt~
+			(\dim_to_decimal_in_unit:nn
+			{\g_tmpb_dim}{1pc}~pc)\iow_newline:*~
+			Rows~per~height:~\fp_eval:n{round(\g_tmpa_fp,3)}
+			
+		}
+		\__typoAid_formfactor_log:nnnn{\g_tmpb_dim}{#2}{\fp_eval:n{round(\g_tmpa_fp,3)}}{#4}
+				
+			%% SECOND ROW
+		\fp_set:Nn\l_tmpa_fp{\fp_eval:n{\g_tmpa_fp}}
+				
+		\int_gset:Nn\g_tmpa_int{\fp_eval:n{trunc (\g_tmpa_fp)}}
+				
+		\__typoAid_HeightForRows:nnn{#1}{\g_tmpa_int}{\l__typoAid_local_dim}
+		
+		\msg_term:n
+		{
+			\c__typoAid_name_string\iow_newline:*~
+			Form~factor: \fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }~
+			~for~switch:\tl_to_str:n{#2}\iow_newline:*~
+			Width:~ \dim_to_decimal_in_unit:nn
+			{\g_tmpa_dim}{1pt}~pt~
+			(\dim_to_decimal_in_unit:nn
+			{\g_tmpa_dim}{1pc}~pc)\iow_newline:*~
+			Rows~per~height:~\int_eval:n{\g_tmpa_int}
+		}
+		\__typoAid_formfactor_log:nnnn
+				{\g_tmpa_dim}
+				{#2}
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }}
+				{\g_tmpa_int}
+		%third row
+		\fp_set:Nn\l_tmpa_fp{\fp_eval:n{\g_tmpa_fp}}
+				
+		\int_gset:Nn\g_tmpa_int{\fp_eval:n{trunc \g_tmpa_fp}+1}
+				
+		\__typoAid_HeightForRows:nnn{#1}{\g_tmpa_int}{\l__typoAid_local_dim}
+		
+		\msg_term:n
+		{
+			\c__typoAid_name_string\iow_newline:*~
+			Form~factor: \fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }~
+			~for~switch:\tl_to_str:n{#2}\iow_newline:*~
+			Width:~ \dim_to_decimal_in_unit:nn
+			{\g_tmpa_dim}{1pt}~pt~
+			(\dim_to_decimal_in_unit:nn
+			{\g_tmpa_dim}{1pc}~pc)\iow_newline:*~
+			Rows~per~height:~\int_eval:n{\g_tmpa_int}
+		}
+		\__typoAid_formfactor_log:nnnn
+				{\g_tmpa_dim}
+				{#2}
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }}
+				{\g_tmpa_int}
+	}{
+		\begin{table}
+			\centering
+			\caption{Height~data~for~switch~\tl_to_str:n{#2};~width:~\tl_to_str:n{#3},~skip:~\dim_eval:n{#5}}
+			\begin{tabular}{lSSSS}
+				\toprule
+				\multicolumn{1}{l}{Description}&
+				\multicolumn{1}{r}{Height~(pt)}&
+				\multicolumn{1}{r}{Height~(pc)}&
+				\multicolumn{1}{r}{Lines~per~height}&
+				\multicolumn{1}{r}{Form~factor}\\
+				\midrule
+%%%%%%%%%%FIRST ROW: DATA AS BEEN REQUESTED
+				\dim_gset:Nn\g_tmpb_dim
+				{
+					\fp_to_dim:n
+					{
+						\fp_eval:n{#4}*\dim_eval:n{\l_tmpa_dim}
+					}
+				}
+				
+				\__typoAid_nrRows:nnn{#2}{\l__typoAid_local_dim}{\g_tmpb_dim}
+				\fp_gset:Nn\g_tmpb_fp{\fp_eval:n{round(\g_tmpa_fp,3)}}
+				\__typoAid_PrepareHeightTableRow_tl:nnnn
+				{#4}
+				{\fp_eval:n{round(\g_tmpa_fp,3)}}
+				{Requested}
+				{\g_tmpb_dim}
+				\__typoAid_formfactor_log:nnnn{\g_tmpb_dim}{#2}{#4}{\g_tmpb_fp}
+				\tl_use:N\g_tmpa_tl\\
+				
+%%%%%%%%%%SECOND ROW: TRUNC				
+				\fp_set:Nn\l_tmpa_fp{\fp_eval:n{\g_tmpa_fp}}
+				
+				\int_gset:Nn\g_tmpa_int{\fp_eval:n{trunc (\g_tmpa_fp)}}
+				
+				\__typoAid_HeightForRows:nnn{#1}{\g_tmpa_int}{\l__typoAid_local_dim}
+				
+				\__typoAid_PrepareHeightTableRow_tl:nnnn
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }}
+				{\g_tmpa_int}
+				{Floor~rounding}
+				{\g_tmpa_dim}
+				\__typoAid_formfactor_log:nnnn
+				{\g_tmpa_dim}
+				{#2}
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3) }}
+				{\g_tmpa_int}
+				\tl_use:N\g_tmpa_tl\\
+				
+%%%%%%%%%THIRD ROW: +1			
+				\fp_set:Nn\l_tmpa_fp{\fp_eval:n{\g_tmpa_fp}}
+				
+				\int_gset:Nn\g_tmpa_int{\fp_eval:n{trunc \g_tmpa_fp}+1}
+				
+				\__typoAid_HeightForRows:nnn{#1}{\g_tmpa_int}{\l__typoAid_local_dim}
+				
+				\__typoAid_PrepareHeightTableRow_tl:nnnn
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3)}}
+				{\g_tmpa_int}
+				{\relax Ceil~rounding}
+				{\g_tmpa_dim}
+				\__typoAid_formfactor_log:nnnn
+				{\g_tmpa_dim}
+				{#2}
+				{\fp_eval:n{round(\dim_ratio:nn{\g_tmpa_dim}{\l_tmpa_dim},3)}}
+				{\g_tmpa_int}
+				\tl_use:N\g_tmpa_tl\\
+				
+				\bottomrule			
+			\end{tabular}
+		\end{table}
+	
+	}
+}
+

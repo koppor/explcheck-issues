@@ -1,0 +1,821 @@
+% ^module name=''cssyntax'' container=''(standalone)'':
+%
+%   ^purpose:Core syntax layer providing readable, structured internal
+%     command names via extended catcodes, plus a small set of
+%     readable aliases for common TeX primitives._purpose:
+%
+%   ^desc:
+%     This package activates "_", ":" and "/" as letter-category
+%     characters for the scope in which structured command names
+%     (container_module_type_subtype/description) are written or
+%     invoked. It has no domain of its own and can be used by any
+%     package author, inside or outside the lingwrit bundle.
+%   _desc:
+%
+% _module:
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cssyntax}[2026/07/20 v0.1.0 Control-sequence syntax]
+
+% ^section title=''Bootstrap'':
+%   ^rem:These commands must never contain "_", ":" or "/" in their own
+%     name: they must remain usable BEFORE the extended syntax is
+%     active._rem:
+% _section:
+
+% ^cs name=''\csSyntaxOn'':
+%   ^desc:Activates "_", ":" and "/" as letter-category characters,
+%     opening the scope in which structured command names can be
+%     typed literally._desc:
+%   ^syn:\csSyntaxOn_syn:
+%   ^code language=''latex'':
+\providecommand\csSyntaxOn{%
+	\makeatletter
+	\catcode`\_=11
+	\catcode`\:=11
+	\catcode`\/=11
+}
+%   _code:
+%   ^synonym:\csSyntaxEnabled_synonym:
+% _cs:
+\NewCommandCopy{\csSyntaxEnabled}{\csSyntaxOn}
+
+% ^cs name=''\csSyntaxOff'':
+%   ^desc:Restores the original catcodes of "_", ":" and "/",
+%     closing the scope opened by \csSyntaxOn._desc:
+%   ^syn:\csSyntaxOff_syn:
+%   ^code language=''latex'':
+\providecommand\csSyntaxOff{%
+	\makeatother
+	\catcode`\_=8
+	\catcode`\:=12
+	\catcode`\/=12
+}
+%   _code:
+%   ^synonym:\csSyntaxDisabled_synonym:
+% _cs:
+\NewCommandCopy{\csSyntaxDisabled}{\csSyntaxOff}
+
+\RequirePackage{xifthen}
+\RequirePackage{xparse}
+\RequirePackage{expl3}
+\RequirePackage{l3keys2e}
+
+\csSyntaxOn
+
+% ^section title=''Copy and definition primitives'':
+%   ^rem:The bodies of _fun_copy/cs, _fun_save/cs, _fun_use/cs,
+%     _fun_reset/cs and _fun_swap/cs keep a raw \let internally --
+%     these implement idempotent, repeatable operations (a scratch
+%     variable reused on every call, a save/reset that must be
+%     callable more than once on the same name), which
+%     \NewCommandCopy's collision protection would break. Every
+%     ":"-alias declaration of these commands, by contrast, is a
+%     one-time definition and uses \NewCommandCopy._rem:
+% _section:
+
+% ^cs name=''\_fun_copy/cs'':
+%   ^desc:Copies the meaning of one control sequence into another
+%     (wraps \let). Kept on \let internally: this command's whole
+%     purpose is to expose \let's overwrite-friendly semantics, not
+%     to add collision protection on top of it._desc:
+%   ^syn:\_fun_copy/cs{<target>}{<source>}_syn:
+%   ^code language=''latex'':
+\def\_fun_copy/cs#1#2{\let#1#2}
+%   _code:
+%   ^synonym:\_fun_copy:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_copy:cs}{\_fun_copy/cs}
+
+% ^cs name=''\_fun_define/cs'':
+%   ^desc:Defines a command with no argument-expansion (wraps \def)._desc:
+%   ^syn:\_fun_define/cs <cs> {<replacement text>}_syn:
+%   ^code language=''latex'':
+\def\_fun_define/cs#1#2{\def#1{#2}}
+%   _code:
+%   ^synonym:\_fun_define:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_define:cs}{\_fun_define/cs}
+
+% ^cs name=''\_fun_define/exp'':
+%   ^desc:Defines a command with local expansion of the replacement
+%     text (wraps \edef)._desc:
+%   ^syn:\_fun_define/exp <cs> {<replacement text>}_syn:
+%   ^code language=''latex'':
+\def\_fun_define/exp#1#2{\edef#1{#2}}
+%   _code:
+%   ^synonym:\_fun_define:exp_synonym:
+% _cs:
+\NewCommandCopy{\_fun_define:exp}{\_fun_define/exp}
+
+% ^cs name=''\_fun_define/global'':
+%   ^desc:Defines a command globally, without expansion
+%     (wraps \gdef)._desc:
+%   ^syn:\_fun_define/global <cs> {<replacement text>}_syn:
+%   ^code language=''latex'':
+\def\_fun_define/global#1#2{\gdef#1{#2}}
+%   _code:
+%   ^synonym:\_fun_define:global_synonym:
+% _cs:
+\NewCommandCopy{\_fun_define:global}{\_fun_define/global}
+
+% ^cs name=''\_fun_define/global_exp'':
+%   ^desc:Defines a command globally, with expansion of the
+%     replacement text (wraps \xdef)._desc:
+%   ^syn:\_fun_define/global_exp <cs> {<replacement text>}_syn:
+%   ^code language=''latex'':
+\def\_fun_define/global_exp#1#2{\xdef#1{#2}}
+%   _code:
+%   ^synonym:\_fun_define:global_exp_synonym:
+% _cs:
+\NewCommandCopy{\_fun_define:global_exp}{\_fun_define/global_exp}
+
+% ^cs name=''\_fun_define/protected_exp'':
+%   ^desc:Defines a command with protected expansion
+%     (wraps \protected@edef)._desc:
+%   ^syn:\_fun_define/protected_exp <cs> {<replacement text>}_syn:
+%   ^code language=''latex'':
+\def\_fun_define/protected_exp#1#2{\protected@edef#1{#2}}
+%   _code:
+%   ^synonym:\_fun_define:protected_exp_synonym:
+% _cs:
+\NewCommandCopy{\_fun_define:protected_exp}{\_fun_define/protected_exp}
+
+% ^section title=''Expansion and introspection'':
+
+% ^cs name=''\_fun_expand/after'':
+%   ^desc:Reorders expansion of the following tokens
+%     (alias of \expandafter)._desc:
+%   ^syn:\_fun_expand/after <token1> <token2>_syn:
+%   ^synonym:\_fun_expand:after_synonym:
+% _cs:
+\NewCommandCopy{\_fun_expand/after}{\expandafter}
+\NewCommandCopy{\_fun_expand:after}{\expandafter}
+
+% ^cs name=''\_fun_expand/prevent'':
+%   ^desc:Protects the following token from expansion
+%     (alias of \noexpand)._desc:
+%   ^syn:\_fun_expand/prevent <token>_syn:
+%   ^synonym:\_fun_expand:prevent_synonym:
+% _cs:
+\NewCommandCopy{\_fun_expand/prevent}{\noexpand}
+\NewCommandCopy{\_fun_expand:prevent}{\noexpand}
+
+% ^cs name=''\_fun_build/cs'':
+%   ^desc:Builds and invokes a control sequence from a character
+%     string, regardless of the current catcode of its characters
+%     (wraps \csname...\endcsname)._desc:
+%   ^syn:\_fun_build/cs{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_build/cs#1{\csname#1\endcsname}
+%   _code:
+%   ^synonym:\_fun_build:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_build:cs}{\_fun_build/cs}
+
+% ^rem:\csname...\endcsname has a subtle side effect worth stating
+%   explicitly: if <name> was never defined, \csname implicitly
+%   creates it as \relax rather than raising an error. A typo in a
+%   dynamically-built name therefore fails silently (nothing visible
+%   happens) instead of producing "Undefined control sequence"._rem:
+
+% ^cs name=''\_fun_build/def'':
+%   ^desc:Defines a NEW command whose name is built from a character
+%     string, with a TeX-style parameter text and a body -- the
+%     "definitional" counterpart of \_fun_build/cs, which only
+%     invokes an EXISTING command. Wraps expl3's \cs_new:cpn, so it
+%     refuses to (re)define a name that already exists. The
+%     parameter-text argument must be passed exactly as it would be
+%     typed directly after a bare \cs_new:cpn{<name>} call -- do not
+%     add an extra pair of braces around it in the body of a wrapper
+%     built on top of this command; expl3's "p"-type argument does
+%     not accept a braced group there._desc:
+%   ^syn:\_fun_build/def{<name>}<parameter text>{<body>}_syn:
+%   ^code language=''latex'':
+\def\_fun_build/def#1#2#3{\cs_new:cpn{#1}#2{#3}}
+%   _code:
+%   ^synonym:\_fun_build:def_synonym:
+% _cs:
+\NewCommandCopy{\_fun_build:def}{\_fun_build/def}
+
+% ^cs name=''\_fun_build/redef'':
+%   ^desc:Same as \_fun_build/def, but silently overwrites an
+%     existing command of the same name instead of refusing to
+%     (wraps expl3's \cs_set:cpn)._desc:
+%   ^syn:\_fun_build/redef{<name>}<parameter text>{<body>}_syn:
+%   ^code language=''latex'':
+\def\_fun_build/redef#1#2#3{\cs_set:cpn{#1}#2{#3}}
+%   _code:
+%   ^synonym:\_fun_build:redef_synonym:
+% _cs:
+\NewCommandCopy{\_fun_build:redef}{\_fun_build/redef}
+
+% ^cs name=''\_fun_get/cs_string'':
+%   ^desc:Returns the printable string form of a control sequence
+%     (alias of \string)._desc:
+%   ^syn:\_fun_get/cs_string <cs>_syn:
+%   ^synonym:\_fun_get:cs_string_synonym:
+% _cs:
+\NewCommandCopy{\_fun_get/cs_string}{\string}
+\NewCommandCopy{\_fun_get:cs_string}{\string}
+
+% ^cs name=''\_fun_get/cs_meaning'':
+%   ^desc:Returns the current definition of a control sequence
+%     (alias of \meaning)._desc:
+%   ^syn:\_fun_get/cs_meaning <cs>_syn:
+%   ^synonym:\_fun_get:cs_meaning_synonym:
+% _cs:
+\NewCommandCopy{\_fun_get/cs_meaning}{\meaning}
+\NewCommandCopy{\_fun_get:cs_meaning}{\meaning}
+
+% ^rem:Both commands above must only ever be invoked while the
+%   csSyntaxOn scope is still active -- "/" is not a letter once
+%   csSyntaxOff has run, so a call written after that point would
+%   be misparsed as two separate tokens._rem:
+
+% ^section title=''Groups'':
+%   ^rem:"group" (no qualifier) is the general-purpose scoping
+%     mechanism for local assignments -- counters, lengths, patched
+%     commands -- and is the pair to reach for by default (alias of
+%     \begingroup/\endgroup). "token_group" is the more specialised
+%     pair: \bgroup/\egroup are literal begin-group/end-group
+%     CHARACTER TOKENS wearing a command name, usable anywhere TeX
+%     expects an actual brace-catcode token -- e.g. as the
+%     delimiters of \hbox\_fun_enter/token_group ... \_fun_exit/
+%     token_group, which \begingroup/\endgroup cannot substitute
+%     for._rem:
+% _section:
+
+% ^cs name=''\_fun_enter/group'':
+%   ^desc:Opens a general-purpose local-values scope, e.g. for
+%     temporary counters, lengths, or patched commands (alias of
+%     \begingroup)._desc:
+%   ^synonym:\_fun_enter:group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter/group}{\begingroup}
+\NewCommandCopy{\_fun_enter:group}{\begingroup}
+
+% ^cs name=''\_fun_exit/group'':
+%   ^desc:Closes a general-purpose local-values scope (alias of
+%     \endgroup)._desc:
+%   ^synonym:\_fun_exit:group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_exit/group}{\endgroup}
+\NewCommandCopy{\_fun_exit:group}{\endgroup}
+
+% ^cs name=''\_fun_enter/token_group'':
+%   ^desc:Opens a scope using a literal begin-group character token
+%     wearing a command name -- usable anywhere TeX expects an
+%     actual brace-catcode token, e.g. as a box-construction
+%     delimiter (alias of \bgroup)._desc:
+%   ^synonym:\_fun_enter:token_group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter/token_group}{\bgroup}
+\NewCommandCopy{\_fun_enter:token_group}{\bgroup}
+
+% ^cs name=''\_fun_exit/token_group'':
+%   ^desc:Closes a scope opened with \_fun_enter/token_group (alias
+%     of \egroup)._desc:
+%   ^synonym:\_fun_exit:token_group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_exit/token_group}{\egroup}
+\NewCommandCopy{\_fun_exit:token_group}{\egroup}
+
+% ^section title=''Generic helpers'':
+
+% ^cs name=''\_fun_save/cs'':
+%   ^desc:Stores the current definition of a control sequence for
+%     later retrieval via \_fun_use/cs. Kept on \let internally:
+%     must remain callable more than once on the same name (e.g.
+%     to refresh a snapshot)._desc:
+%   ^syn:\_fun_save/cs{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_save/cs#1{%
+	\expandafter\let\csname _cssyntax_saved/#1\expandafter\endcsname\csname#1\endcsname
+}
+%   _code:
+%   ^synonym:\_fun_save:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_save:cs}{\_fun_save/cs}
+
+% ^cs name=''\_fun_use/cs'':
+%   ^desc:Recalls a definition previously stored by
+%     \_fun_save/cs._desc:
+%   ^syn:\_fun_use/cs{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_use/cs#1{\csname _cssyntax_saved/#1\endcsname}
+%   _code:
+%   ^synonym:\_fun_use:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_use:cs}{\_fun_use/cs}
+
+% ^cs name=''\_fun_reset/cs'':
+%   ^desc:Resets a control sequence to \relax. Kept on \let
+%     internally: must remain idempotent (callable again on an
+%     already-reset name)._desc:
+%   ^syn:\_fun_reset/cs{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_reset/cs#1{\expandafter\let\csname#1\endcsname\relax}
+%   _code:
+%   ^synonym:\_fun_reset:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_reset:cs}{\_fun_reset/cs}
+
+% ^cs name=''\_fun_swap/cs'':
+%   ^desc:Exchanges the definitions of two control sequences. Kept
+%     on \let internally: reuses a single scratch control sequence
+%     across every call, which \NewCommandCopy's collision
+%     protection would break after the first use._desc:
+%   ^syn:\_fun_swap/cs{<cs1>}{<cs2>}_syn:
+%   ^code language=''latex'':
+\def\_fun_swap/cs#1#2{%
+	\let\_cssyntax_tmp_cs#1%
+	\let#1#2%
+	\let#2\_cssyntax_tmp_cs%
+}
+%   _code:
+%   ^synonym:\_fun_swap:cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_swap:cs}{\_fun_swap/cs}
+
+% ^cs name=''\_fun_pick/first'':
+%   ^desc:Discards the second of two arguments, keeps the first
+%     (alias of \@firstoftwo)._desc:
+%   ^synonym:\_fun_pick:first_synonym:
+% _cs:
+\NewCommandCopy{\_fun_pick/first}{\@firstoftwo}
+\NewCommandCopy{\_fun_pick:first}{\@firstoftwo}
+
+% ^cs name=''\_fun_pick/second'':
+%   ^desc:Discards the first of two arguments, keeps the second
+%     (alias of \@secondoftwo)._desc:
+%   ^synonym:\_fun_pick:second_synonym:
+% _cs:
+\NewCommandCopy{\_fun_pick/second}{\@secondoftwo}
+\NewCommandCopy{\_fun_pick:second}{\@secondoftwo}
+
+% ^cs name=''\_fun_gobble/one'':
+%   ^desc:Discards one argument (alias of \@gobble)._desc:
+%   ^synonym:\_fun_gobble:one_synonym:
+% _cs:
+\NewCommandCopy{\_fun_gobble/one}{\@gobble}
+\NewCommandCopy{\_fun_gobble:one}{\@gobble}
+
+% ^cs name=''\_fun_gobble/two'':
+%   ^desc:Discards two arguments (alias of \@gobbletwo)._desc:
+%   ^synonym:\_fun_gobble:two_synonym:
+% _cs:
+\NewCommandCopy{\_fun_gobble/two}{\@gobbletwo}
+\NewCommandCopy{\_fun_gobble:two}{\@gobbletwo}
+
+% ^section title=''Files'':
+
+% ^cs name=''\_fun_load/'':
+%   ^desc:Unconditionally loads a file (alias of \input). The base
+%     case of the load family takes no qualifier._desc:
+%   ^syn:\_fun_load/{<filename>}_syn:
+%   ^synonym:\_fun_load:_synonym:
+% _cs:
+\NewCommandCopy{\_fun_load/}{\input}
+\NewCommandCopy{\_fun_load:}{\input}
+
+% ^cs name=''\_fun_load/if_exists'':
+%   ^desc:Loads a file if it exists, with distinct branches for the
+%     found/not-found cases. Built on \IfFileExists (which takes a
+%     true/false branch pair) combined with \input, NOT on
+%     \InputIfFileExists -- the latter is a 2-argument kernel
+%     command (filename, code-to-run-after-input) with no built-in
+%     "not found" branch at all; passing it a third argument, as an
+%     earlier version of this file mistakenly did, leaves that third
+%     argument dangling in the input stream rather than raising an
+%     error, producing confusing downstream failures._desc:
+%   ^syn:\_fun_load/if_exists{<filename>}{<if found>}{<if not found>}_syn:
+%   ^code language=''latex'':
+\NewDocumentCommand\_fun_load/if_exists{m m m}{\IfFileExists{#1}{\input{#1}#2}{#3}}
+%   _code:
+%   ^synonym:\_fun_load:if_exists_synonym:
+% _cs:
+\NewCommandCopy{\_fun_load:if_exists}{\_fun_load/if_exists}
+
+% ^cs name=''\_fun_enter/source'':
+%   ^desc:No-op marker, kept purely for visual symmetry, meant to be
+%     placed at the top of a file loaded via \_fun_load/if_exists._desc:
+%   ^synonym:\_fun_enter:source, \_fun_enter/input, \_fun_enter:input_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter/source}{\relax}
+\NewCommandCopy{\_fun_enter:source}{\relax}
+\NewCommandCopy{\_fun_enter/input}{\_fun_enter/source}
+\NewCommandCopy{\_fun_enter:input}{\_fun_enter/source}
+
+% ^cs name=''\_fun_exit/source'':
+%   ^desc:A real \endinput: stops reading the current file at this
+%     exact point. Scope is strictly local to the file it appears
+%     in -- if that file was itself loaded from another file, only
+%     the inner file's reading stops._desc:
+%   ^synonym:\_fun_exit:source, \_fun_exit/input, \_fun_exit:input_synonym:
+% _cs:
+\NewCommandCopy{\_fun_exit/source}{\endinput}
+\NewCommandCopy{\_fun_exit:source}{\endinput}
+\NewCommandCopy{\_fun_exit/input}{\endinput}
+\NewCommandCopy{\_fun_exit:input}{\endinput}
+
+% ^section title=''Low-level environment declaration'':
+%   ^rem:These commands let a package author emulate
+%     \begin{env}...\end{env} at a low level, anywhere -- including
+%     the preamble, where \newenvironment does not always work.
+%     They remain low-level building blocks, not a replacement for
+%     \newenvironment's argument-parsing features._rem:
+%   ^rem:Each declaration also generates a matching
+%     \_fun_use/<name>{<content>} command, which opens the
+%     environment, typesets its argument, and closes it again --
+%     the same way a command copied with \_fun_copy/cs is used
+%     identically regardless of whether it was originally \def'ed
+%     or \edef'ed: the declaration style is a choice made once, at
+%     declaration time, and is invisible at the point of use._rem:
+%   ^rem:The ":"-alias generated for each declared <name> uses a
+%     plain \let, not \NewCommandCopy: unlike cssyntax's own fixed,
+%     one-time alias declarations above, a module may legitimately
+%     redeclare the same environment name while iterating on its
+%     own code._rem:
+% _section:
+
+% ^cs name=''\_fun_declare/env'':
+%   ^desc:Declares a low-level environment with no automatic
+%     grouping: the author is responsible for placing their own
+%     \begingroup/\bgroup (or none at all) inside the enter/exit
+%     code. Generates \_fun_enter/<name>, \_fun_exit/<name>, and
+%     \_fun_use/<name>, plus their ":" synonyms._desc:
+%   ^syn:\_fun_declare/env{<name>}{<enter code>}{<exit code>}_syn:
+%   ^code language=''latex'':
+\def\_fun_declare/env#1#2#3{%
+	\expandafter\def\csname _fun_enter/#1\endcsname{#2}%
+	\expandafter\let\csname _fun_enter:#1\expandafter\endcsname\csname _fun_enter/#1\endcsname
+	\expandafter\def\csname _fun_exit/#1\endcsname{#3}%
+	\expandafter\let\csname _fun_exit:#1\expandafter\endcsname\csname _fun_exit/#1\endcsname
+	\expandafter\def\csname _fun_use/#1\endcsname##1{%
+		\csname _fun_enter/#1\endcsname
+		##1%
+		\csname _fun_exit/#1\endcsname
+	}%
+	\expandafter\let\csname _fun_use:#1\expandafter\endcsname\csname _fun_use/#1\endcsname
+}
+%   _code:
+%   ^synonym:\_fun_declare:env_synonym:
+% _cs:
+\NewCommandCopy{\_fun_declare:env}{\_fun_declare/env}
+
+% ^cs name=''\_fun_declare/auto_group'':
+%   ^desc:Same as \_fun_declare/env, but automatically wraps the
+%     enter code in \begingroup and the exit code in \endgroup._desc:
+%   ^syn:\_fun_declare/auto_group{<name>}{<enter code>}{<exit code>}_syn:
+%   ^code language=''latex'':
+\def\_fun_declare/auto_group#1#2#3{%
+	\expandafter\def\csname _fun_enter/#1\endcsname{\begingroup#2}%
+	\expandafter\let\csname _fun_enter:#1\expandafter\endcsname\csname _fun_enter/#1\endcsname
+	\expandafter\def\csname _fun_exit/#1\endcsname{#3\endgroup}%
+	\expandafter\let\csname _fun_exit:#1\expandafter\endcsname\csname _fun_exit/#1\endcsname
+	\expandafter\def\csname _fun_use/#1\endcsname##1{%
+		\csname _fun_enter/#1\endcsname
+		##1%
+		\csname _fun_exit/#1\endcsname
+	}%
+	\expandafter\let\csname _fun_use:#1\expandafter\endcsname\csname _fun_use/#1\endcsname
+}
+%   _code:
+%   ^synonym:\_fun_declare:auto_group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_declare:auto_group}{\_fun_declare/auto_group}
+
+% ^section title=''Booleans'':
+%   ^rem:Built on xifthen's \newboolean/\setboolean/\boolean rather
+%     than a hand-rolled \newif wrapper. Two consequences follow:
+%     declaring a boolean under a name already taken raises an
+%     explicit error instead of silently overwriting the previous
+%     one, and \boolean{...} returns the raw conditional token
+%     itself, so it plugs directly into \_fun_enter/test_bool
+%     below. The "_user_bool/" prefix protects against collisions
+%     with the rest of the document (user macros, other packages)
+%     but not against two bundle modules picking the same short
+%     name -- callers should still prefix their own module name in
+%     <name>, e.g. \_fun_declare/bool{nx_note_forced_margin}._rem:
+% _section:
+
+% ^cs name=''\_fun_declare/bool'':
+%   ^desc:Creates a new boolean, initialised to false, under the
+%     internal "_user_bool/" prefix (wraps \newboolean)._desc:
+%   ^syn:\_fun_declare/bool{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_declare/bool#1{\newboolean{_user_bool/#1}}
+%   _code:
+%   ^synonym:\_fun_declare:bool_synonym:
+% _cs:
+\NewCommandCopy{\_fun_declare:bool}{\_fun_declare/bool}
+
+% ^cs name=''\_fun_set/bool_true'':
+%   ^desc:Sets a previously declared boolean to true
+%     (wraps \setboolean)._desc:
+%   ^syn:\_fun_set/bool_true{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_set/bool_true#1{\setboolean{_user_bool/#1}{true}}
+%   _code:
+%   ^synonym:\_fun_set:bool_true_synonym:
+% _cs:
+\NewCommandCopy{\_fun_set:bool_true}{\_fun_set/bool_true}
+
+% ^cs name=''\_fun_set/bool_false'':
+%   ^desc:Sets a previously declared boolean to false
+%     (wraps \setboolean)._desc:
+%   ^syn:\_fun_set/bool_false{<name>}_syn:
+%   ^code language=''latex'':
+\def\_fun_set/bool_false#1{\setboolean{_user_bool/#1}{false}}
+%   _code:
+%   ^synonym:\_fun_set:bool_false_synonym:
+% _cs:
+\NewCommandCopy{\_fun_set:bool_false}{\_fun_set/bool_false}
+
+% ^section title=''The _fun_test/ family -- native TeX conditionals'':
+%   ^rem:One command opens a given test, a single common command
+%     closes it, whatever kind of test was opened._rem:
+%   ^rem:_fun_doif/false, _fun_doif/else, _fun_doif/case and
+%     _fun_exit/test MUST remain genuine aliases of the real
+%     primitives (\else, \or, \fi), never \def-based macros
+%     standing in for them. TeX recognises \else/\or/\fi during
+%     conditional-skipping by comparing MEANING, without ever
+%     expanding the tokens it scans past -- a \def-based stand-in
+%     is invisible to that scan and produces "Incomplete
+%     \ifdim/\ifnum/..." errors. \NewCommandCopy preserves this
+%     property exactly as \let did, since both produce a true
+%     meaning-equal alias. _fun_doif/true is unaffected: it is only
+%     ever executed when its branch is the one actually taken,
+%     never required to be recognised during a skip._rem:
+% _section:
+
+% ^cs name=''\_fun_enter/test_bool'':
+%   ^desc:Opens a test on a previously declared boolean. Reads the
+%     conditional created by \newboolean directly via \csname...
+%     \endcsname -- NOT through ifthen's \boolean macro, which is a
+%     two-argument helper meant to be assembled inside \ifthenelse
+%     and is not usable standalone as a conditional-opener._desc:
+%   ^syn:\_fun_enter/test_bool{<name>} ... \_fun_exit/test_syn:
+%   ^code language=''latex'':
+\def\_fun_enter/test_bool#1{\csname if_user_bool/#1\endcsname}
+%   _code:
+%   ^synonym:\_fun_enter:test_bool_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter:test_bool}{\_fun_enter/test_bool}
+
+% ^cs name=''\_fun_enter/test_dim'':
+%   ^desc:Opens a dimension comparison (wraps \ifdim)._desc:
+%   ^syn:\_fun_enter/test_dim{<a>}{<rel>}{<b>} ... \_fun_exit/test_syn:
+%   ^code language=''latex'':
+\def\_fun_enter/test_dim#1#2#3{\ifdim#1#2#3}
+%   _code:
+%   ^synonym:\_fun_enter:test_dim_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter:test_dim}{\_fun_enter/test_dim}
+
+% ^cs name=''\_fun_enter/test_num'':
+%   ^desc:Opens an integer comparison (wraps \ifnum)._desc:
+%   ^syn:\_fun_enter/test_num{<a>}{<rel>}{<b>} ... \_fun_exit/test_syn:
+%   ^code language=''latex'':
+\def\_fun_enter/test_num#1#2#3{\ifnum#1#2#3}
+%   _code:
+%   ^synonym:\_fun_enter:test_num_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter:test_num}{\_fun_enter/test_num}
+
+% ^cs name=''\_fun_enter/test_cs'':
+%   ^desc:Opens a comparison of two control sequences (wraps \ifx)._desc:
+%   ^syn:\_fun_enter/test_cs{<cs1>}{<cs2>} ... \_fun_exit/test_syn:
+%   ^code language=''latex'':
+\def\_fun_enter/test_cs#1#2{\ifx#1#2}
+%   _code:
+%   ^synonym:\_fun_enter:test_cs_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter:test_cs}{\_fun_enter/test_cs}
+
+% ^cs name=''\_fun_enter/test_case'':
+%   ^desc:Opens a multi-way branch (wraps \ifcase)._desc:
+%   ^syn:\_fun_enter/test_case{<n>} ... \_fun_exit/test_syn:
+%   ^code language=''latex'':
+\def\_fun_enter/test_case#1{\ifcase#1\relax}
+%   _code:
+%   ^synonym:\_fun_enter:test_case_synonym:
+% _cs:
+\NewCommandCopy{\_fun_enter:test_case}{\_fun_enter/test_case}
+
+% ^cs name=''\_fun_doif/true'':
+%   ^desc:Branch executed when the currently open test is true.
+%     Expands to its argument as-is; the only branch in this
+%     family that remains a plain \def macro, since it is never
+%     required to be recognised during a conditional skip._desc:
+%   ^syn:\_fun_doif/true{<code>}_syn:
+%   ^code language=''latex'':
+\def\_fun_doif/true#1{#1}
+%   _code:
+%   ^synonym:\_fun_doif:true_synonym:
+% _cs:
+\NewCommandCopy{\_fun_doif:true}{\_fun_doif/true}
+
+% ^cs name=''\_fun_doif/false'':
+%   ^desc:Branch executed when the currently open test is false.
+%     A genuine alias of \else, not a macro expanding to it._desc:
+%   ^syn:\_fun_doif/false{<code>}_syn:
+%   ^synonym:\_fun_doif:false, \_fun_doif/else, \_fun_doif:else_synonym:
+% _cs:
+\NewCommandCopy{\_fun_doif/false}{\else}
+\NewCommandCopy{\_fun_doif:false}{\else}
+\NewCommandCopy{\_fun_doif/else}{\else}
+\NewCommandCopy{\_fun_doif:else}{\else}
+
+% ^cs name=''\_fun_doif/case'':
+%   ^desc:One branch of a multi-way test opened with
+%     \_fun_enter/test_case. A genuine alias of \or. Cannot take a
+%     documentary branch-index argument: write
+%     "\_fun_doif/case <code>" directly, exactly as one would
+%     write \or in a native \ifcase._desc:
+%   ^syn:\_fun_doif/case <code>_syn:
+%   ^synonym:\_fun_doif:case_synonym:
+% _cs:
+\NewCommandCopy{\_fun_doif/case}{\or}
+\NewCommandCopy{\_fun_doif:case}{\or}
+
+% ^cs name=''\_fun_exit/test'':
+%   ^desc:Closes any test opened by the \_fun_enter/test_* family,
+%     whatever its nature. A genuine alias of \fi._desc:
+%   ^syn:\_fun_exit/test_syn:
+%   ^synonym:\_fun_exit:test_synonym:
+% _cs:
+\NewCommandCopy{\_fun_exit/test}{\fi}
+\NewCommandCopy{\_fun_exit:test}{\fi}
+
+% ^section title=''The _fun_check/ family -- declarative macro-based tests'':
+%   ^rem:These are not native TeX conditionals but macros taking a
+%     subject plus named branches (true/else). They neither open
+%     nor close: there is no matching \_fun_exit/check._rem:
+%   ^rem:\ExplSyntaxOff resets "_" and ":" to their hard-coded LaTeX2e
+%     defaults rather than to whatever was active before entering,
+%     so a bare \csSyntaxOn is called again immediately afterwards
+%     to restore cssyntax's own extended state. A \begingroup/
+%     \endgroup wrapper was tried first and rejected: catcode
+%     assignments are inherently global, but \keys_define:nn's own
+%     key registration is NOT global by default, and closing such a
+%     group silently wiped the "true"/"else" keys, producing
+%     "unknown key" errors at first real use._rem:
+% _section:
+
+\ExplSyntaxOn
+\tl_new:N \l__cssyntax_true_code_tl
+\tl_new:N \l__cssyntax_else_code_tl
+
+\keys_define:nn { lwcheck } {
+	true  .tl_set:N = \l__cssyntax_true_code_tl ,
+	else  .tl_set:N = \l__cssyntax_else_code_tl ,
+	false .tl_set:N = \l__cssyntax_else_code_tl ,
+	true  .initial:n = { } ,
+	else  .initial:n = { } ,
+}
+\ExplSyntaxOff
+\csSyntaxOn
+
+% ^cs name=''\_fun_check/defined'':
+%   ^desc:Tests whether a control sequence is currently defined._desc:
+%   ^syn:\_fun_check/defined{<cs>}{true={<code>}, else={<code>}}_syn:
+%   ^code language=''latex'':
+\NewDocumentCommand\_fun_check/defined{m m}{%
+	\tl_clear:N \l__cssyntax_true_code_tl
+	\tl_clear:N \l__cssyntax_else_code_tl
+	\keys_set:nn { lwcheck } { #2 }
+	\@ifundefined{#1}
+		{ \l__cssyntax_else_code_tl }
+		{ \l__cssyntax_true_code_tl }
+}
+%   _code:
+%   ^synonym:\_fun_check:defined_synonym:
+% _cs:
+\NewCommandCopy{\_fun_check:defined}{\_fun_check/defined}
+
+% ^cs name=''\_fun_check/pkg_loaded'':
+%   ^desc:Tests whether a package is currently loaded._desc:
+%   ^syn:\_fun_check/pkg_loaded{<package>}{true={<code>}, else={<code>}}_syn:
+%   ^code language=''latex'':
+\NewDocumentCommand\_fun_check/pkg_loaded{m m}{%
+	\tl_clear:N \l__cssyntax_true_code_tl
+	\tl_clear:N \l__cssyntax_else_code_tl
+	\keys_set:nn { lwcheck } { #2 }
+	\@ifpackageloaded{#1}
+		{ \l__cssyntax_true_code_tl }
+		{ \l__cssyntax_else_code_tl }
+}
+%   _code:
+%   ^synonym:\_fun_check:pkg_loaded_synonym:
+% _cs:
+\NewCommandCopy{\_fun_check:pkg_loaded}{\_fun_check/pkg_loaded}
+
+% ^cs name=''\_fun_check/streq'':
+%   ^desc:Tests whether two strings are equal._desc:
+%   ^syn:\_fun_check/streq{<a>}{<b>}{true={<code>}, else={<code>}}_syn:
+%   ^code language=''latex'':
+\NewDocumentCommand\_fun_check/streq{m m m}{%
+	\tl_clear:N \l__cssyntax_true_code_tl
+	\tl_clear:N \l__cssyntax_else_code_tl
+	\keys_set:nn { lwcheck } { #3 }
+	\ifthenelse{\equal{#1}{#2}}
+		{ \l__cssyntax_true_code_tl }
+		{ \l__cssyntax_else_code_tl }
+}
+%   _code:
+%   ^synonym:\_fun_check:streq_synonym:
+% _cs:
+\NewCommandCopy{\_fun_check:streq}{\_fun_check/streq}
+
+% ^rem:if_next_char and if_next_group are position-sensitive: unlike
+%   the rest of the _fun_check/ family, they inspect whatever token
+%   comes right after their own call in the input stream, rather
+%   than testing a value already in hand. Two consequences follow.
+%   First, they close cssyntax's own syntax scope (\csSyntaxOff)
+%   as the very FIRST action of their body, so the caller must NOT
+%   also write \csSyntaxOff between the call and the content being
+%   tested -- doing so would insert \csSyntaxOff itself as the
+%   token being peeked at, hiding the real one. Second, both are
+%   defined here with \cs_new:cpn while \ExplSyntaxOn is active at
+%   AUTHORING time, not merely called at run time inside a plain
+%   \def written under \csSyntaxOn alone: a literal space typed in
+%   an ordinary \def's body is stored as a real catcode-10 token
+%   forever, regardless of any \ExplSyntaxOn invoked later at run
+%   time, and such a token sitting inside \peek_catcode:NTF's own
+%   branch was found experimentally to make it misreport its
+%   result. Definining under \ExplSyntaxOn instead makes space
+%   catcode-9 (ignored) at the point the definition is scanned, so
+%   no such token is ever stored. A second, independent finding:
+%   \keys_set:nn must never be called BEFORE a \peek_catcode:NTF in
+%   the same expansion -- even a call to a completely unrelated key
+%   group placed earlier was enough to make the peek misreport its
+%   result. It is safe only when placed textually inside peek's own
+%   true/false branches, after the branch has already been chosen._rem:
+
+% ^cs name=''\_fun_check/if_next_char'':
+%   ^desc:Tests whether a specific character follows, without
+%     consuming it (wraps \@ifnextchar). Position-sensitive -- see
+%     the remark above._desc:
+%   ^syn:\_fun_check/if_next_char{<char>}{true={<code>}, else={<code>}}_syn:
+%   ^code language=''latex'':
+\ExplSyntaxOn
+\cs_new:cpn { _fun_check/if_next_char } #1#2 {
+	\csSyntaxOff
+	\@ifnextchar #1
+		{
+			\tl_clear:N \l__cssyntax_true_code_tl
+			\tl_clear:N \l__cssyntax_else_code_tl
+			\keys_set:nn { lwcheck } { #2 }
+			\l__cssyntax_true_code_tl
+		}
+		{
+			\tl_clear:N \l__cssyntax_true_code_tl
+			\tl_clear:N \l__cssyntax_else_code_tl
+			\keys_set:nn { lwcheck } { #2 }
+			\l__cssyntax_else_code_tl
+		}
+}
+\ExplSyntaxOff
+%   _code:
+%   ^synonym:\_fun_check:if_next_char_synonym:
+% _cs:
+\NewCommandCopy{\_fun_check:if_next_char}{\_fun_check/if_next_char}
+
+% ^cs name=''\_fun_check/if_next_group'':
+%   ^desc:Tests whether a brace-delimited group follows, without
+%     consuming it (wraps expl3's \peek_catcode:NTF against
+%     \c_group_begin_token). The building block for macros that
+%     accept a flexible, unbounded number of {<group>}{<group>}...
+%     arguments: each processing step tests whether another group
+%     follows and loops if so. Position-sensitive -- see the remark
+%     above._desc:
+%   ^syn:\_fun_check/if_next_group{true={<code>}, else={<code>}}_syn:
+%   ^code language=''latex'':
+\ExplSyntaxOn
+\cs_new:cpn { _fun_check/if_next_group } #1 {
+	\csSyntaxOff
+	\peek_catcode:NTF \c_group_begin_token
+		{
+			\tl_clear:N \l__cssyntax_true_code_tl
+			\tl_clear:N \l__cssyntax_else_code_tl
+			\keys_set:nn { lwcheck } { #1 }
+			\l__cssyntax_true_code_tl
+		}
+		{
+			\tl_clear:N \l__cssyntax_true_code_tl
+			\tl_clear:N \l__cssyntax_else_code_tl
+			\keys_set:nn { lwcheck } { #1 }
+			\l__cssyntax_else_code_tl
+		}
+}
+\ExplSyntaxOff
+%   _code:
+%   ^synonym:\_fun_check:if_next_group_synonym:
+% _cs:
+\NewCommandCopy{\_fun_check:if_next_group}{\_fun_check/if_next_group}
+
+\csSyntaxOff
+
+\endinput

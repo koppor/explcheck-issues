@@ -1,0 +1,552 @@
+%% texchanges.sty
+%% LaTeX-native track changes for human and AI-assisted review.
+%% Copyright (C) 2026 Phuc Nguyen
+%%
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c of this license or (at
+%% your option) any later version. This work has the LPPL maintenance status
+%% "maintained". The Current Maintainer is Phuc Nguyen.
+\NeedsTeXFormat{LaTeX2e}[2020-10-01]
+\ProvidesExplPackage{texchanges}{2026/08/18}{0.3.0}{LaTeX-native track changes}
+
+\RequirePackage{xparse}
+\RequirePackage{l3keys2e}
+
+\ExplSyntaxOn
+
+% TeX Live 2023's expl3 does not predefine this variant.
+\cs_generate_variant:Nn \prop_item:Nn {NV}
+
+% --------------------------------------------------------------------------
+% Package state and options
+% --------------------------------------------------------------------------
+\tl_new:N \g_tx_mode_tl
+\tl_new:N \g_tx_preset_tl
+\tl_new:N \g_tx_added_style_tl
+\tl_new:N \g_tx_deleted_style_tl
+\tl_new:N \g_tx_highlight_style_tl
+\tl_new:N \g_tx_comment_style_tl
+\tl_new:N \g_tx_author_style_tl
+\tl_new:N \g_tx_author_position_tl
+\tl_new:N \g_tx_author_text_tl
+\tl_new:N \g_tx_default_color_tl
+\tl_new:N \g_tx_compat_tl
+\tl_new:N \g_tx_prefix_strategy_tl
+\tl_new:N \g_tx_loc_ext_tl
+\tl_new:N \g_tx_soc_ext_tl
+\bool_new:N \g_tx_color_bool
+\bool_new:N \g_tx_pending_bool
+\bool_new:N \g_tx_todonotes_loaded_bool
+\dim_new:N \g_tx_truncate_width_dim
+\dim_new:N \g_tx_summary_width_dim
+
+\tl_gset:Nn \g_tx_mode_tl { review }
+\tl_gset:Nn \g_tx_preset_tl { texchanges }
+\tl_gset:Nn \g_tx_added_style_tl { uline }
+\tl_gset:Nn \g_tx_deleted_style_tl { sout }
+\tl_gset:Nn \g_tx_highlight_style_tl { background }
+\tl_gset:Nn \g_tx_comment_style_tl { inline }
+\tl_gset:Nn \g_tx_author_style_tl { superscript }
+\tl_gset:Nn \g_tx_author_position_tl { right }
+\tl_gset:Nn \g_tx_author_text_tl { id }
+\tl_gset:Nn \g_tx_default_color_tl { blue }
+\tl_gset:Nn \g_tx_compat_tl { none }
+\tl_gset:Nn \g_tx_prefix_strategy_tl { ifneeded }
+\tl_gset:Nn \g_tx_loc_ext_tl { txc }
+\tl_gset:Nn \g_tx_soc_ext_tl { txs }
+\bool_gset_true:N \g_tx_color_bool
+\dim_gset:Nn \g_tx_truncate_width_dim { .6\textwidth }
+\dim_gset:Nn \g_tx_summary_width_dim { .3\textwidth }
+
+\cs_new_protected:Npn \tx_apply_preset:n #1
+  {
+    \tl_gset:Nn \g_tx_preset_tl {#1}
+    \bool_gset_true:N \g_tx_color_bool
+    \str_case:nnF {#1}
+      {
+        {texchanges}{\tl_gset:Nn \g_tx_added_style_tl {uline} \tl_gset:Nn \g_tx_deleted_style_tl {sout}}
+        {default}{\tl_gset:Nn \g_tx_added_style_tl {colored} \tl_gset:Nn \g_tx_deleted_style_tl {sout}}
+        {underlined}{\tl_gset:Nn \g_tx_added_style_tl {uline} \tl_gset:Nn \g_tx_deleted_style_tl {sout} \tl_gset:Nn \g_tx_highlight_style_tl {uwave}}
+        {bfit}{\tl_gset:Nn \g_tx_added_style_tl {bf} \tl_gset:Nn \g_tx_deleted_style_tl {it}}
+        {nocolor}{\bool_gset_false:N \g_tx_color_bool \tl_gset:Nn \g_tx_added_style_tl {uline} \tl_gset:Nn \g_tx_deleted_style_tl {sout} \tl_gset:Nn \g_tx_highlight_style_tl {uwave}}
+      }
+      {\PackageWarning{texchanges}{Unknown~markup~preset~'#1';~using~texchanges}}
+  }
+
+\keys_define:nn { tx/package }
+  {
+    review .code:n = \tl_gset:Nn \g_tx_mode_tl {review},
+    draft .code:n = \tl_gset:Nn \g_tx_mode_tl {review},
+    final .code:n = \tl_gset:Nn \g_tx_mode_tl {final},
+    original .code:n = \tl_gset:Nn \g_tx_mode_tl {original},
+    mode .choices:nn = {review,final,original} {\tl_gset:Nx \g_tx_mode_tl {\l_keys_choice_tl}},
+    markup .code:n = \tx_apply_preset:n {#1},
+    addedmarkup .tl_gset:N = \g_tx_added_style_tl,
+    deletedmarkup .tl_gset:N = \g_tx_deleted_style_tl,
+    highlightmarkup .tl_gset:N = \g_tx_highlight_style_tl,
+    commentmarkup .tl_gset:N = \g_tx_comment_style_tl,
+    authormarkup .tl_gset:N = \g_tx_author_style_tl,
+    authormarkupposition .tl_gset:N = \g_tx_author_position_tl,
+    authormarkuptext .tl_gset:N = \g_tx_author_text_tl,
+    defaultcolor .tl_gset:N = \g_tx_default_color_tl,
+    compat .choices:nn = {none,changes} {\tl_gset:Nx \g_tx_compat_tl {\l_keys_choice_tl}},
+    commandnameprefix .tl_gset:N = \g_tx_prefix_strategy_tl,
+    xcolor .code:n = \PassOptionsToPackage{#1}{xcolor},
+    ulem .code:n = \PassOptionsToPackage{#1}{ulem},
+    todonotes .code:n = \PassOptionsToPackage{#1}{todonotes},
+    truncate .code:n = \PassOptionsToPackage{#1}{truncate},
+    unknown .code:n = \PackageWarning{texchanges}{Unknown~option~'\l_keys_key_str'~ignored}
+  }
+\ProcessKeysOptions { tx/package }
+\exp_args:NV \tx_apply_preset:n \g_tx_preset_tl
+
+\PassOptionsToPackage{normalem}{ulem}
+\RequirePackage{xcolor}
+\RequirePackage{ulem}
+\RequirePackage{truncate}
+\RequirePackage{soul}
+\providecommand\phantomsection{}
+
+\str_if_eq:VnT \g_tx_comment_style_tl {todo}
+  {\RequirePackage{todonotes}\bool_gset_true:N \g_tx_todonotes_loaded_bool}
+
+\definecolor{texchangesAdded}{HTML}{0057B8}
+\definecolor{texchangesRemoved}{HTML}{C62828}
+\definecolor{texchangesComment}{HTML}{A54800}
+\definecolor{texchangesHighlight}{HTML}{FFF2A8}
+
+% --------------------------------------------------------------------------
+% Authors, localization, and per-change metadata
+% --------------------------------------------------------------------------
+\prop_new:N \g_tx_author_name_prop
+\prop_new:N \g_tx_author_color_prop
+\seq_new:N \g_tx_author_seq
+\prop_new:N \g_tx_seen_id_prop
+\prop_new:N \g_tx_counts_prop
+\prop_new:N \l_tx_report_counts_prop
+\tl_new:N \g_tx_anonymous_name_tl
+\tl_gset:Nn \g_tx_anonymous_name_tl {anonymous}
+\seq_gput_right:Nn \g_tx_author_seq {anonymous}
+\prop_gput:Nnn \g_tx_author_name_prop {anonymous} {anonymous}
+\prop_gput:NnV \g_tx_author_color_prop {anonymous} \g_tx_default_color_tl
+
+\tl_new:N \l_tx_author_tl
+\tl_new:N \l_tx_id_tl
+\tl_new:N \l_tx_comment_tl
+\tl_new:N \l_tx_status_tl
+\tl_new:N \l_tx_label_tl
+\tl_new:N \l_tx_color_tl
+\tl_new:N \l_tx_type_tl
+\bool_new:N \l_tx_legacy_label_bool
+
+\keys_define:nn { tx/change }
+  {
+    author .tl_set:N = \l_tx_author_tl,
+    id .tl_set:N = \l_tx_id_tl,
+    changeid .meta:n = {id={#1}},
+    comment .tl_set:N = \l_tx_comment_tl,
+    status .choices:nn = {pending,accepted,rejected} {\tl_set:Nx \l_tx_status_tl {\l_keys_choice_tl}},
+    unknown .code:n = \PackageError{texchanges}{Unknown~change~key~'\l_keys_key_str'}{Use~author,~id,~comment,~or~status.}
+  }
+\keys_define:nn { tx/compat-change }
+  {
+    id .tl_set:N = \l_tx_author_tl,
+    changeid .tl_set:N = \l_tx_id_tl,
+    comment .tl_set:N = \l_tx_comment_tl,
+    status .choices:nn = {pending,accepted,rejected} {\tl_set:Nx \l_tx_status_tl {\l_keys_choice_tl}},
+    unknown .code:n = \PackageError{texchanges}{Unknown~compatibility~key~'\l_keys_key_str'}{Use~id,~changeid,~comment,~or~status.}
+  }
+\keys_define:nn { tx/author }
+  {
+    name .tl_set:N = \l_tmpa_tl,
+    color .tl_set:N = \l_tmpb_tl
+  }
+
+\cs_new_protected:Npn \tx_define_author:nn #1#2
+  {
+    \tl_set:Nn \l_tmpa_tl {#2}
+    \tl_set_eq:NN \l_tmpb_tl \g_tx_default_color_tl
+    \keys_set:nn {tx/author}{#1}
+    \seq_if_in:NnF \g_tx_author_seq {#2}{\seq_gput_right:Nn \g_tx_author_seq {#2}}
+    \prop_gput:NnV \g_tx_author_name_prop {#2} \l_tmpa_tl
+    \prop_gput:NnV \g_tx_author_color_prop {#2} \l_tmpb_tl
+  }
+\NewDocumentCommand \txdefineauthor { O{} m } {\tx_define_author:nn {#1}{#2}}
+\NewDocumentCommand \txsetanonymousname { m } {\tl_gset:Nn \g_tx_anonymous_name_tl {#1}\prop_gput:Nnn \g_tx_author_name_prop {anonymous}{#1}}
+
+\cs_new_protected:Npn \tx_change_reset:
+  {
+    \tl_set:Nn \l_tx_author_tl {anonymous}
+    \tl_clear:N \l_tx_id_tl
+    \tl_clear:N \l_tx_comment_tl
+    \tl_set:Nn \l_tx_status_tl {pending}
+    \tl_clear:N \l_tx_label_tl
+    \bool_set_false:N \l_tx_legacy_label_bool
+  }
+\cs_new_protected:Npn \tx_change_parse:n #1
+  {
+    \tx_change_reset:
+    \tl_if_blank:nF {#1}
+      {
+        \tl_if_in:nnTF {#1}{=}
+          {\keys_set:nn {tx/change}{#1}}
+          {\tl_set:Nn \l_tx_label_tl {#1}\bool_set_true:N \l_tx_legacy_label_bool}
+      }
+    \tx_change_validate:
+  }
+\cs_new_protected:Npn \tx_change_validate:
+  {
+    \bool_if:NF \l_tx_legacy_label_bool
+      {
+        \prop_if_in:NVF \g_tx_author_name_prop \l_tx_author_tl
+          {\PackageError{texchanges}{Undefined~author~'\l_tx_author_tl'}{Define~it~with~\string\txdefineauthor.}}
+        \tl_if_blank:VF \l_tx_id_tl
+          {
+            \prop_if_in:NVTF \g_tx_seen_id_prop \l_tx_id_tl
+              {\PackageError{texchanges}{Duplicate~change~ID~'\l_tx_id_tl'}{Every~non-empty~change~ID~must~be~unique.}}
+              {\prop_gput:NVn \g_tx_seen_id_prop \l_tx_id_tl {seen}}
+          }
+      }
+    \str_if_eq:VnT \l_tx_status_tl {pending}{\bool_gset_true:N \g_tx_pending_bool}
+  }
+
+\cs_new:Npn \tx_author_name:
+  {
+    \bool_if:NTF \l_tx_legacy_label_bool {\l_tx_label_tl}
+      {
+        \str_if_eq:VnTF \g_tx_author_text_tl {name}
+          {\prop_item:NV \g_tx_author_name_prop \l_tx_author_tl}
+          {\str_if_eq:VnTF \l_tx_author_tl {anonymous}{}{\l_tx_author_tl}}
+      }
+  }
+\cs_new_protected:Npn \tx_set_color:
+  {
+    \bool_if:NT \g_tx_color_bool
+      {
+        \bool_if:NTF \l_tx_legacy_label_bool
+          {\colorlet{txCurrentColor}{texchangesComment}}
+          {\prop_get:NVN \g_tx_author_color_prop \l_tx_author_tl \l_tx_color_tl\colorlet{txCurrentColor}{\l_tx_color_tl}}
+      }
+  }
+
+% Localized public strings. Users may redefine these directly.
+\cs_new:Npn \txlistchangesname {List~of~changes}
+\cs_new:Npn \txsummaryname {Changes}
+\cs_new:Npn \txcompactsummaryname {Changes~(compact)}
+\cs_new:Npn \txauthorname {Author}
+\cs_new:Npn \txaddedname {Added}
+\cs_new:Npn \txremovedname {Removed}
+\cs_new:Npn \txreplacedname {Replaced}
+\cs_new:Npn \txhighlightedname {Highlighted}
+\cs_new:Npn \txcommentedname {Commented}
+\cs_new:Npn \txstatusname {Status}
+\cs_new:Npn \txpendingname {pending}
+\cs_new:Npn \txacceptedname {accepted}
+\cs_new:Npn \txrejectedname {rejected}
+\cs_new:Npn \txnochangesname {No~changes.}
+\keys_define:nn {tx/localize}
+  {
+    listchanges .code:n = \cs_set:Npn \txlistchangesname {#1},
+    summary .code:n = \cs_set:Npn \txsummaryname {#1},
+    compactsummary .code:n = \cs_set:Npn \txcompactsummaryname {#1},
+    author .code:n = \cs_set:Npn \txauthorname {#1},
+    added .code:n = \cs_set:Npn \txaddedname {#1},
+    removed .code:n = \cs_set:Npn \txremovedname {#1},
+    replaced .code:n = \cs_set:Npn \txreplacedname {#1},
+    highlighted .code:n = \cs_set:Npn \txhighlightedname {#1},
+    commented .code:n = \cs_set:Npn \txcommentedname {#1},
+    status .code:n = \cs_set:Npn \txstatusname {#1},
+    pending .code:n = \cs_set:Npn \txpendingname {#1},
+    accepted .code:n = \cs_set:Npn \txacceptedname {#1},
+    rejected .code:n = \cs_set:Npn \txrejectedname {#1},
+    nochanges .code:n = \cs_set:Npn \txnochangesname {#1}
+  }
+\cs_new_protected:Npn \tx_localize:n #1 {\keys_set:nn {tx/localize}{#1}}
+% Install each translation into its babel caption hook exactly once. Runs at
+% load time when babel precedes texchanges, and again at begin-document to
+% cover babel loaded afterwards; the property list keeps it idempotent.
+\prop_new:N \g_tx_localized_prop
+\cs_new_protected:Npn \tx_install_language:nn #1#2
+  {
+    \cs_if_exist:cT {captions#1}
+      {
+        \prop_if_in:NnF \g_tx_localized_prop {#1}
+          {
+            \prop_gput:Nnn \g_tx_localized_prop {#1}{installed}
+            \exp_args:Nc \addto {captions#1}{\tx_localize:n {#2}}
+          }
+      }
+  }
+\cs_new_protected:Npn \tx_install_localizations:
+  {
+    \cs_if_exist:NT \addto
+      {
+        \tx_install_language:nn {english}{listchanges={List~of~changes},summary={Changes},compactsummary={Changes~(compact)},author={Author},added={Added},removed={Removed},replaced={Replaced},highlighted={Highlighted},commented={Commented},status={Status},pending={pending},accepted={accepted},rejected={rejected},nochanges={No~changes.}}
+        \tx_install_language:nn {british}{listchanges={List~of~changes},summary={Changes},compactsummary={Changes~(compact)},author={Author},added={Added},removed={Removed},replaced={Replaced},highlighted={Highlighted},commented={Commented},status={Status},pending={pending},accepted={accepted},rejected={rejected},nochanges={No~changes.}}
+        \tx_install_language:nn {german}{listchanges={Liste~der~Änderungen},summary={Änderungen},compactsummary={Änderungen~(kompakt)},author={Autor},added={Eingefügt},removed={Gelöscht},replaced={Ersetzt},highlighted={Hervorgehoben},commented={Kommentiert},status={Status},pending={ausstehend},accepted={akzeptiert},rejected={abgelehnt},nochanges={Keine~Änderungen.}}
+        \tx_install_language:nn {ngerman}{listchanges={Liste~der~Änderungen},summary={Änderungen},compactsummary={Änderungen~(kompakt)},author={Autor},added={Eingefügt},removed={Gelöscht},replaced={Ersetzt},highlighted={Hervorgehoben},commented={Kommentiert},status={Status},pending={ausstehend},accepted={akzeptiert},rejected={abgelehnt},nochanges={Keine~Änderungen.}}
+        \tx_install_language:nn {french}{listchanges={Liste~des~modifications},summary={Modifications},compactsummary={Modifications~(compact)},author={Auteur},added={Ajouté},removed={Supprimé},replaced={Remplacé},highlighted={Mis~en~évidence},commented={Commenté},status={Statut},pending={en~attente},accepted={accepté},rejected={rejeté},nochanges={Aucune~modification.}}
+        \tx_install_language:nn {italian}{listchanges={Lista~delle~modifiche},summary={Modifiche},compactsummary={Modifiche~(compatto)},author={Autore},added={Aggiunto},removed={Rimosso},replaced={Sostituito},highlighted={Evidenziato},commented={Commentato},status={Stato},pending={in~sospeso},accepted={accettato},rejected={rifiutato},nochanges={Nessuna~modifica.}}
+        \tx_install_language:nn {vietnamese}{listchanges={Danh~sách~thay~đổi},summary={Các~thay~đổi},compactsummary={Các~thay~đổi~(rút~gọn)},author={Tác~giả},added={Thêm},removed={Xóa},replaced={Thay~thế},highlighted={Đánh~dấu},commented={Nhận~xét},status={Trạng~thái},pending={đang~chờ},accepted={đã~chấp~nhận},rejected={đã~từ~chối},nochanges={Không~có~thay~đổi.}}
+      }
+  }
+\tx_install_localizations:
+\AtBeginDocument{\tx_install_localizations:}
+
+% --------------------------------------------------------------------------
+% Rendering hooks and styles
+% --------------------------------------------------------------------------
+\cs_new:Npn \tx_style:nn #1#2
+  {
+    \str_case:nnF {#1}
+      {
+        {colored}{#2}{sout}{\sout{#2}}{xout}{\xout{#2}}{uline}{\uline{#2}}
+        {uuline}{\uuline{#2}}{uwave}{\uwave{#2}}{dashuline}{\dashuline{#2}}
+        {dotuline}{\dotuline{#2}}{bf}{\textbf{#2}}{it}{\textit{#2}}
+        {sl}{\textsl{#2}}{em}{\emph{#2}}
+      }{#2}
+  }
+\cs_new:Npn \tx_added_markup:n #1 {\tx_style:Vn \g_tx_added_style_tl {#1}}
+\cs_new:Npn \tx_deleted_markup:n #1 {\tx_style:Vn \g_tx_deleted_style_tl {#1}}
+\cs_new:Npn \tx_highlight_markup:n #1
+  {\str_if_eq:VnTF \g_tx_highlight_style_tl {background}{\hl{#1}}{\tx_style:Vn \g_tx_highlight_style_tl {#1}}}
+\cs_generate_variant:Nn \tx_style:nn {Vn}
+
+\cs_new:Npn \tx_author_markup:n #1
+  {
+    \str_case:VnF \g_tx_author_style_tl
+      {{superscript}{\textsuperscript{#1}}{subscript}{\textsubscript{#1}}{brackets}{(#1)}{footnote}{\footnote{#1}}{none}{}}
+      {\textsuperscript{#1}}
+  }
+\cs_new_protected:Npn \tx_author_at:n #1
+  {\str_if_eq:VnT \g_tx_author_position_tl {#1}{\tl_if_blank:eF {\tx_author_name:}{{\color{txCurrentColor}\tx_author_markup:n{\tx_author_name:}}}}}
+\cs_new_protected:Npn \tx_comment_markup:n #1
+  {
+    \str_case:VnF \g_tx_comment_style_tl
+      {
+        {inline}{{\color{texchangesComment}\textbf{[\tx_author_name:\space}#1\textbf{]}}}
+        {margin}{\marginpar{{\color{txCurrentColor}\textbf{[\tx_author_name:]}~#1}}}
+        {footnote}{\footnote{\textbf{[\tx_author_name:]}~#1}}
+        {uwave}{{\color{txCurrentColor}\uwave{\textbf{[\tx_author_name:]}~#1}}}
+        {todo}{\bool_if:NTF \g_tx_todonotes_loaded_bool {\todo[color=txCurrentColor!10,bordercolor=txCurrentColor,nolist]{#1}}{{\color{texchangesComment}[#1]}}}
+      }{{\color{texchangesComment}[#1]}}
+  }
+\NewDocumentCommand \txsetaddedmarkup { m } {\cs_gset:Npn \tx_added_markup:n ##1 {#1}}
+\NewDocumentCommand \txsetdeletedmarkup { m } {\cs_gset:Npn \tx_deleted_markup:n ##1 {#1}}
+\NewDocumentCommand \txsethighlightmarkup { m } {\cs_gset:Npn \tx_highlight_markup:n ##1 {#1}}
+\NewDocumentCommand \txsetcommentmarkup { m } {\cs_gset_protected:Npn \tx_comment_markup:n ##1 {#1}}
+\NewDocumentCommand \txsetauthormarkup { m } {\cs_gset:Npn \tx_author_markup:n ##1 {#1}}
+\NewDocumentCommand \txsetauthormarkupposition { m } {\tl_gset:Nn \g_tx_author_position_tl {#1}}
+\NewDocumentCommand \txsetauthormarkuptext { m } {\tl_gset:Nn \g_tx_author_text_tl {#1}}
+\NewDocumentCommand \txsettruncatewidth { m } {\dim_gset:Nn \g_tx_truncate_width_dim {#1}}
+\NewDocumentCommand \txsetsummarywidth { m } {\dim_gset:Nn \g_tx_summary_width_dim {#1}}
+\NewDocumentCommand \txsetsummarytowidth { m } {\hbox_set:Nn \l_tmpa_box {#1}\dim_gset:Nn \g_tx_summary_width_dim {\box_wd:N \l_tmpa_box}}
+\NewDocumentCommand \txsetlocextension { m } {\tl_gset:Nn \g_tx_loc_ext_tl {#1}}
+\NewDocumentCommand \txsetsocextension { m } {\tl_gset:Nn \g_tx_soc_ext_tl {#1}}
+
+% --------------------------------------------------------------------------
+% Change output, counters, and auxiliary report data
+% --------------------------------------------------------------------------
+\iow_new:N \g_tx_report_iow
+\cs_generate_variant:Nn \iow_open:Nn {Nx}
+\cs_new_protected:Npn \tx_count:n #1
+  {
+    \tl_set:Nx \l_tmpa_tl {\l_tx_author_tl/#1/\l_tx_status_tl}
+    \prop_get:NVNTF \g_tx_counts_prop \l_tmpa_tl \l_tmpb_tl
+      {\prop_gput:NVx \g_tx_counts_prop \l_tmpa_tl {\int_eval:n{\l_tmpb_tl+1}}}
+      {\prop_gput:NVn \g_tx_counts_prop \l_tmpa_tl {1}}
+  }
+\cs_new_protected:Npn \tx_record:nn #1#2
+  {
+    \str_if_eq:VnT \g_tx_mode_tl {review}
+      {
+        \tx_count:n {#1}
+        \phantomsection
+        \tl_if_blank:VF \l_tx_id_tl {\label{tx:\l_tx_id_tl}}
+        \exp_args:NV \addtocontents \g_tx_loc_ext_tl
+          {\protect\txreportline{#1}{\l_tx_status_tl}{\l_tx_author_tl}{\l_tx_id_tl}{#2}}
+      }
+  }
+\cs_new_protected:Npn \tx_change_begin:nn #1#2
+  {
+    \tx_change_parse:n {#2}
+    \tl_set:Nn \l_tx_type_tl {#1}
+    \tx_set_color:
+  }
+\cs_new_protected:Npn \tx_pending_markup:nn #1#2
+  {
+    \tx_author_at:n {left}
+    \str_case:Vn \l_tx_type_tl
+      {
+        {added}{{\bool_if:NT \g_tx_color_bool{\color{txCurrentColor}}\tx_added_markup:n{#2}}}
+        {removed}{{\bool_if:NT \g_tx_color_bool{\color{txCurrentColor}}\tx_deleted_markup:n{#1}}}
+        {replaced}{{\bool_if:NT \g_tx_color_bool{\color{texchangesRemoved}}\tx_deleted_markup:n{#1}}\allowbreak\hspace{.25em}{\bool_if:NT \g_tx_color_bool{\color{texchangesAdded}}\tx_added_markup:n{#2}}}
+        {highlighted}{{\bool_if:NT \g_tx_color_bool{\sethlcolor{txCurrentColor!25}}\tx_highlight_markup:n{#2}}}
+        {commented}{\tx_comment_markup:n{#2}}
+      }
+    \tx_author_at:n {right}
+    \tl_if_blank:VF \l_tx_comment_tl {\tx_comment_markup:n{\l_tx_comment_tl}}
+  }
+\cs_new_protected:Npn \tx_render:nn #1#2
+  {
+    \str_case:Vn \g_tx_mode_tl
+      {
+        {original}{\str_case:Vn \l_tx_type_tl {{removed}{#1}{replaced}{#1}{highlighted}{#2}}}
+        {final}{\str_if_eq:VnTF \l_tx_status_tl {rejected}{\str_case:Vn \l_tx_type_tl {{removed}{#1}{replaced}{#1}{highlighted}{#2}}}{\str_case:Vn \l_tx_type_tl {{added}{#2}{replaced}{#2}{highlighted}{#2}}}}
+        {review}{\str_if_eq:VnTF \l_tx_status_tl {pending}{\tx_pending_markup:nn{#1}{#2}}{\str_if_eq:VnTF \l_tx_status_tl {accepted}{\str_case:Vn \l_tx_type_tl {{added}{#2}{replaced}{#2}{highlighted}{#2}}}{\str_case:Vn \l_tx_type_tl {{removed}{#1}{replaced}{#1}{highlighted}{#2}}}}}
+      }
+  }
+\cs_new_protected:Npn \tx_change:nnnn #1#2#3#4
+  {\group_begin:\tx_change_begin:nn{#1}{#2}\tx_record:nn{#1}{#4}\tx_render:nn{#3}{#4}\group_end:}
+\cs_new_protected:Npn \tx_compat_change:nnnn #1#2#3#4
+  {
+    \group_begin:
+    \tx_change_reset:
+    \keys_set:nn {tx/compat-change}{#2}
+    \tx_change_validate:
+    \tl_set:Nn \l_tx_type_tl {#1}
+    \tx_set_color:
+    \tx_record:nn{#1}{#4}
+    \tx_render:nn{#3}{#4}
+    \group_end:
+  }
+
+\NewDocumentCommand \txadd { O{} m } {\tx_change:nnnn{added}{#1}{}{#2}}
+\NewDocumentCommand \txremove { O{} m } {\tx_change:nnnn{removed}{#1}{#2}{#2}}
+\NewDocumentCommand \txreplace { O{} m m } {\tx_change:nnnn{replaced}{#1}{#2}{#3}}
+\NewDocumentCommand \txhighlight { O{} m } {\tx_change:nnnn{highlighted}{#1}{#2}{#2}}
+\NewDocumentCommand \txcomment { O{} m } {\tx_change:nnnn{commented}{#1}{}{#2}}
+
+% --------------------------------------------------------------------------
+% List and summary of changes
+% --------------------------------------------------------------------------
+\tl_new:N \l_tx_list_style_tl
+\tl_new:N \l_tx_list_title_tl
+\clist_new:N \l_tx_list_show_clist
+\clist_new:N \l_tx_list_status_clist
+\clist_new:N \l_tx_list_author_clist
+\keys_define:nn {tx/list}
+  {
+    style .choices:nn = {list,summary,compactsummary}{\tl_set:Nx \l_tx_list_style_tl {\l_keys_choice_tl}},
+    title .tl_set:N = \l_tx_list_title_tl,
+    show .clist_set:N = \l_tx_list_show_clist,
+    status .clist_set:N = \l_tx_list_status_clist,
+    author .clist_set:N = \l_tx_list_author_clist
+  }
+\cs_new:Npn \txreportline #1#2#3#4#5
+  {
+    \clist_if_in:NnT \l_tx_list_show_clist {#1}
+      {\clist_if_in:NnT \l_tx_list_status_clist {#2}
+        {\clist_if_in:NnT \l_tx_list_author_clist {#3}
+          {\par\noindent\textbf{\tx_type_name:n{#1}}\tl_if_blank:nF{#4}{~(#4)}:~\truncate{\g_tx_truncate_width_dim}{#5}\tl_if_blank:nF{#4}{\dotfill\pageref{tx:#4}}\par}}}
+  }
+\cs_new:Npn \tx_type_name:n #1 {\str_case:nnF{#1}{{added}{\txaddedname}{removed}{\txremovedname}{replaced}{\txreplacedname}{highlighted}{\txhighlightedname}{commented}{\txcommentedname}}{#1}}
+\cs_new:Npn \tx_status_name:n #1 {\str_case:nnF{#1}{{pending}{\txpendingname}{accepted}{\txacceptedname}{rejected}{\txrejectedname}}{#1}}
+\cs_new_protected:Npn \tx_summary:
+  {
+    \prop_set_eq:NN \l_tx_report_counts_prop \g_tx_counts_prop
+    \exp_args:Nx \file_if_exist:nT {\jobname.\g_tx_soc_ext_tl}
+      {
+        \prop_clear:N \l_tx_report_counts_prop
+        \exp_args:Nx \file_input:n {\jobname.\g_tx_soc_ext_tl}
+      }
+    \seq_map_inline:Nn \g_tx_author_seq
+      {
+        \par\noindent\textbf{{\txauthorname}:~\prop_item:Nn \g_tx_author_name_prop{##1}}\\
+        \clist_map_inline:nn {added,removed,replaced,highlighted,commented}
+          {\int_zero:N \l_tmpa_int\clist_map_inline:Nn \l_tx_list_status_clist {\prop_get:NnNT \l_tx_report_counts_prop {##1/####1/########1}\l_tmpa_tl{\int_add:Nn \l_tmpa_int{\l_tmpa_tl}}}\str_if_eq:VnTF \l_tx_list_style_tl{compactsummary}{\int_compare:nNnT{\l_tmpa_int}>{0}{\tx_type_name:n{####1}:~\int_use:N\l_tmpa_int\quad}}{\tx_type_name:n{####1}:~\int_use:N\l_tmpa_int\quad}}\par
+        \clist_map_inline:Nn \l_tx_list_status_clist
+          {\int_zero:N \l_tmpa_int\clist_map_inline:nn {added,removed,replaced,highlighted,commented}{\prop_get:NnNT \l_tx_report_counts_prop {##1/########1/####1}\l_tmpa_tl{\int_add:Nn \l_tmpa_int{\l_tmpa_tl}}}\textit{\tx_status_name:n{####1}}:~\int_use:N\l_tmpa_int\quad}\par
+      }
+  }
+\cs_new_protected:Npn \txsummaryentry #1#2
+  {\prop_put:Nnn \l_tx_report_counts_prop {#1}{#2}}
+\cs_new_protected:Npn \tx_write_summary_aux:
+  {
+    \iow_open:Nx \g_tx_report_iow {\jobname.\g_tx_soc_ext_tl}
+    \prop_map_inline:Nn \g_tx_counts_prop
+      {\iow_now:Nx \g_tx_report_iow {\exp_not:N \txsummaryentry {\exp_not:n {##1}} {##2}}}
+    \iow_close:N \g_tx_report_iow
+  }
+\NewDocumentCommand \txlistofchanges { O{} }
+  {
+    \str_if_eq:VnT \g_tx_mode_tl {review}
+      {
+        \tl_set:Nn \l_tx_list_style_tl {list}\tl_clear:N \l_tx_list_title_tl
+        \clist_set:Nn \l_tx_list_show_clist {added,removed,replaced,highlighted,commented}
+        \clist_set:Nn \l_tx_list_status_clist {pending,accepted,rejected}
+        \clist_set:Nx \l_tx_list_author_clist {\seq_use:Nn \g_tx_author_seq {,}}
+        \keys_set:nn {tx/list}{#1}
+        \section*{\tl_if_blank:VTF \l_tx_list_title_tl{\str_case:Vn \l_tx_list_style_tl {{list}{\txlistchangesname}{summary}{\txsummaryname}{compactsummary}{\txcompactsummaryname}}}{\l_tx_list_title_tl}}
+        \str_if_eq:VnTF \l_tx_list_style_tl {list}
+          {
+            \exp_args:Nx \file_if_exist:nF {\jobname.\g_tx_loc_ext_tl}
+              {\emph{\txnochangesname}}
+            \exp_args:NV \@starttoc \g_tx_loc_ext_tl
+          }
+          {\tx_summary:}
+      }
+  }
+\AtEndDocument
+  {
+    \str_if_eq:VnT \g_tx_mode_tl {review}
+      {\tx_write_summary_aux:}
+    \str_if_eq:VnT \g_tx_mode_tl {final}
+      {\bool_if:NT \g_tx_pending_bool{\PackageWarningNoLine{texchanges}{Pending~changes~were~accepted~by~final~mode}}}
+  }
+
+% --------------------------------------------------------------------------
+% Native aliases and opt-in changes compatibility
+% --------------------------------------------------------------------------
+\cs_if_exist:NF \add {\cs_new_eq:NN \add \txadd}
+\cs_if_exist:NF \remove {\cs_new_eq:NN \remove \txremove}
+\cs_if_exist:NF \replace {\cs_new_eq:NN \replace \txreplace}
+\str_if_eq:VnF \g_tx_compat_tl {changes}
+  {
+    \cs_if_exist:NF \highlight {\cs_new_eq:NN \highlight \txhighlight}
+    \cs_if_exist:NF \comment {\cs_new_eq:NN \comment \txcomment}
+  }
+
+\cs_new_protected:Npn \tx_compat_define:NN #1#2
+  {
+    \str_case:Vn \g_tx_prefix_strategy_tl
+      {
+        {always}{\cs_new_eq:cN {ch\cs_to_str:N #1} #2}
+        {ifneeded}{\cs_if_exist:NTF #1 {\cs_new_eq:cN {ch\cs_to_str:N #1} #2}{\cs_new_eq:NN #1 #2}}
+        {none}{\cs_if_exist:NTF #1 {\PackageError{texchanges}{Command~\token_to_str:N#1~already~defined}{Use~commandnameprefix=ifneeded~or~always.}}{\cs_new_eq:NN #1 #2}}
+      }
+  }
+\NewDocumentCommand \txcompatadded { O{} m } {\tx_compat_change:nnnn{added}{#1}{}{#2}}
+\NewDocumentCommand \txcompatdeleted { O{} m } {\tx_compat_change:nnnn{removed}{#1}{#2}{#2}}
+\NewDocumentCommand \txcompatreplaced { O{} m m } {\tx_compat_change:nnnn{replaced}{#1}{#3}{#2}}
+\NewDocumentCommand \txcompathighlight { O{} m } {\tx_compat_change:nnnn{highlighted}{#1}{#2}{#2}}
+\NewDocumentCommand \txcompatcomment { O{} m } {\tx_compat_change:nnnn{commented}{#1}{}{#2}}
+
+\str_if_eq:VnT \g_tx_compat_tl {changes}
+  {
+    \tx_compat_define:NN \added \txcompatadded
+    \tx_compat_define:NN \deleted \txcompatdeleted
+    \tx_compat_define:NN \replaced \txcompatreplaced
+    \tx_compat_define:NN \highlight \txcompathighlight
+    \tx_compat_define:NN \comment \txcompatcomment
+    \cs_new_eq:NN \definechangesauthor \txdefineauthor
+    \cs_new_eq:NN \listofchanges \txlistofchanges
+    \cs_new_eq:NN \setaddedmarkup \txsetaddedmarkup
+    \cs_new_eq:NN \setdeletedmarkup \txsetdeletedmarkup
+    \cs_new_eq:NN \sethighlightmarkup \txsethighlightmarkup
+    \cs_new_eq:NN \setcommentmarkup \txsetcommentmarkup
+    \cs_new_eq:NN \setauthormarkup \txsetauthormarkup
+    \cs_new_eq:NN \setauthormarkupposition \txsetauthormarkupposition
+    \cs_new_eq:NN \setauthormarkuptext \txsetauthormarkuptext
+    \cs_new_eq:NN \setanonymousname \txsetanonymousname
+    \cs_new_eq:NN \settruncatewidth \txsettruncatewidth
+    \cs_new_eq:NN \setsummarywidth \txsetsummarywidth
+    \cs_new_eq:NN \setsummarytowidth \txsetsummarytowidth
+    \cs_new_eq:NN \setlocextension \txsetlocextension
+    \cs_new_eq:NN \setsocextension \txsetsocextension
+  }
+
+\cs_new:Npn \texchangesmode {\g_tx_mode_tl}
+\PackageInfo{texchanges}{Rendering~changes~in~\g_tx_mode_tl~mode}
+\ExplSyntaxOff
+\endinput

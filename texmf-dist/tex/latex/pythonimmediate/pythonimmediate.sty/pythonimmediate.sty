@@ -1,0 +1,233 @@
+% File: pythonimmediate.sty
+% Copyright 2022-2025 user202729
+%
+% This work  may be  distributed and/or  modified under  the conditions  of the
+% LaTeX Project Public License (LPPL),  either version 1.3c  of this license or
+% (at your option) any later version.  The latest version of this license is in
+% the file:
+%
+%   http://www.latex-project.org/lppl.txt
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is user202729.
+
+\ProvidesExplPackage{pythonimmediate}{2025/08/24}{0.6.0}{Library to run Python code}
+
+\RequirePackage{saveenv}
+\PassOptionsToPackage{abspath}{currfile}  % try to enable abspath if possible (i.e. if package isn't loaded) but otherwise don't give option-clash error
+\RequirePackage{currfile}
+\RequirePackage{l3keys2e}
+\RequirePackage{precattl}
+
+
+\cs_generate_variant:Nn \str_set:Nn {NV}
+\cs_generate_variant:Nn \str_if_eq:nnT {VnT}
+\cs_generate_variant:Nn \msg_error:nnn {nnV}
+\cs_generate_variant:Nn \str_if_eq:nnF {xnF}
+\cs_generate_variant:Nn \str_range:nnn {Vnn}
+\cs_generate_variant:Nn \str_if_eq:nnF {VnF}
+\cs_generate_variant:Nn \str_if_in:nnF {VnF}
+\cs_generate_variant:Nn \tl_build_put_right:Nn {NV}
+
+% some old commands e.g. \$, \^, \_, \~ require \set@display@protect to be robust.
+% ~ needs to be redefined directly.
+\precattl_exec:n {
+	\cs_new_protected:Npn \_pythonimmediate_begingroup_setup_estr: {
+		\begingroup
+			\escapechar=-1~
+			\cC{set@display@protect}
+			\let  \cC{]} \relax
+			\let  \cA\~  \relax
+	}
+}
+
+% use like this \__begingroup_setup_estr: ⟨some command⟩ \endgroup
+% e.g. \__begingroup_setup_estr: \exp_args:NNx \endgroup \__function:n {⟨text⟩}
+% will eventually execute to \__function:n {⟨estr-expansion of text⟩}
+
+\str_gset:Nn \_pythonimmediate_args{}
+\str_gset:Nn \_pythonimmediate_python_executable{python3}
+\str_gset:Nn \_pythonimmediate_python_flags{}
+\keys_define:nn{pythonimmediate}{
+	args.tl_gset:N             =\_pythonimmediate_args,
+	python-executable.tl_gset:N=\_pythonimmediate_python_executable,
+	python-flags.tl_gset:N     =\_pythonimmediate_python_flags,
+	child-process.bool_gset:N  =\_pythonimmediate_child_process,
+}
+\ProcessKeysOptions{pythonimmediate}
+
+\_pythonimmediate_begingroup_setup_estr:
+	\str_gset:Nx \_pythonimmediate_args             { \_pythonimmediate_args }
+	\str_gset:Nx \_pythonimmediate_python_executable{ \_pythonimmediate_python_executable }
+	\str_gset:Nx \_pythonimmediate_python_flags     { \_pythonimmediate_python_flags }
+\endgroup
+
+\msg_new:nnn {pythonimmediate} {shell-fail} {Please~enable~unrestricted~shell~escape!}
+\msg_new:nnn {pythonimmediate} {process-start-error} {Cannot~start~Python~process!~
+	Make~sure~package~options~are~correct~and~the~Python~package~is~installed.~
+	If~PYTHONPATH~is~used~to~specify~a~zip~file,~make~sure~the~name~is~correct,~
+	in~particular~whether~a~dash~or~an~underscore~should~be~used.}
+\msg_new:nnn {pythonimmediate} {internal-error} {Internal~error!}
+
+\sys_if_shell_unrestricted:F {
+	\msg_error:nn {pythonimmediate} {shell-fail}
+}
+
+% note on \newread: we need to persistently open the file anyway, so using LaTeX3 stream reference counting doesn't help
+
+
+% ======== setup read file ========
+
+\bool_if:NTF \_pythonimmediate_child_process {
+	% make read file read from stdin
+	% note that \ior_str_get:NN or \ior_get:NN cannot be used here as it checks for \ifeof which breaks with terminal for some reason
+	\int_const:Nn \_pythonimmediate_read_file {-1}
+} {
+	\newread \_pythonimmediate_read_file
+	\openin \_pythonimmediate_read_file=|"\_pythonimmediate_python_executable \space \_pythonimmediate_python_flags \space -m ~ pythonimmediate.pytotex ~ \_pythonimmediate_args"~
+}
+
+% ======== copy of ior_str_get but does not check for file end ========
+\cs_generate_variant:Nn \use_ii_i:nn {o}
+\cs_new_protected:Npn \_pythonimmediate_str_get:N #1 {
+	\use_ii_i:on {\the\endlinechar\relax} {
+		\endlinechar=-1~
+		\readline \_pythonimmediate_read_file to #1
+		\endlinechar=
+	}
+}
+
+% ======== copy of ior_get but does not check for file end ========
+\cs_new_protected:Npn \_pythonimmediate_get:N #1 {
+	\use_ii_i:on {\the\endlinechar\relax} {
+		\endlinechar=-1~
+		\read \_pythonimmediate_read_file to #1
+		\endlinechar=
+	}
+}
+
+% ======== setup write file ========
+\cs_new_protected:Npn \_pythonimmediate_send_content:e #1 {
+	\immediate\write \_pythonimmediate_write_file { #1 }
+}
+
+\cs_new_protected:Npn \_pythonimmediate_close_write: {
+	\immediate\closeout \_pythonimmediate_write_file
+	% safeguard, in some mode e.g. nonstopmode after a Python error TeX might continue
+	\cs_gset_eq:Nc \_pythonimmediate_write_file {m@ne}
+	\cs_gset_protected:Npn \_pythonimmediate_send_content:e ##1 {}
+}
+
+\sys_if_engine_luatex:TF {
+	% use Lua to write to stderr
+	\cs_new_protected:Npn \_pythonimmediate_open_write_child_process: {
+		\directlua{ (require "pythonimmediate_helper")() }
+	}
+} {
+	\cs_new_protected:Npn \_pythonimmediate_open_write_child_process: {
+		%\immediate\openout \_pythonimmediate_write_file=symlink-to-stderr.txt~
+		% tried this method, it seems to work except that it's buffered when stderr is redirected to a file...
+		\immediate\openout \_pythonimmediate_write_file=|"\_pythonimmediate_python_executable \space \_pythonimmediate_python_flags \space -m ~ pythonimmediatehelper.copy_to_stderr"~
+	}
+}
+
+\bool_if:NTF \_pythonimmediate_child_process {
+	\newwrite \_pythonimmediate_write_file
+	\_pythonimmediate_open_write_child_process:
+	\cs_new_protected:Npn \pythonimmediatechildprocessdump {
+		\everyjob\expandafter{
+			\the\everyjob
+			\_pythonimmediate_open_write_child_process:
+			\pythonimmediatelisten
+			\stop
+		}
+		\dump
+	}
+} {
+
+	\sys_if_engine_luatex:TF {
+		% use lua's io.popen
+		% the other method works as well, but this one allows explicit flushing because on some TeX distribution it does not work
+
+		\directlua{
+			(require "pythonimmediate_helper")(
+				"\luaescapestring{ \_pythonimmediate_python_executable \space \_pythonimmediate_python_flags \space -m ~ pythonimmediate.textopy ~ \_pythonimmediate_args }"
+				)
+		}
+	} {
+		\newwrite \_pythonimmediate_write_file
+
+		\immediate\openout \_pythonimmediate_write_file=|"\_pythonimmediate_python_executable \space \_pythonimmediate_python_flags \space -m ~ pythonimmediate.textopy ~ \_pythonimmediate_args"~
+		% note that openout, even to shell, will append .tex if there's no dot in the command
+		% so we artificially add a dot here in `.textopy`
+	}
+	% the command-line arguments passed to textopy above are only used initially before establishing a connection
+	% after connection is made then the configuration object is sent over
+
+
+
+	% both processes must be before the \readline below so that the 2 Python processes are started "in parallel"
+	\_pythonimmediate_str_get:N \_pythonimmediate_line  % read one line from pytotex half, forward to textopy half
+
+	\str_if_eq:VnT \_pythonimmediate_line {} {
+		\msg_error:nn {pythonimmediate} {process-start-error}
+	}
+
+	\str_const:Nn \_pythonimmediate_engine_mark_pdftex {p}
+	\str_const:Nn \_pythonimmediate_engine_mark_ptex   {P}
+	\str_const:Nn \_pythonimmediate_engine_mark_uptex  {u}
+
+	\str_const:Nn \_pythonimmediate_engine_mark_xetex  {x}
+	\str_const:Nn \_pythonimmediate_engine_mark_luatex {l}
+
+	\_pythonimmediate_send_content:e {
+		\use:c {_pythonimmediate_engine_mark_ \c_sys_engine_str}
+		\_pythonimmediate_line
+	}
+}
+
+% ======== bootstrap utility functions
+
+% read one block of \TeX\ code from Python, store into the specified variable
+% the block is delimited using |surround_delimiter()| in Python i.e. the first and last line are identical
+% new lines are represented with ^^J
+\cs_new_protected:Npn \_pythonimmediate_gread_block:N #1 {
+	\begingroup
+		\endlinechar=10~  % affect \readline
+		\readline \_pythonimmediate_read_file to \_pythonimmediate_delimiter
+
+		\tl_build_gbegin:N #1
+		\readline \_pythonimmediate_read_file to \_pythonimmediate_line
+
+		%\bench read~first~line.
+
+		\bool_do_until:nn {\tl_if_eq_p:NN \_pythonimmediate_delimiter \_pythonimmediate_line} {
+			\tl_build_gput_right:NV #1 \_pythonimmediate_line
+			\readline \_pythonimmediate_read_file to \_pythonimmediate_line
+		}
+		\tl_build_gend:N #1
+	\endgroup
+}
+\cs_generate_variant:Nn \tl_build_gput_right:Nn {NV}
+
+\cs_new_protected:Npn \_pythonimmediate_read_block:N #1 {
+	\_pythonimmediate_gread_block:N \_pythonimmediate_block
+	\tl_set_eq:NN #1 \_pythonimmediate_block
+}
+
+
+% read one block of \TeX\ code from Python and |\scantokens|-run it
+% the content inside is the actual TeX code to be executed
+\cs_new_protected:Npn \_pythonimmediate_run_block: {
+	\_pythonimmediate_gread_block:N \_pythonimmediate_code
+	\begingroup
+		\newlinechar=10~
+		\expandafter
+	\endgroup
+	\scantokens \expandafter{\_pythonimmediate_code}
+}  % trick described in https://tex.stackexchange.com/q/640274 to scantokens the code with \newlinechar=10
+
+% ======== bootstrap code
+\_pythonimmediate_run_block:
+

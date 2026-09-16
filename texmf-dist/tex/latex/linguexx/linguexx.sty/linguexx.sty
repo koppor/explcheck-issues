@@ -1,0 +1,2914 @@
+%%%% Copyright 2026 by Gerhard Schaden
+%%%% Standalone reimplementation of the linguex user interface
+%%%% (original linguex by Wolfgang Sternefeld; interlinear glossing
+%%%%  interface modelled on cgloss4e by Hans-Peter Kolb & Craig Thiersch)
+%%%% This program can be redistributed and/or modified under the terms
+%%%% of the LaTeX Project Public License
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]% expl3 in kernel required
+\ProvidesPackage{linguexx}[2026/07/31 Standalone linguistic examples, linguex-compatible interface v. 1.2]
+%% v. 0.1: [legacy] option; empty \firstrefdash by default.
+%% v. 0.2: tagging-safe under \DocumentMetadata (PDF tagging testphase):
+%%         lists opened/closed through the environment interface; no TeX
+%%         group around the example as a whole; explicit @endpe/text-unit
+%%         cleanup after each example.  Labels set flush left in a
+%%         \labelwidth box so the tagged block code does not re-box them
+%%         flush right (which had shifted sub-labels right of the text
+%%         margin).  Structure trees stay valid and geometry matches the
+%%         untagged output, on all three engines, incl. footnote examples.
+%%         Default \SubSubExlabelwidth reduced 1.9em->1.6em (sized for
+%%         roman labels up to "vi."; equals \SubExlabelwidth), so the
+%%         roman level no longer has a visibly larger label-to-text gap.
+%% v. 0.3: PDF tagging objective 2 -- examples as proper list structure.
+%%         Because examples are real \begin{list} environments, the tagged
+%%         output already nests L > LI > Lbl > LBody with sub-levels as
+%%         nested Ls; v0.3 additionally marks each example list ORDERED
+%%         (/ListNumbering/Ordered) instead of the default label-less
+%%         class.  Tag-guarded; no effect without active tagging.
+%% v. 0.4: PDF tagging objective 3 -- spoken forms for judgment marks.
+%%         Under active tagging each mark is wrapped in a Span carrying
+%%         /Alt so a screen reader announces its meaning ("ungrammatical")
+%%         rather than the glyph.  Defaults for * ? ?? ?* # % ; override
+%%         via \DeclareJudgment[spoken=...] or \SetJudgmentSpoken.
+%%         Tag-guarded; printed output and untagged runs are unchanged.
+%% v. 0.5: fix an invalid PDF attribute value from v0.3.  Ordered example
+%%         lists were routed through the block code's enumerate class,
+%%         whose /ListNumbering value is /Ordered -- not one of the values
+%%         the PDF spec allows, so validators reject it.  Each level now
+%%         gets a valid class of its own: /Decimal for the number level,
+%%         /LowerAlpha for letters, /LowerRoman for romans.  If the tagged
+%%         list internal is unavailable the lists fall back to the default
+%%         (valid) /None rather than the bad value.
+%% v. 0.6: PDF tagging objective 4 -- interlinear glosses as structure.
+%%         Each gloss column (an object word with its aligned glosses) is
+%%         wrapped in a Span, so a screen reader reads and navigates the
+%%         gloss word bundle by word bundle in object-then-gloss order
+%%         instead of as loose text.  The paragraph mc is paused per
+%%         column (\tag_mc_end_push:/..._begin_pop:) and each word gets
+%%         its own mc under the column Span.  Tag-guarded; the printed
+%%         grid and untagged output are unchanged.
+%% v. 0.7: PDF tagging objective 5 -- language of a gloss tier.
+%%         \GlossTierLang{tier}{code} records a language code for a tier;
+%%         under tagging each word of that tier is wrapped in a Span with
+%%         /Lang so a screen reader uses the right phonetics.  Tiers with
+%%         no declared language are unchanged.  Tag-guarded.
+%% v. 0.8: PDF tagging objective 6 -- Leipzig gloss abbreviations.
+%%         \lpzg{sg} sets the abbreviation in small caps and, under
+%%         tagging, wraps it in a Span carrying /E (expansion text) so a
+%%         screen reader announces "singular" while print and copy keep
+%%         SG.  Built-in standard Leipzig table, keyed by short form;
+%%         \SetLeipzig{key}{expansion} extends/overrides; unknown keys
+%%         print with no expansion.  Tag-guarded; self-contained.
+%% v. 0.9: \lpzg accepts a whole compound label in one call (3sg.pst):
+%%         split on periods, a leading person digit peeled off, each piece
+%%         expanded and joined into one /E ("third person singular past").
+%%         \GlossTierLang is now scoped: a document-wide default in the
+%%         preamble, overridable per example by issuing it inside the
+%%         example (local assignment, reverts afterwards).
+%% v. 0.10: (reverted in 0.11) attempt to give \alt/\altg a spoken /Alt.
+%% v. 0.11: revert the 0.10 \alt/\altg tagging.  Wrapping the alternatives
+%%          formula in a Span carrying /Alt is invalid under PDF/UA-2 when
+%%          the formula begins an example (a Span may not contain the
+%%          Part/P that the math tagging then builds), and veraPDF rejects
+%%          it.  \alt/\altg revert to the plain formula, which validates;
+%%          giving them a spoken form needs the "positioning text" math
+%%          interface and is deferred.
+%% v. 0.12: remove \altg/\lxAltg (alternatives with translations).
+%% v. 0.13: \alt rebuilt in text mode -- a tabular stack with a TikZ-drawn
+%%          brace, no math and no amsmath, so the alternatives are ordinary
+%%          tagged text.  Under tagging the stack is wrapped in a Span with a
+%%          spoken /Alt ("A, B, or C", built with \text_purify:n).  Requires
+%%          graphicx + tikz instead of amsmath.
+%% v. 0.14: \altg/\lxAltg return, rebuilt in text mode.  Written twice in
+%%          an interlinear gloss -- object words in the object line,
+%%          glosses in the gloss line -- the two calls occupy the two
+%%          tiers of one column and assemble a single paradigm: object
+%%          stack, gloss stack to its right, braced on both sides and
+%%          centred on the object/gloss midline.  Each call carries its
+%%          own spoken /Alt under tagging; no math, so the PDF/UA-2
+%%          failure that removed the old \altg does not recur.  Also:
+%%          \alt now closes its stack with a right brace as well (the
+%%          pre-0.13 look), and the TikZ brace direction is corrected --
+%%          since 0.13 the brace was drawn mirrored.
+%% v. 1.0: \alt/\lxAlt renamed to \altn/\lxAltn -- \alt collides with
+%%          beamer, glossaries-extra, revtex/revsymb, tex4ht, and others;
+%%          \altn is unclaimed.  \altg/\lxAltg unaffected (no collisions).
+%% v. 1.1: \lpzglist -- the list of abbreviations the document actually
+%%          uses, with full forms, sourced from every \lpzg/\lpzgadd call
+%%          and customisable per list or document-wide; a real tagged
+%%          list under tagging.  Phantom bracket alignment for interlinear
+%%          glosses (opt-in via [phantomalign] or \GlossPhantomAlign):
+%%          pads a gloss word by a \phantom the width of the object word's
+%%          leading brackets/judgment marks, so real glyphs line up;
+%%          \GlossPhantom{...} is the manual override.  Fix: the
+%%          sub-example letters and the kernel accents \b, \c, \d now
+%%          coexist everywhere, including inside one example: each
+%%          letter dispatches on what follows, a period giving the
+%%          sub-example command and anything else the accent, so
+%%          "\b. \c Ca c'est chiant." works.  The hooks are \protected
+%%          (hyperref \edef-expands titles); only \a is held globally,
+%%          \b-\f just where a sub-level is reachable.  Previously all
+%%          six were redefined document-wide under [lazy], the default,
+%%          so \c{c} and "ç" errored and a hyperref title silently lost
+%%          the accent.  Fix: \end{exe} closes a sub-level opened by an
+%%          \a. inside the batch instead of leaking its \begingroup.
+%%          \glt gains \GlossTransStyle (a declaration styling the free
+%%          translation) and \GlossTransLang (its language, emitted as a
+%%          Span with /Lang under tagging -- babel's \foreignlanguage
+%%          reaches no structure element on TL2026).  Both opt-in; the
+%%          default output and tag tree are unchanged.  Fix: \sublabel
+%%          records the label of the LEVEL it is used at; it always
+%%          recorded the letter counter, so a \refrange over roman
+%%          sub-sub-examples closed with the enclosing letter
+%%          ("(1b-i--b)") instead of the numeral.  Fix: an \altg in a gloss
+%%          column with no partner is an error instead of silently
+%%          taking the wrong shape and overlapping its neighbours.  \lpzgcheck{...}: an abbreviation used
+%%          with no known expansion is reported at the end of any
+%%          document (on by default), which a mistyped \lpzg key used
+%%          to survive in silence unless a \lpzglist happened to catch
+%%          it; unused=true also reports a \SetLeipzig never used.
+%% v. 1.2: \altn's spoken /Alt expands a Leipzig abbreviation, as
+%%          \altg's already did: \altn{a \lpzg{pl} of cats}{a dog} is
+%%          announced as "a plural of cats or a dog" rather than "a pl
+%%          of cats or a dog".  Only the spoken form changes -- the
+%%          stack still prints the small-cap abbreviation, which still
+%%          carries its own /E inside the stack (unlike in an \altg
+%%          stack, which sets \lpzg plain).  Simple keys only, as in
+%%          \altg: a compound or unknown key is spoken as printed.
+%%          Fix: \z. is usable inside an exe batch.  Mixing the
+%%          syntaxes is documented, so an \a. inside exe opens a
+%%          sub-level -- but \z., the only thing that could close it,
+%%          raised "\z. outside an example", being gated on a flag
+%%          only the dot syntax sets.  It is now gated on the open
+%%          sub-level itself; only the branch that ENDS the example
+%%          stays dot-syntax-only, and a \z. at the main level of a
+%%          batch is a package error naming \end{exe}.
+%%          Fix: hyperref anchors for footnote sub-examples.
+%%          \theHSubExNo/\theHSubSubExNo built their name from ExNo
+%%          unconditionally, unlike the printed \theSubExNo, so a
+%%          sub-example "a" in a footnote and one under main example 1
+%%          both claimed "lxex.1.a"; hyperref keeps the first
+%%          destination and drops the rest, so \ref to the footnote
+%%          one linked to the main-text one.  Both now branch on
+%%          \if@noftnote and anchor footnote sub-examples on the
+%%          footnote series (lxfnex.<FnExNo>....).
+%%          Fix: a stray \a. in prose, with no example of either kind
+%%          open, is a package error naming itself instead of opening
+%%          a list and a \begingroup that nothing closes -- which
+%%          surfaced as "\begin{list} ended by \end{document}"
+%%          arbitrarily far away.  \a. inside an exe batch reaches the
+%%          same path legitimately and stays legal.
+%%          Fix: a trailing or doubled period in a \lpzg label no
+%%          longer records an EMPTY abbreviation.  \lpzg{sg.} splits
+%%          into sg and an empty piece, and the empty piece was
+%%          recorded like any other key, so \lpzgcheck reported "No
+%%          expansion known for" nothing at all and the /E carried a
+%%          trailing space.  Blank segments are skipped; the real
+%%          pieces beside them are recorded exactly as before.
+%% Package options come in two independent groups.
+%%
+%% SYNTAX:
+%%   [lazy]  (the default): the traditional linguex dot syntax --
+%%           \ex., \a.-\f., \z., \exg. -- and nothing else.
+%%   [gb4e]: only the gb4e environment syntax -- exe, xlist, \ex
+%%           (without period, with optional bracketed judgment).  In
+%%           this mode the letter commands \b., \c., \d. are never
+%%           defined, so the kernel accent commands \b, \c, \d remain
+%%           untouched and no hyperref workaround is needed.
+%% Both may be requested together, [lazy,gb4e], for documents that
+%% deliberately mix the syntaxes (this package's own manual does).
+%%
+%% DEFAULTS (lengths, dashes, sub-label delimiters):
+%%   none (the default): this package's own defaults -- see
+%%           \lx@defaults@lazy below.
+%%   [legacy]: linguex's defaults, to the value -- see
+%%           \lx@defaults@legacy below.  Nothing else changes: the
+%%           engine, the error behaviour and the extensions are the
+%%           same in both modes.  [legacy] is orthogonal to the syntax
+%%           options, so [legacy,gb4e] is meaningful (gb4e syntax,
+%%           linguex geometry), and [legacy] alone implies the dot
+%%           syntax, exactly as [lazy] alone does.
+\newif\iflx@lazy
+\newif\iflx@gbfour
+\newif\iflx@legacy
+\newif\iflx@phantomalign
+\DeclareOption{lazy}{\lx@lazytrue}
+\DeclareOption{gb4e}{\lx@gbfourtrue}
+\DeclareOption{legacy}{\lx@legacytrue}
+\DeclareOption{phantomalign}{\lx@phantomaligntrue}
+\DeclareOption*{\PackageWarning{linguexx}{Unknown option
+  '\CurrentOption' ignored}}
+\ProcessOptions\relax
+\iflx@gbfour\else\lx@lazytrue\fi
+
+\RequirePackage{graphicx}%          \scalebox etc.
+\RequirePackage{tikz}%              drawn brace for \lxAltn (no math mode)
+\usetikzlibrary{decorations.pathreplacing}
+% The only other dependency is the expl3 programming layer, part of the
+% LaTeX kernel since 2020.  In particular, ulem is NOT loaded: if you
+% want struck-through alternatives (\sout inside \altn), load ulem
+% yourself, with whatever options you prefer.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Counters and number formatting (linguex-compatible names)          %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcounter{ExNo}
+\newcounter{SubExNo}
+\newcounter{SubSubExNo}
+\newcounter{FnExNo}
+
+% linguex resets ExNo at every \chapter in a class that has chapters.
+% That is a numbering CONVENTION, not a bug, so [legacy] reproduces it;
+% the default is continuous numbering through the document.
+\iflx@legacy
+  \@ifundefined{c@chapter}{}{\@addtoreset{ExNo}{chapter}}
+\fi
+
+% back-compat aliases (linguex spelt these with a prefix)
+\let\Exarabic\arabic
+\let\Exalph\alph
+\let\Exroman\roman
+
+% Reference dashes and sub-label delimiters.  Only the NAMES are reserved
+% here; the values are set by the defaults block in the Layout section
+% (\lx@defaults@lazy / \lx@defaults@legacy), so that both modes go through
+% one place.  \firstrefdash separates number from letter in a reference,
+% \secondrefdash letter from roman numeral: (12a-i) by default, (12-a-i)
+% under [legacy].  The delimiters wrap the PRINTED sub-example labels:
+% "a." and "i." by default, "a." and "(i)" under [legacy].
+\newcommand\firstrefdash{}
+\newcommand\secondrefdash{-}
+\newcommand\SubExLBr{}
+\newcommand\SubExRBr{.}
+\newcommand\SubSubExLBr{}
+\newcommand\SubSubExRBr{.}
+
+% parenthesis suppression switch (v1 machinery, kept verbatim in spirit)
+\newif\ifparens\parensfalse
+\newcommand\theExLBr{\ifparens\else(\fi}
+\newcommand\theExRBr{\ifparens\else)\fi}
+\newcommand\theFnExLBr{\ifparens\else(\fi}
+\newcommand\theFnExRBr{\ifparens\else)\fi}
+
+% "am I in a footnote?" -- linguex's switch name kept for compatibility;
+% TRUE means NOT in a footnote (sic, as in linguex)
+\newif\if@noftnote\@noftnotetrue
+\AtBeginDocument{%
+  \let\lx@orig@footnotetext\@footnotetext
+  \long\def\@footnotetext#1{\lx@orig@footnotetext{\@noftnotefalse#1}}}
+
+\renewcommand{\theExNo}{\protect\theExLBr\arabic{ExNo}\protect\theExRBr}
+\renewcommand{\theFnExNo}{\protect\theFnExLBr\roman{FnExNo}\protect\theFnExRBr}
+
+\renewcommand{\theSubExNo}{%
+  \hbox{\if@noftnote\protect\theExLBr\Exarabic{ExNo}\firstrefdash
+      \Exalph{SubExNo}\protect\theExRBr
+    \else
+      \protect\theFnExLBr\Exroman{FnExNo}\firstrefdash%
+      \Exalph{SubExNo}\protect\theFnExRBr
+    \fi}}
+
+\renewcommand{\theSubSubExNo}{%
+  \hbox{\if@noftnote\protect\theExLBr%
+          \Exarabic{ExNo}\firstrefdash\Exalph{SubExNo}\secondrefdash
+             \Exroman{SubSubExNo}\protect\theExRBr%
+    \else\protect\theFnExLBr\Exroman{FnExNo}\firstrefdash
+              \Exalph{SubExNo}\secondrefdash\Exroman{SubSubExNo}\protect\theFnExRBr\fi}}
+
+% hyperref anchor names (avoid the \protect-laden \the... expansions).
+%
+% The sub-levels must branch on \if@noftnote exactly as the PRINTED
+% labels (\theSubExNo, \theSubSubExNo) do.  Building them from ExNo
+% unconditionally made a footnote sub-example and a main-text one collide
+% whenever the footnote sat under the same ExNo: both claimed
+% "lxex.<n>.a", hyperref kept the first destination and dropped the
+% second, and a \ref to the footnote sub-example jumped to the main-text
+% one.  The number printed was right either way, so only the anchor gave
+% it away.  \if@noftnote is a plain \newif, hence fully expandable and
+% safe in the \edef that hyperref runs over \theH... .
+\def\theHExNo{lxex.\arabic{ExNo}}
+\def\lx@Hexstem{\if@noftnote lxex.\arabic{ExNo}\else lxfnex.\arabic{FnExNo}\fi}
+\def\theHSubExNo{\lx@Hexstem.\alph{SubExNo}}
+\def\theHSubSubExNo{\lx@Hexstem.\alph{SubExNo}.\arabic{SubSubExNo}}
+\def\theHFnExNo{lxfnex.\arabic{FnExNo}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Layout parameters                                                  %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% The geometry is the same in both modes -- each level reserves a label
+%% box, the text margin of a level is the label box plus a gap, measured
+%% from the margin of the level above -- but the two modes PARAMETRIZE it
+%% differently, because linguex did:
+%%
+%%   default: the sub-levels are given by their LABEL WIDTHS
+%%            (\SubExlabelwidth, \SubSubExlabelwidth), each followed by
+%%            the shared gap \Exlabelsep;
+%%   legacy:  the sub-levels are given by their TEXT MARGINS
+%%            (\SubExleftmargin, \SubSubExleftmargin), the label being set
+%%            flush left inside that margin with no gap, and the main
+%%            \Exlabelwidth is recomputed for every example from the width
+%%            of the number itself.
+%%
+%% All the lengths of both sets exist in both modes; only the ones its own
+%% mode reads have any effect.  The equivalence is
+%%   \SubExleftmargin = \SubExlabelwidth + \Exlabelsep.
+
+\newlength{\Extopsep}
+\newlength{\Exredux}
+\newlength{\Exindent}
+\newlength{\Exlabelwidth}
+\newlength{\Exlabelsep}
+% The sub-example label boxes are wider than the letters strictly need.
+% The surplus is the room a hanging judgment falls into: the clear space
+% left of the text is (labelwidth - width of the printed letter) +
+% \Exlabelsep.  The defaults are chosen so that TWO marks (e.g. "??",
+% "?*") fit without touching the letter; for three or more as a routine
+% matter, widen these.
+\newlength{\SubExlabelwidth}
+\newlength{\SubSubExlabelwidth}
+% linguex's names for the same two levels (see above)
+\newlength{\SubExleftmargin}
+\newlength{\SubSubExleftmargin}
+
+% \Extopsep and \Exredux are the only lengths that depend on the font:
+% they are set here (so that a \setlength in the PREAMBLE overrides them,
+% which it cannot do in linguex) and re-derived \AtBeginDocument if -- and
+% only if -- they still hold the value computed here, which catches the
+% case of a font package that changes \baselineskip after we are loaded.
+\newlength{\lx@auto@topsep}
+\newlength{\lx@auto@redux}
+\newcommand\lx@setskips{%
+  \setlength{\Extopsep}{.66\baselineskip}%
+  \setlength{\Exredux}{\lx@reduxfactor\baselineskip}%
+  \setlength{\lx@auto@topsep}{\Extopsep}%
+  \setlength{\lx@auto@redux}{\Exredux}}
+\AtBeginDocument{%
+  \ifdim\Extopsep=\lx@auto@topsep
+    \ifdim\Exredux=\lx@auto@redux \lx@setskips \fi
+  \fi}
+
+%% ---- the two sets of defaults -------------------------------------------
+
+\newcommand\lx@defaults@lazy{%
+  \def\lx@reduxfactor{-.66}%
+  \lx@setskips
+  \setlength{\Exindent}{0pt}%
+  \setlength{\Exlabelwidth}{2.6em}%
+  \setlength{\Exlabelsep}{.6em}%
+  \setlength{\SubExlabelwidth}{1.6em}%
+  \setlength{\SubSubExlabelwidth}{1.6em}%
+  \setlength{\SubExleftmargin}{\dimexpr\SubExlabelwidth+\Exlabelsep\relax}%
+  \setlength{\SubSubExleftmargin}{\dimexpr\SubSubExlabelwidth+\Exlabelsep\relax}%
+  \setlength{\JdgSep}{0.15em}%
+  \def\firstrefdash{}%
+  \def\secondrefdash{-}%
+  \def\SubExLBr{}\def\SubExRBr{.}%
+  \def\SubSubExLBr{}\def\SubSubExRBr{.}%
+  \def\GlossSep{.5em plus .3em minus .1em}}
+
+%% linguex's defaults, to the value: \Exlabelsep 1.3em, \Exindent 0pt,
+%% \SubExleftmargin 2em, \SubSubExleftmargin 2.4em, \Extopsep
+%% .66\baselineskip, \Exredux -\baselineskip, and a main label box whose
+%% width is that of the current number, padded to the next digit (so "(1)"
+%% sits in a two-digit box).  Judgments are flush against the text
+%% (\JdgSep 0pt), sub-sub-examples print as "(i)", and references are
+%% (12-a), (12-a-i).  \GlossSep approximates cgloss4e's word spacing (an
+%% interword space plus its \glossglue), which is tighter than ours.
+\newcommand\lx@defaults@legacy{%
+  \def\lx@reduxfactor{-1}%
+  \lx@setskips
+  \setlength{\Exindent}{0pt}%
+  \setlength{\Exlabelsep}{1.3em}%
+  \setlength{\SubExleftmargin}{2em}%
+  \setlength{\SubSubExleftmargin}{2.4em}%
+  \setlength{\SubExlabelwidth}{\dimexpr\SubExleftmargin-\Exlabelsep\relax}%
+  \setlength{\SubSubExlabelwidth}{\dimexpr\SubSubExleftmargin-\Exlabelsep\relax}%
+  \setlength{\Exlabelwidth}{4em}% recomputed per example; see \lx@calc@Exlabelwidth
+  \setlength{\JdgSep}{0pt}%
+  \def\firstrefdash{-}%
+  \def\secondrefdash{-}%
+  \def\SubExLBr{}\def\SubExRBr{.}%
+  \def\SubSubExLBr{(}\def\SubSubExRBr{)}%
+  \def\GlossSep{.33em plus .4em minus .2em}}
+
+\iflx@legacy
+  \let\resetExdefaults\lx@defaults@legacy
+\else
+  \let\resetExdefaults\lx@defaults@lazy
+\fi
+% \resetExdefaults is CALLED at the end of the package, once every length
+% it touches has been declared; the user may call it again at any point to
+% return to the defaults of the mode in force.
+
+%% ---- the geometry hooks -------------------------------------------------
+%% Each level's list declaration calls one of these; they are the ONLY
+%% place where the two parameter sets differ.
+
+% width of the narrowest digit, as linguex measured it (fonts in which the
+% digits differ in width would otherwise pad inconsistently)
+\newlength{\lx@digitwd}
+\newlength{\lx@mindigitwd}
+\newlength{\lx@currentlabel}
+\newlength{\lx@padded}
+\def\lx@minwidth#1{\settowidth{\lx@digitwd}{#1}%
+  \ifdim\lx@digitwd<\lx@mindigitwd \lx@mindigitwd\lx@digitwd \fi}
+% \Exlabelwidth := width of the smallest n-digit box (n = 2,3,4) that the
+% current label fits INSIDE; if it fits none, its own width.  This is
+% linguex's rule, and the reason a one-digit example number sits in a box
+% wide enough for two: the numbering does not shift the text as it grows.
+\def\lx@calc@Exlabelwidth{%
+  \settowidth{\lx@mindigitwd}{0}%
+  \lx@minwidth{1}\lx@minwidth{2}\lx@minwidth{3}\lx@minwidth{4}%
+  \lx@minwidth{5}\lx@minwidth{6}\lx@minwidth{7}\lx@minwidth{8}%
+  \lx@minwidth{9}%
+  \settowidth{\lx@currentlabel}{\lx@itemlabel}%
+  \Exlabelwidth\lx@currentlabel
+  \settowidth{\lx@padded}{\theExLBr\hbox to 4\lx@mindigitwd{}\theExRBr}%
+  \ifdim\lx@currentlabel<\lx@padded \Exlabelwidth\lx@padded \fi
+  \settowidth{\lx@padded}{\theExLBr\hbox to 3\lx@mindigitwd{}\theExRBr}%
+  \ifdim\lx@currentlabel<\lx@padded \Exlabelwidth\lx@padded \fi
+  \settowidth{\lx@padded}{\theExLBr\hbox to 2\lx@mindigitwd{}\theExRBr}%
+  \ifdim\lx@currentlabel<\lx@padded \Exlabelwidth\lx@padded \fi}
+
+\iflx@legacy
+  % main level: label box recomputed from the number; text margin
+  % \Exindent + \Exlabelwidth + \Exlabelsep, as in the default mode
+  \def\lx@geom@main{\lx@calc@Exlabelwidth
+    \labelwidth\Exlabelwidth \labelsep\Exlabelsep
+    \leftmargin\dimexpr\Exindent+\Exlabelwidth+\Exlabelsep\relax
+    \if@noftnote\else\addtolength{\topsep}{-.5\topsep}\fi}
+  % sub-levels: the text margin IS the parameter, the label sits flush
+  % left inside it
+  \def\lx@geom@sub{\leftmargin\SubExleftmargin
+    \labelwidth\SubExleftmargin \labelsep\z@ \topsep.3\Extopsep}
+  \def\lx@geom@subsub{\leftmargin\SubSubExleftmargin
+    \labelwidth\SubSubExleftmargin \labelsep\z@ \topsep\z@}
+\else
+  \def\lx@geom@main{%
+    \lx@ol@set{lxOLdecimal}%
+    \labelwidth\Exlabelwidth \labelsep\Exlabelsep
+    \leftmargin\dimexpr\Exindent+\Exlabelwidth+\Exlabelsep\relax}
+  \def\lx@geom@sub{\lx@ol@set{lxOLalpha}%
+    \labelwidth\SubExlabelwidth \labelsep\Exlabelsep
+    \leftmargin\dimexpr\SubExlabelwidth+\Exlabelsep\relax \topsep\z@}
+  \def\lx@geom@subsub{\lx@ol@set{lxOLroman}%
+    \labelwidth\SubSubExlabelwidth \labelsep\Exlabelsep
+    \leftmargin\dimexpr\SubSubExlabelwidth+\Exlabelsep\relax \topsep\z@}
+\fi
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  The tagged-Span idiom, in one place                                %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Everything this package adds to the structure tree is a Span: the
+%% judgment mark with its spoken /Alt, the Leipzig abbreviation with its
+%% /E, the gloss column, the object-language word with its /Lang, the free
+%% translation with its own, and the two kinds of stacked alternatives.
+%% All of them need the SAME four moves in the SAME order, and getting the
+%% order wrong is exactly how v0.10 broke PDF/UA:
+%%
+%%   \tag_mc_end_push:      suspend whatever marked content is open --
+%%                          typically the ambient paragraph's, since the
+%%                          kernel may already have opened an MC for a P
+%%                          that has not been shown yet.  Opening our BDC
+%%                          inside that one without suspending it is
+%%                          "nested marked content found" / "no mc to end",
+%%                          and a veraPDF untagged-content failure once the
+%%                          P's real MC never gets closed.
+%%   \tag_struct_begin:n    the Span itself, carrying alt/E/lang.
+%%   \tag_mc_begin:n        its own marked content, for LEAF content.
+%%   ... content ...
+%%   \tag_mc_end: \tag_struct_end: \tag_mc_begin_pop:n {}   -- unwound in
+%%                          the mirror order, resuming the suspended MC.
+%%
+%% The split into an outer (open/close) and an inner (begin/end) pair is
+%% not decoration: a Span whose content carries marked content of its OWN
+%% -- the gloss column, whose words each open one -- must take the outer
+%% pair only, or it would nest an MC inside its own MC.
+%%
+%% \lx@tag@if@active: is the one guard, and it is not only for Spans: every
+%% tagging use site in the package needs the same two conditions (a kernel
+%% that has the \tag_... commands at all, and tagging actually switched on).
+%% They were hand-copied in five spellings, two of which tested
+%% \cs_if_exist:N on \tag_if_active:T -- a conditional VARIANT rather than
+%% the base name, which happens to work but tests the wrong thing.
+\ExplSyntaxOn
+\prg_new_conditional:Npnn \lx@tag@if@active: { TF , T , F }
+  {
+    \bool_lazy_all:nTF
+      {
+        { \cs_if_exist_p:N \tag_struct_begin:n }
+        { \cs_if_exist_p:N \tag_if_active_p: }
+        { \tag_if_active_p: }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+%% outer half: suspend the ambient MC, open the Span
+\cs_new_protected:Npn \lx@tag@span@open:n #1
+  { \tag_mc_end_push: \tag_struct_begin:n {#1} }
+\cs_generate_variant:Nn \lx@tag@span@open:n { e }
+\cs_new_protected:Npn \lx@tag@span@close:
+  { \tag_struct_end: \tag_mc_begin_pop:n {} }
+%% ... plus the inner half, for a Span holding leaf content
+\cs_new_protected:Npn \lx@tag@span@begin:n #1
+  { \lx@tag@span@open:n {#1} \tag_mc_begin:n { tag = Span } }
+\cs_generate_variant:Nn \lx@tag@span@begin:n { e }
+\cs_new_protected:Npn \lx@tag@span@end:
+  { \tag_mc_end: \lx@tag@span@close: }
+%% the whole thing, guarded: #1 = keyvals, #2 = content.  Without active
+%% tagging the content is typeset bare, so untagged output and engines
+%% with no tagging support are byte-for-byte unaffected.
+\cs_new_protected:Npn \lx@tag@span:nn #1#2
+  {
+    \lx@tag@if@active:TF
+      { \lx@tag@span@begin:n {#1} #2 \lx@tag@span@end: }
+      { #2 }
+  }
+%% ... and the same with the keyvals expanded first (a /E or /Alt built in
+%% a token list).  Deliberately not \cs_generate_variant: the expansion has
+%% to happen INSIDE the guard.  The values are author-supplied strings, and
+%% expanding one on a run with no tagging to consume it would make an
+%% untagged compile fail where the tagged one is what carries the risk.
+\cs_new_protected:Npn \lx@tag@span@exp:nn #1#2
+  {
+    \lx@tag@if@active:TF
+      { \lx@tag@span@begin:e {#1} #2 \lx@tag@span@end: }
+      { #2 }
+  }
+%% The e-variants above are generated for OUR OWN commands, which always
+%% exist.  Generating one for \tag_struct_begin:n (as v1.1 did) contradicts
+%% its own use sites: they all guard for a kernel that does not have the
+%% \tag_... commands, on which the variant generation would already have
+%% failed at load time.
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Judgment auto-detection (* ? \# \%) -- replaces linguex's          %%%%
+%%%%  hardcoded catcode tokenizer                                        %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% A judgment typed at the very start of an example or sub-example
+%% (\ex. *Sentence / \a. ??\%Sentence) is collected greedily and set
+%% flush right in the LABEL area, so example texts align whether or not
+%% they carry a judgment.  Recognized: the characters * and ? and the
+%% control sequences \# and \%.  Anything else: use \jdg{...}, which
+%% works anywhere and takes arbitrary marks.
+
+\ExplSyntaxOn
+\tl_new:N \l__lx_judge_tl
+\tl_new:N \l__lx_judge_cont_tl
+
+% scan judgments, then execute #1 (the collected marks are in
+% \lx@judgeprint; \lx@emitjudge hangs them via \jdg if nonempty)
+\cs_new_protected:Npn \lx@scanjudgeto #1
+  {
+    \tl_clear:N \l__lx_judge_tl
+    \tl_set:Nn \l__lx_judge_cont_tl {#1}
+    \__lx_judge_loop:
+  }
+\cs_new_protected:Npn \lx@scanjudge
+  { \lx@scanjudgeto { \lx@makeitem } }
+\cs_new_protected:Npn \__lx_judge_loop:
+  {
+    \peek_remove_spaces:n
+      {
+        \peek_charcode_remove:NTF *
+          { \tl_put_right:Nn \l__lx_judge_tl {*} \__lx_judge_loop: }
+          {
+        \peek_charcode_remove:NTF ?
+          { \tl_put_right:Nn \l__lx_judge_tl {?} \__lx_judge_loop: }
+          {
+        \peek_meaning_remove:NTF \#
+          { \tl_put_right:Nn \l__lx_judge_tl {\#} \__lx_judge_loop: }
+          {
+        \peek_meaning_remove:NTF \%
+          { \tl_put_right:Nn \l__lx_judge_tl {\%} \__lx_judge_loop: }
+          { \tl_use:N \l__lx_judge_cont_tl }
+          } } }
+      }
+  }
+\cs_new:Npn \lx@judgeprint { \tl_use:N \l__lx_judge_tl }
+\cs_new_protected:Npn \lx@setjudge #1
+  { \tl_set:Nn \l__lx_judge_tl {#1} }
+
+%% Objective 3: spoken alternatives for judgment marks.  Each mark is a
+%% symbol whose meaning a screen reader cannot infer ("asterisk"); under
+%% PDF tagging we wrap it in a Span carrying /Alt so it is announced
+%% ("ungrammatical").  \g_lx_judge_alt_prop maps a mark string to its
+%% spoken form; defaults follow standard usage and can be overridden or
+%% extended with \DeclareJudgment[spoken=...] or \SetJudgmentSpoken.
+\prop_new:N \g_lx_judge_alt_prop
+\prop_gput:Nnn \g_lx_judge_alt_prop {*}   {ungrammatical}
+\prop_gput:Nnn \g_lx_judge_alt_prop {?}   {questionable}
+\prop_gput:Nnn \g_lx_judge_alt_prop {??}  {highly~questionable}
+\prop_gput:Nnn \g_lx_judge_alt_prop {?*}  {extremely~degraded}
+\prop_gput:Nnn \g_lx_judge_alt_prop {*?}  {extremely~degraded}
+\prop_gput:Nnn \g_lx_judge_alt_prop {\#}  {infelicitous}
+\prop_gput:Nnn \g_lx_judge_alt_prop {\%}  {grammatical~for~some~speakers}
+\tl_new:N \l__lx_judge_alt_tl
+
+\cs_new_protected:Npn \lx@judge@setalt #1#2
+  { \prop_gput:Nnn \g_lx_judge_alt_prop {#1} {#2} }
+
+%% Hang a judgment mark (#2) to the left; when tagging is active and a
+%% spoken form (#1) is non-blank, wrap the mark in a Span with /Alt so it
+%% is read aloud as #1.  Otherwise typeset the mark exactly as before, so
+%% untagged output and non-tagging engines are unaffected.
+%% \lx@makeitem calls \lx@emitjudge (hence this) as the very FIRST thing
+%% after \item, i.e. at the start of a fresh list-item paragraph, which is
+%% precisely the moment the \lx@tag@span: helper exists for: the kernel's
+%% own paragraph-tagging may already have an MC open for the not-yet-shown
+%% P, and the helper suspends it.  See its comment.
+\cs_new_protected:Npn \lx@hangjudge #1#2
+  {
+    \leavevmode
+    \llap
+      {
+        \tl_if_blank:nTF {#1}
+          { #2 }
+          { \lx@tag@span:nn { tag = Span , alt = {#1} } {#2} }
+        \hskip \JdgSep
+      }
+  }
+\cs_new_protected:Npn \lx@emitjudge
+  {
+    \tl_if_empty:NF \l__lx_judge_tl
+      {
+        \tl_set:Ne \l__lx_judge_alt_tl
+          { \prop_item:Ne \g_lx_judge_alt_prop { \tl_to_str:N \l__lx_judge_tl } }
+        \exp_args:NV \lx@hangjudge \l__lx_judge_alt_tl { \lx@judgeprint }
+      }
+  }
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  The example machinery: \ex. \a. \b. ... , blank-line terminated    %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Architecture: \ex. is a \par-delimited macro, exactly as in linguex --
+%% that is what makes "blank line ends the example" work.  BUT unlike
+%% linguex, the entire body is grabbed as one argument, so all list
+%% opening and closing happens inside a single macro invocation:
+%%   \ex.  ->  \begingroup + open the main list  [process body]
+%%             [close open sublists] + close the main list + \endgroup
+%% Sub-example depth is tracked in a count register that is only ever
+%% advanced INSIDE the group opened for the new sublevel, so leaving the
+%% group automatically pops the depth: the grouping structure itself is
+%% the stack, and global drift (linguex's ExDepth disease) is
+%% structurally impossible.
+%%
+%% Semantics kept from linguex: \a. always opens a NEW, deeper level
+%% (first level: letters, second: roman); \b. \c. \d. \e. \f. are
+%% interchangeable "next item at current level" commands (the printed
+%% letter comes from the counter, not the command name).  Two sublevels
+%% maximum.  \ex.[custom] sets a custom label without stepping the
+%% counter.  Inside footnotes, examples number (i), (ii), ... on the
+%% FnExNo counter automatically.
+%%
+%% NOT carried over from linguex (deliberately): embedded examples
+%% (\ex. inside \a.) and the \exi./\ai. index variants.
+
+\newcount\lx@subdepth
+
+%% The example body is collected TOKEN BY TOKEN (expl3 peek_analysis),
+%% not grabbed as a \par-delimited argument.  Collection stops, at brace
+%% depth 0, at the first of:
+%%   - a \par token (i.e. the blank line, as under linguex);
+%%   - \z. (early termination; the rest of the stream continues as
+%%     ordinary text, so no blank line is needed after it);
+%%   - a structural boundary: an unmatched \end{...}, \endgroup, or
+%%     group-end token.  The boundary token is put back, so
+%%     "\ex. Text\end{frame}" simply works.
+%% \begin{...}/\end{...} and \begingroup/\endgroup pairs INSIDE the body
+%% are counted, so environments inside examples are unaffected.  Brace
+%% groups are collected whole; a \par inside braces is therefore legal
+%% (it was an error under the old grab).  \z. and the terminating \par
+%% are only recognized at brace depth 0.
+%% \ex dispatches on what follows: a period gives the classic dot
+%% syntax; anything else is the gb4e item form.  Each branch is defined
+%% by the mode in force, with an instructive error where a syntax is
+%% not loaded.
+\newif\iflx@inexe
+\def\ex{\@ifnextchar.{\lx@ex@dot}{\lx@ex@nodot}}
+\iflx@lazy
+  \def\lx@ex@dot.{\lx@collectbody}
+\else
+  \def\lx@ex@dot.{%
+    \PackageError{linguexx}{The dot syntax (\string\ex.) is not
+      available under [gb4e]}{Use \string\ex\space inside
+      \string\begin{exe} ... \string\end{exe}, or load linguexx
+      without options (or with [lazy]) for the dot syntax.}}
+\fi
+\iflx@gbfour
+  \def\lx@ex@nodot{%
+    \iflx@inexe
+      \expandafter\lx@gbex
+    \else
+      \lx@gbex@err
+      \expandafter\lx@gbex
+    \fi}
+  \def\lx@gbex@err{%
+    \PackageError{linguexx}{\string\ex\space outside exe/xlist}{Put
+      \string\ex\space inside \string\begin{exe} ...
+      \string\end{exe}\iflx@lazy, or write \string\ex. (with the
+      period) for the dot syntax\fi.}}
+\else
+  \def\lx@ex@nodot{%
+    \PackageError{linguexx}{\string\ex\space must be followed by a
+      period}{Write \string\ex. -- or load
+      \string\usepackage[gb4e]{linguexx} for the environment
+      syntax.}}
+\fi
+
+% gb4e item form: \ex[judgment]{text} or plain \ex text
+\def\lx@gbex{\@ifnextchar[{\lx@gbex@opt}{\lx@gbex@plain}}
+\def\lx@gbex@plain{%
+  \ifcase\lx@subdepth
+    \let\lx@donext\lx@mainitem
+  \or \let\lx@donext\lx@subitem
+  \or \let\lx@donext\lx@subsubitem
+  \fi
+  \lx@donext}
+\long\def\lx@gbex@opt[#1]#2{%
+  \ifcase\lx@subdepth
+    \lx@main@core
+  \or \lx@subitem@core
+  \or \lx@subsubitem@core
+  \fi
+  \lx@setjudge{#1}%
+  \lx@makeitem#2}
+
+\ExplSyntaxOn
+\tl_new:N \l__lx_body_tl
+\tl_new:N \l__lx_body_tmp_tl
+\seq_new:N \l__lx_body_stack_seq
+\int_new:N \l__lx_body_env_int
+\int_new:N \l__lx_body_grp_int
+\int_new:N \l__lx_body_col_int
+
+\cs_new_protected:Npn \lx@collectbody
+  {
+    \tl_clear:N \l__lx_body_tl
+    \seq_clear:N \l__lx_body_stack_seq
+    \int_zero:N \l__lx_body_env_int
+    \int_zero:N \l__lx_body_grp_int
+    \int_zero:N \l__lx_body_col_int
+    \__lx_body_loop:
+  }
+\cs_new_protected:Npn \__lx_body_loop:
+  {
+    \peek_analysis_map_inline:n
+      {
+        \int_case:nnF { "##3 }
+          {
+            { 1 } { \seq_push:NV \l__lx_body_stack_seq \l__lx_body_tl
+                    \tl_clear:N \l__lx_body_tl }
+            { 2 } { \seq_pop:NNTF \l__lx_body_stack_seq \l__lx_body_tmp_tl
+                      {
+                        \tl_put_right:Ne \l__lx_body_tmp_tl
+                          { { \exp_not:V \l__lx_body_tl } }
+                        \tl_set_eq:NN \l__lx_body_tl \l__lx_body_tmp_tl
+                      }
+                      { \peek_analysis_map_break:n
+                          { \lx@body@info{group~end}\lx@runbody \egroup } }
+                  }
+          }
+          {
+            \bool_lazy_and:nnTF
+              { \int_compare_p:nNn {##2} = { -1 } }
+              { \seq_if_empty_p:N \l__lx_body_stack_seq }
+              { \__lx_body_cs:n {##1} }
+              { \tl_put_right:Ne \l__lx_body_tl {##1} }
+          }
+      }
+  }
+% control-sequence dispatch at brace depth 0.  Terminators: \par;
+% a nested \ex./\exg. (embedded examples are unsupported, so this is a
+% forgotten blank line: treat as boundary); unmatched \end, \endgroup,
+% \color@endgroup (footnote machinery), each pair-counted against its
+% opener inside the body.  \z is NOT handled here: it is an ordinary
+% body macro, interpreted at typesetting time (see \lx@zpop below).
+\cs_new_protected:Npn \__lx_body_cs:n #1
+  {
+    \str_if_eq:eeTF {#1} { \exp_not:N \par }
+      { \peek_analysis_map_break:n { \lx@runbody } }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \ex }
+      { % inside a \begin{...}\end{...} pair within the body (an xlist,
+        % say), \ex is a legitimate item command and is collected; at
+        % environment depth 0 it can only be a forgotten blank line
+        \int_compare:nNnTF { \l__lx_body_env_int } > { 0 }
+          { \tl_put_right:Ne \l__lx_body_tl {#1} }
+          { \peek_analysis_map_break:n
+              { \lx@body@info{\string\ex.}\lx@runbody \ex } } }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \exg }
+      { \int_compare:nNnTF { \l__lx_body_env_int } > { 0 }
+          { \tl_put_right:Ne \l__lx_body_tl {#1} }
+          { \peek_analysis_map_break:n
+              { \lx@body@info{\string\exg.}\lx@runbody \exg } } }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \begin }
+      { \int_incr:N \l__lx_body_env_int
+        \tl_put_right:Ne \l__lx_body_tl {#1} }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \end }
+      { \int_compare:nNnTF { \l__lx_body_env_int } > { 0 }
+          { \int_decr:N \l__lx_body_env_int
+            \tl_put_right:Ne \l__lx_body_tl {#1} }
+          { \peek_analysis_map_break:n
+              { \lx@body@info{\string\end}\lx@runbody \end } } }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \begingroup }
+      { \int_incr:N \l__lx_body_grp_int
+        \tl_put_right:Ne \l__lx_body_tl {#1} }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \endgroup }
+      { \int_compare:nNnTF { \l__lx_body_grp_int } > { 0 }
+          { \int_decr:N \l__lx_body_grp_int
+            \tl_put_right:Ne \l__lx_body_tl {#1} }
+          { \peek_analysis_map_break:n
+              { \lx@body@info{\string\endgroup}\lx@runbody \endgroup } } }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \color@begingroup }
+      { \int_incr:N \l__lx_body_col_int
+        \tl_put_right:Ne \l__lx_body_tl {#1} }
+      {
+    \str_if_eq:eeTF {#1} { \exp_not:N \color@endgroup }
+      { \int_compare:nNnTF { \l__lx_body_col_int } > { 0 }
+          { \int_decr:N \l__lx_body_col_int
+            \tl_put_right:Ne \l__lx_body_tl {#1} }
+          { \peek_analysis_map_break:n
+              { \lx@body@info{\string\color@endgroup}\lx@runbody \color@endgroup } } }
+      { \tl_put_right:Ne \l__lx_body_tl {#1} }
+      } } } } } } } }
+  }
+\cs_new_protected:Npn \lx@runbody
+  { \exp_args:NV \lx@run@ex \l__lx_body_tl }
+\ExplSyntaxOff
+
+\def\lx@body@info#1{%
+  \PackageInfo{linguexx}{Example terminated by structural boundary (#1)}}
+
+%% \lx@mainlist is called AFTER \lx@itemlabel has been fixed (either from
+%% the counter or from \ex.[custom]), because under [legacy] the width of
+%% the label box is derived from the label itself.  \topsep is set before
+%% \lx@geom@main, which may modify it (halved in footnotes, under legacy).
+%%
+%% Lists are opened and closed through the ENVIRONMENT interface
+%% (\begin{list}...\end{list}) rather than the command pair
+%% \list...\endlist.  The two are equivalent on a classic engine, but
+%% under the tagged PDF code (\DocumentMetadata testphase "block") the
+%% environment is the supported interface: part of its state restoration
+%% is keyed to the environment hooks, which never fire in command-form
+%% use, and the resulting imbalance corrupts the structure tree (visible
+%% with an example inside a footnote).  Funnelling every open and close
+%% through the two macros below keeps that decision in one place.
+%% Example lists are semantically ordered.  PDF's /ListNumbering has a
+%% fixed set of valid values (Decimal, LowerAlpha, LowerRoman, ...);
+%% "Ordered" is NOT one of them, so routing through the block code's
+%% enumerate class (whose value is /Ordered) is rejected by validators.
+%% Instead we define one valid attribute class per level and hand it to
+%% the list's structure element.  \lx@ol@class carries the class for the
+%% list about to open; a guarded patch of the block list-begin applies it
+%% and clears it.  If that internal ever disappears the lists simply keep
+%% the block's default class (/None) --- still valid, never /Ordered.
+\ExplSyntaxOn
+\tl_new:N \lx@ol@class
+\cs_new_protected:Npn \lx@ol@set #1 { \tl_set:Nn \lx@ol@class {#1} }
+\AddToHook{begindocument}
+  {
+    \cs_if_exist:NT \tagpdfsetup
+      {
+        \tagpdfsetup
+          {
+            newattribute = { lxOLdecimal } { /O /List /ListNumbering /Decimal } ,
+            newattribute = { lxOLalpha   } { /O /List /ListNumbering /LowerAlpha } ,
+            newattribute = { lxOLroman   } { /O /List /ListNumbering /LowerRoman } ,
+          }
+      }
+    \cs_if_exist:NT \__block_list_begin:
+      {
+        \cs_gset_eq:NN \lx@orig@list@begin: \__block_list_begin:
+        \cs_gset:Npn \__block_list_begin:
+          {
+            \tl_if_empty:NF \lx@ol@class
+              {
+                \tl_set_eq:NN \l__tag_L_attr_class_tl \lx@ol@class
+                \tl_clear:N \lx@ol@class
+              }
+            \lx@orig@list@begin:
+          }
+      }
+  }
+\ExplSyntaxOff
+\def\lx@openlist#1{\begin{list}{}{#1}}
+\def\lx@closelist{\end{list}}
+%% What every example list wants, at all three levels: no glue anywhere
+%% the surrounding text could see, and the label set flush left in its own
+%% box (\lx@flushlabel, not the list default, which right-aligns a label
+%% narrower than \labelwidth).  Only \topsep and the level geometry differ
+%% between the three, so only those are set beside this.
+\def\lx@listdefaults{%
+  \itemindent\z@ \listparindent\z@ \parsep\z@ \itemsep\z@
+  \partopsep\z@ \parskip\z@
+  \let\makelabel\lx@flushlabel}
+\def\lx@mainlist{%
+  \lx@openlist{\topsep\Extopsep
+     \lx@geom@main
+     \lx@listdefaults}}
+
+%% In the exe environment the list opens before any item exists, so the
+%% label the width is derived from is the one the NEXT \ex will print.
+\def\lx@guesslabel{%
+  \if@noftnote
+    \def\lx@itemlabel{\theExLBr\the\numexpr\value{ExNo}+1\relax\theExRBr}%
+  \else
+    \def\lx@itemlabel{\theFnExLBr
+      \romannumeral\numexpr\value{FnExNo}+1\relax\theFnExRBr}%
+  \fi}
+
+%% No TeX group wraps the example as a whole: the list environment's own
+%% group scopes everything set after the list opens, and wrapping the
+%% environment in one extra group is exactly the pattern that trips the
+%% text-unit accounting of the 2023 latex-lab "block" tagging code when
+%% the example sits in a footnote.  What used to rely on that group is
+%% now handled explicitly: \lx@inexample is reset in \lx@bodyend, and
+%% \@currentlabel/\@currentHref (set locally by \refstepcounter BEFORE
+%% the list opens, because [legacy] sizes the label box off the label)
+%% are saved here and restored in \lx@bodyend, so a \label after the
+%% example still refers to whatever preceded it.
+\long\def\lx@run@ex#1{%
+  \ifdim\lastskip=\Extopsep\vspace{\Exredux}\fi
+  \lx@subdepth\z@
+  \setcounter{SubExNo}{0}\setcounter{SubSubExNo}{0}%
+  \let\lx@saved@currentlabel\@currentlabel
+  \ifdefined\@currentHref
+    \let\lx@saved@currentHref\@currentHref
+  \fi
+  \lx@inexampletrue
+  \lx@letters@on
+  \lx@exstart#1\lx@bodyend}
+
+% closes the example: all open sublists, the main list, the group.
+% Doubles as the sentinel marking the end of the grabbed body, which is
+% what allows \z. to terminate the example early (see below).
+\def\lx@bodyend{%
+  \lx@glt@langend % while the \glt paragraph is still the current one
+  \lx@closesubs
+  \lx@closelist
+  \lx@example@cleanup\ignorespacesafterend}
+%% Under the tagged-PDF testphase code, the block layer wraps top-level
+%% blocks in a "text-unit" structure element and defers its close to the
+%% @endpe continuation paragraph.  Since the cleanup above cancels that
+%% continuation, it must also perform the close the continuation's
+%% para/end hook would have performed -- the same two operations, taken
+%% from tagpdf's own end plug.  The internal names are deliberately
+%% existence-guarded: this compensation is matched to the current
+%% testphase internals and degrades to a no-op if they change.
+\ExplSyntaxOn
+\cs_new_protected:Npn \lx@tag@close@textunit
+  {
+    \lx@tag@if@active:T
+      { \cs_if_exist:NT \__tag_gincr_para_main_end_int:
+          { \__tag_gincr_para_main_end_int: \tag_struct_end: } }
+  }
+\ExplSyntaxOff
+\def\lx@example@cleanup{%
+  \lx@inexamplefalse
+  \lx@letters@off
+  % The list's \end arms the "continue the paragraph" dance (@endpe +
+  % an \everypar that clears it).  Our semantics is the opposite: a
+  % blank line after an example starts a NEW, indented paragraph
+  % (same-line continuation is handled explicitly by \z.).  Clear BOTH
+  % halves of the dance, the way the kernel's own \everypar token
+  % would: clearing only one of them is what desynchronises the tagged
+  % text-unit bookkeeping.
+  \if@endpe\everypar{}\@endpefalse\lx@tag@close@textunit\fi
+  \let\@currentlabel\lx@saved@currentlabel
+  \ifdefined\lx@saved@currentHref
+    \let\@currentHref\lx@saved@currentHref
+  \fi}
+
+%% \lx@exstart@* : label, THEN list, THEN item (the order matters under
+%% [legacy], where the list geometry is read off the label).
+%% \lx@mainitem is the same thing minus the list, for an item inside an
+%% exe environment, whose list is already open.
+\def\lx@exstart{\@ifnextchar[{\lx@exstart@opt}{\lx@exstart@normal}}
+\def\lx@exstart@opt[#1]{\def\lx@itemlabel{#1}\lx@mainlist\lx@scanjudge}
+\def\lx@main@core{%
+  \if@noftnote
+    \refstepcounter{ExNo}\def\lx@itemlabel{\theExNo}%
+  \else
+    \refstepcounter{FnExNo}\def\lx@itemlabel{\theFnExNo}%
+  \fi}
+\def\lx@exstart@normal{\lx@main@core\lx@mainlist\lx@scanjudge}
+\def\lx@mainitem{\lx@main@core\lx@scanjudge}
+
+% the label box: number flush left; an auto-detected judgment is hung
+% into the margin at the text edge via \jdg's zero-width \llap, so
+% example texts align whether or not they carry a judgment, at every
+% nesting level and for marks of any width.  The kernel \item is used
+% under a saved name, because the xlist environment binds \item to the
+% sub-example machinery locally.
+\let\lx@kernel@item\item
+\AtBeginDocument{\let\lx@kernel@item\item}
+%% The label is set flush left in a box of exactly \labelwidth.  Forcing
+%% the width (rather than the older trick of a trailing \hfil in a
+%% natural-width label) is what makes flush-left survive PDF tagging: the
+%% latex-lab block code re-boxes any label narrower than \labelwidth to
+%% \labelwidth using its own alignment, which defaults to flush RIGHT; a
+%% label that already fills \labelwidth is left untouched.  Classic
+%% (untagged) output is identical.
+\def\lx@flushlabel#1{\makebox[\labelwidth][l]{#1}}
+\def\lx@makeitem{\lx@kernel@item[\lx@itemlabel]\lx@emitjudge\ignorespaces}
+
+%% sub-examples ------------------------------------------------------------
+%% \a. pushes a level; the depth advance happens INSIDE the new group.
+%%
+%% The letters \a-\f collide head-on with the kernel accent commands \b, \c
+%% and \d, and BOTH meanings have to work, including in the same example:
+%%
+%%     \ex. \a. Fran\c cois est fatigue\'e.     % \c = cedilla
+%%          \b. \Ca c'est chiant.               % \b = sub-example
+%%
+%% so they cannot simply be switched over wholesale.  Each letter therefore
+%% DISPATCHES ON WHAT FOLLOWS IT: a period means the sub-example command,
+%% anything else -- "{", a letter, a space -- hands over to the accent, i.e.
+%% to whatever the letter meant before linguexx touched it.  "\c{c}" and an
+%% inputenc-decomposed "ç" (which is literally "\c c") both take the accent
+%% branch and work anywhere, inside an example as well as outside.
+%%
+%% Two things make this safe that an earlier attempt got wrong:
+%%
+%%  - The hooks are \protected.  hyperref rebuilds its bookmark strings by
+%%    \edef-expanding the title; an unprotected \futurelet peek runs during
+%%    that expansion and dies ("Use of \lx@dot@c doesn't match its
+%%    definition"), or, in the very first version of this code, silently
+%%    dropped the accent from heading and outline alike.  \protected leaves
+%%    the token untouched in an \edef, so hyperref sees the accent command
+%%    it expects.
+%%  - Only \a is hooked GLOBALLY, for the whole document; \b-\f are hooked
+%%    just where a sub-level is reachable (\lx@letters@local below).  \a has
+%%    to be global because "\a." must be able to OPEN a level, before any
+%%    sub-level exists -- and it is the one letter that is safe to hold
+%%    globally, being no accent at all (in the kernel it is only meaningful
+%%    inside tabbing) and not one of hyperref's PU bookmark accents.
+%%    Holding \b/\c/\d globally is what clobbered them document-wide.
+\def\lx@dot@a.{\lx@subpush}
+\def\lx@dot@b.{\lx@subnext}
+\def\lx@dot@c.{\lx@subnext}
+\def\lx@dot@d.{\lx@subnext}
+\def\lx@dot@e.{\lx@subnext}
+\def\lx@dot@f.{\lx@subnext}
+%% \@ifnextchar skips spaces before peeking, so "\c c" (the inputenc
+%% expansion of "ç") and "\c{c}" both reach \lx@kernel@c with their argument
+%% intact, while "\c." and even "\c ." reach \lx@dot@c.
+\protected\def\lx@hook@a{\@ifnextchar.\lx@dot@a\lx@kernel@a}
+\protected\def\lx@hook@b{\@ifnextchar.\lx@dot@b\lx@kernel@b}
+\protected\def\lx@hook@c{\@ifnextchar.\lx@dot@c\lx@kernel@c}
+\protected\def\lx@hook@d{\@ifnextchar.\lx@dot@d\lx@kernel@d}
+\protected\def\lx@hook@e{\@ifnextchar.\lx@dot@e\lx@kernel@e}
+\protected\def\lx@hook@f{\@ifnextchar.\lx@dot@f\lx@kernel@f}
+%% Capture the accent meanings the hooks fall back to.  Called at load time
+%% AND \AtBeginDocument, so a package loaded after us that rebinds one of
+%% these letters is still picked up; idempotent, because re-capturing a hook
+%% as its own fallback would loop forever.  \e and \f are undefined in the
+%% kernel, so they fall back to a package error rather than to \relax, which
+%% would silently swallow "\e something".
+\def\lx@nokernel#1{%
+  \PackageError{linguexx}{\string#1\space is not an accent command}%
+    {\string#1\space only means something in this package as
+     \string#1. (with a period), continuing a sub-example.}}
+\def\lx@install@letters{%
+  \ifx\a\lx@hook@a\else \let\lx@kernel@a\a \fi
+  \ifx\b\lx@hook@b\else \let\lx@kernel@b\b \fi
+  \ifx\c\lx@hook@c\else \let\lx@kernel@c\c \fi
+  \ifx\d\lx@hook@d\else \let\lx@kernel@d\d \fi
+  \ifx\e\lx@hook@e\else
+    \ifdefined\e \let\lx@kernel@e\e \else \def\lx@kernel@e{\lx@nokernel\e}\fi
+  \fi
+  \ifx\f\lx@hook@f\else
+    \ifdefined\f \let\lx@kernel@f\f \else \def\lx@kernel@f{\lx@nokernel\f}\fi
+  \fi
+  \let\a\lx@hook@a}
+%% Two activation flavours, because the two syntaxes differ in grouping:
+%%
+%% \lx@letters@local -- plain \let, NO save.  For use where a TeX group
+%%   already scopes the change and will undo it: the exe/xlist
+%%   environments, and the \begingroup that \lx@subpush opens for a new
+%%   sub-level.  Nests correctly by construction (each group unwinds to
+%%   whatever the enclosing one had), which a single set of save slots
+%%   could not do -- exe > xlist > ... does nest, even though examples
+%%   themselves do not.
+%% \lx@letters@on / @off -- explicit save and restore.  For the dot-syntax
+%%   example path ONLY, which deliberately runs without a group of its own
+%%   (see \lx@run@ex: an enclosing group breaks the tagged text-unit
+%%   accounting for examples in footnotes).  Saves whatever the letters
+%%   mean right before this example, so it is correct regardless of load
+%%   order relative to hyperref and of anything that rebinds them between
+%%   two examples.  Examples do not nest, so one slot per letter suffices.
+%% Only [lazy] has the dot letters at all: under [gb4e] alone \a.-\f. are
+%% documented not to exist, and the accents must stay untouched even inside
+%% exe/xlist, so the activation has to be a no-op there -- the sub-level
+%% openers below are shared by both syntaxes and would otherwise clobber
+%% \b/\c/\d inside a gb4e batch.
+\iflx@lazy
+  \def\lx@letters@local{%
+    \let\a\lx@hook@a \let\b\lx@hook@b \let\c\lx@hook@c
+    \let\d\lx@hook@d \let\e\lx@hook@e \let\f\lx@hook@f}
+\else
+  \let\lx@letters@local\relax
+\fi
+\def\lx@letters@on{%
+  \let\lx@saved@a\a \let\lx@saved@b\b \let\lx@saved@c\c
+  \let\lx@saved@d\d \let\lx@saved@e\e \let\lx@saved@f\f
+  \lx@letters@local}
+\def\lx@letters@off{%
+  \let\a\lx@saved@a \let\b\lx@saved@b \let\c\lx@saved@c
+  \let\d\lx@saved@d \let\e\lx@saved@e \let\f\lx@saved@f}
+%% The dot shorthands (\z. and the glossed \exg. \ag.-\fg.) are claimed
+%% \AtBeginDocument, and only if the name is still free.  Both halves matter,
+%% and each fixes a different failure:
+%%
+%%  - Claiming them AT LOAD TIME is what broke French.  babel-french defines
+%%    \fg, the closing guillemet of \og...\fg; with linguexx loaded first,
+%%    babel's own \newcommand\fg hit "Command \fg already defined" and the
+%%    document did not build at all.  Deferring lets babel get there first.
+%%  - Claiming them UNCONDITIONALLY is the other half.  With babel loaded
+%%    first, the plain \def silently overwrote babel's \fg, and every
+%%    \og...\fg in the document lost its closing guillemet -- no error, just
+%%    a missing character.
+%%
+%% So a name someone else already owns is left alone, and the fact is put in
+%% the log.  The cost is that \fg. is unavailable in a French document: write
+%% \f. and then \gll instead.  This is not only about babel -- \eg is a very
+%% common user-defined abbreviation for "e.g.", and the same guard hands it
+%% back to whoever defined it.
+\def\lx@claim@shorthand#1#2{%
+  \@ifundefined{#1}%
+    {\expandafter\def\csname #1\endcsname.{#2}}%
+    {\PackageInfo{linguexx}{\@backslashchar#1\space is already defined;
+       \@backslashchar#1.\space is therefore not available}}}
+\def\lx@claim@shorthands{%
+  \lx@claim@shorthand{z}{\lx@zpop}%
+  \lx@claim@shorthand{exg}{\ex.\lx@glosshead}%
+  \lx@claim@shorthand{ag}{\a.\lx@glosshead}%
+  \lx@claim@shorthand{bg}{\b.\lx@glosshead}%
+  \lx@claim@shorthand{cg}{\c.\lx@glosshead}%
+  \lx@claim@shorthand{dg}{\d.\lx@glosshead}%
+  \lx@claim@shorthand{eg}{\e.\lx@glosshead}%
+  \lx@claim@shorthand{fg}{\f.\lx@glosshead}}
+\iflx@lazy
+  \lx@install@letters
+  \AtBeginDocument{\lx@install@letters\lx@claim@shorthands}
+\fi
+% Under [gb4e] alone, \lx@install@letters is never called, so \a is not
+% hooked either: \z., the glossed shorthands and \a.-\f. do not exist,
+% and \a plus the kernel accents \b, \c, \d (and hyperref's use of them)
+% stay untouched everywhere, exactly as before.  \lx@letters@local is
+% still reached from exe/xlist under [gb4e], but only INSIDE those
+% environments' own groups, where the dot letters are what the gb4e
+% syntax documents as mixable.
+
+%% \z. pops exactly ONE level, counting the surrounding prose as the
+%% outermost level: from the roman level it returns to the letters (a
+%% following \b. continues there); from the LETTER level, or in an
+%% example without open sub-examples, it ENDS the example.  Consecutive
+%% \z.'s therefore pop successively out of the example.  The rest of
+%% the body after an example-ending \z. is reinjected after the close
+%% (grabbed up to the \lx@bodyend sentinel): on the same line it is a
+%% flush-left continuation, after a blank line an ordinary indented
+%% paragraph.  \z. is interpreted at typesetting time and must stand at
+%% brace depth 0 of the body; outside an example it is a package error.
+%%
+%% What the pop is gated on is \lx@subdepth, NOT \iflx@inexample: the
+%% latter is set by the dot-syntax path alone, so gating the whole
+%% command on it made \z. unusable inside an exe batch -- where "\a."
+%% legitimately opens a sub-level through the global \a hook, and
+%% nothing but \z. could close it again.  (Without the pop, the next
+%% \ex in the batch was silently demoted to a sub-item, because
+%% \lx@gbex@plain dispatches on \lx@subdepth.)  Only the branch that
+%% ENDS the example stays gated on \iflx@inexample: an exe batch is
+%% ended by \end{exe}, and \lx@zexit's \lx@bodyend sentinel does not
+%% exist there at all.
+\newif\iflx@inexample
+\def\lx@zpop{%
+  \ifnum\lx@subdepth>\@ne
+    \let\lx@donext\lx@zpop@one   % roman level: back to the letters
+  \else\iflx@inexample
+    \let\lx@donext\lx@zexit      % dot syntax: the letter level ends it
+  \else\ifnum\lx@subdepth>\z@
+    \let\lx@donext\lx@zpop@one   % exe batch: letter level -> main level
+  \else\iflx@inexe
+    \let\lx@donext\lx@zpop@exeerr
+  \else
+    \let\lx@donext\lx@zpop@err
+  \fi\fi\fi\fi
+  \lx@donext}
+\def\lx@zpop@one{\lx@closelist\endgroup}
+% Text on the same line as a main-level \z. is a CONTINUATION: it is set
+% flush left under the example (no \parindent), separated from it by the
+% example's normal bottom space, and closed with \par (the source's own
+% terminating \par was consumed as the collection delimiter).  If the
+% rest is blank -- i.e. \z. is followed by one or more empty lines --
+% nothing is reinjected, and the next source paragraph is an ordinary,
+% class-indented paragraph.
+\ExplSyntaxOn
+\cs_new_protected:Npn \lx@zexit #1 \lx@bodyend
+  {
+    \lx@bodyend
+    \tl_if_blank:nF {#1} { \noindent \ignorespaces #1 \par }
+  }
+\ExplSyntaxOff
+\def\lx@zpop@err{%
+  \PackageError{linguexx}{\string\z. outside an example}%
+    {\string\z. closes one sub-example level, or ends the example when
+     at its main level.}}
+\def\lx@zpop@exeerr{%
+  \PackageError{linguexx}{\string\z. at the main level of an exe batch}%
+    {Inside \string\begin{exe} ... \string\end{exe}, \string\z. closes an
+     open sub-example level (one opened by \string\a.). At the main level
+     of the batch there is nothing to close: end the batch with
+     \string\end{exe}.}}
+
+%% \exg. / \ag. ... \fg. : glossed shorthands, expanding to
+%% \ex. \gll resp. \a. \gll etc., with judgment detection re-run in
+%% front of the gloss so that "\exg. *Das ist ..." hangs the star left
+%% of the first column:
+\def\lx@glosshead{\lx@scanjudgeto{\lx@emitjudge\gll}}
+
+\def\lx@subpush{%
+  \ifcase\lx@subdepth
+    \let\lx@donext\lx@subpush@i
+  \or
+    \let\lx@donext\lx@subpush@ii
+  \else
+    \let\lx@donext\lx@subpush@err
+  \fi
+  \lx@donext}
+
+% the two sub-level list declarations, shared by the dot-command path
+% (\a.) and the environment path (xlist)
+\def\lx@sublist@i{%
+  \setcounter{SubExNo}{0}%
+  \lx@openlist{\lx@geom@sub \lx@listdefaults}}
+\def\lx@sublist@ii{%
+  \setcounter{SubSubExNo}{0}%
+  \lx@openlist{\lx@geom@subsub \lx@listdefaults}}
+
+% depth 0 -> open letter level.  \lx@letters@local goes right after the
+% \begingroup, so \b.-\f. are live for the rest of this level (and are
+% undone by the matching \endgroup in \lx@closesubs / \z.).  It matters
+% here and not only in \lx@run@ex: "\a." inside an exe batch reaches this
+% path through the global \a hook, with no \lx@run@ex anywhere.
+%
+% Which is also why the guard accepts \iflx@inexe as well as
+% \iflx@inexample.  What it rejects is a stray "\a." in ordinary prose,
+% with no example of either kind open: that used to open a list and a
+% \begingroup that nothing would ever close, and the failure surfaced as
+% "\begin{list} ended by \end{document}" arbitrarily far away, naming
+% neither \a. nor the line it stood on.  Erring instead of pushing (the
+% same shape as \lx@subpush@err one level down) keeps the document in a
+% state the error message describes.
+\def\lx@subpush@i{%
+  \iflx@inexample
+    \let\lx@donext\lx@subpush@i@go
+  \else\iflx@inexe
+    \let\lx@donext\lx@subpush@i@go
+  \else
+    \let\lx@donext\lx@subpush@outside@err
+  \fi\fi
+  \lx@donext}
+\def\lx@subpush@i@go{%
+  \begingroup\advance\lx@subdepth\@ne
+  \lx@letters@local
+  \lx@sublist@i
+  \lx@subitem}
+\def\lx@subpush@outside@err{%
+  \PackageError{linguexx}{\string\a. with no example to attach it to}%
+    {A sub-example has to sit inside an example: open one with
+     \string\ex.\space (or \string\begin{exe}) first.\MessageBreak
+     Left to stand, \string\a.\space here would open a list that nothing
+     closes, and you would be told about it as "\string\begin{list} ended
+     by \string\end{document}" instead.}}
+
+% depth 1 -> open roman level
+\def\lx@subpush@ii{%
+  \begingroup\advance\lx@subdepth\@ne
+  \lx@letters@local
+  \lx@sublist@ii
+  \lx@subsubitem}
+
+\def\lx@subpush@err{%
+  \PackageError{linguexx}{Only two sub-example levels are supported}%
+    {Remove the third \string\a. level.}}
+
+\def\lx@subnext{%
+  \ifcase\lx@subdepth
+    \let\lx@donext\lx@subnext@err
+  \or
+    \let\lx@donext\lx@subitem
+  \or
+    \let\lx@donext\lx@subsubitem
+  \fi
+  \lx@donext}
+
+\def\lx@subnext@err{%
+  \PackageError{linguexx}{\string\b. (or \string\c. etc.) without a
+    preceding \string\a.}{Start the sublevel with \string\a. first.}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Environment interface: exe and xlist (gb4e-compatible)             %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% begin code for the sub-level environment: the environment's own group
+% plays the role of the \begingroup in \lx@subpush, so the depth
+% advance is undone at the matching \end
+\def\lx@subenv@begin{%
+   \advance\lx@subdepth\@ne
+   \lx@letters@local
+   \ifcase\lx@subdepth
+     \let\lx@donext\relax % unreachable
+   \or
+     \let\lx@donext\lx@sublist@i
+   \or
+     \let\lx@donext\lx@sublist@ii
+   \else
+     \let\lx@donext\lx@subpush@err
+   \fi
+   \lx@donext
+   \def\item{\lx@subnext}}
+
+%% exe is a BATCH: each \ex inside it is a new top-level example;
+%% xlist embeds a sub-level (letters, then romans), with \ex as the
+%% item command (plain \item works too).  Judgments are given
+%% gb4e-style as \ex[*]{text} -- the optional argument may be ANY mark,
+%% not only the auto-detected set -- or typed directly after a plain
+%% \ex, as everywhere else in this package.  Both environments drive
+%% the same engine as \ex./\a., so the two syntaxes share one counter
+%% and may be mixed freely, even within one example (an xlist inside a
+%% dot-command \a., or \a. inside exe).
+\iflx@gbfour
+\NewDocumentEnvironment{exe}{}
+  {\ifdim\lastskip=\Extopsep\vspace{\Exredux}\fi
+   \lx@subdepth\z@
+   \setcounter{SubExNo}{0}\setcounter{SubSubExNo}{0}%
+   \lx@inexetrue
+   % No letter activation here: "\a. inside exe" (documented as mixable)
+   % reaches the dot syntax through the global \a hook, and \lx@subpush
+   % then activates \b.-\f. inside the \begingroup it opens for the level.
+   \lx@guesslabel
+   \lx@mainlist
+   % consecutive examples in a batch get the same vertical rhythm as
+   % consecutive \ex. examples (net \Extopsep between them)
+   \itemsep\Extopsep}
+  % A "\a." inside the batch opened a sub-level through \lx@subpush, i.e.
+  % a \begingroup that only \lx@closesubs closes; \end{exe} used to close
+  % the main list alone and leak it, which left \lx@subdepth and the dot
+  % letters stuck at the sub-level for the rest of the document.  An xlist
+  % inside the batch needs nothing here: its own environment group has
+  % already undone its depth advance by the time we get here.
+  {\lx@glt@langend \lx@closesubs \lx@closelist}
+
+\NewDocumentEnvironment{xlist}{}
+  {\lx@subenv@begin
+   \lx@inexetrue}
+  {\lx@glt@langend \lx@closelist}
+\fi % iflx@gbfour
+
+\def\lx@subitem@core{%
+  \refstepcounter{SubExNo}%
+  \def\lx@itemlabel{\SubExLBr\Exalph{SubExNo}\SubExRBr}}
+\def\lx@subitem{\lx@subitem@core\lx@scanjudge}
+\def\lx@subsubitem@core{%
+  \refstepcounter{SubSubExNo}%
+  \def\lx@itemlabel{\SubSubExLBr\Exroman{SubSubExNo}\SubSubExRBr}}
+\def\lx@subsubitem{\lx@subsubitem@core\lx@scanjudge}
+
+% close all sublists still open at the end of the example body;
+% every \endgroup restores \lx@subdepth to its value one level up,
+% so this terminates by construction
+\def\lx@closesubs{%
+  \ifnum\lx@subdepth>\z@
+    \lx@closelist\endgroup
+    \expandafter\lx@closesubs
+  \fi}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Relative references: \Next \Last \NNext \LLast \TextNext           %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand\lx@fmtEx[1]{\theExLBr#1\theExRBr}
+\newcommand\lx@fmtFnEx[1]{\theFnExLBr#1\theFnExRBr}
+
+\newcommand\Last{{\if@noftnote
+    \lx@fmtEx{\arabic{ExNo}}%
+  \else\ifnum\value{FnExNo}>\z@
+    \lx@fmtFnEx{\roman{FnExNo}}%
+  \else
+    \lx@fmtEx{\arabic{ExNo}}%
+  \fi\fi}}
+
+\newcommand\Next{{\if@noftnote
+    \lx@fmtEx{\the\numexpr\value{ExNo}+1\relax}%
+  \else
+    \lx@fmtFnEx{\romannumeral\numexpr\value{FnExNo}+1\relax}%
+  \fi}}
+
+\newcommand\NNext{{\if@noftnote
+    \lx@fmtEx{\the\numexpr\value{ExNo}+2\relax}%
+  \else
+    \lx@fmtFnEx{\romannumeral\numexpr\value{FnExNo}+2\relax}%
+  \fi}}
+
+\newcommand\LLast{{\if@noftnote
+    \lx@fmtEx{\the\numexpr\value{ExNo}-1\relax}%
+  \else\ifnum\value{FnExNo}>\@ne
+    \lx@fmtFnEx{\romannumeral\numexpr\value{FnExNo}-1\relax}%
+  \else
+    \lx@fmtEx{\arabic{ExNo}}%
+  \fi\fi}}
+
+\newcommand\TextNext{{\lx@fmtEx{\the\numexpr\value{ExNo}+1\relax}}}
+
+% parenthesis-free twins
+\newcommand\pref[1]{{\parenstrue\ref{#1}}}
+\newcommand\pLast{{\parenstrue\Last}}
+\newcommand\pNext{{\parenstrue\Next}}
+\newcommand\pNNext{{\parenstrue\NNext}}
+\newcommand\pLLast{{\parenstrue\LLast}}
+\newcommand\pTextNext{{\parenstrue\TextNext}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Interlinear glossing: \gll \glll \glt (cgloss4e replacement)       %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% \gll  object line \\ gloss line \\
+%% \glll object line \\ gloss line \\ second gloss line \\
+%% \glt  free translation (typeset on a new line)
+%%
+%% Words are separated by spaces; {braced material} counts as one word
+%% (so {ein Beispiel} shares a single gloss).  If lines have unequal
+%% length, missing cells are empty.  Column pairs are set as \vtop boxes
+%% flowing in a ragged-right paragraph, so long examples wrap between
+%% columns.  Fonts per line: \eachwordone/\eachwordtwo/\eachwordthree
+%% (default \textnormal, so beamer's sans-serif is respected without
+%% any patching).  Inter-column glue: \GlossSep (a macro holding a glue
+%% specification).
+
+\let\eachwordone\textnormal
+\let\eachwordtwo\textnormal
+\let\eachwordthree\textnormal
+% \GlossSep (the glue between gloss columns) is a macro, not a length, and
+% its value is set in the defaults block of the Layout section above.
+
+%% Per-tier fonts: tier n is set with the one-argument command declared
+%% by \GlossTierFont{n}{cmd}.  Tiers 1--3 are pre-declared to dispatch
+%% through \eachwordone/\eachwordtwo/\eachwordthree, so redefining those
+%% still works (and beamer's sans-serif is respected as before);
+%% undeclared tiers fall back to \textnormal.
+\newcommand\GlossTierFont[2]{%
+  \expandafter\def\csname lx@glfont@#1\endcsname{#2}}
+\expandafter\def\csname lx@glfont@1\endcsname{\eachwordone}
+\expandafter\def\csname lx@glfont@2\endcsname{\eachwordtwo}
+\expandafter\def\csname lx@glfont@3\endcsname{\eachwordthree}
+
+\ExplSyntaxOn
+\tl_new:N  \l__lx_gl_tmp_tl
+\seq_new:N \l__lx_gl_lines_seq
+\int_new:N \l__lx_gl_ntiers_int
+\int_new:N \l__lx_gl_maxwords_int
+\quark_new:N \q__lx_sep
+\cs_generate_variant:Nn \seq_set_split:Nnn { NnV }
+
+% split #2 on space tokens into seq #1, dropping empty items
+\cs_new_protected:Npn \__lx_split:Nn #1#2
+  {
+    \tl_set:Nn \l__lx_gl_tmp_tl {#2}
+    \tl_replace_all:Nnn \l__lx_gl_tmp_tl { ~ } { \q__lx_sep }
+    \seq_set_split:NnV #1 { \q__lx_sep } \l__lx_gl_tmp_tl
+    \seq_remove_all:Nn #1 { }
+  }
+\cs_generate_variant:Nn \__lx_split:Nn { cn }
+
+% tier font application: \lx@glfontuse{tier}{word}
+\cs_new_protected:Npn \lx@glfontuse #1#2
+  {
+    \cs_if_exist_use:cF { lx@glfont@ #1 }
+      { \textnormal }
+    {#2}
+  }
+
+%% Objective 4: interlinear glosses as structure.  Visually a gloss is a
+%% grid; for a screen reader what matters is that the object word and its
+%% gloss(es) are read together and are navigable as a unit.  The content
+%% is emitted column by column (word 1 of every tier, then word 2, ...),
+%% so the reading order is already word-by-word; here we additionally
+%% wrap each column in a Span so the aligned bundle is one structure
+%% element rather than loose text in a paragraph.  Tag-guarded: no effect
+%% without active tagging, and the printed grid is unchanged.
+\ExplSyntaxOn
+%% Objective 5: language of a gloss tier.  \GlossTierLang{tier}{lang}
+%% records a (BCP-47) language code for a tier; under tagging each word
+%% of that tier is wrapped in a Span carrying /Lang, so a screen reader
+%% pronounces the object language with its own phonetics instead of the
+%% document's.  Tiers with no declared language behave exactly as before.
+%% Scoping: \GlossTierLang uses a LOCAL assignment on a local property.
+%% Issued in the preamble or document body it sets the document-wide
+%% default (it persists to the end of its enclosing group); issued inside
+%% an example -- whose body is typeset within the example's list group --
+%% it overrides only that example and reverts afterwards.
+\prop_new:N \l_lx_gl_lang_prop
+\tl_new:N  \l__lx_gl_lang_tl
+\NewDocumentCommand \GlossTierLang { m m }
+  { \prop_put:Nnn \l_lx_gl_lang_prop {#1} {#2} }
+
+%% Objective 6: Leipzig glossing abbreviations with spoken expansions.
+%% \lpzg{sg} typesets the abbreviation in small caps and, under tagging,
+%% wraps it in a Span carrying /E (the PDF "expansion text" of an
+%% abbreviation), so a screen reader announces "singular" while the page
+%% still shows SG and copy-and-paste still yields SG.  The table below is
+%% the standard Leipzig Glossing Rules list, keyed by the printed short
+%% form (lower case); extend or override an entry with
+%% \SetLeipzig{key}{expansion}.  An unknown key is printed in small caps
+%% with no expansion (no warning).  Nothing happens without active
+%% tagging; the printed output is unaffected either way.
+\prop_new:N \g_lx_lpzg_prop
+\tl_new:N  \l__lx_lpzg_tl
+\prop_gset_from_keyval:Nn \g_lx_lpzg_prop
+  {
+    1 = first~person ,
+    2 = second~person ,
+    3 = third~person ,
+    a = agent ,
+    abl = ablative ,
+    abs = absolutive ,
+    acc = accusative ,
+    adj = adjective ,
+    adv = adverbial ,
+    agr = agreement ,
+    all = allative ,
+    antip = antipassive ,
+    appl = applicative ,
+    art = article ,
+    aux = auxiliary ,
+    ben = benefactive ,
+    caus = causative ,
+    clf = classifier ,
+    com = comitative ,
+    comp = complementizer ,
+    compl = completive ,
+    cond = conditional ,
+    cop = copula ,
+    cvb = converb ,
+    dat = dative ,
+    decl = declarative ,
+    def = definite ,
+    dem = demonstrative ,
+    det = determiner ,
+    dist = distal ,
+    distr = distributive ,
+    du = dual ,
+    dur = durative ,
+    erg = ergative ,
+    excl = exclusive ,
+    f = feminine ,
+    foc = focus ,
+    fut = future ,
+    gen = genitive ,
+    imp = imperative ,
+    incl = inclusive ,
+    ind = indicative ,
+    indf = indefinite ,
+    inf = infinitive ,
+    ins = instrumental ,
+    intr = intransitive ,
+    ipfv = imperfective ,
+    irr = irrealis ,
+    loc = locative ,
+    m = masculine ,
+    n = neuter ,
+    neg = negative ,
+    nmlz = nominalizer ,
+    nom = nominative ,
+    obj = object ,
+    obl = oblique ,
+    p = patient ,
+    pass = passive ,
+    pfv = perfective ,
+    pl = plural ,
+    poss = possessive ,
+    pred = predicative ,
+    prf = perfect ,
+    prog = progressive ,
+    proh = prohibitive ,
+    prox = proximal ,
+    prs = present ,
+    pst = past ,
+    ptcp = participle ,
+    purp = purposive ,
+    q = question~particle ,
+    quot = quotative ,
+    recp = reciprocal ,
+    refl = reflexive ,
+    rel = relative ,
+    res = resultative ,
+    s = argument~of~intransitive~verb ,
+    sbj = subject ,
+    sbjv = subjunctive ,
+    sg = singular ,
+    top = topic ,
+    tr = transitive ,
+    voc = vocative ,
+  }
+%% Declarations are recorded as well as stored, so that \lpzgcheck can
+%% report one that is never used.  Only what the DOCUMENT declares is
+%% recorded: the built-in table below has ~100 entries, and reporting the
+%% ninety-odd a paper does not happen to need would be pure noise.
+\seq_new:N \g__lx_lpzg_declared_seq
+\NewDocumentCommand \SetLeipzig { m m }
+  {
+    \prop_gput:Nnn \g_lx_lpzg_prop {#1} {#2}
+    \seq_if_in:NeF \g__lx_lpzg_declared_seq { \tl_to_str:n {#1} }
+      { \seq_gput_right:Ne \g__lx_lpzg_declared_seq { \tl_to_str:n {#1} } }
+  }
+%% \lpzg accepts a compound gloss label as a single argument, following the
+%% Leipzig convention: a leading person digit is written flush against the
+%% number (3sg), and further categories are separated by a period
+%% (3sg.nom).  The whole label is typeset once in small caps; for the
+%% spoken expansion (/E) it is parsed into pieces -- each period-separated
+%% segment, with any leading 1/2/3 peeled off as a person -- and each
+%% piece is expanded from the table.  Pieces not in the table pass through
+%% verbatim; if nothing at all expands, no /E is emitted (the small caps
+%% stand alone, exactly as for a truly unknown label).
+\tl_new:N   \l__lx_lpzg_exp_tl
+\str_new:N  \l__lx_lpzg_rest_str
+\bool_new:N \l__lx_lpzg_any_bool
+\seq_new:N  \l__lx_lpzg_seg_seq
+\cs_new_protected:Npn \lx@lpzg@append #1
+  {
+    \tl_if_empty:NTF \l__lx_lpzg_exp_tl
+      { \tl_set:Nn  \l__lx_lpzg_exp_tl {#1} }
+      { \tl_put_right:Nn \l__lx_lpzg_exp_tl { ~ #1 } }
+  }
+\cs_new_protected:Npn \lx@lpzg@lookup #1
+  {
+    \lx@lpzg@record {#1}
+    \prop_get:NnNTF \g_lx_lpzg_prop {#1} \l__lx_lpzg_tl
+      { \bool_set_true:N \l__lx_lpzg_any_bool
+        \exp_args:NV \lx@lpzg@append \l__lx_lpzg_tl }
+      { \lx@lpzg@append {#1} }
+  }
+\cs_new_protected:Npn \lx@lpzg@seg #1
+  {
+    \str_set:Ne \l__lx_lpzg_rest_str { \str_head:n {#1} }
+    \bool_lazy_any:nTF
+      {
+        { \str_if_eq_p:Vn \l__lx_lpzg_rest_str { 1 } }
+        { \str_if_eq_p:Vn \l__lx_lpzg_rest_str { 2 } }
+        { \str_if_eq_p:Vn \l__lx_lpzg_rest_str { 3 } }
+      }
+      {
+        \exp_args:Ne \lx@lpzg@lookup { \str_head:n {#1} }
+        \str_set:Ne \l__lx_lpzg_rest_str { \str_tail:n {#1} }
+        \str_if_empty:NF \l__lx_lpzg_rest_str
+          { \exp_args:NV \lx@lpzg@lookup \l__lx_lpzg_rest_str }
+      }
+      { \lx@lpzg@lookup {#1} }
+  }
+\cs_new_protected:Npn \lx@lpzg@build #1
+  {
+    \tl_clear:N \l__lx_lpzg_exp_tl
+    \bool_set_false:N \l__lx_lpzg_any_bool
+    \seq_set_split:Nnn \l__lx_lpzg_seg_seq { . } {#1}
+    %% Blank segments are dropped rather than looked up.  A trailing or
+    %% doubled period ("\lpzg{sg.}") splits into {sg} and an EMPTY piece,
+    %% and the empty piece was recorded as a used key like any other, so
+    %% \lpzgcheck later reported "No expansion known for" nothing at all
+    %% -- and the /E carried a trailing space.  Harmless, but the warning
+    %% named a key the author could not find in the source.
+    \seq_map_inline:Nn \l__lx_lpzg_seg_seq
+      { \tl_if_blank:nF {##1} { \lx@lpzg@seg {##1} } }
+  }
+\NewDocumentCommand \lpzg { m }
+  {
+    \lx@lpzg@build {#1}
+    \bool_if:NTF \l__lx_lpzg_any_bool
+      { \lx@tag@span@exp:nn { tag = Span , E = { \l__lx_lpzg_exp_tl } }
+          { \textsc {#1} } }
+      { \textsc {#1} }
+  }
+
+%% \lpzglist: the list of abbreviations the document actually uses.
+%%
+%% Every piece \lpzg resolves is recorded -- the ATOMIC pieces, so
+%% \lpzg{3sg.pst} contributes 3, sg and pst separately, which is what a
+%% list of abbreviations wants.  Each key is recorded once and written to
+%% the .aux, so \lpzglist may stand anywhere, in particular in the front
+%% matter, before the uses it reports on: it prints the keys of the
+%% PREVIOUS run plus everything used so far in this one (so a list at the
+%% end of the document is already complete on the first run).  A key that
+%% the .aux did not know about, or that no list accounts for, means some
+%% list came out short: \AtEndDocument asks for a rerun, as for a table of
+%% contents.
+%%
+%% Keys with no known expansion (project labels not in the Leipzig table
+%% and not declared with \SetLeipzig) are omitted and reported once; ask
+%% for unexplained=keep to list them with an empty explanation instead.
+%%
+%% Every key is normalised to a STRING before it is stored or compared.
+%% It has to be: a label reaches \lpzg as letters, but the piece peeled
+%% off a compound one comes out of a str variable (catcode 12), and the
+%% keys read back from the .aux are letters again -- three spellings of
+%% "sg" that a seq would take for three different entries.
+\seq_new:N  \g__lx_lpzg_used_seq   % keys seen on THIS run, in order of use
+\prop_new:N \g__lx_lpzg_used_prop  % the same, as a set: the duplicate guard
+\seq_new:N  \g__lx_lpzg_aux_seq    % keys read back from the .aux (last run)
+\bool_new:N \g__lx_lpzg_doc_bool   % true once the .aux is open for writing
+\bool_new:N \g__lx_lpzg_rerun_bool % a key the .aux did not know about
+\str_new:N  \l__lx_lpzg_key_str
+\AtBeginDocument { \bool_gset_true:N \g__lx_lpzg_doc_bool }
+%% written to and read from the .aux
+\cs_new_protected:Npn \lx@lpzg@used #1
+  { \seq_gput_right:Ne \g__lx_lpzg_aux_seq { \tl_to_str:n {#1} } }
+\bool_new:N \l__lx_lpzg_norecord_bool % true while \lpzglist typesets itself
+\cs_new_protected:Npn \lx@lpzg@record #1
+  {
+    \bool_if:NF \l__lx_lpzg_norecord_bool
+      { \lx@lpzg@record@ {#1} }
+  }
+\cs_new_protected:Npn \lx@lpzg@record@ #1
+  {
+    \str_set:Nn \l__lx_lpzg_key_str {#1}
+    \prop_if_in:NVF \g__lx_lpzg_used_prop \l__lx_lpzg_key_str
+      {
+        \prop_gput:NVn \g__lx_lpzg_used_prop \l__lx_lpzg_key_str { }
+        \seq_gput_right:NV \g__lx_lpzg_used_seq \l__lx_lpzg_key_str
+        %% Recorded in the preamble, a key is there before any list is
+        %% typeset, so it needs neither the .aux nor a rerun.  Recorded in
+        %% the body and unknown to the .aux, it means the .aux is one run
+        %% behind and a list placed before this point is short of an entry.
+        \bool_if:NT \g__lx_lpzg_doc_bool
+          {
+            \seq_if_in:NVF \g__lx_lpzg_aux_seq \l__lx_lpzg_key_str
+              { \bool_gset_true:N \g__lx_lpzg_rerun_bool }
+            \legacy_if:nT { @filesw }
+              { \iow_now:Ne \@auxout
+                  { \token_to_str:N \lx@lpzg@used { \l__lx_lpzg_key_str } } }
+          }
+      }
+  }
+%% \lpzgadd{key,key,...} records abbreviations used outside \lpzg (in a
+%% figure, in running text) so that they appear in the list all the same.
+\NewDocumentCommand \lpzgadd { m }
+  { \clist_map_inline:nn {#1} { \lx@lpzg@record@ {##1} } }
+
+\seq_new:N   \l__lx_lpzglist_seq        % the entries to print
+\seq_new:N   \l__lx_lpzglist_tmp_seq
+\seq_new:N   \l__lx_lpzglist_unknown_seq
+\seq_new:N   \g__lx_lpzglist_printed_seq
+\bool_new:N  \g__lx_lpzglist_used_bool
+\bool_new:N  \l__lx_lpzglist_rerun_bool
+\bool_new:N  \l__lx_lpzglist_first_bool
+\box_new:N   \l__lx_lpzglist_box
+\dim_new:N   \l__lx_lpzglist_wd_dim
+\msg_new:nnn { linguexx } { lpzglist-rerun }
+  {
+    Abbreviation~list~out~of~date.~
+    Rerun~LaTeX~to~get~\iow_char:N \\lpzglist~right.
+  }
+\msg_new:nnn { linguexx } { lpzglist-unknown }
+  {
+    No~expansion~known~for~#1~--~omitted~from~
+    \iow_char:N \\lpzglist.\\
+    Declare~it~with~\iow_char:N \\SetLeipzig,~
+    or~pass~unexplained=keep~to~list~it~unexplained.
+  }
+
+%% Presentation.  Everything below is either a key of \lpzglist (set for
+%% one list) or of \lpzglistsetup (set for all of them), or one of the two
+%% user commands \lpzglistentry / \lpzglisttitle, which may be redefined
+%% wholesale with \renewcommand.
+\str_new:N   \l__lx_lpzglist_style_str
+\str_new:N   \l__lx_lpzglist_incl_str
+\tl_new:N    \l__lx_lpzglist_title_tl
+\tl_new:N    \l__lx_lpzglist_titlestyle_tl
+\tl_new:N    \l__lx_lpzglist_sep_tl
+\clist_new:N \l__lx_lpzglist_ignore_clist
+\clist_new:N \l__lx_lpzglist_add_clist
+\bool_new:N  \l__lx_lpzglist_sort_bool
+\bool_new:N  \l__lx_lpzglist_keepun_bool
+\skip_new:N  \l__lx_lpzglist_itemsep_skip
+\keys_define:nn { lx / lpzglist }
+  {
+    style        .choices:nn =
+      { list , inline }
+      { \str_set:NV \l__lx_lpzglist_style_str \l_keys_choice_tl } ,
+    include      .choices:nn =
+      { used , all }
+      { \str_set:NV \l__lx_lpzglist_incl_str \l_keys_choice_tl } ,
+    sort         .bool_set:N  = \l__lx_lpzglist_sort_bool ,
+    sort         .default:n   = { true } ,
+    unexplained  .choices:nn  =
+      { omit , keep }
+      {
+        \bool_set:Nn \l__lx_lpzglist_keepun_bool
+          { \str_if_eq_p:Vn \l_keys_choice_tl { keep } }
+      } ,
+    unexplained  .default:n   = { keep } ,
+    title        .tl_set:N    = \l__lx_lpzglist_title_tl ,
+    titlestyle   .tl_set:N    = \l__lx_lpzglist_titlestyle_tl ,
+    sep          .tl_set:N    = \l__lx_lpzglist_sep_tl ,
+    itemsep      .skip_set:N  = \l__lx_lpzglist_itemsep_skip ,
+    ignore       .clist_set:N = \l__lx_lpzglist_ignore_clist ,
+    add          .clist_set:N = \l__lx_lpzglist_add_clist ,
+    format       .code:n      =
+      { \cs_set_protected:Npn \lpzglistentry ##1##2 {#1} } ,
+  }
+\keys_set:nn { lx / lpzglist }
+  {
+    style = list , include = used , sort = true , unexplained = omit ,
+    title = { } , titlestyle = \lpzglisttitle , sep = { ;~ } ,
+    itemsep = 0pt ,
+  }
+\NewDocumentCommand \lpzglistsetup { m }
+  { \keys_set:nn { lx / lpzglist } {#1} }
+%% One entry: #1 the key, #2 its expansion (empty if none is known).
+\NewDocumentCommand \lpzglistentry { m m }
+  {
+    \str_if_eq:VnTF \l__lx_lpzglist_style_str { inline }
+      { \lpzg {#1} ~ #2 }
+      { \item [ \lpzg {#1} ] #2 }
+  }
+\NewDocumentCommand \lpzglisttitle { m }
+  {
+    \cs_if_exist:NTF \section
+      { \section * {#1} }
+      { \par \noindent \textbf {#1} \par \nobreak \smallskip }
+  }
+
+%% Collect the keys to print, in printing order.  Keys arrive as strings
+%% from the recorder, but as letters from the built-in table and from the
+%% add= and ignore= lists, so every one of them is normalised here too.
+\cs_generate_variant:Nn \seq_remove_all:Nn { NV }
+\cs_new_protected:Npn \lx@lpzglist@put #1
+  {
+    \str_set:Nn \l__lx_lpzg_key_str {#1}
+    \seq_if_in:NVF \l__lx_lpzglist_seq \l__lx_lpzg_key_str
+      { \seq_put_right:NV \l__lx_lpzglist_seq \l__lx_lpzg_key_str }
+  }
+\cs_new_protected:Npn \lx@lpzglist@collect
+  {
+    \seq_clear:N \l__lx_lpzglist_seq
+    \seq_clear:N \l__lx_lpzglist_unknown_seq
+    \str_if_eq:VnTF \l__lx_lpzglist_incl_str { all }
+      { \prop_map_inline:Nn \g_lx_lpzg_prop { \lx@lpzglist@put {##1} } }
+      {
+        %% the .aux (a full run) first, this run's new keys after it, so
+        %% that sort=false yields the order of first use
+        \seq_map_inline:Nn \g__lx_lpzg_aux_seq  { \lx@lpzglist@put {##1} }
+        \seq_map_inline:Nn \g__lx_lpzg_used_seq { \lx@lpzglist@put {##1} }
+      }
+    \clist_map_inline:Nn \l__lx_lpzglist_add_clist { \lx@lpzglist@put {##1} }
+    \clist_map_inline:Nn \l__lx_lpzglist_ignore_clist
+      {
+        \str_set:Nn \l__lx_lpzg_key_str {##1}
+        \seq_remove_all:NV \l__lx_lpzglist_seq \l__lx_lpzg_key_str
+      }
+    \seq_set_eq:NN \l__lx_lpzglist_tmp_seq \l__lx_lpzglist_seq
+    \seq_clear:N \l__lx_lpzglist_seq
+    \seq_map_inline:Nn \l__lx_lpzglist_tmp_seq
+      {
+        \prop_if_in:NnTF \g_lx_lpzg_prop {##1}
+          { \seq_put_right:Nn \l__lx_lpzglist_seq {##1} }
+          {
+            \seq_put_right:Nn \l__lx_lpzglist_unknown_seq {##1}
+            \bool_if:NT \l__lx_lpzglist_keepun_bool
+              { \seq_put_right:Nn \l__lx_lpzglist_seq {##1} }
+          }
+      }
+    \bool_if:NT \l__lx_lpzglist_sort_bool
+      {
+        \seq_sort:Nn \l__lx_lpzglist_seq
+          {
+            \str_compare:nNnTF {##1} > {##2}
+              { \sort_return_swapped: } { \sort_return_same: }
+          }
+      }
+  }
+%% One entry, expansion looked up (empty for an unknown key kept on request).
+\cs_new_protected:Npn \lx@lpzglist@item #1
+  {
+    \prop_get:NnNTF \g_lx_lpzg_prop {#1} \l__lx_lpzg_tl
+      { \exp_args:NnV \lpzglistentry {#1} \l__lx_lpzg_tl }
+      { \lpzglistentry {#1} { } }
+  }
+%% The label column is as wide as the widest abbreviation.  Measured with
+%% \textsc, which is what \lpzg prints, and NOT with \lpzg itself: \lpzg
+%% opens structure elements, and a box that is measured and thrown away
+%% would leave them behind in the tree.
+\cs_new_protected:Npn \lx@lpzglist@widest
+  {
+    \dim_zero:N \l__lx_lpzglist_wd_dim
+    \seq_map_inline:Nn \l__lx_lpzglist_seq
+      {
+        \hbox_set:Nn \l__lx_lpzglist_box { \textsc {##1} }
+        \dim_set:Nn \l__lx_lpzglist_wd_dim
+          { \dim_max:nn \l__lx_lpzglist_wd_dim { \box_wd:N \l__lx_lpzglist_box } }
+      }
+  }
+\cs_new_protected:Npn \lx@lpzglist@dolist
+  {
+    \lx@lpzglist@widest
+    %% No \lx@ol@set here: the abbreviation list is NOT an ordered list,
+    %% and it keeps the block code's own class for a labelled list.  A
+    %% class of its own carrying /ListNumbering /None looks right and is
+    %% not: PDF/UA-2 8.2.5.25 forbids /None precisely when the items have
+    %% Lbl elements, which these do (veraPDF rejects the file).  What the
+    %% block code puts there instead is /Unordered, which is what a
+    %% labelled list is; poppler warns about the value, veraPDF accepts it.
+    \begin { list } { }
+      {
+        \dim_set:Nn \labelwidth { \l__lx_lpzglist_wd_dim }
+        \dim_set:Nn \leftmargin { \labelwidth + \labelsep }
+        \dim_zero:N \itemindent
+        \dim_zero:N \listparindent
+        \dim_zero:N \rightmargin
+        \skip_set_eq:NN \itemsep \l__lx_lpzglist_itemsep_skip
+        \skip_zero:N \parsep
+        \skip_zero:N \partopsep
+        %% \lx@flushlabel, not \hfil: under active tagging the block code
+        %% re-boxes a label flush RIGHT unless it already fills its own
+        %% \labelwidth box (the same reason the example labels use it).
+        \cs_set_eq:NN \makelabel \lx@flushlabel
+      }
+      \seq_map_inline:Nn \l__lx_lpzglist_seq { \lx@lpzglist@item {##1} }
+    \end { list }
+  }
+%% The \unskip guards the separator against an entry whose expansion is
+%% empty (an unexplained key kept on request), which would otherwise leave
+%% the space of the entry format sitting in front of the semicolon.
+\cs_new_protected:Npn \lx@lpzglist@doinline
+  {
+    \bool_set_true:N \l__lx_lpzglist_first_bool
+    \seq_map_inline:Nn \l__lx_lpzglist_seq
+      {
+        \bool_if:NTF \l__lx_lpzglist_first_bool
+          { \bool_set_false:N \l__lx_lpzglist_first_bool }
+          { \unskip \l__lx_lpzglist_sep_tl }
+        \lx@lpzglist@item {##1}
+      }
+    \unskip
+  }
+\cs_new_protected:Npn \lx@lpzglist@render
+  {
+    \tl_if_blank:VF \l__lx_lpzglist_title_tl
+      { \l__lx_lpzglist_titlestyle_tl { \l__lx_lpzglist_title_tl } }
+    \str_if_eq:VnTF \l__lx_lpzglist_style_str { inline }
+      { \lx@lpzglist@doinline }
+      { \lx@lpzglist@dolist }
+  }
+\NewDocumentCommand \lpzglist { O{} }
+  {
+    \group_begin:
+      %% the list's own \lpzg calls must not enlarge the set they report on
+      \bool_set_true:N \l__lx_lpzg_norecord_bool
+      \keys_set:nn { lx / lpzglist } {#1}
+      \lx@lpzglist@collect
+      \bool_gset_true:N \g__lx_lpzglist_used_bool
+      %% what this list accounts for: everything it prints, everything it
+      %% was told to leave out, and the keys it could not explain (those
+      %% are reported here and now, not as a rerun request)
+      \seq_map_inline:Nn \l__lx_lpzglist_seq
+        { \seq_gput_right:Nn \g__lx_lpzglist_printed_seq {##1} }
+      \seq_map_inline:Nn \l__lx_lpzglist_unknown_seq
+        { \seq_gput_right:Nn \g__lx_lpzglist_printed_seq {##1} }
+      \clist_map_inline:Nn \l__lx_lpzglist_ignore_clist
+        { \seq_gput_right:Ne \g__lx_lpzglist_printed_seq { \tl_to_str:n {##1} } }
+      \seq_if_empty:NF \l__lx_lpzglist_seq { \lx@lpzglist@render }
+      \bool_lazy_and:nnT
+        { ! \l__lx_lpzglist_keepun_bool }
+        { ! \seq_if_empty_p:N \l__lx_lpzglist_unknown_seq }
+        {
+          \msg_warning:nnx { linguexx } { lpzglist-unknown }
+            { \seq_use:Nnnn \l__lx_lpzglist_unknown_seq { ~and~ } { ,~ } { ,~and~ } }
+          %% so \lpzgcheck does not report the same keys a second time
+          \seq_map_inline:Nn \l__lx_lpzglist_unknown_seq
+            { \seq_gput_right:Nn \g__lx_lpzg_warned_seq {##1} }
+        }
+    \group_end:
+  }
+%% Anything used but not accounted for by a list means the .aux was one
+%% run behind: ask for a rerun, as \tableofcontents does.
+\cs_new_protected:Npn \lx@lpzglist@checkrerun
+  {
+    \bool_if:NT \g__lx_lpzglist_used_bool
+      {
+        \bool_set_eq:NN \l__lx_lpzglist_rerun_bool \g__lx_lpzg_rerun_bool
+        \seq_map_inline:Nn \g__lx_lpzg_used_seq
+          {
+            \seq_if_in:NnF \g__lx_lpzglist_printed_seq {##1}
+              { \bool_set_true:N \l__lx_lpzglist_rerun_bool }
+          }
+        \bool_if:NT \l__lx_lpzglist_rerun_bool
+          { \msg_warning:nn { linguexx } { lpzglist-rerun } }
+      }
+  }
+
+%%%% \lpzgcheck: consistency of the abbreviations themselves --------------
+%%
+%% Until now the only report on abbreviations was a side effect of building
+%% a list: \lpzglist warns about the keys it cannot explain.  A document
+%% that never calls \lpzglist got nothing at all, so a mistyped
+%% \lpzg{pres} for \lpzg{prs} printed PRES in small caps and passed in
+%% silence.  These checks run at the end of every document instead, whether
+%% or not a list was asked for.
+%%
+%%   unknown  (default TRUE)  a key used but with no known expansion.
+%%            Almost always a typo or a forgotten \SetLeipzig.
+%%   unused   (default FALSE) a key declared with \SetLeipzig and never
+%%            used.  Off by default because a standing set of declarations
+%%            in a shared preamble, only partly used in any one paper, is a
+%%            perfectly reasonable way to work and would warn on every run.
+%%   ignore   keys to exempt from `unknown': abbreviations deliberately
+%%            left unexplained.
+\bool_new:N  \g__lx_lpzgcheck_unknown_bool
+\bool_new:N  \g__lx_lpzgcheck_unused_bool
+\clist_new:N \g__lx_lpzgcheck_ignore_clist
+\bool_gset_true:N \g__lx_lpzgcheck_unknown_bool
+\seq_new:N \g__lx_lpzg_warned_seq  % unknowns a \lpzglist already reported
+\keys_define:nn { lx / lpzgcheck }
+  {
+    unknown .bool_gset:N  = \g__lx_lpzgcheck_unknown_bool ,
+    unknown .default:n    = { true } ,
+    unused  .bool_gset:N  = \g__lx_lpzgcheck_unused_bool ,
+    unused  .default:n    = { true } ,
+    ignore  .clist_gset:N = \g__lx_lpzgcheck_ignore_clist ,
+  }
+\NewDocumentCommand \lpzgcheck { m }
+  { \keys_set:nn { lx / lpzgcheck } {#1} }
+\msg_new:nnn { linguexx } { lpzg-unknown }
+  {
+    No~expansion~known~for~#1.\\
+    Check~the~spelling,~declare~it~with~\iow_char:N \\SetLeipzig,~or~
+    exempt~it~with~\iow_char:N \\lpzgcheck{ignore={...}}.
+  }
+\msg_new:nnn { linguexx } { lpzg-unused }
+  {
+    Declared~with~\iow_char:N \\SetLeipzig~but~never~used:~#1.
+  }
+\seq_new:N \l__lx_lpzgcheck_tmp_seq
+\seq_new:N \l__lx_lpzgcheck_ign_seq
+\cs_new_protected:Npn \lx@lpzgcheck@run
+  {
+    %% used but unexplained.  Keys a \lpzglist already reported are skipped:
+    %% the two checks are independent, but saying it twice is not a service.
+    \bool_if:NT \g__lx_lpzgcheck_unknown_bool
+      {
+        %% The recorded keys are STRINGS (catcode 12); the ignore list
+        %% arrives as letters, and comparing the two spellings would never
+        %% match -- the same normalisation \lpzglist's own ignore= needs.
+        \seq_clear:N \l__lx_lpzgcheck_ign_seq
+        \clist_map_inline:Nn \g__lx_lpzgcheck_ignore_clist
+          { \seq_put_right:Ne \l__lx_lpzgcheck_ign_seq { \tl_to_str:n {##1} } }
+        \seq_clear:N \l__lx_lpzgcheck_tmp_seq
+        \seq_map_inline:Nn \g__lx_lpzg_used_seq
+          {
+            \prop_if_in:NnF \g_lx_lpzg_prop {##1}
+              {
+                \seq_if_in:NnF \l__lx_lpzgcheck_ign_seq {##1}
+                  { \seq_if_in:NnF \g__lx_lpzg_warned_seq {##1}
+                      { \seq_put_right:Nn \l__lx_lpzgcheck_tmp_seq {##1} } }
+              }
+          }
+        \seq_if_empty:NF \l__lx_lpzgcheck_tmp_seq
+          {
+            \msg_warning:nne { linguexx } { lpzg-unknown }
+              { \seq_use:Nnnn \l__lx_lpzgcheck_tmp_seq
+                  { ~and~ } { ,~ } { ,~and~ } }
+          }
+      }
+    %% declared and never used
+    \bool_if:NT \g__lx_lpzgcheck_unused_bool
+      {
+        \seq_clear:N \l__lx_lpzgcheck_tmp_seq
+        \seq_map_inline:Nn \g__lx_lpzg_declared_seq
+          {
+            \seq_if_in:NnF \g__lx_lpzg_used_seq {##1}
+              { \seq_put_right:Nn \l__lx_lpzgcheck_tmp_seq {##1} }
+          }
+        \seq_if_empty:NF \l__lx_lpzgcheck_tmp_seq
+          {
+            \msg_warning:nne { linguexx } { lpzg-unused }
+              { \seq_use:Nnnn \l__lx_lpzgcheck_tmp_seq
+                  { ~and~ } { ,~ } { ,~and~ } }
+          }
+      }
+  }
+\AtEndDocument { \lx@lpzglist@checkrerun \lx@lpzgcheck@run }
+
+%% The column Span takes the OUTER half of the idiom only: its content is
+%% the tier words, and each of those opens marked content of its own.
+\cs_new_protected:Npn \lx@gl@colbegin
+  { \lx@tag@if@active:T { \lx@tag@span@open:n { tag = Span } } }
+\cs_new_protected:Npn \lx@gl@colend
+  { \lx@tag@if@active:T { \lx@tag@span@close: } }
+%% #1 = tier number.  If the tier has a declared language, wrap the word
+%% in its own Span with /Lang (nested in the column Span); otherwise emit
+%% plain marked content as before.  Neither half of the helper fits: the
+%% struct is conditional but the marked content is not, and there is no
+%% ambient MC to suspend -- the column Span already suspended it.
+\cs_new_protected:Npn \lx@gl@wordbegin #1
+  { \lx@tag@if@active:T
+      {
+        \prop_get:NnNTF \l_lx_gl_lang_prop {#1} \l__lx_gl_lang_tl
+          { \exp_args:Ne \tag_struct_begin:n
+              { tag = Span , lang = \l__lx_gl_lang_tl } }
+          { }
+        \tag_mc_begin:n { tag = Span }
+      } }
+\cs_new_protected:Npn \lx@gl@wordend #1
+  { \lx@tag@if@active:T
+      {
+        \tag_mc_end:
+        \prop_if_in:NnT \l_lx_gl_lang_prop {#1} { \tag_struct_end: }
+      } }
+\ExplSyntaxOff
+\ExplSyntaxOn
+%% Phantom bracket alignment (opt-in, off by default).  When a word in the
+%% object line opens with a run of delimiter/judgment characters -- e.g.
+%% "[ein" in "ich bin [ein Idiot]" -- the gloss word below it normally
+%% left-aligns with the "[", not with "ein".  With alignment on, the gloss
+%% word (and any further tiers) is preceded by a \phantom of that leading
+%% run, SET IN THE OBJECT-TIER FONT, so its first real glyph sits under the
+%% first real glyph of the object word regardless of the gloss-tier size
+%% (e.g. \footnotesize glosses still line up).  The phantom ships no ink and
+%% no marked content, so tagging is unaffected.  Enable with the package
+%% option [phantomalign] or \GlossPhantomAlign; \GlossPhantomAlignOff turns
+%% it back off.  \GlossPhantomChars sets the leading characters that count
+%% (default: the judgment marks * ? # % and the openers ( [ < ).  \altg
+%% alternative columns are not covered.
+\bool_new:N \l__lx_gl_phantom_bool
+\iflx@phantomalign \bool_set_true:N \l__lx_gl_phantom_bool \fi
+\str_new:N \l__lx_gl_phantomchars_str
+% The set must hold BARE "#" and "%": writing them as \#\% in \str_set:Nn
+% would stringify to "\#\%" and leave literal backslashes in the set, so any
+% object word beginning with a control sequence would then match "\" and be
+% padded.  \c_hash_str / \c_percent_str are the catcode-12 characters.
+\str_set:Ne \l__lx_gl_phantomchars_str { *?([< \c_hash_str \c_percent_str }
+\tl_new:N  \l__lx_gl_prefix_tl
+\tl_new:N  \l__lx_gl_obj_tl
+\str_new:N \l__lx_gl_word_str
+\str_new:N \l__lx_gl_head_str
+\prg_generate_conditional_variant:Nnn \str_if_in:Nn { NV } { T }
+\cs_new_protected:Npn \GlossPhantomAlign
+  { \bool_set_true:N \l__lx_gl_phantom_bool }
+\cs_new_protected:Npn \GlossPhantomAlignOff
+  { \bool_set_false:N \l__lx_gl_phantom_bool }
+\cs_new_protected:Npn \GlossPhantomChars #1
+  { \str_set:Nn \l__lx_gl_phantomchars_str {#1} }
+% Manual per-word override: \GlossPhantom{stuff} typesets an invisible box
+% the width of #1 SET IN THE OBJECT-TIER FONT.  Placed at the front of a
+% gloss word it aligns that word past #1 regardless of the automatic
+% detection or the gloss-tier size -- for material the auto-scanner cannot
+% see (a macro-wrapped bracket, a whole prefix word) or a bespoke target.
+\cs_new_protected:Npn \GlossPhantom #1
+  { \phantom { \lx@glfontuse {1} {#1} } }
+% Peel the leading run of phantom characters off word #1 into
+% \l__lx_gl_prefix_tl (as a str; catcode-12 punctuation, safe in \phantom).
+\cs_new_protected:Npn \__lx_gl_leadprefix:N #1
+  {
+    \tl_clear:N \l__lx_gl_prefix_tl
+    \str_set:Nx \l__lx_gl_word_str { \tl_to_str:N #1 }
+    \__lx_gl_leadprefix_loop:
+  }
+\cs_new_protected:Npn \__lx_gl_leadprefix_loop:
+  {
+    \str_if_empty:NF \l__lx_gl_word_str
+      {
+        \str_set:Nx \l__lx_gl_head_str { \str_head:N \l__lx_gl_word_str }
+        \str_if_in:NVT \l__lx_gl_phantomchars_str \l__lx_gl_head_str
+          {
+            \tl_put_right:NV \l__lx_gl_prefix_tl \l__lx_gl_head_str
+            \str_set:Nx \l__lx_gl_word_str { \str_tail:N \l__lx_gl_word_str }
+            \__lx_gl_leadprefix_loop:
+          }
+      }
+  }
+\cs_gset_protected:Npn \lx@gloss@multi #1
+  {
+    \seq_set_split:Nnn \l__lx_gl_lines_seq { \\ } {#1}
+    \seq_remove_all:Nn \l__lx_gl_lines_seq { }
+    \int_zero:N \l__lx_gl_ntiers_int
+    \int_zero:N \l__lx_gl_maxwords_int
+    \seq_map_inline:Nn \l__lx_gl_lines_seq
+      {
+        \int_incr:N \l__lx_gl_ntiers_int
+        \seq_clear_new:c
+          { l__lx_gl_tier_ \int_use:N \l__lx_gl_ntiers_int _seq }
+        \__lx_split:cn
+          { l__lx_gl_tier_ \int_use:N \l__lx_gl_ntiers_int _seq } {##1}
+        \int_set:Nn \l__lx_gl_maxwords_int
+          { \int_max:nn { \l__lx_gl_maxwords_int }
+              { \seq_count:c
+                  { l__lx_gl_tier_ \int_use:N \l__lx_gl_ntiers_int _seq } } }
+      }
+    \leavevmode
+    \group_begin:
+    \raggedright
+    \bool_set_true:N \l_lx_gl_inside_bool
+    \int_gset:Nn \g__lxp_altg_role_int { 0 }
+    \int_step_inline:nn { \l__lx_gl_maxwords_int }
+      { % column ##1
+        \lx@gl@colbegin
+        \bool_if:NTF \l__lx_gl_phantom_bool
+          {
+            % Retrieve the object word WITHOUT expanding it: the auto-scan
+            % must see the leading literal characters, not expand a macro
+            % (e.g. \textbf{[}ein) and reach a "[" that the printed word only
+            % shows through a control word.  Full expansion here would make
+            % the scan fire on macro-wrapped brackets and double up with a
+            % manual \GlossPhantom.  f-expansion evaluates \seq_item only.
+            \exp_args:NNf \tl_set:Nn \l__lx_gl_obj_tl
+              { \seq_item:cn { l__lx_gl_tier_1_seq } {##1} }
+            \__lx_gl_leadprefix:N \l__lx_gl_obj_tl
+          }
+          { \tl_clear:N \l__lx_gl_prefix_tl }
+        \vtop
+          {
+            \int_step_inline:nn { \l__lx_gl_ntiers_int }
+              { % tier ####1
+                \hbox:n
+                  { \strut
+                    \int_compare:nNnT {####1} > { 1 }
+                      { \tl_if_empty:NF \l__lx_gl_prefix_tl
+                          { \phantom
+                              { \lx@glfontuse {1} { \l__lx_gl_prefix_tl } } } }
+                    \lx@gl@wordbegin {####1}
+                    \lx@glfontuse {####1}
+                      { \seq_item:cn { l__lx_gl_tier_ ####1 _seq } {##1} }
+                    \lx@gl@wordend {####1} }
+              }
+          }%
+        \lx@gl@colend
+        %% An \altg paradigm is TWO calls in ONE column: the object tier
+        %% announces it (role 0 -> 1) and the gloss tier completes it
+        %% (1 -> 0).  The protocol rides on that toggle alone, so a column
+        %% that announces without completing does not merely lose its own
+        %% brace -- it leaves the toggle set, and every later \altg in the
+        %% gloss takes the opposite role: object stacks get the gloss shape
+        %% (raised half a baseline, indented) and land on top of their
+        %% neighbours.  Same for a third tier carrying an \altg, which the
+        %% toggle reads as a fresh object call.  Both used to typeset
+        %% happily as overlapping text; catch them here, where the column
+        %% that broke it is still known, and reset so the rest of the gloss
+        %% is unaffected.
+        \int_compare:nNnT { \g__lxp_altg_role_int } = { 1 }
+          {
+            \int_gset:Nn \g__lxp_altg_role_int { 0 }
+            \PackageError { linguexx }
+              { \string\altg\space in~gloss~column~##1~has~no~partner }
+              { An~\string\altg\space in~a~gloss~must~be~written~TWICE~in~
+                the~SAME~column:~once~among~the~object~words,~once~among~
+                their~glosses.~A~column~with~only~one,~or~a~third~tier~
+                carrying~one~as~well,~cannot~be~paired~up. }
+          }
+        \hskip \GlossSep \relax
+      }
+    \unskip
+    \par
+    \group_end:
+  }
+\ExplSyntaxOff
+
+%% User commands.  \gll and \glll keep their exact historical syntax and
+%% are wrappers over the same engine; \gl ... \endgl takes any number of
+%% lines, each terminated by \\ (a \\ before \endgl is optional).
+\long\def\gll#1\\#2\\{\lx@gloss@multi{#1\\#2}}
+\long\def\glll#1\\#2\\#3\\{\lx@gloss@multi{#1\\#2\\#3}}
+\long\def\gl#1\endgl{\lx@gloss@multi{#1}}
+\def\endgl{\PackageError{linguexx}{\string\endgl without \string\gl}{}}
+%% \glt starts the free translation on a new line, kept on the same page as
+%% the gloss it belongs to (\nobreak).  Structurally it needs nothing extra:
+%% being its own paragraph it already becomes its own P in the tag tree,
+%% with the translation as its text, which is what a screen reader needs to
+%% read it after the gloss.
+%%
+%% \GlossTransStyle is applied as a DECLARATION rather than as a
+%% one-argument command like \GlossTierFont: the translation is delimited by
+%% the end of the paragraph, not by braces, so there is no argument to wrap
+%% -- and a declaration scopes itself to the rest of the example (the list
+%% environment's group) without \glt having to know where the translation
+%% ends.  Empty by default, so the output is unchanged unless it is set.
+\newcommand\GlossTransStyle{}
+%%
+%% \GlossTransLang{code} marks the LANGUAGE of the free translation, the way
+%% \GlossTierLang does for a gloss tier: under tagging the translation is
+%% wrapped in a Span carrying /Lang, so a screen reader pronounces it with
+%% the right phonetics.  This is not redundant with babel: on TL2026,
+%% \foreignlanguage inside the translation leaves no /Lang in the structure
+%% tree at all (only the document-level one from \DocumentMetadata), so
+%% without this there is no way to mark a translation whose language differs
+%% from the document's -- the normal case in a paper written in one language
+%% and glossing into another.  Opt-in and empty by default: no Span, and the
+%% tag tree is byte-for-byte what it was.
+%%
+%% Where the Span ENDS is the whole difficulty: the translation runs to the
+%% end of its paragraph, so \glt cannot wrap an argument.  It is opened
+%% lazily -- the first paragraph content triggers it via \everypar, by which
+%% time the paragraph's own P and MC are open, so the Span nests inside them
+%% instead of straddling them (opening it directly at \glt, while still in
+%% vertical mode, is the "nested marked content"/"no mc to end" failure that
+%% \lx@hangjudge documents) -- and closed by \lx@glt@langend, which every
+%% example exit runs while the translation paragraph is still open.
+\ExplSyntaxOn
+\tl_new:N   \l_lx_gl_translang_tl
+\bool_new:N \g__lx_gl_transopen_bool
+\NewDocumentCommand \GlossTransLang { m }
+  { \tl_set:Nn \l_lx_gl_translang_tl {#1} }
+\cs_new_protected:Npn \lx@glt@langbegin
+  {
+    \tl_if_empty:NF \l_lx_gl_translang_tl
+      {
+        \lx@tag@if@active:T
+          {
+            \lx@tag@span@begin:e
+              { tag = Span , lang = \l_lx_gl_translang_tl }
+            \bool_gset_true:N \g__lx_gl_transopen_bool
+          }
+      }
+  }
+%% Closed from every example exit (\lx@bodyend and the exe/xlist ends),
+%% before the list closes -- i.e. while the translation paragraph is still
+%% the current one.  The flag is global because the open and the close
+%% necessarily sit in different groups; it is what makes the close a no-op
+%% for an example with no \glt, with no \GlossTransLang, or without tagging.
+\cs_new_protected:Npn \lx@glt@langend
+  {
+    \bool_if:NT \g__lx_gl_transopen_bool
+      {
+        \lx@tag@span@end:
+        \bool_gset_false:N \g__lx_gl_transopen_bool
+      }
+  }
+\ExplSyntaxOff
+%% The \everypar hook fires once, for the translation's first paragraph, and
+%% clears itself: \glt is followed by ordinary text, not by a construct that
+%% starts further paragraphs of its own.
+\newcommand\glt{%
+  \par\nobreak
+  \GlossTransStyle
+  \everypar{\everypar{}\lx@glt@langbegin}%
+  \ignorespaces}
+\let\gln\glt % cgloss4e-compat alias
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Stacked alternatives: what \altn and \altg share                   %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% \altn (a braced stack in running text) and \altg (a braced stack that
+%% occupies one column of an interlinear gloss, written once per tier) are
+%% different constructs with the same four internals: collect the brace
+%% groups, build the spoken /Alt from them, set them as a tabular, draw a
+%% TikZ brace to the result's extents.  Those four live here, once; what
+%% remains in each section is only what genuinely differs -- how the stack
+%% is anchored vertically, and \altg's two-call cross-tier protocol.
+\ExplSyntaxOn
+%% Collection.  #1 = the seq to fill, #2 = what to run when the groups run
+%% out.  Both commands take one leading mandatory argument and then any
+%% number of further brace groups, so the loop peeks rather than counts;
+%% a space ends collection (in a gloss it also splits columns, hence the
+%% documented "no spaces between the brace groups, break lines with %").
+\cs_new_protected:Npn \__lxp_grab:NN #1#2
+  { \peek_catcode:NTF \c_group_begin_token
+      { \__lxp_grab_arg:NNn #1#2 } {#2} }
+\cs_new_protected:Npn \__lxp_grab_arg:NNn #1#2#3
+  {
+    \seq_put_right:Nn #1 {#3}
+    \__lxp_grab:NN #1#2
+  }
+%% Spoken /Alt: "A", "A or B", "A, B, or C".  #1 = the seq, #2 = the tl to
+%% receive it.  \text_purify:n strips formatting (\sout, \textbf, ...) for
+%% speech, and \lpzg is reduced to its Leipzig expansion, so
+%% \altn{\lpzg{sg}}{\lpzg{pl}} speaks "singular or plural" rather than
+%% "SG or PL".  Only SIMPLE keys are expanded here: a compound
+%% ("3sg.pst") or unknown key speaks as printed.
+%%
+%% The pieces are collected in a GLOBAL scratch and copied out at the end.
+%% The \lpzg redefinition has to be scoped by a group, the result has to
+%% survive it, and the destination is a local (l_-named) token list: the
+%% previous code wrote to it with \tl_gput_right: from inside the group,
+%% which straddled the scope and broke the expl3 naming contract at once.
+\tl_new:N \g__lxp_alt_build_tl
+\int_new:N \l__lxp_alt_n_int
+\cs_new_protected:Npn \__lxp_buildalt:NN #1#2
+  {
+    \tl_gclear:N \g__lxp_alt_build_tl
+    \int_set:Nn \l__lxp_alt_n_int { \seq_count:N #1 }
+    \group_begin:
+      \cs_set:Npn \lpzg ##1
+        { \prop_if_in:NnTF \g_lx_lpzg_prop {##1}
+            { \prop_item:Nn \g_lx_lpzg_prop {##1} } {##1} }
+      \int_step_inline:nn { \l__lxp_alt_n_int }
+        {
+          \int_compare:nNnT { ##1 } > { 1 }
+            {
+              \int_compare:nNnTF { ##1 } = { \l__lxp_alt_n_int }
+                { \int_compare:nNnTF { \l__lxp_alt_n_int } = { 2 }
+                    { \tl_gput_right:Nn \g__lxp_alt_build_tl { ~or~ } }
+                    { \tl_gput_right:Nn \g__lxp_alt_build_tl { ,~or~ } } }
+                { \tl_gput_right:Nn \g__lxp_alt_build_tl { ,~ } }
+            }
+          \tl_gput_right:Ne \g__lxp_alt_build_tl
+            { \text_purify:n { \seq_item:Nn #1 {##1} } }
+        }
+    \group_end:
+    \tl_set_eq:NN #2 \g__lxp_alt_build_tl
+  }
+%% The stack, as a tabular.  #1 = box to set, #2 = seq, #3 = column spec,
+%% #4 = a hook run inside the box before the tabular (a font, a local
+%% redefinition).
+%%
+%% Under active tagging, plain LaTeX auto-tags every tabular as a real
+%% /Table (with /TR, /TD ...); this stack is presentational, not data, and
+%% the auto Table would be built (wrongly) as a child of whatever structure
+%% element is open at THIS point -- typically the ambient paragraph, since
+%% the surrounding Span is not opened until the emit, around \box_use:N.
+%% That produced both an invalid Table-under-P/LI nesting and, whenever
+%% more than one stack occurred in a paragraph, corrupted paragraph-tagging
+%% bookkeeping (veraPDF/tagpdf: "Parent-Child ... Relation is not
+%% allowed").  Building the box with table auto-tagging suspended avoids
+%% this: the box then carries no struct/MC of its own, so its content is
+%% correctly attributed to the Span when \box_use:N later places it inside
+%% one.  \hbox_gset:Nn (not \hbox_set:Nn) is required because the group
+%% that scopes the \tagpdfsetup change would otherwise also discard the box.
+\cs_new_protected:Npn \__lxp_setstack:NNnn #1#2#3#4
+  {
+    \group_begin:
+      \cs_if_exist:NT \tagpdfsetup { \tagpdfsetup { table/tagging = false } }
+      \hbox_gset:Nn #1
+        {
+          #4
+          \use:e
+            {
+              \exp_not:N \begin { tabular } [c] { @{} #3 @{} }
+              \seq_use:Nn #2 { \\ }
+            }
+          \end { tabular }
+        }
+    \group_end:
+  }
+%% One brace, side #1 (L or R), drawn between the ordinates #2 (bottom)
+%% and #3 (top).  The decoration bulges to the side determined by the path
+%% direction: an upward path gives an opening brace, a downward path a
+%% closing one (the v0.13 downward path drew the left brace mirrored), so
+%% the two sides are not the same path with a different anchor.
+%%
+%% baseline=0pt is what lets the same drawer serve both callers.  \altn
+%% hands it 0pt..height and raises the whole picture itself, so its
+%% baseline sits at the bounding box's bottom edge -- which is where a
+%% tikzpicture puts it by default anyway, hence no change there.  \altg
+%% hands it -depth..height and needs the baseline on y=0, in the middle.
+\cs_new_protected:Npn \__lxp_brace:nnn #1#2#3
+  {
+    \begin { tikzpicture } [ baseline = 0pt ]
+      \useasboundingbox ( 0pt , #2 ) rectangle ( \AltBraceWidth , #3 ) ;
+      \str_if_eq:nnTF {#1} { L }
+        { \draw [ decorate ,
+                  decoration = { brace , amplitude = \AltBraceAmplitude } ]
+            ( \dim_eval:n { \AltBraceWidth - 1pt } , #2 )
+            -- ( \dim_eval:n { \AltBraceWidth - 1pt } , #3 ) ; }
+        { \draw [ decorate ,
+                  decoration = { brace , amplitude = \AltBraceAmplitude } ]
+            ( 1pt , #3 ) -- ( 1pt , #2 ) ; }
+    \end { tikzpicture }
+  }
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Stacked alternatives: \altn / \lxAltn                              %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\ExplSyntaxOn
+\seq_new:N  \l__lxp_alt_seq
+\tl_new:N   \l__lxp_alt_align_tl
+\tl_new:N   \l__lxp_alt_alt_tl
+\box_new:N  \l__lxp_alt_box
+\dim_new:N  \l__lxp_alt_ht_dim
+\dim_new:N  \l__lxp_alt_dp_dim
+
+%% \lxAltn collects its brace-delimited alternatives (one leading mandatory
+%% argument, then any number of further brace groups) and sets them as a
+%% braced vertical stack.  This is deliberately NOT math: the stack is a
+%% tabular and the brace is drawn with TikZ, so the alternatives are ordinary
+%% tagged text.  Under active tagging the whole thing is wrapped in a Span
+%% carrying a spoken /Alt ("A, B, or C"), built with \text_purify:n so that
+%% formatting in an alternative (\sout, \textbf, ...) is stripped for speech.
+\NewDocumentCommand \lxAltn { O{c} m }
+  {
+    \tl_set:Nn   \l__lxp_alt_align_tl {#1}
+    \seq_clear:N \l__lxp_alt_seq
+    \seq_put_right:Nn \l__lxp_alt_seq {#2}
+    \__lxp_grab:NN \l__lxp_alt_seq \__lxp_alt_print:
+  }
+%% the stacked alternatives, as a tabular; also records total height.  The
+%% optional argument picks the column spec; nothing else is needed inside
+%% the box, so the hook is empty.
+\cs_new_protected:Npn \__lxp_alt_setstack:
+  {
+    \__lxp_setstack:NNnn \l__lxp_alt_box \l__lxp_alt_seq
+      { \str_case:VnF \l__lxp_alt_align_tl { {l}{l} {r}{r} } {c} } { }
+    \dim_set:Nn \l__lxp_alt_dp_dim { \box_dp:N \l__lxp_alt_box }
+    \dim_set:Nn \l__lxp_alt_ht_dim
+      { \box_ht:N \l__lxp_alt_box + \l__lxp_alt_dp_dim }
+  }
+%% one brace, side L or R, sized to the stack's total height and raised as
+%% a whole.  The raise is pinned to the stack's own depth, not half the
+%% total height: a stack is seldom split evenly around its baseline (an
+%% all-caps or struck-through row above pulls height, ordinary rows below
+%% add less depth), so using the true box_dp keeps the brace's centre level
+%% with the stack's actual midpoint instead of drifting toward whichever
+%% side is taller.
+\cs_new_protected:Npn \__lxp_alt_brace:n #1
+  {
+    \raisebox { \dim_eval:n { \AltBraceRaise - \l__lxp_alt_dp_dim } }
+      { \__lxp_brace:nnn {#1} { 0pt } { \l__lxp_alt_ht_dim } }
+  }
+%% the printed object (brace + stack + brace), no tagging.  The outer
+%% gap (\AltBraceOuterSep) clears the decoration's outward bulge from
+%% whatever precedes/follows; the inner gap (\AltBraceSep) just
+%% separates the brace from the stack it braces.
+\cs_new_protected:Npn \__lxp_alt_emit:
+  { \leavevmode \hspace{\AltBraceOuterSep} \__lxp_alt_brace:n { L } \hspace{\AltBraceSep}
+    \box_use:N \l__lxp_alt_box
+    \hspace{\AltBraceSep} \__lxp_alt_brace:n { R } \hspace{\AltBraceOuterSep} }
+%% the printed object wrapped in a Span carrying the spoken /Alt
+\cs_new_protected:Npn \__lxp_alt_emit_tagged:
+  {
+    \__lxp_buildalt:NN \l__lxp_alt_seq \l__lxp_alt_alt_tl
+    \leavevmode
+    \hspace{\AltBraceOuterSep}
+    \lx@tag@span@begin:e { tag = Span , alt = { \l__lxp_alt_alt_tl } }
+    \__lxp_alt_brace:n { L } \hspace{\AltBraceSep}
+    \box_use:N \l__lxp_alt_box
+    \hspace{\AltBraceSep} \__lxp_alt_brace:n { R }
+    \lx@tag@span@end:
+    \hspace{\AltBraceOuterSep}
+  }
+\cs_new_protected:Npn \__lxp_alt_print:
+  {
+    \__lxp_alt_setstack:
+    \lx@tag@if@active:TF { \__lxp_alt_emit_tagged: } { \__lxp_alt_emit: }
+  }
+\ExplSyntaxOff
+
+% Tunable dimensions of the drawn brace.  AltBraceSep is the INNER gap,
+% between the brace and the stack it braces; AltBraceOuterSep is the
+% OUTER gap, between the brace and whatever precedes/follows it in the
+% surrounding text.  They differ because the TikZ brace decoration
+% bulges outward past its own bounding box (the curl reaches further
+% than the box declared for it) only on the outer side -- the inner
+% side has no such overflow to clear, so it can sit much closer.
+\newcommand\AltBraceWidth{0.9ex}
+\newcommand\AltBraceAmplitude{4pt}
+\newcommand\AltBraceSep{0.15em}
+\newcommand\AltBraceOuterSep{0.7em}
+\newcommand\AltBraceRaise{0pt}
+
+% Alias \altn -> \lxAltn unless somebody already owns \altn.
+\AtBeginDocument{%
+  \@ifundefined{altn}%
+    {\global\let\altn\lxAltn}%
+    {\PackageInfo{linguexx}%
+      {\string\altn\space is already defined;\MessageBreak
+       only \string\lxAltn\space is available}}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Glossed alternatives: \altg / \lxAltg                              %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\ExplSyntaxOn
+\seq_new:N \l__lxp_altg_seq
+\box_new:N \l__lxp_altg_stack_box
+\box_new:N \l__lxp_altg_out_box
+\dim_new:N \l__lxp_altg_ht_dim
+\dim_new:N \l__lxp_altg_bxht_dim
+\dim_new:N \l__lxp_altg_bxdp_dim
+\tl_new:N  \l__lxp_altg_alt_tl
+%% cross-cell protocol state (the gloss grid typesets column by column,
+%% object cell first, so the two calls of one paradigm are adjacent)
+\int_new:N \g__lxp_altg_role_int   % 0 = the next in-gloss \altg is the object call
+\int_new:N \g__lxp_altg_count_int  % alternatives announced by the object call
+\dim_new:N \g__lxp_altg_indent_dim % width of the object emit, for the gloss call
+\bool_new:N \l_lx_gl_inside_bool   % true while \gll/\gl cells are typeset
+
+%% \lxAltg{alt}{alt}... : one stacked column of alternatives.  Inside an
+%% interlinear gloss it is written TWICE -- once in the object line with
+%% the object words, once in the gloss line with their glosses:
+%%
+%%   \exg. Die \altg{Frau}{Socke}{Maus}{Tonne} ist da.\\
+%%         The.\lpzg{sg} \altg{woman.\lpzg{sg}}{sock.\lpzg{sg}}%
+%%           {mouse.\lpzg{sg}}{ton.\lpzg{sg}} is.\lpzg{prs} there.\\
+%%
+%% The two calls occupy the two tiers of one gloss column and assemble a
+%% single paradigm: object column on the left, gloss column to its right
+%% (offset by \AltgColSep), braced on BOTH sides, and centred on the
+%% midline between the object tier and the gloss tier -- with four
+%% alternatives, rows 2 and 3 ride the object and gloss lines and rows 1
+%% and 4 protrude symmetrically, with surrounding lines kept clear.  The
+%% example number, which \exg. places on the object baseline, stays put.
+%% Both calls must have the same number of alternatives (package error
+%% otherwise), and no spaces may separate the brace groups (a space ends
+%% collection AND splits gloss columns; break lines with %).
+%%
+%% Outside a gloss, a single \lxAltg sets one both-braced stack on the
+%% current baseline, like \lxAltn with a closing brace added.
+%%
+%% Like \lxAltn this is deliberately NOT math.  Inside the stacks \lpzg is
+%% reduced to plain small caps (each stack forms a single marked-content
+%% span under tagging, so nested abbreviation Spans are suppressed);
+%% expansions reappear in the spoken form.  Under active tagging each
+%% call is wrapped in a Span carrying /Alt speaking its own list ("Frau,
+%% Socke, Maus, or Tonne" / "woman.singular, ..."), with simple \lpzg
+%% keys expanded from the Leipzig table and compound or unknown keys
+%% passed through verbatim.
+\NewDocumentCommand \lxAltg { m }
+  {
+    \seq_clear:N \l__lxp_altg_seq
+    \seq_put_right:Nn \l__lxp_altg_seq {#1}
+    \__lxp_grab:NN \l__lxp_altg_seq \__lxp_altg_print:
+  }
+%% the stack: one [c]-centred tabular; per-side extents recorded.  The hook
+%% carries the tier font (the gloss call sets \AltgTransFont) and the local
+%% \lpzg: \lx@lpzg@build parses the label without printing anything, so the
+%% abbreviation is set plain inside the stack -- each stack is a single
+%% marked-content span, with no room for a nested abbreviation Span -- but
+%% still counts as used and reaches \lpzglist like any other.
+\cs_new_protected:Npn \__lxp_altg_setstack:n #1
+  {
+    \__lxp_setstack:NNnn \l__lxp_altg_stack_box \l__lxp_altg_seq { l }
+      { #1 \renewcommand \lpzg [1] { \lx@lpzg@build {##1} \textsc {##1} } }
+    \dim_set:Nn \l__lxp_altg_bxht_dim { \box_ht:N \l__lxp_altg_stack_box }
+    \dim_set:Nn \l__lxp_altg_bxdp_dim { \box_dp:N \l__lxp_altg_stack_box }
+    \dim_set:Nn \l__lxp_altg_ht_dim
+      { \l__lxp_altg_bxht_dim + \l__lxp_altg_bxdp_dim }
+  }
+%% one brace, side L or R, on the baseline: unlike \altn's, it is not
+%% raised as a whole, so it is drawn from the stack's depth to its height
+%% and the picture's own baseline (y=0) does the anchoring.
+\cs_new_protected:Npn \__lxp_altg_brace:n #1
+  {
+    \__lxp_brace:nnn {#1}
+      { \dim_eval:n { - \l__lxp_altg_bxdp_dim } } { \l__lxp_altg_bxht_dim }
+  }
+%% the three printed shapes.  Object cell: left brace + stack, dropped
+%% half a baseline; natural height kept (reserves the protrusion above),
+%% depth clamped to zero so the gloss tier lands on the grid.  Gloss
+%% cell: indent by the object emit's width + \AltgColSep, then stack +
+%% right brace, raised half a baseline; height clamped (grid), natural
+%% depth kept (reserves the protrusion below).  Solo: both braces on the
+%% current baseline.
+\cs_new_protected:Npn \__lxp_altg_shape_obj:
+  {
+    \hbox_set:Nn \l__lxp_altg_out_box
+      { \hspace { \AltBraceOuterSep }
+        \raisebox { \dim_eval:n { -0.5 \baselineskip } }
+          { \__lxp_altg_brace:n { L } \hspace { \AltBraceSep }
+            \box_use:N \l__lxp_altg_stack_box } }
+    \dim_gset:Nn \g__lxp_altg_indent_dim
+      { \box_wd:N \l__lxp_altg_out_box + \AltgColSep }
+    \box_set_dp:Nn \l__lxp_altg_out_box { 0pt }
+    \box_use:N \l__lxp_altg_out_box
+  }
+\cs_new_protected:Npn \__lxp_altg_shape_gloss:
+  {
+    \hbox_set:Nn \l__lxp_altg_out_box
+      { \skip_horizontal:n { \g__lxp_altg_indent_dim }
+        \raisebox { \dim_eval:n { 0.5 \baselineskip } }
+          { \box_use:N \l__lxp_altg_stack_box \hspace { \AltBraceSep }
+            \__lxp_altg_brace:n { R } }
+        \hspace { \AltBraceOuterSep } }
+    \box_set_ht:Nn \l__lxp_altg_out_box { 0pt }
+    \box_use:N \l__lxp_altg_out_box
+  }
+\cs_new_protected:Npn \__lxp_altg_shape_solo:
+  {
+    \hspace { \AltBraceOuterSep }
+    \__lxp_altg_brace:n { L } \hspace { \AltBraceSep }
+    \box_use:N \l__lxp_altg_stack_box
+    \hspace { \AltBraceSep } \__lxp_altg_brace:n { R }
+    \hspace { \AltBraceOuterSep }
+  }
+%% emit one shape, tag-guarded: under active tagging the shape is wrapped
+%% in a Span carrying the spoken /Alt of this call's list.
+\cs_new_protected:Npn \__lxp_altg_emit:n #1
+  {
+    \leavevmode
+    \lx@tag@if@active:TF
+      {
+        \__lxp_buildalt:NN \l__lxp_altg_seq \l__lxp_altg_alt_tl
+        \lx@tag@span@begin:e { tag = Span , alt = { \l__lxp_altg_alt_tl } }
+        #1
+        \lx@tag@span@end:
+      }
+      { #1 }
+  }
+\cs_new_protected:Npn \__lxp_altg_print:
+  {
+    \bool_if:NTF \l_lx_gl_inside_bool
+      {
+        \int_compare:nNnTF { \g__lxp_altg_role_int } = { 0 }
+          { % object call
+            \int_gset:Nn \g__lxp_altg_role_int { 1 }
+            \int_gset:Nn \g__lxp_altg_count_int
+              { \seq_count:N \l__lxp_altg_seq }
+            \__lxp_altg_setstack:n { }
+            \__lxp_altg_emit:n { \__lxp_altg_shape_obj: }
+          }
+          { % gloss call
+            \int_gset:Nn \g__lxp_altg_role_int { 0 }
+            \int_compare:nNnF { \seq_count:N \l__lxp_altg_seq }
+                            = { \g__lxp_altg_count_int }
+              { \PackageError { linguexx }
+                  { \string\altg : \int_use:N \g__lxp_altg_count_int\space
+                    object~alternatives~but~
+                    \int_eval:n { \seq_count:N \l__lxp_altg_seq } ~glosses }
+                  { The~two~\string\altg\space calls~of~one~paradigm~must~
+                    list~the~same~number~of~alternatives. } }
+            \__lxp_altg_setstack:n { \AltgTransFont }
+            \__lxp_altg_emit:n { \__lxp_altg_shape_gloss: }
+          }
+      }
+      { % solo, outside a gloss
+        \__lxp_altg_setstack:n { }
+        \__lxp_altg_emit:n { \__lxp_altg_shape_solo: }
+      }
+  }
+\ExplSyntaxOff
+
+% Tunables.  The braces share \AltBraceWidth/\AltBraceAmplitude/\AltBraceSep
+% with \lxAltn (declared above).
+\newcommand\AltgColSep{1.2em}%   glue between object and gloss columns
+\newcommand\AltgTransFont{\normalfont}% font of the gloss stack
+
+% Alias \altg -> \lxAltg unless somebody already owns \altg.
+\AtBeginDocument{%
+  \@ifundefined{altg}%
+    {\global\let\altg\lxAltg}%
+    {\PackageInfo{linguexx}%
+      {\string\altg\space is already defined;\MessageBreak
+       only \string\lxAltg\space is available}}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Explicit judgment markers: \jdg                                    %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newlength{\JdgSep}% value set in the defaults block (Layout section)
+%% \jdg[<spoken>]{<mark>} hangs <mark> in the margin.  With an explicit
+%% <spoken> (or a known default for <mark>), the mark is announced by a
+%% screen reader as that phrase; otherwise it is typeset as before.
+\ExplSyntaxOn
+\NewDocumentCommand \jdg { O{} m }
+  {
+    \tl_if_blank:nTF {#1}
+      { \exp_args:Ne \lx@hangjudge { \prop_item:Ne \g_lx_judge_alt_prop { \tl_to_str:n {#2} } } {#2} }
+      { \lx@hangjudge {#1} {#2} }
+  }
+%% \DeclareJudgment[spoken=<phrase>]{\cmd}{<mark>} names a mark.  The
+%% spoken phrase, if given, is both attached to \cmd and registered for
+%% <mark> so a leading scanned <mark> is announced the same way.
+\keys_define:nn { lx / judge }
+  { spoken .tl_set:N = \l__lx_judge_decl_tl }
+%% The first mandatory argument is the command being DEFINED, the second is
+%% what it prints -- an order easy to read the wrong way round.  Getting it
+%% wrong used to HANG the run rather than complain: \DeclareRobustCommand
+%% takes the first token of whatever it is handed, so
+%% \DeclareJudgment{\%\%}{\%\%} quietly redefined \%, which the judgment
+%% scanner peeks for, and the compile then spun forever with nothing in the
+%% log to say why.  A hang is the worst failure to debug, so check that the
+%% argument is a single control sequence and, if it is not, say what the two
+%% arguments actually mean.
+\msg_new:nnnn { linguexx } { judgment-not-a-command }
+  { \iow_char:N \\DeclareJudgment~needs~one~command~here,~not~'#1'. }
+  {
+    Write~\iow_char:N \\DeclareJudgment[spoken=...]{\iow_char:N \\mymark}
+    {<mark>}:~the~first~mandatory~argument~is~the~command~being~defined,~
+    the~second~is~the~mark~it~prints.
+  }
+\cs_new_protected:Npn \lx@judge@declare #1#2#3
+  {
+    \tl_clear:N \l__lx_judge_decl_tl
+    \keys_set:nn { lx / judge } {#1}
+    \tl_if_empty:NF \l__lx_judge_decl_tl
+      { \exp_args:Nne \lx@judge@setalt {#3} { \l__lx_judge_decl_tl } }
+    \exp_args:Nne \DeclareRobustCommand #2
+      { \exp_not:N \jdg [ \l__lx_judge_decl_tl ] { \exp_not:n {#3} } }
+  }
+\cs_new_protected:Npn \lx@judge@declare@cs #1#2#3
+  {
+    \token_if_cs:NTF #2
+      { \lx@judge@declare {#1} {#2} {#3} }
+      { \msg_error:nnn { linguexx } { judgment-not-a-command } {#2} }
+  }
+\NewDocumentCommand \DeclareJudgment { O{} m m }
+  {
+    \tl_if_single_token:nTF {#2}
+      { \lx@judge@declare@cs {#1} {#2} {#3} }
+      { \msg_error:nnn { linguexx } { judgment-not-a-command } {#2} }
+  }
+\cs_set_eq:NN \DeclareJudgement \DeclareJudgment
+%% \SetJudgmentSpoken{<mark>}{<phrase>} overrides or adds a spoken form.
+\NewDocumentCommand \SetJudgmentSpoken { m m }
+  { \lx@judge@setalt {#1} {#2} }
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Cross-reference ranges                                             %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand\rangedash{--}
+\newcommand\lx@setsub[2]{\expandafter\gdef\csname lx@sub@#1\endcsname{#2}}
+%% \sublabel records in the .aux the BARE label of the sub-example it marks
+%% -- just the letter or numeral, no \SubExLBr/\SubExRBr delimiters -- which
+%% is what \prefrange needs for the closing half of a compact range
+%% ("(1a--c)": the range ends in a letter, not in a second full reference).
+%%
+%% It has to record the label of the level it is USED at.  Recording
+%% \Exalph{SubExNo} unconditionally, as this did, is right only at the letter
+%% level: at the roman level SubExNo names the ENCLOSING letter, so every
+%% roman sub-sub-example under one letter recorded the same value and
+%% \refrange over them printed "(1b-i--b)" instead of "(1b-i--iii)" -- a
+%% silently wrong reference, since nothing about it is an error.
+%%
+%% At the main level there is no sub-label to record (and \Exalph{SubExNo}
+%% would be \alph{0}, i.e. "Counter too large"), so nothing is written;
+%% \lx@subletter then falls back to a full \pref, which is the sensible
+%% reading of a range whose end is a whole example.
+\newcommand\lx@writesub[2]{%
+  \immediate\write\@auxout{\string\lx@setsub{#1}{#2}}}
+\newcommand\sublabel[1]{\label{#1}%
+  \if@filesw
+    \ifcase\lx@subdepth
+      % main level: no sub-label, \lx@subletter falls back to \pref
+    \or \lx@writesub{#1}{\Exalph{SubExNo}}%
+    \or \lx@writesub{#1}{\Exroman{SubSubExNo}}%
+    \fi
+  \fi}
+\newcommand\lx@subletter[1]{%
+  \ifcsname lx@sub@#1\endcsname
+    \csname lx@sub@#1\endcsname
+  \else
+    \pref{#1}%
+  \fi}
+\newcommand\prefrange[2]{\pref{#1}\rangedash\lx@subletter{#2}}
+\newcommand\refrange[2]{(\prefrange{#1}{#2})}
+\newcommand\Refrange[2]{\ref{#1}\rangedash\ref{#2}}
+
+%% cleveref knows nothing about the example counters, so \cref{ex:one} comes
+%% out as "?? (1)" -- its marker for a type it has no name for.  The names
+%% are declared EMPTY rather than "example": linguistics prose refers to an
+%% example by its number alone ("as in (1a)"), and \theExNo already supplies
+%% the parentheses.  \cref then prints exactly what \ref does, and what it
+%% adds here is its list and range handling -- \cref{a,b} giving "(1) and
+%% (2)" -- rather than a word in front.
+%%
+%% Guarded twice over.  Only if cleveref is actually loaded, in either order,
+%% which is why this waits for \AtBeginDocument; and only for a counter the
+%% document has not named itself, because \AtBeginDocument runs after the
+%% preamble and would otherwise silently overwrite a \crefname the author
+%% wrote deliberately.  \Crefname sets cref@<counter>@name as well as the
+%% capitalised one, so testing the lower-case name catches either.
+\def\lx@crefname#1{%
+  \@ifundefined{cref@#1@name}{\crefname{#1}{}{}\Crefname{#1}{}{}}{}}
+\AtBeginDocument{%
+  \@ifpackageloaded{cleveref}{%
+    \lx@crefname{ExNo}\lx@crefname{SubExNo}%
+    \lx@crefname{SubSubExNo}\lx@crefname{FnExNo}%
+  }{}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Right-aligned in-line source: \exsource                            %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\ExSourceFont}{\normalfont\footnotesize}
+\DeclareRobustCommand{\exsource}[1]{%
+  \unskip\nobreak\hskip0pt plus 1fill\relax
+  \penalty50
+  \hskip1em plus 1fill\relax
+  \hbox{}\nobreak\hskip0pt plus 1fill\relax
+  \mbox{\ExSourceFont#1}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%  Install the defaults of the mode in force                          %%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Done here, at the end, so that every length and macro it touches exists.
+%% Because this runs at LOAD time (and not \AtBeginDocument, as in
+%% linguex), a \setlength in the preamble overrides it, as one would
+%% expect.
+
+\resetExdefaults
+
+%%%% EOF

@@ -1,0 +1,2163 @@
+%%% ----------------------------------------------------------------------------
+%%% suanpan: draw suanpan(abacus) with LaTeX3
+%%% Author    : Nan Geng <nangeng@nwafu.edu.cn>
+%%% Repository: https://gitee.com/nwafu_nan/suan-span
+%%% License   : The LaTeX Project Public License 1.3c
+%%% ----------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{expl3}
+\ProvidesExplPackage{suanpan-l3}{2026-09-03}{v2.2.1}
+  {draw suanpan(abacus) with LaTeX3}
+
+\RequirePackage{l3keys2e}
+\RequirePackage{xparse}
+\RequirePackage{l3draw}
+
+\RequirePackage{tikz}
+% 添加 tikz 宏包的库
+\usetikzlibrary{shadings}
+
+% ============================================================================
+% 错误报告机制
+% ============================================================================
+% 错误消息定义
+\msg_new:nnn { suanpan } { unknown-option }
+  { Package~ option~ "\l_keys_key_tl"~ is~ unknown. }
+
+\msg_new:nnn { suanpan } { bead-type-error }
+  { Bead~ type~ "#1"~ is~ unknown.~ Valid~ types:~ 0~(outer),~ 1~(inner),~ 2~(float). }
+
+\msg_new:nnn { suanpan } { rod-value-error }
+  { Rod~ value~ "#1"~ is~ out~ of~ range.~ Valid~ range:~ 0--20. }
+
+\msg_new:nnn { suanpan } { rod-count-error }
+  { At~ least~ one~ rod~ must~ be~ defined.~ Use~ \rod~ or~ \rods~ command. }
+
+\msg_new:nnn { suanpan } { mark-list-error }
+  { Mark~ list~ is~ empty.~ Please~ provide~ at~ least~ one~ mark. }
+
+\msg_new:nnn { suanpan } { dimension-error }
+  { Dimension~ "#1"~ must~ be~ positive.~ Current~ value:~ \dim_use:N #1 }
+
+\msg_new:nnn { suanpan } { bead-position-error }
+  { Bead~ position~ "#1"~ is~ out~ of~ range.~ Valid~ range:~ 1--11. }
+
+\msg_new:nnn { suanpan } { rod-index-error }
+  { Rod~ index~ "#1"~ is~ out~ of~ range.~ Valid~ range:~ 1~ to~ \int_use:N \g__suanpan_rod_max_int. }
+
+\msg_new:nnn { suanpan } { frame-range-error }
+  { Frame~ range~ "#1"~ to~ "#2"~ is~ invalid.~ Start~ must~ be~ less~ than~ end. }
+
+\msg_new:nnn { suanpan } { color-error }
+  { Color~ specification~ "#1"~ is~ invalid. }
+
+\msg_new:nnn { suanpan } { start-end-range-error }
+  { Range~ specification~ "#1"~ to~ "#2"~ is~ invalid.~ Valid~ range:~
+    0 <= start <= end <= 20. }
+
+\msg_new:nnn { suanpan } { step-range-error }
+  { Step~ value~ "#1"~ must~ be~ positive. }
+
+\msg_new:nnn { suanpan } { repeat-value-error }
+  { Repeat~ value~ "#1"~ must~ be~ positive. }
+
+\msg_new:nnn { suanpan } { bead-range-syntax-error }
+  { Invalid~ bead~ position~ range~ syntax~ "#1".~ Use~ "start-end"~ (e.g.,~ "4-7"). }
+
+\msg_new:nnn { suanpan } { rods-range-syntax-error }
+  { Invalid~ rods~ range~ syntax~ "#1".~ Use~ "start-end"~ (e.g.,~ "4-7")~ or~ "start-end-step"~ (e.g.,~ "4-7-2"). }
+
+\msg_new:nnn { suanpan } { rods-repeat-syntax-error }
+  { Invalid~ rods~ repeat~ syntax~ "#1".~ Use~ "value[count]"~ (e.g.,~ "2[3]"). }
+
+\msg_new:nnn { suanpan } { bead-range-error }
+  { Bead~ position~ range~ "#1"~ to~ "#2"~ is~ invalid.~ Valid~ range:~ 1 <= start <= end <= 11. }
+
+% 错误报告辅助函数
+\cs_new:Npn \__suanpan_error:n #1
+  { \msg_error:nn { suanpan } { #1 } }
+
+\cs_new:Npn \__suanpan_error:nn #1#2
+  { \msg_error:nnn { suanpan } { #1 } { #2 } }
+
+\cs_new:Npn \__suanpan_error:nnn #1#2#3
+  { \msg_error:nnnn { suanpan } { #1 } { #2 } { #3 } }
+
+% 警告消息定义
+\msg_new:nnn { suanpan } { scale-warning }
+  { Scale~ factor~ "#1"~ is~ too~ small.~ Using~ 0.1~ instead. }
+
+%============================================================
+% 参数检查函数
+%============================================================
+% 档位值范围检查(0-20)
+\cs_new:Npn \__suanpan_check_rod_value:n #1
+  {
+    \int_compare:nNnTF { #1 } < { 0 }
+      { \__suanpan_error:nn { rod-value-error } { #1 } }
+      {
+        \int_compare:nNnT { #1 } > { 20 }
+          { \__suanpan_error:nn { rod-value-error } { #1 } }
+      }
+  }
+
+% 算珠位置范围检查(1-11)
+% #1: 算珠位置编号
+%     o o o o o o o | o o o
+%     1 2 3 4 5 6 7   8 9 10
+%                   |    o
+%                        11
+%     其中，11是悬珠位置
+\cs_new:Npn \__suanpan_check_bead_position:n #1
+  {
+    \int_compare:nNnTF { #1 } < { 1 }
+      { \__suanpan_error:nn { bead-position-error } { #1 } }
+      {
+        \int_compare:nNnT { #1 } > { 11 }
+          { \__suanpan_error:nn { bead-position-error } { #1 } }
+      }
+  }
+
+% 尺寸检查(必须是正值)
+\cs_new:Npn \__suanpan_check_positive_dim:N #1
+  {
+    \dim_compare:nNnT { #1 } < { 0pt }
+      { \__suanpan_error:nn { dimension-error } { \token_to_str:N #1 } }
+  }
+
+% 档位索引值检查([1-max])
+\cs_new:Npn \__suanpan_check_rod_index:n #1
+  {
+    \int_compare:nNnT { #1 } > { \g__suanpan_rod_max_int }
+      { \__suanpan_error:nn { rod-index-error } { #1 } }
+    \int_compare:nNnT { #1 } < { 1 }
+      { \__suanpan_error:nn { rod-index-error } { #1 } }
+  }
+
+% ============================================================================
+% 颜色处理函数
+% ============================================================================
+\cs_new_nopar:Nn \__suanpan_aux_color_boxfill:
+  { }
+
+% 颜色命名函数 - 基本版本
+% #1 颜色名称
+% #2 颜色表达式
+\cs_new_protected:Npn \__suanpan_color_select:nn #1#2
+  {
+    \colorlet { #1 } { #2 }
+    % \color_set:nn { #1 } { #2 } % TikZ无法使用，留待l3draw使用
+  }
+\cs_generate_variant:Nn \__suanpan_color_select:nn { nx }
+
+% 颜色命名函数 - 指定颜色空间版本
+% #1 颜色名称
+% #2 颜色空间 (rgb, cmyk, gray, etc.)
+% #3 颜色分量值
+\cs_new_protected:Npn \__suanpan_color_select:nnn #1#2#3
+  {
+    \definecolor { #1 } { #2 } { #3 }
+    % \color_set:nnn { #1 } { #2 } { #3 } % TikZ无法使用，留待l3draw使用
+  }
+\cs_generate_variant:Nn \__suanpan_color_select:nnn { nnx }
+
+% 系统函数变体处理
+\cs_generate_variant:Nn \draw_coffin_use:Nnn { cnn }
+\cs_generate_variant:Nn \draw_coffin_use:Nnnn { cnnn }
+
+% ============================================================================
+% 尺寸变量定义
+% ============================================================================
+% 算盘基础尺寸
+\dim_new:N \l__suanpan_bead_h_dim   % 算珠高度
+\dim_new:N \l__suanpan_bead_d_dim   % 算珠直径
+\dim_new:N \l__suanpan_rod_d_dim    % 档杆直径
+\dim_new:N \l__suanpan_frame_b_dim  % 边框宽度
+\dim_new:N \l__suanpan_bead_sep_dim % 算珠间距
+\dim_new:N \l__suanpan_rod_sep_dim  % 档杆间距
+% 算盘基础尺寸半长度
+\dim_new:N \l__suanpan_bead_h_half_dim
+\dim_new:N \l__suanpan_bead_d_half_dim
+\dim_new:N \l__suanpan_rod_d_half_dim
+\dim_new:N \l__suanpan_frame_b_half_dim
+
+% 算盘基础尺寸初值(参考 QBT1747-1993 算盘标准并缩小0.5倍)
+\dim_set:Nn \l__suanpan_bead_h_dim   { 6mm    }
+\dim_set:Nn \l__suanpan_bead_d_dim   { 11.5mm }
+\dim_set:Nn \l__suanpan_rod_d_dim    { 3.5mm  }
+\dim_set:Nn \l__suanpan_frame_b_dim  { 6.5mm  }
+\dim_set:Nn \l__suanpan_bead_sep_dim { 0.9pt  }
+\dim_set:Nn \l__suanpan_rod_sep_dim  { 1.5pt  }
+
+\dim_new:N \l__suanpan_bead_upper_offset_dim          % 上珠偏移
+\dim_new:N \l__suanpan_bead_lower_offset_dim          % 下珠偏移
+\dim_new:N \l__suanpan_rod_upper_h_dim                % 上档杆长度
+\dim_new:N \l__suanpan_rod_lower_h_dim                % 下档杆长度
+\dim_new:N \l__suanpan_rod_upper_offset_dim           % 上档杆偏移
+\dim_new:N \l__suanpan_rod_lower_offset_dim           % 下档杆偏移
+\dim_new:N \l__suanpan_rod_upper_dim                  % 上档杆位置
+\dim_new:N \l__suanpan_rod_lower_dim                  % 下档杆位置
+\dim_new:N \l__suanpan_frame_upper_inner_offset_dim   % 上边框内线偏移
+\dim_new:N \l__suanpan_frame_lower_inner_offset_dim   % 下边框内线偏移
+\dim_new:N \l__suanpan_frame_upper_outer_offset_dim   % 上边框外线偏移
+\dim_new:N \l__suanpan_frame_lower_outer_offset_dim   % 下边框外线偏移
+\dim_new:N \l__suanpan_bead_upper_dim                 % 算珠上边缘
+\dim_new:N \l__suanpan_bead_lower_dim                 % 算珠下边缘
+\dim_new:N \l__suanpan_bead_draw_h_dim                % 算珠绘制高度
+\dim_new:N \l__suanpan_bead_draw_h_half_dim           % 算珠绘制半高度
+\dim_new:N \l__suanpan_bead_arc_dim                   % 算珠圆角半径
+\dim_new:N \l__suanpan_frame_unit_r_dim               % 横梁计位点半径
+\dim_new:N \l__suanpan_frame_outer_half_dim           % 边框外线半宽度
+\dim_new:N \l__suanpan_support_d_dim                  % 档杆总成宽度
+\dim_new:N \l__suanpan_support_d_half_dim             % 档杆总成半宽度
+\dim_new:N \l__suanpan_support_y_offset_dim           % 档杆总成组装垂直偏移
+\dim_new:N \l__suanpan_frame_inner_upper_dim          % 上边框内线位置
+\dim_new:N \l__suanpan_frame_inner_lower_dim          % 下边框内线位置
+\dim_new:N \l__suanpan_frame_inner_h_dim              % 边框内线高度
+\dim_new:N \l__suanpan_frame_outer_h_dim              % 边框外线高度
+\dim_new:N \l__suanpan_frame_inner_linewidth_dim      % 边框内线绘制线宽
+\dim_new:N \l__suanpan_frame_outer_linewidth_dim      % 边框外线绘制线宽
+\dim_new:N \l__suanpan_rod_linewidth_dim              % 档杆绘制线宽
+\dim_new:N \l__suanpan_bead_linewidth_dim             % 算珠绘制线宽
+
+\dim_new:N \l__suanpan_support_clip_lower_dim         % clip 下边界
+\dim_new:N \l__suanpan_support_clip_upper_dim         % clip 上边界
+\dim_new:N \l__suanpan_support_beam_yshift_dim        % 横梁边线 yshift
+\dim_new:N \l__suanpan_support_upper_inner_yshift_dim % 上梁内线 yshift
+\dim_new:N \l__suanpan_support_lower_inner_yshift_dim % 下梁内线 yshift
+\dim_new:N \l__suanpan_support_upper_outer_yshift_dim % 上梁外线 yshift
+\dim_new:N \l__suanpan_support_lower_outer_yshift_dim % 下梁外线 yshift
+\dim_new:N \l__suanpan_support_rod_lower_top_extend_dim    % 下杆顶端延长
+\dim_new:N \l__suanpan_support_rod_lower_bottom_extend_dim % 下杆底端延长
+\dim_new:N \l__suanpan_support_rod_upper_top_extend_dim    % 上杆顶端延长
+\dim_new:N \l__suanpan_support_rod_upper_bottom_extend_dim % 上杆底端延长
+
+\dim_new:N \l__suanpan_tmpc_dim % 临时尺寸c
+\dim_new:N \l__suanpan_tmpd_dim % 临时尺寸d
+
+% ============================================================================
+% 状态变量
+% ============================================================================
+\bool_new:N \l__suanpan_support_unit_bool  % 是否绘制计位点
+\bool_new:N \l__suanpan_draft_bool         % 是否为草稿模式(不带高光)
+\bool_new:N \l__suanpan_empty_rod_bool     % 是否绘制空档(值为0)算珠
+
+% 脏标志 - 标记组件是否需要重建（仅在参数变化时设置）
+\bool_new:N \g__suanpan_inner_bead_dirty_bool % 内珠是否需要重建
+\bool_new:N \g__suanpan_outer_bead_dirty_bool % 外珠是否需要重建
+\bool_new:N \g__suanpan_support_dirty_bool    % 档杆是否需要重建
+\bool_new:N \g__suanpan_unit_mark_dirty_bool  % 计位点是否需要重建
+
+% 0-20各档位总成是否已完成组装
+\int_step_inline:nn { 21 }
+  {
+    % 用\int_to_alph:n { #1 }函数将数字转换为小写字母
+    \bool_new:c { g__suanpan_support_unit_ \int_to_alph:n { #1 } _built_bool }
+    \bool_gset_false:c { g__suanpan_support_unit_ \int_to_alph:n { #1 } _built_bool }
+  }
+
+% 初始化脏标志
+\bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+\bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+\bool_gset_true:N \g__suanpan_support_dirty_bool
+\bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+
+% 初始化计位点标志
+\bool_set_false:N \l__suanpan_support_unit_bool
+
+% 是否使用了\mkframe命令绘制边框
+\bool_new:N \g__suanpan_has_frame_bool
+\bool_gset_false:N \g__suanpan_has_frame_bool
+
+% ============================================================================
+% 容器(盒子)定义
+% ============================================================================
+\coffin_new:N \g__suanpan_inner_bead_coffin % 内珠盒子
+\coffin_new:N \g__suanpan_outer_bead_coffin % 外珠盒子
+\coffin_new:N \g__suanpan_float_bead_coffin % 浮珠盒子
+\coffin_new:N \g__suanpan_unit_mark_coffin  % 计位点盒子
+\coffin_new:N \g__suanpan_support_coffin    % 档杆总成盒子
+\coffin_new:N \l__suanpan_tmpc_coffin       % 临时盒子c
+\coffin_new:N \l__suanpan_tmpd_coffin       % 临时盒子d
+
+% 批量定义0-20共计21个表示不同档位值的档位总成容器(用字母a-u进行区分)
+\int_step_inline:nn { 21 }
+  {
+    % 用\int_to_alph:n { #1 }函数将数字转换为小写字母
+    \coffin_new:c { g__suanpan_support_unit_ \int_to_alph:n { #1 } _coffin }
+  }
+
+% ============================================================================
+% 其它变量
+% ============================================================================
+\tl_new:N \l__suanpan_mark_font_tl   % 横梁标记字体
+\str_new:N \l__suanpan_unit_mark_str % 计位点标记字符
+
+\fp_new:N \l__suanpan_scale_fp       % 缩放系数
+
+% 浮珠颜色缓存
+\tl_new:N \g__suanpan_float_bead_draw_color_tl
+\tl_new:N \g__suanpan_float_bead_fill_color_tl
+\tl_gset:Nn \g__suanpan_float_bead_draw_color_tl { }
+\tl_gset:Nn \g__suanpan_float_bead_fill_color_tl { }
+
+% 高光角度(0-360整数)
+\int_new:N \l__suanpan_spot_angle_int % 高光角度
+
+% 最大档位值
+\int_new:N \g__suanpan_rod_max_int
+\int_zero:N \g__suanpan_rod_max_int
+
+% 档位总成全局版本号
+\int_new:N \g__suanpan_support_unit_version_int
+\int_gzero:N \g__suanpan_support_unit_version_int
+
+% 各档位总成构建时版本号
+\int_step_inline:nn { 21 }
+  {
+    \int_new:c { g__suanpan_support_unit_ \int_to_alph:n { #1 } _version_int }
+    \int_gset:cn { g__suanpan_support_unit_ \int_to_alph:n { #1 } _version_int } { -1 }
+  }
+
+% 临时整数
+\int_new:N \l__suanpan_tmpc_int
+% 临时tl
+\tl_new:N \l__suanpan_tmpc_tl
+
+% 档位算珠位置列表
+\clist_new:N \l__suanpan_beads_pos_clist
+
+% ============================================================================
+% 档位数字与算珠位置对照属性表常量(内珠和外珠)
+% v2.2.0后废弃该属性表常量，改为整型数组，以提升访问速度
+% ============================================================================
+% {x, y}==>x: 算珠位置(1-11, 1-7---下珠，8-10---上珠，11---悬珠)
+%          y: 算珠类型(0---外珠，1---内珠)
+\prop_const_from_keyval:Nn \l__suanpan_rods_val_prop
+  {
+    0  = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}, {9, 0}, {10, 0}},
+    1  = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {7, 1}, {9, 0}, {10, 0}},
+    2  = {{1, 0}, {2, 0}, {3, 0}, {6, 1}, {7, 1}, {9, 0}, {10, 0}},
+    3  = {{1, 0}, {2, 0}, {5, 1}, {6, 1}, {7, 1}, {9, 0}, {10, 0}},
+    4  = {{1, 0}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {9, 0}, {10, 0}},
+    5  = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}, {8, 1}, {10, 0}},
+    6  = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {7, 1}, {8, 1}, {10, 0}},
+    7  = {{1, 0}, {2, 0}, {3, 0}, {6, 1}, {7, 1}, {8, 1}, {10, 0}},
+    8  = {{1, 0}, {2, 0}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {10, 0}},
+    9  = {{1, 0}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {10, 0}},
+    10 = {{3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {10, 0}},
+    11 = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {7, 1}, {8, 1}, {9 , 1}},
+    12 = {{1, 0}, {2, 0}, {3, 0}, {6, 1}, {7, 1}, {8, 1}, {9 , 1}},
+    13 = {{1, 0}, {2, 0}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {9 , 1}},
+    14 = {{1, 0}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {9 , 1}},
+    15 = {{3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {9 , 1}},
+    16 = {{1, 0}, {2, 0}, {3, 0}, {4, 0}, {7, 1}, {8, 1}, {11, 1}},
+    17 = {{1, 0}, {2, 0}, {3, 0}, {6, 1}, {7, 1}, {8, 1}, {11, 1}},
+    18 = {{1, 0}, {2, 0}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {11, 1}},
+    19 = {{1, 0}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {11, 1}},
+    20 = {{3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {11, 1}}
+  }
+
+% ============================================================================
+% 档位数字与算珠位置整型数组常量(内珠和外珠)
+% ============================================================================
+% 每行用(x,y)*7共14个整数表示7个算珠的位置，以表示不同数值(0-20)
+% x, y==>x: 算珠位置(1-11, 1-7---下珠，8-10---上珠，11---悬珠)
+%          y: 算珠类型(0---外珠，1---内珠)
+\intarray_const_from_clist:Nn \c__suanpan_rod_val_beads_intarray
+  {
+    1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 9, 0, 10, 0, % 0
+    1, 0, 2, 0, 3, 0, 4, 0, 7, 1, 9, 0, 10, 0, % 1
+    1, 0, 2, 0, 3, 0, 6, 1, 7, 1, 9, 0, 10, 0, % 2
+    1, 0, 2, 0, 5, 1, 6, 1, 7, 1, 9, 0, 10, 0, % 3
+    1, 0, 4, 1, 5, 1, 6, 1, 7, 1, 9, 0, 10, 0, % 4
+    1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 8, 1, 10, 0, % 5
+    1, 0, 2, 0, 3, 0, 4, 0, 7, 1, 8, 1, 10, 0, % 6
+    1, 0, 2, 0, 3, 0, 6, 1, 7, 1, 8, 1, 10, 0, % 7
+    1, 0, 2, 0, 5, 1, 6, 1, 7, 1, 8, 1, 10, 0, % 8
+    1, 0, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 10, 0, % 9
+    3, 1, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 10, 0, % 10
+    1, 0, 2, 0, 3, 0, 4, 0, 7, 1, 8, 1, 9 , 1, % 11
+    1, 0, 2, 0, 3, 0, 6, 1, 7, 1, 8, 1, 9 , 1, % 12
+    1, 0, 2, 0, 5, 1, 6, 1, 7, 1, 8, 1, 9 , 1, % 13
+    1, 0, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 9 , 1, % 14
+    3, 1, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 9 , 1, % 15
+    1, 0, 2, 0, 3, 0, 4, 0, 7, 1, 8, 1, 11, 1, % 16
+    1, 0, 2, 0, 3, 0, 6, 1, 7, 1, 8, 1, 11, 1, % 17
+    1, 0, 2, 0, 5, 1, 6, 1, 7, 1, 8, 1, 11, 1, % 18
+    1, 0, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 11, 1, % 19
+    3, 1, 4, 1, 5, 1, 6, 1, 7, 1, 8, 1, 11, 1  % 20
+  }
+
+% 每档 14 个整数（7 对位置+类型）
+\int_const:Nn \c__suanpan_bead_pairs_per_rod_int { 7  }
+\int_const:Nn \c__suanpan_bead_datas_per_rod_int { 14 }
+
+% ============================================================================
+% 图层兼容性处理
+% ============================================================================
+\cs_if_exist:NTF \draw_layer_new:n
+  {
+    % TL2025 及以前：需要预创建图层
+    \clist_set:Nn \l_draw_layers_clist { main, float, frame, mark }
+    \draw_layer_new:n { float }
+    \draw_layer_new:n { frame }
+    \draw_layer_new:n { mark }
+  }
+  {
+    % TL2026+：不预创建，由 \draw_layer_begin:n 自动管理
+    \clist_set:Nn \l_draw_layers_clist { main, float, frame, mark }
+  }
+
+% 空图层，避免出现图层收集错误
+% 浮珠层
+\draw_layer_begin:n { float }
+\draw_layer_end:
+% 外框层
+\draw_layer_begin:n { frame }
+\draw_layer_end:
+% 标记层
+\draw_layer_begin:n { mark }
+\draw_layer_end:
+
+% ============================================================================
+% 尺寸计算函数
+% ============================================================================
+\cs_new:Nn \__suanpan_dim_calc:
+  {
+    % 检查尺寸有效性(确保为正值)
+    \__suanpan_check_positive_dim:N \l__suanpan_bead_h_dim
+    \__suanpan_check_positive_dim:N \l__suanpan_bead_d_dim
+    \__suanpan_check_positive_dim:N \l__suanpan_rod_d_dim
+    \__suanpan_check_positive_dim:N \l__suanpan_frame_b_dim
+
+    % 基础尺寸半长度
+    \dim_set:Nn \l__suanpan_bead_h_half_dim  { \l__suanpan_bead_h_dim  / 2 }
+    \dim_set:Nn \l__suanpan_bead_d_half_dim  { \l__suanpan_bead_d_dim  / 2 }
+    \dim_set:Nn \l__suanpan_rod_d_half_dim   { \l__suanpan_rod_d_dim   / 2 }
+    \dim_set:Nn \l__suanpan_frame_b_half_dim { \l__suanpan_frame_b_dim / 2 }
+
+    % 上珠偏移(8号算珠)
+    \dim_set:Nn \l__suanpan_bead_upper_offset_dim
+              { \l__suanpan_frame_b_half_dim + \l__suanpan_bead_h_half_dim }
+    % 下珠偏移(1号算珠)
+    \dim_set:Nn \l__suanpan_bead_lower_offset_dim
+             { -\l__suanpan_frame_b_half_dim - \l__suanpan_bead_h_dim * 7 + \l__suanpan_bead_h_half_dim }
+    % 上档杆长度
+    \dim_set:Nn \l__suanpan_rod_upper_h_dim { \l__suanpan_bead_h_dim * 3 }
+    % 下档杆长度
+    \dim_set:Nn \l__suanpan_rod_lower_h_dim { \l__suanpan_bead_h_dim * 7 }
+    % 上档杆偏移
+    \dim_set:Nn \l__suanpan_rod_upper_offset_dim { \l__suanpan_frame_b_half_dim }
+    % 下档杆偏移
+    \dim_set:Nn \l__suanpan_rod_lower_offset_dim
+              { -\l__suanpan_frame_b_half_dim - \l__suanpan_rod_lower_h_dim }
+    % 上档杆位置
+    \dim_set:Nn \l__suanpan_rod_upper_dim
+              { \l__suanpan_rod_upper_offset_dim + \l__suanpan_rod_upper_h_dim }
+    % 下档杆位置
+    \dim_set:Nn \l__suanpan_rod_lower_dim { -\l__suanpan_frame_b_half_dim }
+
+    % 上边框内线偏移
+    \dim_set:Nn \l__suanpan_frame_upper_inner_offset_dim
+              { \l__suanpan_frame_b_half_dim + \l__suanpan_rod_upper_h_dim }
+    % 下边框内线偏移
+    \dim_set:Nn \l__suanpan_frame_lower_inner_offset_dim
+             { -\l__suanpan_frame_b_half_dim - \l__suanpan_rod_lower_h_dim }
+    % 上边框外线偏移
+    \dim_set:Nn \l__suanpan_frame_upper_outer_offset_dim
+              { \l__suanpan_frame_b_dim + \l__suanpan_frame_b_half_dim + \l__suanpan_rod_upper_h_dim }
+    % 下边框外线偏移
+    \dim_set:Nn \l__suanpan_frame_lower_outer_offset_dim
+             { -\l__suanpan_frame_b_dim - \l__suanpan_frame_b_half_dim - \l__suanpan_rod_lower_h_dim }
+
+    % 算珠上边缘
+    \dim_set:Nn \l__suanpan_bead_upper_dim
+              { \l__suanpan_bead_h_half_dim - \l__suanpan_bead_sep_dim / 2 }
+    % 算珠下边缘
+    \dim_set:Nn \l__suanpan_bead_lower_dim
+             { -\l__suanpan_bead_h_half_dim + \l__suanpan_bead_sep_dim / 2 }
+    % 算珠绘制高度
+    \dim_set:Nn \l__suanpan_bead_draw_h_dim
+              { \l__suanpan_bead_upper_dim - \l__suanpan_bead_lower_dim }
+    % 算珠绘制半高度
+    \dim_set:Nn \l__suanpan_bead_draw_h_half_dim { \l__suanpan_bead_draw_h_dim / 2 }
+
+    % 算珠圆角半径
+    \dim_set:Nn \l__suanpan_bead_arc_dim { \l__suanpan_bead_draw_h_half_dim - 1pt }
+
+    % 横梁计位点半径
+    \dim_set:Nn \l__suanpan_frame_unit_r_dim { \fp_to_dim:n { \fp_eval:n { \l__suanpan_frame_b_dim * 0.23 } } }
+
+    % 边框外线半宽度
+    \dim_set:Nn \l__suanpan_frame_outer_half_dim { \l__suanpan_frame_outer_linewidth_dim / 2 }
+
+    % 档杆总成宽度
+    \dim_set:Nn \l__suanpan_support_d_dim { \l__suanpan_bead_d_dim + \l__suanpan_rod_sep_dim }
+    % 档杆总成半宽度
+    \dim_set:Nn \l__suanpan_support_d_half_dim { \l__suanpan_bead_d_half_dim + \l__suanpan_rod_sep_dim / 2 }
+
+    % 档杆总成组装垂直偏移
+    \dim_set:Nn \l__suanpan_support_y_offset_dim
+            { ( \l__suanpan_frame_upper_outer_offset_dim -
+                \l__suanpan_frame_lower_outer_offset_dim +
+                \l__suanpan_frame_outer_linewidth_dim ) / 2 -
+                \l__suanpan_frame_upper_outer_offset_dim -
+                \l__suanpan_frame_outer_half_dim
+            }
+
+    % 上边框内线位置
+    \dim_set:Nn \l__suanpan_frame_inner_upper_dim
+              { \l__suanpan_frame_upper_inner_offset_dim +
+                \l__suanpan_frame_inner_linewidth_dim / 2 }
+    % 下边框内线位置
+    \dim_set:Nn \l__suanpan_frame_inner_lower_dim
+              { \l__suanpan_frame_lower_inner_offset_dim -
+                \l__suanpan_frame_inner_linewidth_dim / 2 }
+
+    % 边框内线高度
+    \dim_set:Nn \l__suanpan_frame_inner_h_dim
+              { \l__suanpan_rod_upper_h_dim +
+                \l__suanpan_rod_lower_h_dim +
+                \l__suanpan_frame_b_dim }
+    % 边框外线高度
+    \dim_set:Nn \l__suanpan_frame_outer_h_dim
+              { \l__suanpan_rod_upper_h_dim +
+                \l__suanpan_rod_lower_h_dim +
+                \l__suanpan_frame_b_dim * 3 }
+
+    % ---- 档杆支杆预计算尺寸 ----
+    % clip 边界
+    \dim_set:Nn \l__suanpan_support_clip_lower_dim
+      { \l__suanpan_frame_lower_outer_offset_dim + \l__suanpan_frame_outer_linewidth_dim / 2 }
+    \dim_set:Nn \l__suanpan_support_clip_upper_dim
+      { \l__suanpan_frame_upper_outer_offset_dim - \l__suanpan_frame_outer_linewidth_dim / 2 }
+
+    % 横梁边线 yshift
+    \dim_set:Nn \l__suanpan_support_beam_yshift_dim
+      { \l__suanpan_frame_b_half_dim - \l__suanpan_frame_inner_linewidth_dim / 2 }
+
+    % 上梁内线 yshift
+    \dim_set:Nn \l__suanpan_support_upper_inner_yshift_dim
+      { \l__suanpan_frame_upper_inner_offset_dim + \l__suanpan_frame_inner_linewidth_dim / 2 }
+    % 上梁外线 yshift
+    \dim_set:Nn \l__suanpan_support_upper_outer_yshift_dim
+      { \l__suanpan_support_upper_inner_yshift_dim + \l__suanpan_frame_b_half_dim }
+
+    % 下梁内线 yshift
+    \dim_set:Nn \l__suanpan_support_lower_inner_yshift_dim
+      { \l__suanpan_frame_lower_inner_offset_dim - \l__suanpan_frame_inner_linewidth_dim / 2 }
+    % 下梁外线 yshift
+    \dim_set:Nn \l__suanpan_support_lower_outer_yshift_dim
+      { \l__suanpan_support_lower_inner_yshift_dim - \l__suanpan_frame_b_half_dim }
+
+    % 档杆延长(消除间隙)
+    \dim_set:Nn \l__suanpan_support_rod_lower_top_extend_dim
+      { \l__suanpan_rod_lower_dim + \l__suanpan_frame_inner_linewidth_dim / 2 }
+    \dim_set:Nn \l__suanpan_support_rod_lower_bottom_extend_dim
+      { \l__suanpan_rod_lower_offset_dim - \l__suanpan_frame_inner_linewidth_dim / 2 }
+    \dim_set:Nn \l__suanpan_support_rod_upper_top_extend_dim
+      { \l__suanpan_rod_upper_dim + \l__suanpan_frame_inner_linewidth_dim / 2 }
+    \dim_set:Nn \l__suanpan_support_rod_upper_bottom_extend_dim
+      { \l__suanpan_rod_upper_offset_dim - \l__suanpan_frame_inner_linewidth_dim / 2 }
+  }
+
+% 参数变化时递增档位总成全局版本号
+\cs_new:Nn \__suanpan_invalidate_all_support_units:
+  {
+    \int_gincr:N \g__suanpan_support_unit_version_int
+  }
+
+% ============================================================================
+% 选项处理
+% ============================================================================
+\keys_define:nn { suanpan }
+  {
+    % 草稿模式
+    draft .choice:,
+    draft / true  .code:n = {%
+                              \bool_set_true:N  \l__suanpan_draft_bool
+                              \bool_set_false:N  \l__suanpan_empty_rod_bool
+                              % 重建所有组件
+                              \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_support_dirty_bool
+                              \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                              \__suanpan_invalidate_all_support_units:
+                            },
+    draft / false .code:n = {%
+                              \bool_set_false:N \l__suanpan_draft_bool
+                              \bool_set_true:N  \l__suanpan_empty_rod_bool
+                              % 重建所有组件
+                              \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_support_dirty_bool
+                              \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                              \__suanpan_invalidate_all_support_units:
+                            },
+    draft .default:n = true,
+    draft .initial:n = false,
+
+    % 是否绘制档的数值为0的空档算珠
+    empty .choice:,
+    empty / true  .code:n = {%
+                              \bool_set_true:N  \l__suanpan_empty_rod_bool
+                              % 重建算珠
+                              \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                              % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                              \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                              \__suanpan_invalidate_all_support_units:
+                            },
+    empty / false .code:n = {%
+                              \bool_set_false:N  \l__suanpan_empty_rod_bool
+                              % 重建算珠
+                              \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                              \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                              % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                              \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                              \__suanpan_invalidate_all_support_units:
+                            },
+    empty .default:n = true,
+    empty .initial:n = true,
+
+    unknown .code:n = { \__suanpan_error:n { unknown-option } }
+  }
+
+% key_value选项设计
+\keys_define:nn { suanpan }
+  {
+    % 绘图线宽
+    linewd .code:n = {
+                       \dim_set:Nn \l__suanpan_frame_inner_linewidth_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_frame_inner_linewidth_dim
+                       \dim_set:Nn \l__suanpan_frame_outer_linewidth_dim
+                         {
+                           \fp_to_dim:n { \fp_eval:n { \l__suanpan_frame_inner_linewidth_dim * 3.5 } }
+                         }
+                       \dim_set:Nn \l__suanpan_rod_linewidth_dim
+                         {
+                           \fp_to_dim:n { \fp_eval:n { \l__suanpan_frame_inner_linewidth_dim * 0.1 } }
+                         }
+                       \dim_set:Nn \l__suanpan_bead_linewidth_dim
+                         {
+                           \fp_to_dim:n { \fp_eval:n { \l__suanpan_frame_inner_linewidth_dim * 0.1 } }
+                         }
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    linewd .initial:n = 1.0pt,
+
+    % 算珠高度
+    beadh .code:n = {%
+                       \dim_set:Nn \l__suanpan_bead_h_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_bead_h_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    beadh .initial:n = 6mm,
+
+    % 算珠直径
+    beadd .code:n = {%
+                       \dim_set:Nn \l__suanpan_bead_d_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_bead_d_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    beadd .initial:n = 11.5mm,
+
+    % 档杆直径(应小于算珠直径beadd)
+    rodd .code:n = {%
+                       \dim_set:Nn \l__suanpan_rod_d_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_rod_d_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    rodd .initial:n = 3.5mm,
+
+    % 边框宽度
+    framew .code:n = {%
+                       \dim_set:Nn \l__suanpan_frame_b_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_frame_b_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    framew .initial:n = 6.5mm,
+
+    % 档间间距
+    rodsep .code:n = {%
+                       \dim_set:Nn \l__suanpan_rod_sep_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_rod_sep_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    rodsep .initial:n = 1.5pt,
+
+    % 算珠间距
+    beadsep .code:n = {%
+                       \dim_set:Nn \l__suanpan_bead_sep_dim { #1 }
+                       \__suanpan_check_positive_dim:N \l__suanpan_bead_sep_dim
+                       \__suanpan_dim_calc:
+                       % 重建所有组件
+                       \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                       \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                       % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                       % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                       \__suanpan_invalidate_all_support_units:
+                     },
+    beadsep .initial:n = 0.9pt,
+
+    % 缩放参数
+    scale .fp_set:N = \l__suanpan_scale_fp,
+    scale .initial:n = 1.0,
+
+    % 边框绘图颜色
+    framedraw  .code:n = { \__suanpan_color_select:nn { framecolor } { #1 }
+                           % 重建档杆
+                           % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    framedraw  .initial:n = black,
+    framedraw* .code:n = { \__suanpan_color_select:nnn { framecolor } #1
+                           % 重建档杆
+                           % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+
+    % 档杆绘图颜色
+    roddraw  .code:n = { \__suanpan_color_select:nn { roddrawcolor } { #1 }
+                         % 重建档杆
+                         % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_support_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                         \__suanpan_invalidate_all_support_units:
+                       },
+    roddraw  .initial:n = black,
+    roddraw* .code:n = { \__suanpan_color_select:nnn { roddrawcolor } #1
+                         % 重建档杆
+                         % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_support_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                         \__suanpan_invalidate_all_support_units:
+                       },
+    % 档杆填充颜色
+    rodfill  .code:n = { \__suanpan_color_select:nn { rodfillcolor } { #1 }
+                         % 重建档杆
+                         % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_support_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                         \__suanpan_invalidate_all_support_units:
+                       },
+    rodfill  .initial:n = black!20,
+    rodfill* .code:n = { \__suanpan_color_select:nnn { rodfillcolor } #1
+                         % 重建档杆
+                         % \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_support_dirty_bool
+                         % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                         \__suanpan_invalidate_all_support_units:
+                       },
+
+    % 外珠绘图颜色
+    outerdraw  .code:n = { \__suanpan_color_select:nn { outerdrawcolor } { #1 }
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    outerdraw  .initial:n = black,
+    outerdraw* .code:n = { \__suanpan_color_select:nnn { outerdrawcolor } #1
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    % 外珠填充颜色
+    outerfill  .code:n = { \__suanpan_color_select:nn { outerfillcolor } { #1 }
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    outerfill  .initial:n = black!40,
+    outerfill* .code:n = { \__suanpan_color_select:nnn { outerfillcolor } #1
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+
+    % 内珠绘图颜色
+    innerdraw  .code:n = { \__suanpan_color_select:nn { innerdrawcolor } { #1 }
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    innerdraw  .initial:n = black,
+    innerdraw* .code:n = { \__suanpan_color_select:nnn { innerdrawcolor } #1
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    % 内珠填充颜色
+    innerfill  .code:n = { \__suanpan_color_select:nn { innerfillcolor } { #1 }
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+    innerfill  .initial:n = black,
+    innerfill* .code:n = { \__suanpan_color_select:nnn { innerfillcolor } #1
+                           % 重建算珠
+                           \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                           \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_support_dirty_bool
+                           % \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                           \__suanpan_invalidate_all_support_units:
+                         },
+
+    % 横梁标记字符格式
+    font .tl_set:N = \l__suanpan_mark_font_tl,
+    font .initial:n = \bfseries\small,
+
+    % 算珠高光点位置(角度)
+    beadspot .code:n = { \tl_set:Nn \l__suanpan_spot_angle_int { #1 }
+                         % 重建所有组件
+                         \bool_gset_true:N \g__suanpan_inner_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_outer_bead_dirty_bool
+                         \bool_gset_true:N \g__suanpan_support_dirty_bool
+                         \bool_gset_true:N \g__suanpan_unit_mark_dirty_bool
+                         \__suanpan_invalidate_all_support_units:
+                       },
+    beadspot .initial:n = 0,
+
+    unknown .code:n = { \__suanpan_error:n { unknown-option } }
+  }
+
+% 选项默认值
+\keys_set:nn { suanpan }
+  {
+    linewd  = 1.0pt,
+    rodsep  = 1.5pt,
+    beadsep = 0.9pt,
+    scale   = 1.0,
+    empty   = true,
+  }
+
+% 将文档类选项传给suanpan
+\ProcessKeysOptions { suanpan }
+
+% ============================================================================
+% 构建算珠组件
+% ============================================================================
+% 构建内珠(靠近横梁，参与计数)容器(盒子)
+\cs_new:Nn \__suanpan_inner_bead_construct:
+  {
+    \dim_set:Nn \l_tmpa_dim
+      { \l__suanpan_bead_d_half_dim - \l__suanpan_bead_draw_h_half_dim }
+
+    \tikzset{%
+      bead/.style = {% 正常内珠样式(带高光圆角矩形)
+        shade,
+        ball~color      = innerfillcolor,
+        shading~angle   = \l__suanpan_spot_angle_int,
+        draw            = innerdrawcolor,
+        line~width      = \l__suanpan_bead_linewidth_dim,
+        rounded~corners = \l__suanpan_bead_arc_dim,
+      },
+      draftline/.style = {% 草稿内珠样式(无高光圆帽线段)
+        draw       = innerfillcolor,
+        line~cap   = round,
+        line~width = \l__suanpan_bead_draw_h_dim,
+      }
+    }
+
+    \hcoffin_gset:Nn \g__suanpan_inner_bead_coffin
+      {
+        \bool_if:NTF \l__suanpan_draft_bool
+          {
+            \begin{tikzpicture} % 无高光圆帽线段算珠
+              \path[draftline] (-\l_tmpa_dim, 0) -- (\l_tmpa_dim, 0);
+            \end{tikzpicture}
+          }{
+            \begin{tikzpicture}
+              \path[bead] % 带高光填充圆角矩形算珠
+                (-\l__suanpan_bead_d_half_dim, \l__suanpan_bead_lower_dim) rectangle
+                ( \l__suanpan_bead_d_half_dim, \l__suanpan_bead_upper_dim);
+            \end{tikzpicture}
+          }
+      }
+  }
+
+% 构建外珠(远离横梁，不参与计数)容器(盒子)
+\cs_new:Nn \__suanpan_outer_bead_construct:
+  {
+    \dim_set:Nn \l_tmpa_dim
+      { \l__suanpan_bead_d_half_dim - \l__suanpan_bead_draw_h_half_dim }
+
+    \tikzset{%
+      bead/.style ={% 正常外珠样式(带高光圆角矩形)
+        % shading         = ball,
+        shade,
+        ball~color      = outerfillcolor,
+        shading~angle   = \l__suanpan_spot_angle_int,
+        draw            = outerdrawcolor,
+        line~width      = \l__suanpan_bead_linewidth_dim,
+        rounded~corners = \l__suanpan_bead_arc_dim,
+      },
+      draftline/.style = {% 草稿外珠样式(无高光圆帽线段)
+        draw       = outerfillcolor,
+        line~cap   = round,
+        line~width = \l__suanpan_bead_draw_h_dim,
+      }
+    }
+
+    \hcoffin_gset:Nn \g__suanpan_outer_bead_coffin
+      {
+        \bool_if:NTF \l__suanpan_draft_bool
+          {
+            \begin{tikzpicture} % 无高光圆帽线段算珠
+              \path[draftline] (-\l_tmpa_dim, 0) -- (\l_tmpa_dim, 0);
+            \end{tikzpicture}
+          }{
+            \begin{tikzpicture}
+              \path[bead] % 带高光填充圆角矩形算珠
+                (-\l__suanpan_bead_d_half_dim, \l__suanpan_bead_lower_dim) rectangle
+                ( \l__suanpan_bead_d_half_dim, \l__suanpan_bead_upper_dim);
+            \end{tikzpicture}
+          }
+      }
+  }
+
+% 构建浮珠容器(盒子)
+% #1 绘制颜色
+% #2 填充颜色
+\cs_new:Npn \__suanpan_float_bead_construct:nn #1#2
+  {
+    \dim_set:Nn \l_tmpa_dim
+      { \l__suanpan_bead_d_half_dim - \l__suanpan_bead_draw_h_half_dim }
+
+    \tikzset{%
+      bead/.style~args = { #1/#2 }{% 正常外珠样式(带高光圆角矩形)
+        shade,
+        draw            = #1,
+        ball~color      = #2,
+        shading~angle   = \l__suanpan_spot_angle_int,
+        line~width      = \l__suanpan_bead_linewidth_dim,
+        rounded~corners = \l__suanpan_bead_arc_dim,
+      },
+      draftline/.style = {% 草稿外珠样式(无高光圆帽线段)
+        line~cap   = round,
+        line~width = \l__suanpan_bead_draw_h_dim,
+      }
+    }
+
+    \hcoffin_gset:Nn \g__suanpan_float_bead_coffin
+      {
+        \bool_if:NTF \l__suanpan_draft_bool
+          {
+            \begin{tikzpicture}
+              \path[draw=#2, draftline] (-\l_tmpa_dim, 0) -- ( \l_tmpa_dim, 0);
+            \end{tikzpicture}
+          }{
+            \begin{tikzpicture}
+              \path[bead=#1/#2]
+                (-\l__suanpan_bead_d_half_dim, \l__suanpan_bead_lower_dim) rectangle
+                ( \l__suanpan_bead_d_half_dim, \l__suanpan_bead_upper_dim);
+            \end{tikzpicture}
+          }
+      }
+  }
+
+% ============================================================================
+% 构建档杆支杆
+% ============================================================================
+\cs_new:Nn \__suanpan_support_construct:
+  {
+    % TikZ绘图样式
+    \bool_if:NTF \l__suanpan_draft_bool
+      { % 草稿模式
+        \tikzset{%
+          rod/.style = {% 档杆绘制样式(不带高光矩形)
+            draw       = roddrawcolor,
+            line~width = \l__suanpan_rod_linewidth_dim,
+          },
+          beam/.style = {% 横梁绘制样式(不带高光)
+            fill = framecolor!20,
+          },
+        }
+      }{
+        \tikzset{%
+          rod/.style = {% 档干绘制样式(带高光矩形)
+            shade,
+            left~color    = rodfillcolor!95,
+            right~color   = rodfillcolor!95,
+            middle~color  = rodfillcolor!15,
+            shading~angle = 90 + \l__suanpan_spot_angle_int,
+            draw          = roddrawcolor,
+            line~width    = \l__suanpan_rod_linewidth_dim,
+          },
+          beam/.style = {% 横梁绘制样式(带高光矩形)
+            shade,
+            bottom~color  = framecolor!60,
+            top~color     = framecolor!60,
+            middle~color  = framecolor!5,
+            shading~angle = \l__suanpan_spot_angle_int,
+          },
+        }
+      }
+    \tikzset{%
+      frameinner/.style = {% 边框内线绘制样式
+        draw       = framecolor,
+        line~cap   = rect, % 弥补拼接间隙
+        line~width = \l__suanpan_frame_inner_linewidth_dim,
+      },
+      frameouter/.style = {% 边框外线绘制样式
+        draw       = framecolor,
+        line~cap   = rect, % 弥补拼接间隙
+        line~width = \l__suanpan_frame_outer_linewidth_dim,
+      },
+    }
+
+    \hcoffin_gset:Nn \g__suanpan_support_coffin
+      {
+        \begin{tikzpicture}
+          \clip (-\l__suanpan_support_d_half_dim, \l__suanpan_support_clip_lower_dim) rectangle
+                ( \l__suanpan_support_d_half_dim, \l__suanpan_support_clip_upper_dim);
+          % 下杆
+          \path[rod]
+            (-\l__suanpan_rod_d_half_dim, \l__suanpan_support_rod_lower_bottom_extend_dim) rectangle
+            ( \l__suanpan_rod_d_half_dim, \l__suanpan_support_rod_lower_top_extend_dim);
+          % 上杆
+          \path[rod]
+            (-\l__suanpan_rod_d_half_dim, \l__suanpan_support_rod_upper_bottom_extend_dim) rectangle
+            ( \l__suanpan_rod_d_half_dim, \l__suanpan_support_rod_upper_top_extend_dim);
+
+          \bool_if:NF \g__suanpan_has_frame_bool
+            {
+              % 横梁
+              \path[beam]
+                (-\l__suanpan_support_d_half_dim, -\l__suanpan_frame_b_half_dim) rectangle
+                ( \l__suanpan_support_d_half_dim,  \l__suanpan_frame_b_half_dim);
+
+              % 横梁上边线
+              \path[frameinner, yshift = \l__suanpan_support_beam_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- ( \l__suanpan_support_d_half_dim, 0pt);
+              % 横梁下边线
+              \path[frameinner, yshift = -\l__suanpan_support_beam_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- ( \l__suanpan_support_d_half_dim, 0pt);
+
+              % 上梁下边线
+              \path[frameinner, yshift = \l__suanpan_support_upper_inner_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- ( \l__suanpan_support_d_half_dim, 0pt);
+              % 上梁上边线
+              \path[frameouter, yshift = \l__suanpan_support_upper_outer_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- (\l__suanpan_support_d_half_dim, 0pt);
+
+              % 下梁上边线
+              \path[frameinner, yshift = \l__suanpan_support_lower_inner_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- ( \l__suanpan_support_d_half_dim, 0pt);
+              % 下梁下边线
+              \path[frameouter, yshift = \l__suanpan_support_lower_outer_yshift_dim]
+                (-\l__suanpan_support_d_half_dim, 0pt) -- ( \l__suanpan_support_d_half_dim, 0pt);
+            }
+        \end{tikzpicture}
+      }
+  }
+
+% ============================================================================
+% 绘制计位点
+% ============================================================================
+\cs_new:Nn \__suanpan_unit_mark_construct:
+  {
+    % TikZ绘制样式
+    \bool_if:NTF \l__suanpan_draft_bool
+      { % 草稿模式
+        \tikzset{%
+          unitmark/.style = {% 计位点(不带高光)
+            fill       = black,
+            line~width = \l__suanpan_frame_inner_linewidth_dim,
+          },
+        }
+      }{ % 正常模式
+        \tikzset{%
+          unitmark/.style = {% 计位点(带高光)
+            shade,
+            ball~color    = black,
+            shading~angle = \l__suanpan_spot_angle_int,
+            line~width    = \l__suanpan_bead_linewidth_dim,
+          },
+        }
+      }
+
+    \hcoffin_gset:Nn \g__suanpan_unit_mark_coffin
+      {
+        \begin{tikzpicture}
+          \path[unitmark] (0pt, 0pt) circle [radius = \l__suanpan_frame_unit_r_dim];
+        \end{tikzpicture}
+      }
+  }
+
+% ============================================================================
+% 构建档位值为0-20的21个档杆总成容器(盒子)
+% ============================================================================
+\cs_new:Nn \__suanpan_support_unit_construct:
+  {
+    \int_step_inline:nnn { 0 }{ 20 }
+      {
+        % 利用\int_to_alph:n { ##1 + 1 }将数字转换成小写字母
+        \hcoffin_gset:cn { g__suanpan_support_unit_ \int_to_alph:n { ##1 + 1 } _coffin }
+          {
+            % 使用纯 TeX 盒子拼接档位总成
+            \hbox:n
+              {
+                % 放置支架(利用 \llap 或 \rlap 确保它不占用水平空间)
+                \hbox_overlap_right:n
+                  {
+                    \coffin_typeset:Nnnnn \g__suanpan_support_coffin { hc } { vc }
+                      { 0pt } { -\l__suanpan_support_y_offset_dim }
+                  }
+
+                % 循环放置该档位上所有算珠
+                \int_compare:nNnTF { ##1 } = { 0 }
+                  {
+                    \bool_if:NT \l__suanpan_empty_rod_bool
+                      { \__suanpan_place_beads:n { ##1 } }
+                  }{
+                    \__suanpan_place_beads:n { ##1 }
+                  }
+              }
+          }
+      }
+  }
+
+% ============================================================================
+% 构建档位值为0-20的单个档杆总成容器(盒子)
+% ============================================================================
+\cs_new:Npn \__suanpan_build_single_support_unit:n #1
+  {
+    % 利用\int_to_alph:n { #1 + 1 }将数字转换成小写字母
+    \hcoffin_gset:cn { g__suanpan_support_unit_ \int_to_alph:n { #1 + 1 } _coffin }
+      {
+        % 使用纯 TeX 盒子拼接档位总成
+        \hbox:n
+          {
+            % 放置支架(利用 \llap 或 \rlap 确保它不占用水平空间)
+            \hbox_overlap_right:n
+              {
+                \coffin_typeset:Nnnnn \g__suanpan_support_coffin { hc } { vc }
+                  { 0pt } { -\l__suanpan_support_y_offset_dim }
+              }
+
+            % 循环放置该档位上所有算珠
+            \int_compare:nNnTF { #1 } = { 0 }
+              {
+                \bool_if:NT \l__suanpan_empty_rod_bool
+                  { \__suanpan_place_beads:n { #1 } }
+              }{
+                \__suanpan_place_beads:n { #1 }
+              }
+          }
+      }
+  }
+
+% ============================================================================
+% 在一个档位上布置所有算珠
+% #1 该档位的值
+% ============================================================================
+\cs_new:Npn \__suanpan_place_beads:n #1
+  {
+    % 数值合法性判断
+    \__suanpan_check_rod_value:n { #1 }
+
+    % 取得算珠位置数据(整数数组实现)
+    % 计算起始偏移offset(档位值 × 14)
+    \int_set:Nn \l_tmpa_int { #1 * \c__suanpan_bead_datas_per_rod_int }
+
+    % 循环 7 对数据
+    \int_step_inline:nnnn { 0 } { 2 } { 12 }
+      {
+        % 布置 1 个算珠
+        % intarray 索引从 1 开始
+        % 算珠位置: offset + ##1 + 1, 算珠类型: offset + ##1 + 2
+        \__suanpan_place_single_bead:nn
+          { \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 1 } }
+          { \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 2 } }
+      }
+  }
+
+% ============================================================================
+% 在垂直方向指定位置布置单个算珠(纯 TeX 实现)
+% #1: 算珠位置编号
+% #2: 算珠类型 (0——外珠，1——内珠)
+% ============================================================================
+\cs_new:Npn \__suanpan_place_single_bead:nn #1#2
+  {
+    % 确定垂直偏移
+    \int_compare:nNnTF { #1 } > { 7 }
+      {
+        \int_compare:nNnTF { #1 } < { 11 }
+          { % 上珠
+            \dim_set:Nn \l_tmpb_dim { \l__suanpan_bead_upper_offset_dim + \l__suanpan_bead_h_dim * (#1 - 8) }
+          }{
+            % 悬珠
+            \dim_set:Nn \l_tmpb_dim { \l__suanpan_frame_b_half_dim + \l__suanpan_bead_h_dim * 2 }
+          }
+      }{ % 下珠
+        \dim_set:Nn \l_tmpb_dim { \l__suanpan_bead_lower_offset_dim + \l__suanpan_bead_h_dim * (#1 - 1) }
+      }
+
+    % 选择 coffin
+    \int_case:nnF { #2 }
+      {
+        { 0 } { \tl_set:Nn \l_tmpa_coffin_tl { \g__suanpan_outer_bead_coffin } }
+        { 1 } { \tl_set:Nn \l_tmpa_coffin_tl { \g__suanpan_inner_bead_coffin } }
+      }{ \__suanpan_error:nn { bead-type-error } { #2 } }
+
+    % 布置算珠
+    \hbox_overlap_right:n
+      {
+        \hbox:n
+          {
+            \coffin_typeset:Nnnnn \l_tmpa_coffin_tl { hc } { vc } { 0pt } { \l_tmpb_dim }
+          }
+      }
+  }
+
+% ============================================================================
+% 检查指定档位总成是否已缓存
+% #1 档位数值
+% ============================================================================
+\cs_new:Npn \__suanpan_ensure_support_unit:n #1
+  {
+    % 检查 coffin 是否已定义 (检查版本号)
+    \int_compare:nNnT { \int_use:c { g__suanpan_support_unit_ \int_to_alph:n { #1 + 1 } _version_int } }
+                      < { \g__suanpan_support_unit_version_int }
+      {
+        \__suanpan_build_single_support_unit:n { #1 }
+
+        \int_gset_eq:cN { g__suanpan_support_unit_ \int_to_alph:n { #1 + 1 } _version_int }
+          \g__suanpan_support_unit_version_int
+      }
+  }
+
+% ============================================================================
+% 组装一个档位
+% #1 档位编号
+% #2 档位数值
+% ============================================================================
+\cs_new:Npn \__suanpan_assemble_rod:nn #1#2
+  {
+    % 数据有效性判断
+    \__suanpan_check_rod_index:n { #1 }
+    \__suanpan_check_rod_value:n { #2 }
+
+     % 检查档位数值对应的档位是否已完成组装
+    \__suanpan_ensure_support_unit:n { #2 }
+
+    \draw_scope_begin:
+      % 水平平移到当前档位位置
+      \draw_transform_xshift:n { \l__suanpan_support_d_dim * (#1 - 1) }
+
+      % 根据档位值布置缓存的档位单元
+      \draw_coffin_use:cnnn { g__suanpan_support_unit_ \int_to_alph:n { #2 + 1 } _coffin }
+                           { hc } { vc } { 0pt, -\l__suanpan_support_y_offset_dim }
+
+      % 布置计位点标记
+      \bool_if:NT \l__suanpan_support_unit_bool
+        {
+          % 在mark层布置计位点标记
+          \draw_layer_begin:n { mark }
+            \draw_coffin_use:Nnn \g__suanpan_unit_mark_coffin { hc } { vc }
+          \draw_layer_end:
+        }
+    \draw_scope_end:
+  }
+
+% ============================================================================
+% 在垂直方向指定位置布置单个浮珠
+% #1: 浮珠位置编号
+% ============================================================================
+\cs_new:Npn \__suanpan_draw_single_float_bead:n #1
+  {
+    % 确定垂直距离
+    \int_compare:nNnTF { #1 } > { 7 }
+      {
+        \int_compare:nNnTF { #1 } < { 11 }
+          { % 上珠
+            \dim_set:Nn \l_tmpb_dim { \l__suanpan_bead_upper_offset_dim + \l__suanpan_bead_h_dim * (#1 - 8) }
+          }{
+            % 悬珠
+            \dim_set:Nn \l_tmpb_dim { \l__suanpan_frame_b_half_dim + \l__suanpan_bead_h_dim * 2 }
+          }
+      }{ % 下珠
+        \dim_set:Nn \l_tmpb_dim { \l__suanpan_bead_lower_offset_dim + \l__suanpan_bead_h_dim * (#1 - 1) }
+      }
+
+    % 垂直偏移
+    \draw_transform_yshift:n { \l_tmpb_dim }
+    % 布置浮珠基础组件(coffin)
+    \draw_coffin_use:Nnn \g__suanpan_float_bead_coffin { hc } { vc }
+  }
+
+% ============================================================================
+% 布置浮珠(指定一个档位上指定位置算珠的颜色)
+% #1 档位编号
+% #2 算珠位置(1-11)
+% ============================================================================
+\cs_new:Npn \__suanpan_float_bead:nn #1#2
+  {
+    % 数据有效性判断
+    \__suanpan_check_rod_index:n { #1 }
+    \__suanpan_check_bead_position:n { #2 }
+
+    % 在float层布置浮珠
+    \draw_layer_begin:n { float }
+      \draw_scope_begin:
+        % 水平平移到当前档位位置
+        \draw_transform_xshift:n { \l__suanpan_support_d_dim * (#1 - 1) }
+        % 布置一个浮珠
+        \__suanpan_draw_single_float_bead:n { #2 }
+      \draw_scope_end:
+    \draw_layer_end:
+  }
+
+% ============================================================================
+% 为一个档位添加标记
+% #1 档位编号
+% #2 标记内容
+% ============================================================================
+\cs_new:Npn \__suanpan_rod_mark:nn #1#2
+  {
+    % 数据有效性判断
+    \__suanpan_check_rod_index:n { #1 }
+
+    % 构造标记容器(盒子)
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \l__suanpan_mark_font_tl
+        #2
+      }
+
+    \draw_layer_begin:n { mark }
+      \draw_scope_begin:
+        % 水平平移到当前档位位置
+        \draw_transform_xshift:n { \l__suanpan_support_d_dim * ( #1 - 1 ) }
+        % 布置标记盒子
+        \draw_coffin_use:Nnn \l_tmpa_coffin { hc } { vc }
+      \draw_scope_end:
+    \draw_layer_end:
+  }
+
+% ============================================================================
+% 绘制边框
+% #1 起始档位编号(左)
+% #2 终止档位编号(右)
+% ============================================================================
+\cs_new:Npn \__suanpan_frame_layout:nn #1#2
+  {
+    % 数据有效性判断
+    \int_compare:nNnT { #2 } < { #1 }
+      {
+        \__suanpan_error:nnn { frame-range-error } { #1 } { #2 }
+
+      }
+
+    % TikZ绘制样式
+    \bool_if:NTF \l__suanpan_draft_bool
+      { % 草稿模式
+        \tikzset{%
+          hframe/.style = {% 水平梁(上下梁，不带高光)
+            draw       = framecolor,
+            fill       = framecolor!20,
+            line~width = \l__suanpan_frame_inner_linewidth_dim,
+          },
+          vframe/.style = {% 水平梁(上下梁，不带高光)
+            draw       = framecolor,
+            fill       = framecolor!20,
+            line~width = \l__suanpan_frame_inner_linewidth_dim,
+          },
+        }
+      }{ % 正常模式
+        \tikzset{%
+          hframe/.style = {% 水平梁(上下梁，带高光)
+            shade,
+            top~color     = framecolor!95,
+            bottom~color  = framecolor!95,
+            middle~color  = framecolor!15,
+            shading~angle = \l__suanpan_spot_angle_int,
+            draw          = framecolor,
+            line~width    = \l__suanpan_frame_inner_linewidth_dim,
+          },
+          vframe/.style = {% 垂直梁(左右梁)
+            shade,
+            left~color    = framecolor!95,
+            right~color   = framecolor!95,
+            middle~color  = framecolor!15,
+            shading~angle = 90 + \l__suanpan_spot_angle_int,
+            draw          = framecolor,
+            line~width    = \l__suanpan_frame_inner_linewidth_dim,
+          },
+        }
+      }
+
+    \tikzset{%
+      arcline/.style = {% 转角线
+        draw            = framecolor,
+        line~width      = \l__suanpan_frame_inner_linewidth_dim,
+        rounded~corners = \l__suanpan_frame_inner_linewidth_dim / 2,
+      },
+    }
+
+    % 总宽度
+    \dim_set:Nn \l_tmpa_dim {
+       \fp_to_dim:n {
+           \fp_eval:n { \l__suanpan_support_d_dim * ( #2 - #1 + 1) }
+         }
+     }
+    % 减半档宽度
+    \dim_set:Nn \l_tmpb_dim {
+       \fp_to_dim:n {
+           \fp_eval:n { \l__suanpan_support_d_dim * ( #2 - #1 ) +
+                        \l__suanpan_support_d_half_dim}
+         }
+     }
+
+    % 上下边框基础容器(盒子)
+    \hcoffin_set:Nn \l_tmpa_coffin
+      {
+        \begin{tikzpicture}
+          \path[hframe]
+              ( 0pt, 0pt ) --
+            ++( \l_tmpa_dim, 0) --
+            ++( \l__suanpan_frame_b_dim, \l__suanpan_frame_b_dim ) --
+            ++( -\l__suanpan_frame_b_dim, 0 ) --
+            ++( -\l_tmpa_dim, 0 ) --
+            ++( -\l__suanpan_frame_b_dim, 0 ) --
+            cycle;
+        \end{tikzpicture}
+      }
+
+    % 左右边框基础容器(盒子)
+    \hcoffin_set:Nn \l_tmpb_coffin
+      {
+        \begin{tikzpicture}
+          \path[vframe]
+              ( 0, 0 ) --
+            ++( 0, \l__suanpan_frame_inner_h_dim) --
+            ++( -\l__suanpan_frame_b_dim, \l__suanpan_frame_b_dim ) --
+            ++( 0, -\l__suanpan_frame_outer_h_dim ) --
+            cycle;
+          \path[arcline]
+              ( 0, 0 )
+            ++( 0,  \l__suanpan_frame_inner_h_dim )
+            ++( 0,  \l__suanpan_frame_b_dim )
+            ++( 0,  \l__suanpan_frame_inner_linewidth_dim * 0.9 )
+            ++( -\l__suanpan_frame_b_half_dim, 0 ) --
+            ++( -\l__suanpan_frame_b_half_dim, 0 ) --
+            ++( -\l__suanpan_frame_inner_linewidth_dim * 0.9, 0 ) --
+            ++( 0, -\l__suanpan_frame_b_half_dim );
+          \path[arcline]
+              ( 0, 0 )
+            ++( 0, -\l__suanpan_frame_b_dim )
+            ++( 0, -\l__suanpan_frame_inner_linewidth_dim * 0.9 )
+            ++( -\l__suanpan_frame_b_half_dim, 0 ) --
+            ++( -\l__suanpan_frame_b_half_dim, 0 ) --
+            ++( -\l__suanpan_frame_inner_linewidth_dim * 0.9, 0 ) --
+            ++( 0, \l__suanpan_frame_b_half_dim );
+        \end{tikzpicture}
+      }
+
+    % 横梁基础容器(盒子)
+    \hcoffin_set:Nn \l__suanpan_tmpc_coffin
+      {
+        \begin{tikzpicture}
+          \path[hframe]
+              ( 0pt, \l__suanpan_frame_inner_linewidth_dim / 2 ) --
+            ++( \l_tmpa_dim, \l__suanpan_frame_inner_linewidth_dim / 2) --
+            ++( \l__suanpan_frame_b_dim / 3,  \l__suanpan_frame_b_dim / 2 - \l__suanpan_frame_inner_linewidth_dim / 2) --
+            ++(-\l__suanpan_frame_b_dim / 3,  \l__suanpan_frame_b_dim / 2 - \l__suanpan_frame_inner_linewidth_dim / 2 ) --
+            ++(-\l_tmpa_dim, 0 ) --
+            ++(-\l__suanpan_frame_b_dim / 3, -\l__suanpan_frame_b_dim / 2 - \l__suanpan_frame_inner_linewidth_dim / 2 ) --
+            cycle;
+        \end{tikzpicture}
+      }
+
+    \draw_layer_begin:n { frame }
+      % 布置上边框
+      \draw_scope_begin:
+        \draw_transform_xshift:n { -\l__suanpan_support_d_half_dim -
+                                    \l__suanpan_frame_inner_linewidth_dim / 2 }
+        \draw_transform_yshift:n { \l__suanpan_frame_inner_upper_dim -
+                                   \l__suanpan_frame_inner_linewidth_dim }
+        \draw_coffin_use:Nnnn \l_tmpa_coffin { l } { b } { -\l__suanpan_frame_b_dim, 0pt }
+      \draw_scope_end:
+
+      % 布置下边框
+      \draw_scope_begin:
+        \coffin_rotate:Nn \l_tmpa_coffin { 180 }
+        \draw_transform_xshift:n { \l_tmpa_dim - \l__suanpan_support_d_half_dim +
+                                   \l__suanpan_frame_inner_linewidth_dim / 2 }
+        \draw_transform_yshift:n { \l__suanpan_frame_inner_lower_dim +
+                                   \l__suanpan_frame_inner_linewidth_dim }
+        \draw_coffin_use:Nnnn \l_tmpa_coffin { l } { b } { \l__suanpan_frame_b_dim, 0pt }
+      \draw_scope_end:
+
+      % 布置左边框
+      \draw_scope_begin:
+        \draw_transform_xshift:n { -\l__suanpan_support_d_half_dim - \l__suanpan_frame_b_dim -
+                                    \l__suanpan_frame_inner_linewidth_dim * 1.5 }
+        \draw_transform_yshift:n { \l__suanpan_frame_inner_lower_dim -
+                                    \l__suanpan_frame_inner_linewidth_dim }
+        \draw_coffin_use:Nnnn \l_tmpb_coffin { l } { b } { 0pt, -\l__suanpan_frame_b_dim }
+      \draw_scope_end:
+
+      % 布置右边框
+      \draw_scope_begin:
+        \coffin_rotate:Nn \l_tmpb_coffin { 180 }
+        \draw_transform_xshift:n { \l_tmpb_dim + \l__suanpan_frame_b_dim +
+                                   \l__suanpan_frame_inner_linewidth_dim * 1.5}
+        \draw_transform_yshift:n { \l__suanpan_frame_inner_upper_dim +
+                                   \l__suanpan_frame_inner_linewidth_dim }
+        \draw_coffin_use:Nnnn \l_tmpb_coffin { l } { b } { 0pt, \l__suanpan_frame_b_dim }
+      \draw_scope_end:
+
+      % 布置横梁
+      \draw_scope_begin:
+        \draw_transform_xshift:n { -\l__suanpan_support_d_half_dim - \l__suanpan_frame_b_dim / 3 -
+                                    \l__suanpan_frame_inner_linewidth_dim / 2 }
+        \draw_transform_yshift:n { -\l__suanpan_frame_b_dim / 2 -
+                                    \l__suanpan_frame_inner_linewidth_dim / 2 }
+        \draw_coffin_use:Nnnn \l__suanpan_tmpc_coffin { l } { b } { 0pt, 0pt }
+      \draw_scope_end:
+    \draw_layer_end:
+
+    % 状态恢复
+    \bool_gset_false:N \g__suanpan_has_frame_bool
+    \bool_gset_true:N \g__suanpan_support_dirty_bool
+    \__suanpan_invalidate_all_support_units:
+  }
+
+% ============================================================================
+% 解析档位数字列表（支持区间语法）
+% #1 输出的 clist 变量（解析结果添加到此 clist 中）
+% #2 原始数据（可能包含区间数据，如"4-7"或重复"2[3]"）
+% ============================================================================
+\cs_new:Npn \__suanpan_parse_rod_list:Nn #1#2
+  {
+    \clist_clear:N #1
+    \clist_set:Nn \l_tmpb_clist { #2 }
+
+    \clist_map_inline:Nn \l_tmpb_clist
+      {
+        \tl_set:Nn \l_tmpa_tl { ##1 }
+
+        \tl_if_in:NnTF \l_tmpa_tl { - }
+          {
+            % 区间语法，如"4-7"
+            \__suanpan_parse_rod_range:Nx #1 { \l_tmpa_tl }
+          }{
+            \tl_if_in:NnTF \l_tmpa_tl { [ }
+              {
+                % 重复语法，如"2[3]"
+                \__suanpan_parse_rod_repeat:Nx #1 { \l_tmpa_tl }
+              }{
+                % 普通数字
+                \clist_put_right:NV #1 \l_tmpa_tl
+              }
+          }
+      }
+  }
+
+% ============================================================================
+% 解析区间"start-end"或"start-end-step"
+% #1 输出的 clist 变量
+% #2 区间字符串（如"4-7"或"4-7-2"）
+% ============================================================================
+\cs_new:Npn \__suanpan_parse_rod_range:Nn #1#2
+  {
+    % 用 - 切分成 seq
+    \seq_set_split:Nnn \l_tmpa_seq { - } { #2 }
+
+    % 简单语法格式检查( 2 段：start-end或 3 段：start-end-step)
+    \int_case:nnF { \seq_count:N \l_tmpa_seq }
+      {
+        { 2 } {
+            % 提取整数
+            \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } } % start
+            \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpa_seq { 2 } } % end
+
+            % 数据校验
+            \tl_if_empty:NT \l_tmpa_tl
+               { \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+            \tl_if_empty:NT \l_tmpb_tl
+               { \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+
+            % 转换为整数
+            \int_set:Nn \l_tmpa_int { \l_tmpa_tl }
+            \int_set:Nn \l_tmpb_int { \l_tmpb_tl }
+
+            % 校验数据
+            \__suanpan_check_range:VV \l_tmpa_int \l_tmpb_int
+
+            % 添加档位值
+            \int_step_inline:nnn { \l_tmpa_int } { \l_tmpb_int }
+              { \clist_put_right:Nn #1 { ##1 } }
+          }
+        { 3 } {
+            % 提取整数
+            \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } } % start
+            \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpa_seq { 2 } } % end
+            \tl_set:Nx \l__suanpan_tmpc_tl { \seq_item:Nn \l_tmpa_seq { 3 } } % step
+
+            % 数据校验
+            \tl_if_empty:NT \l_tmpa_tl
+               { \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+            \tl_if_empty:NT \l_tmpb_tl
+               { \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+            \tl_if_empty:NT \l__suanpan_tmpc_tl
+               { \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+
+            % 转换为整数
+            \int_set:Nn \l_tmpa_int { \l_tmpa_tl }
+            \int_set:Nn \l_tmpb_int { \l_tmpb_tl }
+            \int_set:Nn \l__suanpan_tmpc_int { \l__suanpan_tmpc_tl }
+
+            % 校验数据
+            \__suanpan_check_range:VVV \l_tmpa_int \l_tmpb_int \l__suanpan_tmpc_int
+
+            % 添加档位值
+            \int_step_inline:nnnn { \l_tmpa_int } { \l__suanpan_tmpc_int } { \l_tmpb_int }
+              { \clist_put_right:Nn #1 { ##1 } }
+          }
+      }{ \__suanpan_error:nn { rods-range-syntax-error } { #2 } }
+  }
+\cs_generate_variant:Nn \__suanpan_parse_rod_range:Nn { Nx }
+
+% ============================================================================
+% 区间数据范围检查函数
+% ============================================================================
+\cs_new:Npn \__suanpan_check_range:nn #1#2
+  {
+    \int_compare:nNnT { #1 } > { #2 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+    \int_compare:nNnT { #1 } < { 0 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+    \int_compare:nNnT { #2 } > { 20 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+  }
+\cs_generate_variant:Nn \__suanpan_check_range:nn { VV }
+
+\cs_new:Npn \__suanpan_check_range:nnn #1#2#3
+  {
+    \int_compare:nNnT { #1 } > { #2 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+    \int_compare:nNnT { #1 } < { 0 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+    \int_compare:nNnT { #2 } > { 20 }
+      {
+        \__suanpan_error:nnn { start-end-range-error } { #1 } { #2 }
+      }
+    \int_compare:nNnT { #3 } < { 1 }
+      {
+        \__suanpan_error:nn { step-range-error } { #3 }
+      }
+  }
+\cs_generate_variant:Nn \__suanpan_check_range:nnn { VVV }
+
+% ============================================================================
+% 解析重复语法"value[count]"
+% #1 输出的 clist 变量
+% #2 重复字符串（如"2[3]"）
+% ============================================================================
+\cs_new:Npn \__suanpan_parse_rod_repeat:Nn #1#2
+  {
+    % 用 [ 切分成 seq
+    \seq_set_split:Nnn \l_tmpa_seq { [ } { #2 }
+
+    % 简单语法格式检查( 2 段：value[count])
+    \int_compare:nNnTF { \seq_count:N \l_tmpa_seq } = { 2 }
+      {
+        % 取得档位值
+        \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+        % 取得重复次数
+        \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpa_seq { 2 } }
+        \tl_remove_all:Nn \l_tmpb_tl { ] }
+
+        % 数据校验
+        \tl_if_empty:NT \l_tmpa_tl
+          { \__suanpan_error:nn { rods-repeat-syntax-error } { #2 } }
+        \tl_if_empty:NT \l_tmpb_tl
+          { \__suanpan_error:nn { rods-repeat-syntax-error } { #2 } }
+
+        % 转换为整数
+        \int_set:Nn \l_tmpa_int { \l_tmpa_tl }
+        \int_set:Nn \l_tmpb_int { \l_tmpb_tl }
+
+        % 校验档位值
+        \__suanpan_check_rod_value:n { \l_tmpa_int }
+
+        % 校验重复次数
+        \int_compare:nNnT { \l_tmpb_int } < { 1 }
+          {
+            \__suanpan_error:nn { repeat-value-error } { \l_tmpb_int }
+          }
+
+        % 重复添加
+        \prg_replicate:nn { \l_tmpb_int }
+          {
+            \clist_put_right:NV #1 \l_tmpa_int
+          }
+      }
+      {
+        \__suanpan_error:nn { rods-repeat-syntax-error } { #2 }
+      }
+  }
+\cs_generate_variant:Nn \__suanpan_parse_rod_repeat:Nn { Nx }
+
+% ============================================================================
+% 解析算珠位置列表(支持区间语法"4-7" 表示"4,5,6,7")
+% #1 输出的 clist 变量（解析结果添加到此 clist 中）
+% #2 原始数据(可能包含区间，如"1,3-5,7")
+% ============================================================================
+\cs_new:Npn \__suanpan_parse_bead_pos_list:Nn #1#2
+  {
+    \clist_clear:N #1
+    \clist_set:Nn \l_tmpb_clist { #2 }
+
+    \clist_map_inline:Nn \l_tmpb_clist
+      {
+        \tl_set:Nn \l_tmpa_tl { ##1 }
+        \tl_if_in:NnTF \l_tmpa_tl { - }
+          {
+            \__suanpan_parse_bead_pos_range:Nx #1 { \l_tmpa_tl }
+          }
+          {
+            \clist_put_right:NV #1 \l_tmpa_tl
+          }
+      }
+  }
+
+% ============================================================================
+% 解析算珠位置区间"start-end"(步长为1)
+% #1 输出的 clist 变量
+% #2 区间字符串(如"4-7")
+% ============================================================================
+\cs_new:Npn \__suanpan_parse_bead_pos_range:Nn #1#2
+  {
+    % 用 - 切分成 seq
+    \seq_set_split:Nnn \l_tmpa_seq { - } { #2 }
+
+    % 简单语法格式检查( 2 段：start-end)
+    \int_compare:nNnTF { \seq_count:N \l_tmpa_seq } = { 2 }
+      {
+        % 提取整数
+        \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } } % start
+        \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpa_seq { 2 } } % end
+
+        % 数据校验
+        \tl_if_empty:NT \l_tmpa_tl
+          { \__suanpan_error:nn { bead-range-syntax-error } { #2 } }
+        \tl_if_empty:NT \l_tmpb_tl
+          { \__suanpan_error:nn { bead-range-syntax-error } { #2 } }
+
+        % 转换为整数
+        \int_set:Nn \l_tmpa_int { \l_tmpa_tl }
+        \int_set:Nn \l_tmpb_int { \l_tmpb_tl }
+
+        % 范围检查（1-11）
+        \__suanpan_check_bead_range:VV \l_tmpa_int \l_tmpb_int
+
+        \int_step_inline:nnn { \l_tmpa_int } { \l_tmpb_int }
+          {
+            \clist_put_right:Nn #1 { ##1 }
+          }
+      }{ \__suanpan_error:nn { bead-range-syntax-error } { #2 } }
+  }
+\cs_generate_variant:Nn \__suanpan_parse_bead_pos_range:Nn { Nx }
+
+% ============================================================================
+% 算珠位置范围检查函数(1-11)
+% #1 start
+% #2 end
+% ============================================================================
+\cs_new:Npn \__suanpan_check_bead_range:nn #1#2
+  {
+    \int_compare:nNnT { #1 } < { 1 }
+      {
+        \__suanpan_error:nn { bead-position-error } { #1 }
+      }
+    \int_compare:nNnT { #2 } > { 11 }
+      {
+        \__suanpan_error:nn { bead-position-error } { #2 }
+      }
+    \int_compare:nNnT { #1 } > { #2 }
+      {
+        \__suanpan_error:nnn { bead-range-error } { #1 } { #2 }
+      }
+  }
+\cs_generate_variant:Nn \__suanpan_check_bead_range:nn { VV }
+
+% ============================================================================
+% 用户接口环境
+% ============================================================================
+% 算盘排版环境
+% #1 suanpan环境选项
+% #2 suanpan环境内容(!b参数)
+\NewDocumentEnvironment{ suanpan }{ o !b }
+  {
+    \group_begin:
+      % 处理选项
+      \IfNoValueF{ #1 } { \keys_set:nn { suanpan }{ #1 } }
+
+      % 删除#2(!b)参数取得的环境内容中的空白
+      \str_set:Nn \l_tmpa_str { #2 }
+      \str_remove_all:Nn \l_tmpa_str { ~ }
+      % 将str还原为tl
+      \tl_set_rescan:Nno \l_tmpa_tl { } { \l_tmpa_str }
+
+      % 检测 \l_tmpa_tl 中是否包含控制序列 \mkframe
+      % 支架颜色可能会发生变化，需要重新构建
+      \tl_if_in:NnT \l_tmpa_tl { \mkframe }
+        {
+          \bool_gset_true:N \g__suanpan_has_frame_bool
+          \bool_gset_true:N \g__suanpan_support_dirty_bool
+          \__suanpan_invalidate_all_support_units:
+        }
+
+      % 按需构建基础容器(盒子) - 仅在第一次和参数变化时重建
+      % 内珠
+      \bool_if:NT \g__suanpan_inner_bead_dirty_bool
+        {
+          \__suanpan_inner_bead_construct:
+          \bool_gset_false:N \g__suanpan_inner_bead_dirty_bool
+        }
+      % 外珠
+      \bool_if:NT \g__suanpan_outer_bead_dirty_bool
+        {
+          \__suanpan_outer_bead_construct:
+          \bool_gset_false:N \g__suanpan_outer_bead_dirty_bool
+        }
+      % 档杆
+      \bool_if:NT \g__suanpan_support_dirty_bool
+        {
+          \__suanpan_support_construct:
+          \bool_gset_false:N \g__suanpan_support_dirty_bool
+        }
+      % 计位点(圆点)
+      \bool_if:NT \g__suanpan_unit_mark_dirty_bool
+        {
+          \__suanpan_unit_mark_construct:
+          \bool_gset_false:N \g__suanpan_unit_mark_dirty_bool
+        }
+
+      % 在容器(盒子)中用#2(!b)参数取得的环境内容实现绘制
+      \hcoffin_set:Nn \l_tmpa_coffin
+        {
+          \draw_begin:
+            % 执行用户内容
+            \l_tmpa_tl
+
+            % 检查是否有档位定义
+            \int_compare:nNnT { \g__suanpan_rod_max_int } = { 0 }
+              {
+                \__suanpan_error:n { rod-count-error }
+              }
+          \draw_end:
+        }
+  }{
+      % 检查缩放参数
+      \fp_compare:nNnT { \l__suanpan_scale_fp } < { 0.1 }
+        {
+          \msg_warning:nnn { suanpan } { scale-warning } { \l__suanpan_scale_fp }
+          \tl_set:Nn \l__suanpan_scale_fp { 0.1 }
+        }
+
+      % 按用户指定比例缩放
+      \fp_compare:nNnF { \l__suanpan_scale_fp } = { 1.0 }
+      {
+        \coffin_scale:Nnn \l_tmpa_coffin { \l__suanpan_scale_fp } { \l__suanpan_scale_fp }
+      }
+
+      % 输出算盘容器(盒子)
+      \coffin_typeset:Nnnnn \l_tmpa_coffin { l } { H } { 0pt } { 0pt }
+
+      % 状态恢复
+      \int_gzero:N \g__suanpan_rod_max_int
+    \group_end:
+  }
+
+% ============================================================================
+% 用户接口命令
+% ============================================================================
+% 排版算盘一个档位，包括档杆和算珠
+% #1 星号命令，绘制计位点(黑色圆点)
+% #2 档位编号(基于1，从左向右计数)
+% #3 本档数字(0-20，10-15需用到顶珠和底珠，16-20需要用到悬珠)
+\NewDocumentCommand{ \rod }{ s m m }
+  {
+    \int_gset:Nn \g__suanpan_rod_max_int
+      { \int_max:nn { \g__suanpan_rod_max_int }{ #2 } }
+
+    % 星号命令，用于在横梁绘制计位点
+    \IfBooleanTF{ #1 }
+      {
+        \bool_set_true:N \l__suanpan_support_unit_bool
+      }{
+        \bool_set_false:N \l__suanpan_support_unit_bool
+      }
+
+    % 组装一个档位
+    \__suanpan_assemble_rod:nn { #2 }{ #3 }
+  }
+
+% 排版算盘多个档位，包括档杆和算珠
+% #1 本档数字(0-20，10-15需用到顶珠和底珠，16-20需要用到悬珠)
+%    支持区间语法，"start-end: 4-7"表示"4,5,6,7"；"start-end-step: 4-7-2"表示"4,6"。
+%    各数字之间需要用逗号分隔。
+% #2 计位点标记可选项（字符串，每个字符对应一档，* 表示有计位点，空白会被忽略）
+\NewDocumentCommand{ \rods }{ m O{} }
+  {
+    % 解析档位数字列表（支持区间语法）
+    \__suanpan_parse_rod_list:Nn \l_tmpa_clist { #1 }
+
+    % 初始化档位计数器
+    \int_set:Nn \l_tmpa_int { 0 }
+
+    % 统计档位总数
+    \int_gset:Nn \g__suanpan_rod_max_int { \clist_count:N \l_tmpa_clist }
+
+    % 处理计位点标记字符串(忽略所有空格)
+    \str_set:Nn \l_tmpb_str { #2 }
+    \str_remove_all:Nn \l_tmpb_str { ~ }
+    % 获取计位点标记长度
+    \int_set:Nn \l_tmpb_int { \str_count:N \l_tmpb_str }
+
+    \str_if_empty:NTF \l_tmpb_str
+      {
+        % 计位点标记为空，不添加计位点
+        \bool_set_false:N \l__suanpan_support_unit_bool
+
+        \clist_map_inline:Nn \l_tmpa_clist
+          {
+            % 档位计数器自增1
+            \int_incr:N \l_tmpa_int
+            % 组装当前档位
+            \__suanpan_assemble_rod:nn {\l_tmpa_int }{ ##1 }
+          }
+      }{
+        \clist_map_inline:Nn \l_tmpa_clist
+          {
+            % 档位计数器自增1
+            \int_incr:N \l_tmpa_int
+
+            \int_compare:nNnTF { \l_tmpa_int } > { \l_tmpb_int }
+              { % 超过计位点标记字符串长度的档位无计位标记
+                \bool_set_false:N \l__suanpan_support_unit_bool
+              }
+              {
+                % 处理各个计位点标记(自动忽略超出档数的标记)
+                \str_set:Nx \l__suanpan_unit_mark_str { \str_item:Nn \l_tmpb_str { \l_tmpa_int } }
+                \str_if_eq:VnTF \l__suanpan_unit_mark_str { * }
+                  { \bool_set_true:N \l__suanpan_support_unit_bool }
+                  { \bool_set_false:N \l__suanpan_support_unit_bool }
+              }
+
+            % 组装当前档位
+            \__suanpan_assemble_rod:nn {\l_tmpa_int }{ ##1 }
+          }
+      }
+
+    % 更新档位总数
+    \int_gset:Nn \g__suanpan_rod_max_int
+      { \int_max:nn { \g__suanpan_rod_max_int }{ \l_tmpa_int } }
+  }
+
+% 指定某档上某个算珠的颜色
+% #1 档位(基于1，从左向右计数)
+% #2 算珠位置列表(1--11，11为悬珠位置，支持步长为1的区间语法)
+% #3 算珠填充颜色
+% #4 算珠绘制颜色(默认为内珠绘制颜色)
+\NewDocumentCommand{ \bead }{ m m m O{innerdrawcolor} }
+  {
+    % 构建浮珠
+    \__suanpan_float_bead_construct:nn { #4 }{ #3 }
+
+    % 解析算珠位置列表(支持步长为1的区间语法)
+    \__suanpan_parse_bead_pos_list:Nn \l_tmpa_clist { #2 }
+
+    \clist_map_inline:Nn \l_tmpa_clist
+      {
+        % 绘制浮珠
+        \__suanpan_float_bead:nn { #1 }{ ##1 }
+      }
+  }
+
+% 指定某档上所有内珠或外珠的颜色
+% #1 星号命令，选择内珠或外珠
+% #2 档位(基于1，从左向右计数)
+% #3 该档数字
+% #4 算珠填充颜色(绘图颜色采用原内/外珠绘制颜色)
+\NewDocumentCommand{ \beads }{ s m m m }
+  {
+    % 数据有效性检查
+    \__suanpan_check_rod_index:n { #2 }
+    \__suanpan_check_rod_value:n { #3 }
+
+    % 计算起始偏移offset(档位值 × 14)
+    \int_set:Nn \l_tmpa_int { #3 * \c__suanpan_bead_datas_per_rod_int }
+
+    \IfBooleanTF{ #1 }
+      {
+        % 构造浮珠
+        \__suanpan_float_bead_construct:nn { outerdrawcolor }{ #4 }
+
+        % 循环 7 对数据
+        \int_step_inline:nnnn { 0 } { 2 } { 12 }
+          {
+            % 算珠类型: offset + ##1 + 2
+            \int_compare:nNnT { \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 2 } } = { 0 }
+              {
+                % 算珠位置: offset + ##1 + 1
+                \__suanpan_float_bead:nn { #2 }{ \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 1 } }
+              }
+          }
+      }{
+        % 构造浮珠
+        \__suanpan_float_bead_construct:nn { innerdrawcolor }{ #4 }
+
+        % 循环 7 对数据
+        \int_step_inline:nnnn { 0 } { 2 } { 12 }
+          {
+            % 算珠类型: offset + ##1 + 2
+            \int_compare:nNnT { \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 2 } } = { 1 }
+              {
+                % 算珠位置: offset + ##1 + 1
+                \__suanpan_float_bead:nn { #2 }{ \intarray_item:Nn \c__suanpan_rod_val_beads_intarray { \l_tmpa_int + ##1 + 1 } }
+              }
+          }
+      }
+  }
+
+% 绘制边框
+\NewDocumentCommand{ \mkframe }{ }
+  {
+    \int_compare:nNnT { \g__suanpan_rod_max_int } = { 0 }
+      {
+        \__suanpan_error:n { rod-count-error }
+      }
+    \__suanpan_frame_layout:nn { 1 }{ \g__suanpan_rod_max_int }
+  }
+
+% 为各档添加计位标记
+% #1 起始档位(基于1，从左向右计数)
+% #2 标记列表
+\NewDocumentCommand{ \rodmark }{ O{1} m }
+  {
+    % 标记列表
+    \clist_set:Nn \l_tmpa_clist { #2 }
+
+    % 数据有效性检查
+    \clist_if_empty:NT \l_tmpa_clist
+      {
+        \__suanpan_error:n { mark-list-error }
+      }
+
+    % 计数器
+    \int_set:Nn \l_tmpa_int { #1 }
+    % 有效性检查
+    \__suanpan_check_rod_index:n { #1 }
+
+    % 遍历列表
+    \clist_map_inline:Nn \l_tmpa_clist
+      {
+        % 输出标记
+        \__suanpan_rod_mark:nn { \l_tmpa_int }{ ##1 }
+
+        % 递增计数器
+        \int_incr:N \l_tmpa_int
+
+        % 超出最大档位
+        \int_compare:nNnT { \l_tmpa_int } > { \g__suanpan_rod_max_int }
+          {
+            \clist_map_break:
+          }
+      }
+  }
+
+% 选项设置用户接口
+\NewDocumentCommand{ \suanpanset } { m }
+  {
+    \IfNoValueF { #1 }
+      {
+        \keys_set:nn { suanpan } { #1 }
+      }
+  }
+
+\endinput
