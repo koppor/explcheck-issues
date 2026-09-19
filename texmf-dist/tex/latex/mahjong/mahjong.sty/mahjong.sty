@@ -1,0 +1,218 @@
+%%
+%% This is file `mahjong.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% mahjong.dtx  (with options: `pkg')
+%% Copyright (c) 2021 Daniel Schmitz
+%% 
+%% Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+%% associated documentation files (the "Software"), to deal in the Software without restriction,
+%% including without limitation the rights to use, copy, modify, merge, publish, distribute,
+%% sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+%% furnished to do so, subject to the following conditions:
+%% 
+%% The above copyright notice and this permission notice shall be included in all copies or substantial
+%% portions of the Software.
+%% 
+%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+%% NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+%% NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+%% DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+%% OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+
+
+
+\NeedsTeXFormat{LaTeX2e}[2019/10/01]
+\RequirePackage{expl3}
+\ProvidesExplPackage{mahjong}{2025/01/06}{1.1}{Typeset Mahjong Hands}
+\RequirePackage{xparse}
+\RequirePackage{l3keys2e}
+\RequirePackage{graphicx}
+\RequirePackage{stackengine}
+
+\msg_new:nnnn {mahjong} {invalid_token}
+{Token ~ #1 ~ is ~ not ~ valid ~ in ~ MPSZ ~ notation}
+{Valid ~ tokens ~ are ~ digits ~ 0-9, ~ m, ~ p, ~ s, ~ z, ~ x, ~ -, ~ ?, ~ ', ~ and ~ " }
+\msg_new:nnnn {mahjong} {unknown_tile}
+{I~don't~know~tile~#1.}
+{Please~check~the~documentation~for~recognized~tiles.}
+\msg_new:nnnn {mahjong} {unknown_orientation}
+{Orientation ~ #1 ~ is ~ unknown}
+{This ~ should ~ not ~ happen.~ Please ~ create ~ a ~ bug ~ report.}
+
+\keys_define:nn {mahjong} {
+    height .dim_gset:N = \g_mahjong_default_height,
+    scale .int_gset:N = \g_mahjong_default_scale
+}
+
+\cs_new:Npn \c__mahjong_suits_tl {mpsz}
+\cs_new:Npn \c__mahjong_allowed_tokens_tl {0123456789mpsz-?x'"}
+
+\tl_new:N \l__mahjong_suit_tl
+\tl_new:N \l__mahjong_tiles_tl
+\tl_new:N \l__mahjong_reversed_tl
+\tl_new:N \l__mahjong_hand_tl
+\tl_new:N \l__mahjong_current_suit_tl
+\tl_new:N \l__mahjong_current_group_tl
+\tl_new:N \l__mahjong_current_char
+
+\dim_set:Nn \g_mahjong_default_height {\baselineskip}
+\dim_new:N \l_mahjong_tile_height
+
+\fp_set:Nn \g_mahjong_default_scale {0.75}
+\fp_new:N \l_mahjong_tile_scale
+
+\dim_new:N \l__mahjong_symbol_height
+\dim_new:N \l__mahjong_baseline_offset
+
+\int_new:N \l__mahjong_tile_orientation_int
+\seq_new:N \l__mahjong_tile_maps_seq
+\str_new:N \l__mahjong_file_path_str
+
+\ProcessKeysPackageOptions{mahjong}
+
+\cs_set:Npn \__mahjong_make_tile:nn #1#2 {
+    \file_if_exist:nTF {#1} {
+        \int_case:nnF {#2} {
+            {0} {
+                \stackinset{c}{0pt}{c}{0pt}{
+                    \includegraphics[
+                        angle=0,
+                        height=\l__mahjong_symbol_height]
+                    {#1}
+                }{
+                    \includegraphics[
+                        angle=0,
+                        height=\l_mahjong_tile_height]
+                    {tiles/mahjong-Front.pdf}
+                }
+            } {1} {
+                \stackinset{c}{0pt}{c}{0pt}{
+                    \includegraphics[
+                        angle=90,
+                        width=\l__mahjong_symbol_height]
+                    {#1}
+                }{
+                    \includegraphics[
+                        angle=90,
+                        width=\l_mahjong_tile_height]
+                    {tiles/mahjong-Front.pdf}
+                }
+            } {2} {
+                % Stack 2 rotated tiles on top of each other.
+                \stackon [0pt] {
+                    \__mahjong_make_tile:nn {#1} {1}
+                } {
+                    \__mahjong_make_tile:nn {#1} {1}
+                }
+            }
+        } {
+            \msg_fatal:nnx {mahjong} {unknown_orientation} {#2}
+        }
+    } {
+        \msg_error:nnx {mahjong} {unknown_tile} {#1}
+    }
+}
+
+\cs_generate_variant:Nn \__mahjong_make_tile:nn {VV, xV, nV}
+\cs_set:Npn \mahjong_typeset_hand:n #1 {
+    % Set computed dimensions for symbol height and baseline offset
+    \dim_set:Nn \l__mahjong_symbol_height {\fp_to_decimal:n {\l_mahjong_tile_scale}\l_mahjong_tile_height}
+    \dim_set:Nn \l__mahjong_baseline_offset {(\l_mahjong_tile_height - \l__mahjong_symbol_height) / 2}
+    % Start sequence processing
+    \tl_set:Nx \l__mahjong_hand_tl {\text_lowercase:n {#1}}
+    % MPSZ notation is easier to parse right-to-left, so reverse string
+    % There is no string reversal function but we can reverse token lists
+    % Token lists and strings are freely convertible between each other
+    \tl_set:Nx \l__mahjong_reversed_tl {\tl_reverse:V \l__mahjong_hand_tl}
+    \tl_map_variable:NNn \l__mahjong_reversed_tl \l__mahjong_current_char {
+        % Check if we recognize the current token
+        \exp_args:NVV \tl_if_in:nnF \c__mahjong_allowed_tokens_tl \l__mahjong_current_char {
+            \msg_error:nnx {mahjong} {invalid_token} {\l__mahjong_current_char}
+        }
+        \exp_args:NVV \tl_if_in:nnTF \c__mahjong_suits_tl \l__mahjong_current_char {
+            % If we've found a suit identifier, change the current suit
+            \tl_set:NV \l__mahjong_current_suit_tl \l__mahjong_current_char
+        } {
+            \str_case:VnF \l__mahjong_current_char {
+                {'} {
+                    % An apostrophe indicates that the next tile is rotated
+                    \int_set:Nn \l__mahjong_tile_orientation_int {1}
+                }
+                {"} {
+                    % Quotes mean the next tile is actually 2 rotated tiles stacked on top of each other
+                    \int_set:Nn \l__mahjong_tile_orientation_int {2}
+                }
+            } {
+                % Default case: We've got a complete tile identifier
+                % Turn it into a property list
+                \prop_clear:N \l_tmpa_prop
+                \prop_put:NnV \l_tmpa_prop {suit} \l__mahjong_current_suit_tl
+                \prop_put:NnV \l_tmpa_prop {face} \l__mahjong_current_char
+                \prop_put:NnV \l_tmpa_prop {orientation} \l__mahjong_tile_orientation_int
+                % Add it to the beginning of the sequence (we are parsing in reverse)
+                \seq_put_left:NV \l__mahjong_tile_maps_seq \l_tmpa_prop
+                \int_set:Nn \l__mahjong_tile_orientation_int {0}
+            }
+        }
+    }
+    % Typesetting begins here. Sequence is in correct order
+    \raisebox{-\l__mahjong_baseline_offset}{
+        \seq_map_variable:NNn \l__mahjong_tile_maps_seq \l_tmpa_prop {
+            \prop_get:NnN \l_tmpa_prop {face} \l_tmpa_tl
+            \prop_get:NnN \l_tmpa_prop {orientation} \l_tmpa_int
+            \str_case:VnF \l_tmpa_tl {
+                {-} {
+                    % If the current face is a dash, insert a space
+                    \includegraphics[height=\l_mahjong_tile_height]{tiles/mahjong-Space.pdf}
+                } {x} {
+                    % Insert a flipped tile
+                    \int_case:nn {\l_tmpa_int} {
+                        {0} { % Upright
+                            \includegraphics[
+                            angle=0,
+                            height=\l_mahjong_tile_height]
+                            {tiles/mahjong-Back.pdf}
+                        } {1} { % Rotated
+                            \includegraphics[
+                            angle=90,
+                            width=\l_mahjong_tile_height]
+                            {tiles/mahjong-Back.pdf}
+                        } {2} { % Rotated and stacked
+                            \stackon [0pt] {
+                                \includegraphics[
+                                    angle=90,
+                                    width=\l_mahjong_tile_height]
+                                    {tiles/mahjong-Back.pdf}
+                            } {
+                                \includegraphics[angle=90,
+                                width=\l_mahjong_tile_height]
+                                {tiles/mahjong-Back.pdf}
+                            }
+                        }
+                    }
+                } {?} { % Blank tile
+                    \__mahjong_make_tile:nV {tiles/mahjong-Blank.pdf} \l_tmpa_int
+                }
+            } { % Any other tile identified by a code.
+                \__mahjong_make_tile:xV {tiles/mahjong-\l_tmpa_tl\prop_item:Nn \l_tmpa_prop {suit}.pdf} \l_tmpa_int
+            }
+        }
+    }
+    % Clear the list for the next invocation
+    \seq_clear:N \l__mahjong_tile_maps_seq
+}
+
+\cs_generate_variant:Nn \__mahjong_typeset_hand:n {x}
+\NewDocumentCommand{\mahjong}{O{\g_mahjong_default_height} O{\g_mahjong_default_scale} m}{
+    \dim_set:Nn \l_mahjong_tile_height {#1}
+    \fp_set:Nn \l_mahjong_tile_scale {#2}
+    \mahjong_typeset_hand:n {#3}
+}
+\endinput
+%%
+%% End of file `mahjong.sty'.

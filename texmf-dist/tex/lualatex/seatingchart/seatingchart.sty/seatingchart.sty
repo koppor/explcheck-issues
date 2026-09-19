@@ -1,0 +1,718 @@
+%%
+%% This is file `seatingchart.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% seatingchart.dtx  (with options: `package')
+%% ========================================================================
+%% Package seatingchart -- generation of seating charts
+%% 
+%% Copyright (C) 2025-2026 Matthias Werner
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c or later.
+%% ========================================================================
+%%
+%% Revisions:
+%% 2025-07-25:  First public version
+%% 2026-06-05:  Fix interaction with babel (#2)
+%% 2026-07-22a: Change to environment
+%% 2026-07-22b: Add input list, rivise docunentation => 1.0.0beta
+%%
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+
+\ProvidesExplPackage{seatingchart}
+{2026/07/22}
+{1.0.0beta}
+{Generation of seating plans}
+\def\packagename{seatingchart}
+
+\IfFormatAtLeastTF{2022/06/01}{}{
+  \PackageError{\packagename}{
+    \packagename requires at least the TeX format \MessageBreak
+    from 2022/06. \MessageBreak
+  }{Update your LaTeX.}
+}
+\RequirePackage{etoolbox}
+\sys_if_engine_luatex:TF{}{
+ \PackageError{\packagename}{
+   LuaLaTeX~is~required~to~use~this~package.\MessageBreak
+   Sorry!
+}{Use~LuaLaTex.}
+}
+\RequirePackage{luacode}
+\ExplSyntaxOff
+\newtoggle{sc@rectshapt}\toggletrue{sc@rectshapt}
+\newtoggle{sc@rnleft}
+\newtoggle{sc@rnright}
+\newtoggle{sc@room}
+\newtoggle{sc@legacy}
+\newtoggle{sc@active}
+\newtoggle{sc@drawn}
+\def\sc@layoutactions{}
+\DeclareKeys[seatingchart]{
+  legacy.choice:,
+  legacy/true.code:n = {\toggletrue{sc@legacy}},
+  legacy/false.code:n = {\togglefalse{sc@legacy}},
+  legacy.default:n = true,
+  legacy.initial:n = false,
+  legacy.usage = load,
+  shape/arc.code:n = {\togglefalse{sc@rectshapt}},
+  shape/rectangle.code:n = {\toggletrue{sc@rectshapt}},
+  shape.initial:n = rectangle,
+  rows.code:n = {
+    \ifdef{\sc@rows}{
+      \ifnumcomp{\sc@rows}{>}{0}{
+        \PackageWarningNoLine{\packagename}{Overwriting number of rows.\MessageBreak
+          You propably provided both, a room *and*\MessageBreak layout options.\MessageBreak
+          Prepare for trouble}
+      }{}
+    }{}
+    \def\sc@rows{#1}
+  },
+  rows.initial:n = 0,
+  seats per row.code = {
+    \ifdef{\sc@seatsperrow}{
+      \ifnumcomp{\sc@seatsperrow}{>}{0}{
+        \PackageWarningNoLine{\packagename}{Overwriting seats per
+          row.\MessageBreak
+          You propably provided both, a room *and*\MessageBreak layout options.\MessageBreak
+          Prepare for trouble}
+      }{}
+    }{}
+    \def\sc@seatsperrow{#1}
+  },
+  layout.store = \scroomfile,
+  layout.initial:n =tu-chemnitz,
+  seats per row.initial:n = 0,
+  room.choice:,
+  room/unknown.code:n={
+    \PackageError{\packagename}{
+      Room #1 is not in the layout file ' \packagename-\scroomfile.sc'}{%
+      Check if you use the the correct layout file and\MessageBreak
+      whether the room name is correct,\MessageBreak
+      or define an own room.}
+  },
+  init.code:n={
+    \toggletrue{sc@room}
+  },
+  remove.code:n = {%
+    \appto\sc@layoutactions{\scRemoveSeats{#1}}
+  },
+  shape.choice:,
+  aisle.code:n={%
+    \appto\sc@layoutactions{\keySetAisle{#1}}
+  },
+  blackboard.if = sc@blackboard,
+  blackboard.initial:n = false,
+  rownumbers.choice:,
+  rownumbers/left.code = { \toggletrue{sc@rnleft} },
+  rownumbers/right.code = { \toggletrue{sc@rnright} },
+  rownumbers/both.code:n = {
+    \toggletrue{sc@rnleft}\toggletrue{sc@rnright}
+  },
+  rownumbers/none.code:n = {
+    \togglefalse{sc@rnleft}\togglefalse{sc@rnright}
+  },
+  rownumbers.initial:n=none,
+  seat neighbor distance.store =\sc@sdist@x,
+  row distance.store =\sc@sdist@y,
+  seat distance.meta:n = {
+    seat neighbor distance=#1,
+    row distance=#1
+  },
+  seat distance.initial:n=2pt,
+  rownumbers.initial:n = none,
+  rownumber distance.store= \sc@rnsep,
+  rownumber distance.initial:n = 2pt,
+  rownumber font.store = \sc@rnfont,
+  rownumber font.initial:n = \tiny,
+  rownumber color.store = \sc@rncolor,
+  rownumber color.initial:n = darkgray,
+  empty seat background color.store =\sc@sc@empty,
+  empty seat background color.initial:n = lightgray!20,
+  empty seat border color.store = \sc@sc@emptyborder,
+  empty seat border color.initial:n = lightgray,
+  empty seat label color.store = \sc@sc@emptytext,
+  empty seat label color.initial:n = lightgray!30,
+  empty seat label font.store = \sc@s@emptyfont,
+  assigned seat background color.store = \sc@sc@assigned,
+  assigned seat background color.initial:n = lightgray!30,
+  assigned seat border color.store = \sc@sc@assignedborder,
+  assigned seat border color.initial:n = black,
+  assigned seat label color.store = \sc@sc@assignedtext,
+  assigned seat label color.initial:n = black,
+  assigned seat label font.store = \sc@s@assignedfont,
+  seat background color.meta:n = {
+    empty seat background color=#1,
+    assigned seat background color =#1
+  },
+  seat label color.meta:n = {
+    empty seat label color = #1,
+    assigned seat label color = #1
+  },
+  seat border color.meta:n = {
+    empty seat border color = #1,
+    assigned seat border color = #1
+  },
+  seat label font.initial:n = \small,
+  seat label font.meta:n = {
+    empty seat label font=#1,
+    assigned seat label font = #1
+  }
+}
+\NewDocumentCommand{\scDeclareRoom}{m m}{%
+  \DeclareKeys[seatingchart]{room/#1.meta:n={#2}}%
+}
+\NewDocumentCommand{\scAliasRoom}{m m}{%
+  \DeclareKeys[seatingchart]{room/#1.meta:n={room/#2}}%
+}
+\NewDocumentCommand{\scRemoveSeatAt}{m m}{
+  \luadirect{removeSeatAt(#1,#2)}
+}
+\NewDocumentCommand{\sc@removeSeat}{>{\SplitArgument{1}{,}}m}{
+  \scRemoveSeatAt#1
+}
+\NewDocumentCommand{\scRemoveSeats}{>{\SplitList{,}} m}{
+  \ProcessList{#1}{\sc@removeSeat}
+}
+\NewDocumentCommand{\scAssignSeatAt}{m m m}{
+  \luadirect{assignSeatAt(#1,#2,\luastring{#3})}
+}
+\NewDocumentCommand{\sc@ParseRows}{m}{
+}
+\def\sc@parserange#1-#2\relax{%
+  \def\@firstval{\ifx\relax#1\relax1\else#1\fi}%
+  \def\@lastval{\ifx\relax#2\relax\sc@rows\else#2\fi}%
+}
+\newcommand{\keySetAisle}[1]{
+  \scSetAisle[-]{#1}
+}
+\NewDocumentCommand{\scSetAisle}{O{-}m}{%
+  \begingroup
+  \edef\@tmp{#1}%
+  \expandafter\sc@parserange\@tmp\relax
+  \luadirect{removeAisle(#2,\@firstval,\@lastval)}
+  \endgroup
+}
+\NewDocumentCommand{\scInitSeating}{o}{
+  \IfValueT{#1}{}
+  \luadirect{require("seatingchart.lua")}
+  \iftoggle{sc@rectshapt}{
+    \luadirect{initSeating(\sc@rows,\sc@seatsperrow,\luastring{rect})}
+  }{
+  \luadirect{initSeating(\sc@rows,\sc@seatsperrow,\luastring{arc})}
+  }
+}
+
+\InputIfFileExists{seatingchart-\scroomfile.sc}{}{
+  \PackageError{\packagename}{
+    Can't open room layout file 'seatingchart-\scroomfile.sc'}{If you've provided a layout file, check whether it is
+    in the path.}
+}
+
+\ProcessKeyOptions
+
+\NewDocumentCommand{\scConfig}{m}{%
+  \SetKeys[seatingchart]{#1}%
+  \sc@configtikz%
+}
+\ExplSyntaxOn
+\newcommand\sc@configtikz{%
+  \tikzset{%
+    empty-seat/.style={
+      draw=\sc@sc@emptyborder,
+      fill=\sc@sc@empty,
+      font=\sc@s@emptyfont,
+      text=\sc@sc@empty,
+      inner~sep=0pt
+    },
+    empty-label/.style={
+      text=\sc@sc@emptytext,
+      font=\sc@s@emptyfont
+    },
+    assigned-seat/.style={
+      draw=\sc@sc@assignedborder,
+      fill=\sc@sc@assigned,
+      text=\sc@sc@assigned,
+      font=\sc@s@assignedfont,
+      inner~sep=0pt
+    },
+    assigned-label/.style={
+      text=\sc@sc@assignedtext,
+      font=\sc@s@assignedfont
+    },
+    rownumber/.style={
+      font=\sc@rnfont,
+      text=\sc@rncolor,
+      anchor=east
+    }%
+  }%
+}
+\ExplSyntaxOff
+\newlength\scseatwidth%\settowidth{\scseatwidth}{xxxx}%
+\newlength\scseatheight%\settoheight{\scseatheight}{Xy}%
+\newlength\scremainingspace
+\newlength\scrnlength
+\newlength\scarcunit
+\DeclareKeys[scdrawing]{
+  seat width.code:n={%
+    \setlength{\scseatwidth}{#1}%
+  },
+  seat height.code:n={%
+    \setlength{\scseatheight}{#1}%
+  }
+}
+\ExplSyntaxOn
+\NewDocumentCommand{\scDrawSeating}{o}{%
+  \toggletrue{sc@drawn}%
+  \par\noindent%
+  \IfValueTF{#1}{%
+    \SetKeys[scdrawing]{#1}%
+  }{%
+    \setlength{\scremainingspace}{\linewidth}%
+    \settowidth{\scrnlength}{\scrownumformat{99}}%
+    %\typeout{Linewidth: \the\linewidth~(\the\scremainingspace)}
+    %\typeout{Numswidth: \the\scrnlength~(seats:~\sc@seatsperrow)}
+    %\typeout{********* Remaining start: \the\scremainingspace}%
+    \iftoggle{sc@rnleft}{\addtolength{\scremainingspace}{-\dimeval{\scrnlength+\sc@rnsep}}}{}%
+    %\typeout{********* Remaining~left~considered: \the\scremainingspace}%
+    \iftoggle{sc@rnright}{\addtolength{\scremainingspace}{-\dimeval{\scrnlength+\sc@rnsep}}}{}%
+    %\typeout{********* Remaining~right~considered: \the\scremainingspace}%
+    \setlength{\scseatwidth}{\dimeval{\scremainingspace/(\sc@seatsperrow) - \sc@sdist@x}}
+    %\typeout{Seatwidth: \the\scseatwidth}
+    %\typeout{total: \dimeval{(\scseatwidth+2pt)*\sc@seatsperrow + \scrnlength*2 + \sc@rnsep*2}}
+    %\typeout{********* Total: \the\pagetotal\ Goal: \the\pagegoal\ Height: \the\textheight}%
+    \ifdimequal{\pagetotal}{0pt}{%
+      \setlength{\scremainingspace}{\textheight}%
+    }{%
+      \setlength{\scremainingspace}{\dimeval{\pagegoal-\pagetotal}}%
+    }%
+    %\typeout{********* Total: \the\pagetotal\ Goal: \the\pagegoal\ Height: \the\textheight}%
+    %\typeout{********* Remaining: \the\scremainingspace\ Width: \the\textwidth\ Height: \the\textheight}%
+    \ifsc@blackboard%
+      \setlength{\scseatheight}{\dimeval{\scremainingspace/(\sc@rows + 2) - \sc@sdist@y}}%
+    \else%
+      \setlength{\scseatheight}{\dimeval{\scremainingspace/\sc@rows - \sc@sdist@y}}%
+    \fi%
+    % A seat that is deeper than it is wide looks a bit silly.
+    \ifdimcomp{\scseatheight}{>}{\scseatwidth}{\setlength{\scseatheight}{\scseatwidth}}{}%
+  }%
+  \sc@configtikz%
+  %\typeout{*********~Seatwidth:~\the\scseatwidth, Seatheight:~\the\scseatheight}%
+  \luadirect{seatDim(\luastring{\scseatwidth},\luastring{\scseatheight})}%
+  \def\sc@xunit{\scseatwidth+\sc@sdist@x}%
+  \def\sc@yunit{\scseatheight+\sc@sdist@y}%
+  \iftoggle{sc@rectshapt}{}{%
+    % Arc coordinates describe circles and therefore require identical scales
+    % on both axes. Use the larger pitch to prevent seats from overlapping.
+    \setlength{\scarcunit}{\dimexpr\scseatwidth+\sc@sdist@x\relax}%
+    \ifdimcomp{\dimexpr\scseatheight+\sc@sdist@y\relax}{>}{\scarcunit}{%
+      \setlength{\scarcunit}{\dimexpr\scseatheight+\sc@sdist@y\relax}%
+    }{}%
+    \def\sc@xunit{\scarcunit}%
+    \def\sc@yunit{\scarcunit}%
+  }%
+  \begin{tikzpicture}[x=\sc@xunit,y=\sc@yunit]
+      \ifsc@blackboard%
+         \node[rectangle, draw,minimum~width=0.4\textwidth] at (0,-2) {Tafel};
+      \fi
+      \iftoggle{sc@rectshapt}{
+        \iftoggle{sc@rnleft}{
+          \foreach \r in {1,..., \sc@rows} {
+            \node[rownumber,xshift=-\fpeval{\scseatwidth/2+\sc@rnsep}] at (\fpeval{(1-\sc@seatsperrow)/2},\r-1) {\scrownumformat{\r}};
+          }
+        }{}
+        \iftoggle{sc@rnright}{
+          \foreach \r in {1,..., \sc@rows} {
+            \node[rownumber,xshift=\fpeval{\scseatwidth/2+\sc@rnsep+\scrnlength}] at (\fpeval{(\sc@seatsperrow-1)/2},\r-1) {\scrownumformat{\r}};
+          }
+        }{}
+      }{}
+      \luadirect{drawSeats()}
+    \end{tikzpicture}
+}
+
+\newcount\scnumofseats
+\newtoggle{scfoundassigned}
+
+\NewDocumentCommand{\scGenerateSeatingList}{s o m}{
+  \luadirect{getNumberOfSeats()}
+  \togglefalse{scfoundassigned}
+  \loop
+  \luadirect{setupNextlabel(\the\scnumofseats)}\relax
+  %\typeout{ i=\the\scnumofseats}
+  \iftoggle{scfoundassigned}{
+        \setbox0=\hbox{\scnextlabel}
+        \luadirect{saveTextLabel(\the\scnumofseats)}
+      }{}
+  \advance \scnumofseats by -1
+  \unless\ifnum \scnumofseats<2
+  \repeat
+  \IfBooleanTF{#1}{
+    \def\sccoor{true}
+  }{
+    \def\sccoor{nil}
+  }
+  \IfValueTF{#2}{
+     \luadirect{generateSeatList(\luastring{#3}, \luastring{#2}, \sccoor)}
+   }{
+     \luadirect{generateSeatList(\luastring{#3}, nil, \sccoor)}
+   }
+}
+\DeclareKeys[scseatinginput]{
+  mode.choice:,
+  mode/sequential.code:n = {\def\sc@inputmode{sequential}},
+  mode/seat.code:n = {\def\sc@inputmode{seat}},
+  mode/coordinates.code:n = {\def\sc@inputmode{coordinates}},
+  mode.initial:n = sequential,
+  header.if = sc@inputheader,
+  header.initial:n = false
+}
+\NewDocumentCommand{\scLoadSeatingList}{O{}m}{
+  % Each invocation starts with the documented defaults; key settings from an
+  % earlier import in the same seatingchart must not leak into this one.
+  \def\sc@inputmode{sequential}%
+  \sc@inputheaderfalse
+  \SetKeys[scseatinginput]{#1}%
+  % Imported values are the labels to display, independently of the label
+  % format previously used to inspect the seat designators.
+  \scConfigScheme{assigned~seat~label=l}%
+  \luadirect{loadSeatingList(\luastring{#2},
+    \luastring{\sc@inputmode},\ifsc@inputheader true\else false\fi)}%
+}
+\ExplSyntaxOff
+
+\DeclareKeys[scseatingscheme]{
+  empty seat background color.store =\sc@sc@empty,
+  empty seat border color.store = \sc@sc@emptyborder,
+  empty seat label color.store = \sc@sc@emptytext,
+  empty seat label font.store = \sc@s@emptyfont,
+  assigned seat background color.store = \sc@sc@assigned,
+  assigned seat border color.store = \sc@sc@assignedborder,
+  assigned seat label color.store = \sc@sc@assignedtext,
+  assigned seat label font.store = \sc@s@assignedfont,
+  seat background color.meta:n = {
+    empty seat background color=#1,
+    assigned seat background color =#1
+  },
+  seat label color.meta:n = {
+    empty seat label color = #1,
+    assigned seat label color = #1
+  },
+  seat border color.meta:n = {
+    empty seat border color = #1,
+    assigned seat border color = #1
+  },
+  seat label font.meta:n = {
+    empty seat label font=#1,
+    assigned seat label font = #1
+  },
+  row sep.store = \tss@rowsep,
+  row sep.initial:n = 2,
+  start row.store = \tss@startrow,
+  start row.initial:n=1,
+  end row.store = \tss@endrow,
+  end row.initial:n = \sc@rows,
+  row restart after.store= \tss@rowrestart,
+  row restart after.initial:n = 100,%should be sufficient
+  aisle counts.store = \tss@aislecnt,
+  aisle counts.initial:n = 1,
+  aisle restarts scheme.choice:,
+  aisle restarts scheme/true.store=\tss@aislerestart,
+  aisle restarts scheme/false.store=\tss@aislerestart,
+  aisle restarts scheme.default:n = true,
+  aisle restarts scheme.initial:n = false,
+  ignore aisle.meta:n = {
+    aisle counts=0
+  },
+  rtol.choice:,
+  rtol/true.store = \tss@rtol,
+  rtol/false.store = \tss@rtol,,
+  rtol.default:n = true,
+  rtol.initial:n = false,
+  ignore removed seats.choice:,
+  ignore removed seats/true.store=\tss@ignoreremoved,
+  ignore removed seats/false.store=\tss@ignoreremoved,
+  ignore removed seats.default:n = true,
+  ignore removed seats.initial:n = false,
+  assigned seat label.store=\tss@as@format,
+  assigned seat label.initial:n=m{{\,}}D,
+  pattern.store=\tss@pattern,
+  scheme.choice:,
+  scheme/1x1.meta:n={
+    row sep=1,
+    pattern=X,
+  },
+  scheme/all.meta:n={
+    scheme=1x1
+  },
+  scheme/2x2.meta:n={
+    row sep=2,
+    pattern=X-,
+    aisle restarts scheme=true,
+    row restart after=100
+  },
+  scheme/simple.meta:n={
+    scheme=2x2
+  },
+  scheme/2x3.meta:n={
+    row sep=2,
+    pattern=X--,
+    aisle restarts scheme=true,
+    row restart after=100
+  },
+  scheme/sixpack.meta:n={
+    scheme=2x3
+  },
+  scheme/2x3-.meta:n={
+    row sep=2,
+    pattern=X--,
+    aisle restarts scheme=true,
+    row restart after=3
+  },
+  scheme/2x4.meta:n={
+    row sep=2,
+    pattern=X---,
+    aisle restarts scheme=true,
+    row restart after=100
+  },
+  scheme/3x4.meta:n={
+    row sep=3,
+    pattern=X---,
+    aisle restarts scheme=true,
+    row restart after=100
+  },
+  scheme/sixpack-.meta:n={
+    row sep=2,
+    pattern=X--,
+    aisle restarts scheme=true,
+    row restart after=3
+  },
+  scheme/2x2-.meta:n={
+    row sep=2,
+    pattern=X-,
+    aisle restarts scheme=true,
+    row restart after=3
+  },
+  scheme/dense.meta:n={
+    scheme=2x2-
+  }
+}
+
+\NewDocumentCommand{\scConfigScheme}{m}{
+  \SetKeys[scseatingscheme]{#1}
+
+}
+
+\NewDocumentCommand{\scSeatingScheme}{s o m}{
+  \IfValueT{#2}{%
+    \SetKeys[scseatingscheme]{#2}
+  }%
+  \IfBooleanTF{#1}{  %
+    \SetKeys[scseatingscheme]{pattern=#3}
+  }{%
+    \SetKeys[scseatingscheme]{scheme=#3}
+  }%
+  \def\scpolicy{
+    {[\luastring{aisle restarts}]=\tss@aislerestart,
+      [\luastring{rtol}]=\tss@rtol,
+      [\luastring{aisle counts}]=\tss@aislecnt,
+      [\luastring{aisle restarts scheme}]=\tss@aislecnt,
+      [\luastring{ignore removed seats}]=\tss@ignoreremoved,
+      [\luastring{row sep}]=\tss@rowsep,
+      [\luastring{row restart}]=\tss@rowrestart,
+      [\luastring{first row}]=\tss@startrow,
+      [\luastring{last row}]=\tss@endrow,
+      [\luastring{label format}]=\luastringO{\tss@as@format}
+    }}
+  %\typeout{POLICY=\scpolicy, startrow=\tss@startrow\ endrow=\tss@endrow}
+  \luadirect{seatingSchemeInRows(\luastring{\tss@pattern},\scpolicy)}
+}
+\ExplSyntaxOn
+
+\newtoggle{sc@formatother}
+\newcommand\sc@format@label[6]{%
+  \togglefalse{sc@formatother}
+  % absolut row, arabic:  m
+  % absolut row, alpha:   a
+  % absolut row, Alpha:   A
+  % absolut row, roman:   y
+  % absolut row, Roman:   Y
+  % running row, arabic:  r
+  % running row, alpha:   b
+  % running row, Alpha:   B
+  % running row, roman:   i
+  % running row, Roman:   I
+  % absolut seat, arabic: n
+  % absolut seat, alpha:  c
+  % absolut seat, Alpha:  C
+  % absolut seat, roman:  x
+  % absolut seat, Roman:  X
+  % running seat, arabic: s
+  % running seat, alpha:  d
+  % running seat, Alpha:  D
+  % running seat, roman:  j
+  % running seat, Roman:  J
+  % Label:                l
+  \regex_match_case:nnTF{
+    {\cB.}{#6}% match all groups
+    {m}{#1}
+    {a}{\int_to_alph:n{#1}}
+    {A}{\int_to_Alph:n{#1}}
+    {y}{\int_to_roman:n{#1}}
+    {Y}{\int_to_Roman:n{#1}}
+    {r}{#3}
+    {b}{\int_to_alph:n{#3}}
+    {B}{\int_to_Alph:n{#3}}
+    {i}{\int_to_roman:n{#3}}
+    {I}{\int_to_Roman:n{#3}}
+    {n}{#2}
+    {c}{\int_to_alph:n{#2}}
+    {C}{\int_to_Alph:n{#2}}
+    {x}{\int_to_roman:n{#2}}
+    {X}{\int_to_Roman:n{#2}}
+    {s}{#4}
+    {d}{\int_to_alph:n{#4}}
+    {D}{\int_to_Alph:n{#4}}
+    {j}{\int_to_roman:n{#4}}
+    {J}{\int_to_Roman:n{#4}}
+    {l}{#5}
+  }{#6}{}{%
+    \PackageWarningNoLine{\packagename}{Unknown~formating~character '#6'}%
+  }
+}
+
+\NewDocumentCommand{\scassignedlabelformat}{o m m m m m}{
+  % #2: absolute row
+  % #3: absolute seat
+  % #4: running row
+  % #5: running seat
+  % #6: text
+  \IfValueTF{#1}{%
+    \def\sc@format{#1}%
+  }{%
+    \def\sc@format{#6}
+  }%
+  %\typeout{*** Format: \sc@format}
+  \expandafter\tl_map_tokens:Nn{\sc@format}{\sc@format@label{#2}{#3}{#4}{#5}{#6}}
+
+}
+\NewDocumentCommand{\tucemptylabelformat}{m m m m m}{
+  % #2: absolute row
+  % #3: absolute seat
+  % #4: running row
+  % #5: running seat
+  % #6: text
+}
+\ExplSyntaxOff
+
+\newcommand{\scrownumformat}[1]{%
+  #1%
+}
+
+\RequirePackage{tikz}
+\usetikzlibrary{shapes.geometric}
+
+\newcommand{\sc@outsideenvironmenterror}{%
+  \PackageError{\packagename}{Command only available inside the
+    seatingchart environment}{Wrap seating-chart commands in
+    \string\begin{seatingchart}...\string\end{seatingchart}, or load the
+    package with the legacy option.}%
+}
+
+\let\sc@active@RemoveSeatAt\scRemoveSeatAt
+\let\sc@active@RemoveSeats\scRemoveSeats
+\let\sc@active@AssignSeatAt\scAssignSeatAt
+\let\sc@active@SetAisle\scSetAisle
+\let\sc@active@Config\scConfig
+\let\sc@active@DrawSeating\scDrawSeating
+\let\sc@active@GenerateSeatingList\scGenerateSeatingList
+\let\sc@active@LoadSeatingList\scLoadSeatingList
+\let\sc@active@ConfigScheme\scConfigScheme
+\let\sc@active@SeatingScheme\scSeatingScheme
+
+\newcommand{\sc@enablecommands}{%
+  \let\scRemoveSeatAt\sc@active@RemoveSeatAt
+  \let\scRemoveSeats\sc@active@RemoveSeats
+  \let\scAssignSeatAt\sc@active@AssignSeatAt
+  \let\scSetAisle\sc@active@SetAisle
+  \let\scConfig\sc@active@Config
+  \let\scDrawSeating\sc@active@DrawSeating
+  \let\scGenerateSeatingList\sc@active@GenerateSeatingList
+  \let\scLoadSeatingList\sc@active@LoadSeatingList
+  \let\scConfigScheme\sc@active@ConfigScheme
+  \let\scSeatingScheme\sc@active@SeatingScheme
+}
+\newcommand{\sc@disablecommands}{%
+  \let\scRemoveSeatAt\sc@outsideenvironmenterror
+  \let\scRemoveSeats\sc@outsideenvironmenterror
+  \let\scAssignSeatAt\sc@outsideenvironmenterror
+  \let\scSetAisle\sc@outsideenvironmenterror
+  \let\scConfig\sc@outsideenvironmenterror
+  \let\scDrawSeating\sc@outsideenvironmenterror
+  \let\scGenerateSeatingList\sc@outsideenvironmenterror
+  \let\scLoadSeatingList\sc@outsideenvironmenterror
+  \let\scConfigScheme\sc@outsideenvironmenterror
+  \let\scSeatingScheme\sc@outsideenvironmenterror
+}
+
+\ExplSyntaxOn
+\cs_new_protected:Npn \sc_load_layout_from_options:n #1
+  {
+    \regex_extract_once:nnNT
+      { (?: \A | , ) \s* layout \s* = \s* ([^,]+) }
+      {#1}
+      \l_tmpa_seq
+      { \edef\scroomfile{\tl_trim_spaces:e{\seq_item:Nn\l_tmpa_seq{2}}} }
+  }
+\newcommand\sc@loadlayoutfromoptions[1]{\sc_load_layout_from_options:n{#1}}
+\ExplSyntaxOff
+
+\NewDocumentEnvironment{seatingchart}{O{}}{%
+  \begingroup
+  \iftoggle{sc@active}{%
+    \PackageError{\packagename}{Nested seatingchart environments are not
+      supported}{Close the current seatingchart environment before opening
+      another one.}%
+  }{}%
+  \toggletrue{sc@active}%
+  \togglefalse{sc@drawn}%
+  \togglefalse{sc@room}%
+  \def\sc@rows{0}%
+  \def\sc@seatsperrow{0}%
+  \def\sc@layoutactions{}%
+  \sc@enablecommands
+  \sc@loadlayoutfromoptions{#1}%
+  \InputIfFileExists{seatingchart-\scroomfile.sc}{}{%
+    \PackageError{\packagename}{Can't open room layout file
+      'seatingchart-\scroomfile.sc'}{Check the layout option and file name.}%
+  }%
+  \SetKeys[seatingchart]{#1}%
+  \ifboolexpr{
+    test {\ifnumcomp{\sc@rows}{<}{1}} or
+    test {\ifnumcomp{\sc@seatsperrow}{<}{1}}
+  }{%
+    \PackageError{\packagename}{Invalid layout option:\MessageBreak
+      number of rows or number of seats per row can't be smaller than 1}{%
+      Use correct layout options}%
+  }{}%
+  \scInitSeating
+  \sc@layoutactions
+}{%
+  \iftoggle{sc@drawn}{}{\scDrawSeating}%
+  \endgroup
+}
+
+\iftoggle{sc@legacy}{%
+  \toggletrue{sc@active}%
+  \sc@enablecommands
+  \let\scSeatingList\scGenerateSeatingList
+  \scInitSeating
+  \sc@layoutactions
+}{%
+  \sc@disablecommands
+}
+%% This work is maintained by Matthias Werner.
+%%
+%% End of file `seatingchart.sty'.

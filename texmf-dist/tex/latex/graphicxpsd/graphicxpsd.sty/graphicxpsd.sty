@@ -1,0 +1,178 @@
+% #!rm -f tigerpsdfmt4* && ptex2pdf -l -u -ot '-shell-escape' -od '-v' test-gin-rule-psd
+% #!rm -f tigerpsdfmt4* && xelatex -shell-escape test-gin-rule-psd
+% #!rm -f tigerpsdfmt4* && pdflatex -shell-escape test-gin-rule-psd
+%#!rm -f tigerpsdfmt4* && lualatex -shell-escape test-gin-rule-psd
+%%
+%% This is file 'graphicxpsd.sty'.
+%%
+%% Copyright (c) 2017-2026 Munehiro Yamamoto
+%%
+%% This package is licensed under the terms of the MIT License.
+%%
+\RequirePackage{expl3}
+\ProvidesExplPackage {graphicxpsd} {2026/03/01} {2.0}
+  {Adobe~Photoshop~Data~format~(PSD)~support~for~graphicx~package~with~sips/magick}
+
+%% -------------------------------------------------------------------
+%% declare package messages
+%% -------------------------------------------------------------------
+\msg_new:nnn { graphicxpsd } { no-graphicx }
+  { Please~load~'graphicxpsd'~package~after~loading~'graphicx'~package. }
+
+\msg_new:nnn { graphicxpsd } { no-driver }
+  {
+    Please~choose~a~specific~dviware~driver~from~the~following~list~
+    and~set~the~one~as~a~documentclass~option.\msg_line_context: \newline
+    Available~dviware~drivers:~dvipdfmx,~xetex,~luatex,~pdftex
+  }
+
+%% -------------------------------------------------------------------
+%% declare variables
+%% -------------------------------------------------------------------
+\bool_new:N \l__gfxpsd_imagemagick_bool
+\bool_new:N \l__gfxpsd_cache_bool
+\tl_new:N   \l__gfxpsd_psdtopdf_tl
+\tl_new:N   \l__gfxpsd_driver_type_tl
+
+%% default value for psdtopdf command
+\tl_set:Nn \l__gfxpsd_psdtopdf_tl { sips }
+
+%% -------------------------------------------------------------------
+%% define and process options (Key-Value)
+%% -------------------------------------------------------------------
+\keys_define:nn { graphicxpsd }
+  {
+    %% support major graphicx drivers
+    dvipdfmx .code:n = { \tl_set:Nn \l__gfxpsd_driver_type_tl { dvipdfmx } },
+    xetex    .code:n = { \tl_set:Nn \l__gfxpsd_driver_type_tl { dvipdfmx } },
+    luatex   .code:n = { \tl_set:Nn \l__gfxpsd_driver_type_tl { pdftex } },
+    pdftex   .code:n = { \tl_set:Nn \l__gfxpsd_driver_type_tl { pdftex } },
+
+    %% support two psd-to-pdf commands:
+    %% sips (Darwin/macOS), magick/convert (ImageMagick),
+    %% graphicsmagick (GraphicsMagick)
+    sips .code:n = {
+      \bool_set_false:N \l__gfxpsd_imagemagick_bool
+      \tl_set:Nn \l__gfxpsd_psdtopdf_tl { sips }
+    },
+    imagemagick .code:n = {
+      \bool_set_true:N \l__gfxpsd_imagemagick_bool
+      \tl_set:Nn \l__gfxpsd_psdtopdf_tl { magick }
+    },
+    magick .code:n = {
+      \bool_set_true:N \l__gfxpsd_imagemagick_bool
+      \tl_set:Nn \l__gfxpsd_psdtopdf_tl { magick }
+    },
+    convert .code:n = {
+      \bool_set_true:N \l__gfxpsd_imagemagick_bool
+      \tl_set:Nn \l__gfxpsd_psdtopdf_tl { convert }
+    },
+    graphicsmagick .code:n = {
+      \bool_set_true:N \l__gfxpsd_imagemagick_bool
+      \tl_set:Nn \l__gfxpsd_psdtopdf_tl { gm~convert } %% use ~ to represent a space safely
+    },
+
+    %% image cache flag (maintaining True/False compatibility)
+    cache         .bool_set:N = \l__gfxpsd_cache_bool,
+    cache         .default:n  = false,
+    cache / True  .code:n     = { \bool_set_true:N \l__gfxpsd_cache_bool },
+    cache / False .code:n     = { \bool_set_false:N \l__gfxpsd_cache_bool },
+  }
+
+\ProcessKeyOptions [ graphicxpsd ]
+
+%% -------------------------------------------------------------------
+%% check graphicx loading and map base extensions
+%% -------------------------------------------------------------------
+\cs_if_exist:NF \Ginclude@pdf
+  { \msg_fatal:nn { graphicxpsd } { no-graphicx } }
+
+%% support the extension .ai
+\cs_set:cpn { Gin@rule@.ai } #1 { {pdf}{.ai}{#1} }
+\cs_set:cpn { Gin@rule@.AI } #1 { {pdf}{.AI}{#1} }
+
+%% support the extension .psd (psdtopdf) according to driver
+\str_case:VnF \l__gfxpsd_driver_type_tl
+  {
+    { dvipdfmx }
+      {
+        \cs_set:cpn { Gin@rule@.PSD } #1 { {psdtopdf}{.xbb}{#1} }
+        \cs_set:cpn { Gin@rule@.psd } #1 { {psdtopdf}{.xbb}{#1} }
+      }
+    { pdftex }
+      {
+        \cs_set:cpn { Gin@rule@.PSD } #1 { {psdtopdf}{.pdf}{#1} }
+        \cs_set:cpn { Gin@rule@.psd } #1 { {psdtopdf}{.pdf}{#1} }
+      }
+  }
+  {
+    %% fallback: attempt automatic detection using l3sys if no driver is specified
+    \sys_if_output_pdf:TF
+      {
+        \cs_set:cpn { Gin@rule@.PSD } #1 { {psdtopdf}{.pdf}{#1} }
+        \cs_set:cpn { Gin@rule@.psd } #1 { {psdtopdf}{.pdf}{#1} }
+      }
+      {
+        \sys_if_output_dvi:TF
+          {
+            \cs_set:cpn { Gin@rule@.PSD } #1 { {psdtopdf}{.xbb}{#1} }
+            \cs_set:cpn { Gin@rule@.psd } #1 { {psdtopdf}{.xbb}{#1} }
+          }
+          {
+            \msg_error:nn { graphicxpsd } { no-driver }
+          }
+      }
+  }
+
+%% then, include .psd file as converted PDF
+\cs_set_eq:NN \Ginclude@psdtopdf \Ginclude@pdf
+
+%% -------------------------------------------------------------------
+%% file reading and conversion hook definitions
+%% -------------------------------------------------------------------
+
+%% create a clone of \Gread@pdf
+\cs_set_eq:NN \__gfxpsd_clone_Gread_pdf:n \Gread@pdf
+
+%% internal macro to execute PDF conversion
+\cs_new_protected:Nn \__gfxpsd_convert_psd_to_pdf:
+  {
+    \iow_term:e { converting:~ \Gin@base\Gin@ext \c_space_tl ->~ \Gin@base 4gfxpsd.pdf }
+    \bool_if:NTF \l__gfxpsd_imagemagick_bool
+      {
+        \sys_shell_now:e { \l__gfxpsd_psdtopdf_tl \c_space_tl \Gin@base\Gin@ext \c_space_tl \Gin@base 4gfxpsd.pdf }
+      }
+      {
+        \sys_shell_now:e { sips~ -s~ format~ pdf~ \Gin@base\Gin@ext \c_space_tl --out~ \Gin@base 4gfxpsd.pdf }
+      }
+  }
+
+%% read .psd file
+\cs_set_protected:Npn \Gread@psdtopdf #1
+  {
+    \bool_if:NTF \l__gfxpsd_cache_bool
+      {
+        \file_if_exist:nTF { \Gin@base 4gfxpsd.pdf }
+          {
+            \iow_term:e { including~cached~image:~ \Gin@base 4gfxpsd.pdf }
+          }
+          {
+            \iow_term:e { not~found:~ \Gin@base 4gfxpsd.pdf }
+            \__gfxpsd_convert_psd_to_pdf:
+          }
+      }
+      {
+        \__gfxpsd_convert_psd_to_pdf:
+      }
+
+    %% renamed inside: foo.psd -> foo4gfxpsd.pdf
+    \cs_set_eq:NN \__gfxpsd_clone_Gin_base: \Gin@base
+    \cs_set:Npn \Gin@base { \__gfxpsd_clone_Gin_base: 4gfxpsd }
+    \cs_set:Npn \Gin@ext { .pdf }
+
+    \__gfxpsd_clone_Gread_pdf:n { #1 }
+  }
+
+\endinput
+%%
+%% End of file `graphicxpsd.sty'.
