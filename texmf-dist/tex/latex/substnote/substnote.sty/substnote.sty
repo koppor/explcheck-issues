@@ -1,0 +1,334 @@
+%% substnote.sty
+%% Substitution notation with a switchable convention.
+%%
+%% Authors disagree on how to write "the result of substituting t for x
+%% in phi": phi[t/x], phi[x/t], phi[x := t], phi[x <- t], (phi)^x_t ...
+%% This package provides one command and lets the convention be chosen
+%% once, in the preamble, for the whole document.
+%%
+%%   \subst{\varphi}{x}{t}        % phi[t/x]      (default style)
+%%   \subst*{\varphi}{x}{t}       % delimiters auto-scale
+%%   \subst[style=updown]{\varphi}{x}{t}   % (phi)^x_t
+%%   \subst{\varphi}{x,y}{s,t}    % simultaneous: phi[s/x, t/y]
+%%   \substmark{x}{t}             % just the mark, no expression
+%%
+%% Styles (key style=...):
+%%   slash      (default)  phi[t/x]        term over variable
+%%   slashrev              phi[x/t]        variable over term
+%%   assign                phi[x := t]
+%%   arrow                 phi[x <- t]
+%%   mapsto                phi[x |-> t]
+%%   updown                (phi)^x_t       variable up, term down
+%%   updownrev             (phi)^t_x       term up, variable down
+%%
+%% Other keys (package options and per-use):
+%%   fences=brackets|parens|braces|none    delimiters: of the mark in the
+%%                                         delimited styles, of the
+%%                                         expression in the up-down ones,
+%%                                         which never go undelimited and
+%%                                         read none as parens
+%%                                         (default: brackets)
+%%   pairsep=<code>                        separator between simultaneous
+%%                                         substitutions (default: ,\,)
+%%
+%% Requires a LaTeX kernel from 2022-06-01 or newer.
+%%
+%% Copyright (c) 2026 Vseslav Sekorin
+%% License: MIT (see LICENSE file or https://opensource.org/licenses/MIT)
+%%
+\NeedsTeXFormat{LaTeX2e}[2022/06/01]
+\ProvidesPackage{substnote}[2026/07/30 v0.1.0 Substitution notation with a switchable convention]
+
+%% ---------------------------------------------------------------
+%% The assignment symbol used by style=assign.
+%%
+%% Writing := directly is typographically wrong: the colon is a relation
+%% atom, so TeX leaves extra space between the two characters and keeps
+%% the colon on the baseline instead of the math axis. Wrapping the pair
+%% in \mathrel corrects the spacing around the symbol but not inside it.
+%%
+%% Where the document already provides a properly built symbol, we use it:
+%% under unicode-math the glyph comes from the font itself, which is
+%% preferable since it is drawn to match the surrounding face; mathtools
+%% and the tx/px font packages provide \coloneqq. Otherwise the symbol is
+%% assembled here: \mathop centres its contents on the math axis and
+%% follows the current math style, and a negative kern closes the gap.
+%%
+%% Note the order of the tests. In mathtools \coloneq means ":-", not
+%% ":=", so \coloneqq is consulted first and \coloneq only under
+%% unicode-math, where it is the name of the U+2254 glyph.
+%% ---------------------------------------------------------------
+\newcommand\substnote@assign{\mathrel{\mathop{:}}\mathrel{\mkern-1.2mu}=}
+\AtBeginDocument{%
+  \@ifpackageloaded{unicode-math}%
+    {\ifdefined\coloneq \renewcommand\substnote@assign{\coloneq}\fi}%
+    {\ifdefined\coloneqq\renewcommand\substnote@assign{\coloneqq}\fi}%
+}
+
+%% ---------------------------------------------------------------
+%% Keys
+%%
+%% style and fences accept a fixed set of values; anything else is
+%% reported at once, with the list of what is allowed, rather than being
+%% silently replaced by a default.
+%% ---------------------------------------------------------------
+\ExplSyntaxOn
+\msg_new:nnnn { substnote } { bad-value }
+  { Unknown~value~'#2'~for~the~key~'#1'. }
+  { Allowed~values~are:~#3. }
+\NewDocumentCommand \substnote@check { mmm }
+  {
+    \clist_if_in:nnF {#3} {#2}
+      { \msg_error:nnnnn { substnote } { bad-value } {#1} {#2} {#3} }
+  }
+\ExplSyntaxOff
+
+\DeclareKeys[substnote]{
+  style.code    = {\substnote@check{style}{#1}%
+                    {slash,slashrev,assign,arrow,mapsto,updown,updownrev}%
+                   \def\substnote@style{#1}},
+  fences.code   = {\substnote@check{fences}{#1}{brackets,parens,braces,none}%
+                   \def\substnote@fences{#1}},
+  pairsep.store = \substnote@pairsep,
+  synonym.store = \substnote@synonym,
+  synonym.usage = load,
+}
+
+%% Defaults, then the package options may override them.
+\SetKeys[substnote]{style=slash, fences=brackets, pairsep={,\,},
+                    synonym={}}
+\ProcessKeyOptions[substnote]
+
+\ExplSyntaxOn
+
+\clist_new:N \l__substnote_vars_clist
+\clist_new:N \l__substnote_terms_clist
+\tl_new:N   \l__substnote_fences_tl
+\bool_new:N \l__substnote_scale_bool
+\bool_new:N \l__substnote_bare_bool
+
+%% ---------------------------------------------------------------
+%% One pair, according to the style.  #1 = variable, #2 = term.
+%% ---------------------------------------------------------------
+\cs_new_protected:Npn \__substnote_pair:nn #1#2
+  {
+    \str_case_e:nnF { \substnote@style }
+      {
+        { slash }    { #2 / #1 }
+        { slashrev } { #1 / #2 }
+        { assign }   { #1 \substnote@assign #2 }
+        { arrow }    { #1 \mathrel{\leftarrow} #2 }
+        { mapsto }   { #1 \mathrel{\mapsto} #2 }
+      }
+      { #2 / #1 }   % up-down styles: the pair code is not reached
+  }
+
+%% ---------------------------------------------------------------
+%% The body of the mark: all pairs, separated by pairsep.
+%% ---------------------------------------------------------------
+\cs_new_protected:Npn \__substnote_body:
+  {
+    \int_step_inline:nn { \clist_count:N \l__substnote_vars_clist }
+      {
+        \int_compare:nNnT {##1} > {1} { \substnote@pairsep }
+        \exp_args:Nee \__substnote_pair:nn
+          { \clist_item:Nn \l__substnote_vars_clist  {##1} }
+          { \clist_item:Nn \l__substnote_terms_clist {##1} }
+      }
+  }
+
+%% Comma-joined variables / terms, for the updown styles.
+\cs_new_protected:Npn \__substnote_join:N #1
+  {
+    \int_step_inline:nn { \clist_count:N #1 }
+      {
+        \int_compare:nNnT {##1} > {1} { , }
+        \clist_item:Nn #1 {##1}
+      }
+  }
+
+%% ---------------------------------------------------------------
+%% Fences.  With the starred form they scale.
+%% ---------------------------------------------------------------
+\cs_new_protected:Npn \__substnote_open:
+  {
+    \bool_if:NT \l__substnote_scale_bool { \left }
+    \str_case:Vn \l__substnote_fences_tl
+      {
+        { brackets } { [ }
+        { parens }   { ( }
+        { braces }   { \{ }
+        { none }     { \bool_if:NT \l__substnote_scale_bool { . } }
+      }
+  }
+\cs_new_protected:Npn \__substnote_close:
+  {
+    \bool_if:NT \l__substnote_scale_bool { \right }
+    \str_case:Vn \l__substnote_fences_tl
+      {
+        { brackets } { ] }
+        { parens }   { ) }
+        { braces }   { \} }
+        { none }     { \bool_if:NT \l__substnote_scale_bool { . } }
+      }
+  }
+
+%% ---------------------------------------------------------------
+%% Is the current style one of the updown ones?
+%% ---------------------------------------------------------------
+\prg_new_conditional:Npnn \__substnote_if_updown: { TF }
+  {
+    \str_case_e:nnF { \substnote@style }
+      { { updown } { \prg_return_true: } { updownrev } { \prg_return_true: } }
+      { \prg_return_false: }
+  }
+
+%% ---------------------------------------------------------------
+%% Length check: the two lists must match.
+%% ---------------------------------------------------------------
+\cs_new_protected:Npn \__substnote_check:
+  {
+    \int_compare:nNnF
+      { \clist_count:N \l__substnote_vars_clist } =
+      { \clist_count:N \l__substnote_terms_clist }
+      {
+        \msg_error:nnee { substnote } { mismatch }
+          { \int_eval:n { \clist_count:N \l__substnote_vars_clist } }
+          { \int_eval:n { \clist_count:N \l__substnote_terms_clist } }
+      }
+  }
+\msg_new:nnnn { substnote } { mismatch }
+  { Substitution~lists~do~not~match:~#1~variable(s)~but~#2~term(s). }
+  {
+    \c__msg_coding_error_text_tl
+    Write~one~term~for~each~variable,~e.g.
+    \iow_newline: \ \ \token_to_str:N \subst {\token_to_str:N \varphi}{x,y}{s,t}.
+  }
+
+%% ---------------------------------------------------------------
+%% Assembling the whole thing.
+%% #1 = expression (may be empty), #2 = variables, #3 = terms
+%%
+%% The up-down styles must delimit the expression: a bare superscript
+%% would attach to the last symbol of a compound formula only. They
+%% therefore ignore fences=none and use parentheses instead.
+%% ---------------------------------------------------------------
+\cs_new_protected:Npn \__substnote_build:nnn #1#2#3
+  {
+    \clist_set:Nn \l__substnote_vars_clist  {#2}
+    \clist_set:Nn \l__substnote_terms_clist {#3}
+    \__substnote_check:
+    \tl_set:Ne \l__substnote_fences_tl { \substnote@fences }
+    \__substnote_if_updown:TF
+      {
+        \str_if_eq:VnT \l__substnote_fences_tl { none }
+          { \tl_set:Nn \l__substnote_fences_tl { parens } }
+        %% \substmark carries no expression, so there is nothing to
+        %% delimit: emitting the fences would leave them empty. An empty
+        %% group then carries the scripts, so that the mark does not
+        %% depend on what precedes it and works on its own.
+        \bool_if:NTF \l__substnote_bare_bool
+          { {} }
+          { { \__substnote_open: #1 \__substnote_close: } }
+        \str_if_eq:eeTF { \substnote@style } { updown }
+          {
+            \c_math_superscript_token
+              { \__substnote_join:N \l__substnote_vars_clist  }
+            \c_math_subscript_token
+              { \__substnote_join:N \l__substnote_terms_clist }
+          }
+          {
+            \c_math_superscript_token
+              { \__substnote_join:N \l__substnote_terms_clist }
+            \c_math_subscript_token
+              { \__substnote_join:N \l__substnote_vars_clist  }
+          }
+      }
+      {
+        #1
+        \__substnote_open:
+        \__substnote_body:
+        \__substnote_close:
+      }
+  }
+
+%% ---------------------------------------------------------------
+%% Public commands
+%% ---------------------------------------------------------------
+\NewDocumentCommand \substnoteSubst { s O{} m m m }
+  {
+    \group_begin:
+      \bool_set_false:N \l__substnote_bare_bool
+      \SetKeys[substnote]{#2}
+      \IfBooleanTF {#1}
+        { \bool_set_true:N \l__substnote_scale_bool }
+        { \bool_set_false:N \l__substnote_scale_bool }
+      \__substnote_build:nnn {#3} {#4} {#5}
+    \group_end:
+  }
+
+\NewDocumentCommand \substnoteSubstMark { s O{} m m }
+  {
+    \group_begin:
+      \bool_set_true:N \l__substnote_bare_bool
+      \SetKeys[substnote]{#2}
+      \IfBooleanTF {#1}
+        { \bool_set_true:N \l__substnote_scale_bool }
+        { \bool_set_false:N \l__substnote_scale_bool }
+      \__substnote_build:nnn { {} } {#3} {#4}
+    \group_end:
+  }
+
+\ExplSyntaxOff
+
+%% ---------------------------------------------------------------
+%% Public names, and the optional synonym.
+%%
+%% \NewCommandCopy makes a faithful copy of a document command, so every
+%% copy keeps the starred and optional-argument forms. A name already
+%% taken by another package is never overwritten: the document still
+%% compiles and the synonym is the way in.
+%%
+%% The emptiness test goes through \edef so that it does not depend on
+%% whether the stored key macro happens to be \long.
+%% ---------------------------------------------------------------
+\newcommand\substnote@tmp{}
+\edef\substnote@tmp{\substnote@synonym}
+
+%% \substnote@publish{<name>}{<internal command>}
+\newcommand\substnote@publish[2]{%
+  \ifcsname #1\endcsname
+    \ifx\substnote@tmp\empty
+      \PackageWarning{substnote}{%
+        \expandafter\string\csname #1\endcsname\space is already defined by\MessageBreak
+        another package and is left untouched. Load substnote\MessageBreak
+        with a synonym to access its functionality, e.g.\MessageBreak
+        \space\space\string\usepackage[synonym=mysubst]{substnote}}%
+    \else
+      \PackageInfo{substnote}{%
+        \expandafter\string\csname #1\endcsname\space is already defined\MessageBreak
+        elsewhere and is left untouched; using the requested\MessageBreak
+        synonym instead}%
+    \fi
+  \else
+    \expandafter\NewCommandCopy\csname #1\endcsname#2%
+  \fi
+}
+
+\substnote@publish{subst}\substnoteSubst
+\substnote@publish{substmark}\substnoteSubstMark
+
+\ifx\substnote@tmp\empty\else
+  \ifcsname\substnote@tmp\endcsname
+    \PackageError{substnote}%
+      {Cannot create synonym \expandafter\string\csname\substnote@tmp\endcsname:
+       this name is already defined}%
+      {Choose another name in the synonym=... option.}%
+  \else
+    \expandafter\NewCommandCopy\csname\substnote@tmp\endcsname\substnoteSubst
+    \expandafter\NewCommandCopy\csname\substnote@tmp mark\endcsname
+      \substnoteSubstMark
+  \fi
+\fi
+
+\endinput

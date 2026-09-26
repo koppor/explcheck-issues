@@ -1,0 +1,180 @@
+%% rbt-mathnotes-util.sty
+%% Copyright 2021 Rebecca B. Turner.
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3 or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Rebecca B. Turner.
+%
+% This work consists of the files:
+%     README.md
+%     rbt-mathnotes.tex
+%     rbt-mathnotes.sty
+%     rbt-mathnotes.cls
+%     rbt-mathnotes-util.sty
+%     rbt-mathnotes-messages.sty
+%     rbt-mathnotes-hw.cls
+%     rbt-mathnotes-formula-sheet.cls
+%     examples/cheat-sheet.tex
+%     examples/multivar.tex
+%     examples/topology-hw-1.tex
+% and the derived files:
+%     rbt-mathnotes.pdf
+%     examples/cheat-sheet.pdf
+%     examples/multivar.pdf
+%     examples/topology-hw-1.pdf
+
+\NeedsTeXFormat{LaTeX2e}
+\RequirePackage{expl3}
+\ProvidesExplPackage{rbt-mathnotes-util}{2021/11/29}{1.0.2}{Utility commands
+  for rbt-mathnotes.}
+
+\cs_set:Npn \mn__legacy_bool_option:n #1
+  {
+    \bool_new:c { g__mn_#1_bool }
+    \csname if\@currname @#1 \endcsname
+      \bool_gset_true:c { g__mn_#1_bool }
+    \else
+      \bool_gset_false:c { g__mn_#1_bool }
+    \fi
+  }
+
+\keys_define:nn { mn_options }
+  {
+    init .tl_set:N = \l__mn_options_init_tl ,
+    init .default:n = true ,
+    init .initial:x = \tl_use:N \c_novalue_tl ,
+
+    default .tl_set:N = \l__mn_options_default_tl ,
+    default .value_required:n = true ,
+    default .initial:x = \tl_use:N \c_novalue_tl ,
+
+    type .choice: ,
+    type .choices:nn = { bool, str }
+      { \tl_set_eq:NN \l__mn_options_type_tl \l_keys_choice_tl } ,
+    type .value_required:n = true ,
+    type .initial:n = bool ,
+  }
+
+% A hook which executes after \ProcessKeyvalOptions and is used to convert
+% TeX booleans and so on to LaTeX3 booleans and strings.
+\tl_new:N \g__mn_after_options_hook_tl
+% A hook used to define a particular option, allowing keys to be set only in
+% a group.
+\tl_new:N \g__mn_define_option_tl
+% Initializes complementary #1 and no#1 package options.
+\NewDocumentCommand \mn__option_new { o m }
+  {
+    \tl_gclear:N \g__mn_define_option_tl
+    \group_begin:
+    \tl_if_novalue:nF { #1 }
+      { \keys_set:nn { mn_options } { #1 } }
+
+    \tl_set:Nn \l_tmpa_tl { bool }
+    \tl_if_eq:NNT \l__mn_options_type_tl \l_tmpa_tl
+      {
+        % If no default was given, use `false` for bools.
+        \tl_if_eq:NNT \l__mn_options_init_tl \c_novalue_tl
+          { \tl_set:Nn \l__mn_options_init_tl { false } }
+
+        \tl_gput_right:Nx \g__mn_define_option_tl
+          {
+            \exp_not:N \DeclareBoolOption [\l__mn_options_init_tl]{#2}
+            \exp_not:N \DeclareComplementaryOption {no#2}{#2}
+          }
+
+        % After we process options, convert to an expl3 bool.
+        \tl_gput_right:Nn \g__mn_after_options_hook_tl
+          {
+            % Adapt the legacy bool into an expl3 bool.
+            \mn__legacy_bool_option:n { #2 }
+            % Then, delete the legacy bool.
+            \mn__legacy_bool_undefine:n { \@currname @#2 }
+          }
+      }
+
+    % For a string option:
+    \tl_set:Nn \l_tmpa_tl { str }
+    \tl_if_eq:NNT \l__mn_options_type_tl \l_tmpa_tl
+      {
+        \tl_gput_right:No \g__mn_define_option_tl
+          {
+            \exp_not:N \DeclareStringOption
+              \tl_if_eq:NNF \l__mn_options_init_tl \c_novalue_tl
+                { [\l__mn_options_init_tl] }
+              { #2 }
+              \tl_if_eq:NNF \l__mn_options_default_tl \c_novalue_tl
+                { [\l__mn_options_default_tl] }
+          }
+
+          \tl_gput_right:Nn \g__mn_after_options_hook_tl
+            {
+              % Create the new tl for this option.
+              \tl_new:c { g__mn_#2_tl }
+              % Set it to the command kvoptions created.
+              \tl_set:co { g__mn_#2_tl } { \cs:w \@currname @#2 \cs_end: }
+              % Delete the old command.
+              \cs_undefine:c { \@currname @#2 }
+            }
+      }
+    \group_end:
+    \tl_use:N \g__mn_define_option_tl
+  }
+
+\cs_set:Npn \mn__process_options:n #1
+  {
+    \ProcessKeyvalOptions { #1 }
+    \tl_use:N \g__mn_after_options_hook_tl
+  }
+
+\cs_set:Npn \mn__legacy_bool_undefine:n #1
+  {
+    \cs_undefine:c { if#1 }
+    \cs_undefine:c { #1true }
+    \cs_undefine:c { #1false }
+  }
+
+% Package configuration string values.
+% {< module >}{< family >}{< key name >}
+\cs_set:Npn \mn__key_new:nnn #1#2#3
+  {
+    \tl_set_eq:cN { l__#1_#3_tl } \c_novalue_tl
+    \keys_define:nn { #2 }
+      {
+        #1 .value_required:n = true,
+        #1 .tl_set:c = l__#1_#3_tl,
+      }
+  }
+
+\cs_set:Npn \mn__mathnotes_key_new:n #1
+  {
+    \mn__key_new:nnn { mn } { mathnotes } { #1 }
+  }
+
+\cs_set:Npn \mn__keys_new:n #1 { \clist_map_function:nN { #1 } \mn__mathnotes_key_new:n }
+
+\prg_new_conditional:Npnn \mn__if_package_loaded:n #1
+  { p, T, F, TF }
+  {
+    \@ifpackageloaded { #1 }
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\prg_new_conditional:Npnn \mn__if_novalue:N #1
+  { p, T, F, TF }
+  {
+    \tl_if_eq:NNTF \c_novalue_tl #1
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+\prg_generate_conditional_variant:Nnn \mn__if_novalue:N
+  { c }
+  { p, T, F, TF }
