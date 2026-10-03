@@ -1,0 +1,1233 @@
+%%
+%% This is file `tikzlibraryknots.code.tex',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% spath3_code.dtx  (with options: `knots')
+%% ----------------------------------------------------------------
+%% spath3 --- Functions for manipulating PGF soft paths
+%% E-mail: Andrew Stacey <loopspace@mathforge.org>
+%% Released under the LaTeX Project Public License v1.3c or later
+%% See http://www.latex-project.org/lppl.txt
+%% ----------------------------------------------------------------
+%% 
+%%
+\RequirePackage{spath3}
+\usetikzlibrary{intersections,spath3}
+
+\ExplSyntaxOn
+
+\tl_new:N \l__knot_tmpa_tl
+\tl_new:N \l__knot_tmpb_tl
+\tl_new:N \l__knot_tmpc_tl
+\tl_new:N \l__knot_tmpd_tl
+\tl_new:N \l__knot_tmpg_tl
+\tl_new:N \l__knot_redraws_tl
+\tl_new:N \l__knot_clip_width_tl
+\tl_new:N \l__knot_name_tl
+\tl_new:N \l__knot_node_tl
+\tl_new:N \l__knot_aux_tl
+\tl_new:N \l__knot_auxa_tl
+\tl_new:N \l__knot_prefix_tl
+
+\seq_new:N \l__knot_segments_seq
+
+\int_new:N \l__knot_tmpa_int
+\int_new:N \l__knot_strands_int
+\int_new:N \g__knot_intersections_int
+\int_new:N \g__knot_filaments_int
+\int_new:N \l__knot_component_start_int
+
+\fp_new:N \l__knot_tmpa_fp
+\fp_new:N \l__knot_tmpb_fp
+
+\dim_new:N \l__knot_tmpa_dim
+\dim_new:N \l__knot_tmpb_dim
+\dim_new:N \l__knot_tolerance_dim
+\dim_new:N \l__knot_redraw_tolerance_dim
+\dim_new:N \l__knot_clip_bg_radius_dim
+\dim_new:N \l__knot_clip_draw_radius_dim
+
+\bool_new:N \l__knot_draft_bool
+\bool_new:N \l__knot_ignore_ends_bool
+\bool_new:N \l__knot_self_intersections_bool
+\bool_new:N \l__knot_splits_bool
+\bool_new:N \l__knot_super_draft_bool
+
+\bool_new:N \l__knot_prepend_prev_bool
+\bool_new:N \l__knot_append_next_bool
+\bool_new:N \l__knot_skip_bool
+\bool_new:N \l__knot_save_bool
+\bool_new:N \l__knot_debugging_bool
+
+\seq_new:N \g__knot_nodes_seq
+
+\bool_set_true:N \l__knot_ignore_ends_bool
+\tikzset{
+  spath/prefix/knot/.style={
+    spath/set~ prefix=knot strand,
+  },
+  spath/suffix/knot/.style={
+    spath/set~ suffix={},
+  },
+  knot/.code={
+    \tl_if_eq:nnTF {#1} {none}
+    {
+      \tikz@addmode{\tikz@mode@doublefalse}
+    }
+    {
+      \tikz@addmode{\tikz@mode@doubletrue}
+      \tl_if_eq:nnTF {\pgfkeysnovalue} {#1}
+      {
+        \tikz@addoption{\pgfsetinnerstrokecolor{.}}
+      }
+      {
+        \pgfsetinnerstrokecolor{#1}
+      }
+      \tikz@addoption{
+        \pgfsetstrokecolor{knotbg}
+      }
+      \tl_set:Nn \tikz@double@setup{
+        \pgfsetinnerlinewidth{\pgflinewidth}
+        \pgfsetlinewidth{\dim_eval:n {\tl_use:N \l__knot_gap_tl \pgflinewidth}}
+      }
+    }
+  },
+  knot~ gap/.store~ in=\l__knot_gap_tl,
+  knot~ gap=3,
+  knot~ diagram/.is~family,
+  knot~ diagram/.unknown/.code={
+    \tl_set_eq:NN \l__knot_tmpa_tl \pgfkeyscurrentname
+    \pgfkeysalso{
+      /tikz/\l__knot_tmpa_tl=#1
+    }
+  },
+  background~ colour/.code={%
+    \colorlet{knotbg}{#1}%
+  },
+  background~ color/.code={%
+    \colorlet{knotbg}{#1}%
+  },
+  background~ colour=white,
+  knot~ diagram,
+  name/.store~ in=\l__knot_name_tl,
+  name={knot},
+  save~ intersections/.is~ choice,
+  save~ intersections/.default=true,
+  save~ intersections/true/.code={
+    \bool_set_true:N \l__knot_save_bool
+  },
+  save~ intersections/false/.code={
+    \bool_set_false:N \l__knot_save_bool
+  },
+  every~ strand/.style={draw},
+  ignore~ endpoint~ intersections/.code={
+    \tl_if_eq:nnTF {#1} {true}
+    {
+      \bool_set_true:N \l__knot_ignore_ends_bool
+    }
+    {
+      \bool_set_false:N \l__knot_ignore_ends_bool
+    }
+  },
+  ignore~ endpoint~ intersections/.default=true,
+  consider~ self~ intersections/.is~choice,
+  consider~ self~ intersections/true/.code={
+    \bool_set_true:N \l__knot_self_intersections_bool
+    \bool_set_true:N \l__knot_splits_bool
+  },
+  consider~ self~ intersections/false/.code={
+    \bool_set_false:N \l__knot_self_intersections_bool
+    \bool_set_false:N \l__knot_splits_bool
+  },
+  consider~ self~ intersections/no~ splits/.code={
+    \bool_set_true:N \l__knot_self_intersections_bool
+    \bool_set_false:N \l__knot_splits_bool
+  },
+  consider~ self~ intersections/.default={true},
+  clip~ radius/.code={
+    \dim_set:Nn \l__knot_clip_bg_radius_dim {#1}
+    \dim_set:Nn \l__knot_clip_draw_radius_dim {#1+2pt}
+  },
+  clip~ draw~ radius/.code={
+    \dim_set:Nn \l__knot_clip_draw_radius_dim {#1}
+  },
+  clip~ background~ radius/.code={
+    \dim_set:Nn \l__knot_clip_bg_radius_dim {#1}
+  },
+  clip~ radius=10pt,
+  end~ tolerance/.code={
+    \dim_set:Nn \l__knot_tolerance_dim {#1}
+  },
+  end~ tolerance=14pt,
+  clip/.style={
+    clip
+  },
+  background~ clip/.style={
+    clip
+  },
+  clip~ width/.code={
+    \tl_set:Nn \l__knot_clip_width_tl {#1}
+  },
+  clip~ width=3,
+  flip~ crossing/.code={%
+    \tl_clear_new:c {l__knot_crossing_#1}
+    \tl_set:cn {l__knot_crossing_#1} {x}
+  },
+  ignore~ crossing/.code={%
+    \tl_clear_new:c {l__knot_ignore_crossing_#1}
+    \tl_set:cn {l__knot_ignore_crossing_#1} {x}
+  },
+  draft~ mode/.is~ choice,
+  draft~ mode/off/.code={%
+    \bool_set_false:N \l__knot_draft_bool
+    \bool_set_false:N \l__knot_super_draft_bool
+  },
+  draft~ mode/crossings/.code={%
+    \bool_set_true:N \l__knot_draft_bool
+    \bool_set_false:N \l__knot_super_draft_bool
+  },
+  draft~ mode/strands/.code={%
+    \bool_set_true:N \l__knot_draft_bool
+    \bool_set_true:N \l__knot_super_draft_bool
+  },
+  debug/.is~ choice,
+  debug/true/.code={
+    \bool_set_true:N \l__knot_debugging_bool
+  },
+  debug/false/.code={
+    \bool_set_false:N \l__knot_debugging_bool
+  },
+  debug/.default=true,
+  draft/.is~ family,
+  draft,
+  crossing~ label/.style={
+    overlay,
+    fill=white,
+    fill~ opacity=.5,
+    text~ opacity=1,
+    text=blue,
+    pin~ edge={blue,<-}
+  },
+  strand~ label/.style={
+    overlay,
+    circle,
+    draw=purple,
+    fill=white,
+    fill~ opacity=.5,
+    text~ opacity=1,
+    text=purple,
+    inner~ sep=0pt
+  },
+}
+\cs_new_nopar:Npn \knot_debug:n #1
+{
+  \bool_if:NT \l__knot_debugging_bool
+  {
+    \iow_term:n {===Knot~ debug: #1===}
+  }
+}
+
+\cs_new_nopar:Npn \knot_show_strand:n #1
+{
+  \bool_if:NT \l__knot_debugging_bool
+  {
+    \iow_term:n {===Knot~ debug: #1===}
+    \spath_show:v {knot #1}
+  }
+}
+
+\cs_generate_variant:Nn \knot_debug:n {x}
+\cs_new_nopar:Npn \knot_apply_style:N #1
+{
+  \knot_debug:n {knot~ apply~ style}
+  \tl_if_exist:NT #1 {
+    \exp_args:NV \tikzset #1
+  }
+}
+\cs_generate_variant:Nn \knot_apply_style:N {c}
+\NewDocumentCommand \flipcrossings {m}
+{
+  \tikzset{knot~ diagram/flip~ crossing/.list={#1}}%
+}
+\NewDocumentCommand \strand { O{} }
+{
+  \int_incr:N \l__knot_strands_int
+  \tl_clear_new:c {l__knot_options_strand \int_use:N \l__knot_strands_int}
+  \tl_set:cn {l__knot_options_strand \int_use:N \l__knot_strands_int} {#1}
+  \path[#1,spath/set~ name=knot,spath/save=\int_use:N \l__knot_strands_int]
+}
+\NewDocumentEnvironment{knot} { O{} }
+{
+  \knot_initialise:n {#1}
+}
+{
+  \knot_render:
+}
+\cs_new_protected_nopar:Npn \knot_initialise:n #1
+{
+  \knot_debug:n {knot~ initialise}
+  \tikzset{knot~ diagram/.cd,every~ knot~ diagram/.try,#1}
+  \int_zero:N \l__knot_strands_int
+  \tl_clear:N \l__knot_redraws_tl
+  \seq_gclear:N \g__knot_nodes_seq
+}
+\cs_new_protected_nopar:Npn \knot_render:
+{
+  \knot_debug:n {knot~ render}
+  \pgfscope
+  \pgftransformreset
+  \dim_set:Nn \l__knot_redraw_tolerance_dim {\fp_to_dim:n
+    {
+      sqrt(2) * max(\l__knot_clip_bg_radius_dim, \l__knot_clip_draw_radius_dim)
+    }
+  }
+  \int_step_function:nnnN {1} {1} {\l__knot_strands_int} \knot_draw_strand:n
+  \bool_if:NF \l__knot_super_draft_bool
+  {
+    \int_step_function:nnnN {1} {1} {\l__knot_strands_int} \knot_draw_labels:n
+    \bool_if:NTF \l__knot_self_intersections_bool
+    {
+      \knot_split_strands:
+      \int_set_eq:NN \l__knot_tmpa_int \g__knot_filaments_int
+      \tl_set:Nn \l__knot_prefix_tl {filament}
+    }
+    {
+      \int_set_eq:NN \l__knot_tmpa_int \l__knot_strands_int
+      \tl_set:Nn \l__knot_prefix_tl {strand}
+    }
+    \int_gzero:N \g__knot_intersections_int
+    \tl_clear:N \l__knot_node_tl
+    \bool_if:NT \l__knot_draft_bool
+    {
+      \tl_set:Nn \l__knot_node_tl {
+        \exp_not:N \node[coordinate,
+          pin={[
+              node~ contents={\int_use:N \g__knot_intersections_int},
+              knot~ diagram/draft/crossing~ label,
+              knot~ diagram/draft/crossing~
+              \int_use:N \g__knot_intersections_int \c_space_tl label/.try
+            ]
+            }]
+      }
+    }
+    \int_step_variable:nnnNn {1} {1} {\l__knot_tmpa_int - 1} \l__knot_tmpa_tl
+    {
+      \int_step_variable:nnnNn
+      {\tl_use:N \l__knot_tmpa_tl + 1}
+      {1}
+      {\l__knot_tmpa_int} \l__knot_tmpb_tl
+      {
+        \knot_intersections:VV \l__knot_tmpa_tl \l__knot_tmpb_tl
+      }
+    }
+    \tl_use:N \l__knot_redraws_tl
+    \seq_use:Nn \g__knot_nodes_seq {}
+  }
+  \endpgfscope
+  \knot_debug:x {knot~rendered,
+    ~found~\int_use:N  \g__knot_intersections_int \c_space_tl~intersections}
+}
+\cs_new_protected_nopar:Npn \knot_draw_strand:n #1
+{
+  \knot_debug:n {knot~ draw~ strand~ #1}
+  \pgfscope
+  \group_begin:
+  \spath_bake_round:c {knot strand #1}
+  \tl_set:Nn \l__knot_tmpa_tl {knot~ diagram/every~ strand/.try,}
+  \tl_put_right:Nv \l__knot_tmpa_tl {l__knot_options_strand #1}
+  \tl_put_right:Nn \l__knot_tmpa_tl
+  {
+    ,
+    knot~ diagram/only~ when~ rendering/.try,
+    only~ when~ rendering/.try,
+  }
+  \knot_show_strand:n {strand #1}
+  \spath_tikz_path:Vv \l__knot_tmpa_tl {knot strand #1}
+  \group_end:
+  \endpgfscope
+}
+\cs_generate_variant:Nn \tl_put_right:Nn {Nv}
+\cs_new_protected_nopar:Npn \knot_draw_labels:n #1
+{
+  \knot_debug:n {knot~ draw~ labels}
+  \bool_if:NT \l__knot_draft_bool
+  {
+    \spath_finalpoint:Nv \l__knot_tmpb_tl {knot strand #1}
+    \dim_set:Nn \l__knot_tmpa_dim {\tl_item:Nn \l__knot_tmpb_tl {1}}
+    \dim_set:Nn \l__knot_tmpb_dim {\tl_item:Nn \l__knot_tmpb_tl {2}}
+    \node[
+      knot~ diagram/draft/strand~label
+    ] at (\l__knot_tmpa_dim,\l__knot_tmpb_dim) {#1};
+    \spath_initialpoint:Nv \l__knot_tmpb_tl {knot strand #1}
+    \dim_set:Nn \l__knot_tmpa_dim {\tl_item:Nn \l__knot_tmpb_tl {1}}
+    \dim_set:Nn \l__knot_tmpb_dim {\tl_item:Nn \l__knot_tmpb_tl {2}}
+    \node[
+      knot~ diagram/draft/strand~label
+    ] at (\l__knot_tmpa_dim,\l__knot_tmpb_dim) {#1};
+  }
+  \bool_if:nT {
+    \l__knot_self_intersections_bool
+    &&
+    \l__knot_splits_bool
+  }
+  {
+    \tl_clear:N \l__knot_tmpa_tl
+    \spath_remove_empty_components:c {knot strand #1}
+    \spath_initialpoint:Nv \l__knot_tmpa_tl {knot strand #1}
+    \tl_put_left:NV \l__knot_tmpa_tl \c_spath_moveto_tl
+    \spath_segments_to_seq:Nv \l__knot_segments_seq {knot strand #1}
+    \seq_map_function:NN \l__knot_segments_seq \knot_split_self_intersects:N
+    \tl_set_eq:cN {knot strand #1} \l__knot_tmpa_tl
+  }
+}
+\cs_new_protected_nopar:Npn \knot_split_self_intersects:N #1
+{
+  \knot_debug:n {knot~ split~ self~ intersects}
+  \tl_set:Nx \l__knot_tmpc_tl {\tl_item:nn {#1} {4}}
+  \token_case_meaning:NnF \l__knot_tmpc_tl
+  {
+    \c_spath_curvetoa_tl
+    {
+      \fp_set:Nn \l__knot_tmpa_fp
+      {
+        (\tl_item:nn {#1} {3} - 3 * \tl_item:nn {#1} {6}
+        + 3 * \tl_item:nn {#1} {9} - \tl_item:nn {#1} {12})
+        *
+        (3 * \tl_item:nn {#1} {8} - 3 * \tl_item:nn {#1} {11})
+        -
+        (\tl_item:nn {#1} {2} - 3 * \tl_item:nn {#1} {5}
+        + 3 * \tl_item:nn {#1} {8} - \tl_item:nn {#1} {11})
+        *
+        (3 * \tl_item:nn {#1} {9} - 3 * \tl_item:nn {#1} {12})
+      }
+      \fp_set:Nn \l__knot_tmpb_fp
+      {
+        (\tl_item:nn {#1} {2} - 3 * \tl_item:nn {#1} {5}
+        + 3 * \tl_item:nn {#1} {8} - \tl_item:nn {#1} {11})
+        *
+        (3 * \tl_item:nn {#1} {6} - 6 * \tl_item:nn {#1} {9}
+        + 3 * \tl_item:nn {#1} {12})
+        -
+        (\tl_item:nn {#1} {3} - 3 * \tl_item:nn {#1} {6}
+        + 3 * \tl_item:nn {#1} {9} - \tl_item:nn {#1} {12})
+        *
+        (3 * \tl_item:nn {#1} {5} - 6 * \tl_item:nn {#1} {8}
+        + 3 * \tl_item:nn {#1} {11})
+      }
+      \fp_compare:nTF
+      {
+        \l__knot_tmpb_fp != 0
+      }
+      {
+        \fp_set:Nn \l__knot_tmpa_fp {.5 * \l__knot_tmpa_fp / \l__knot_tmpb_fp}
+        \bool_if:nTF
+        {
+          \fp_compare_p:n {0 < \l__knot_tmpa_fp}
+          &&
+          \fp_compare_p:n {\l__knot_tmpa_fp < 1}
+        }
+        {
+          \spath_split_curve:NNnV
+          \l__knot_tmpc_tl
+          \l__knot_tmpd_tl
+          {#1}
+          \l__knot_tmpa_fp
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_set:Nx \l__knot_tmpd_tl {\tl_tail:N \l__knot_tmpd_tl}
+          \tl_set:Nx \l__knot_tmpd_tl {\tl_tail:N \l__knot_tmpd_tl}
+          \tl_set:Nx \l__knot_tmpd_tl {\tl_tail:N \l__knot_tmpd_tl}
+          \tl_put_right:NV \l__knot_tmpa_tl \l__knot_tmpc_tl
+          \tl_put_right:NV \l__knot_tmpa_tl \l__knot_tmpd_tl
+        }
+        {
+          \tl_set:Nn \l__knot_tmpc_tl {#1}
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+          \tl_put_right:NV \l__knot_tmpa_tl \l__knot_tmpc_tl
+        }
+      }
+      {
+        \tl_set:Nn \l__knot_tmpc_tl {#1}
+        \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+        \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+        \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+        \tl_put_right:NV \l__knot_tmpa_tl \l__knot_tmpc_tl
+      }
+    }
+    \c_spath_lineto_tl
+    {
+      \tl_set:Nn \l__knot_tmpc_tl {#1}
+      \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+      \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+      \tl_set:Nx \l__knot_tmpc_tl {\tl_tail:N \l__knot_tmpc_tl}
+      \tl_put_right:NV \l__knot_tmpa_tl \l__knot_tmpc_tl
+    }
+  }
+  {
+    \tl_put_right:Nn \l__knot_tmpa_tl {#1}
+  }
+}
+\cs_new_protected_nopar:Npn \knot_intersections:nn #1#2
+{
+  \knot_debug:x {knot~ intersections~ between~
+    \l__knot_prefix_tl \c_space_tl #1~ and~ #2}
+  \group_begin:
+  \tl_set_eq:NN \l__knot_tmpa_tl \l__knot_prefix_tl
+  \tl_put_right:Nn \l__knot_tmpa_tl {#1}
+  \tl_set_eq:NN \l__knot_tmpb_tl \l__knot_prefix_tl
+  \tl_put_right:Nn \l__knot_tmpb_tl {#2}
+  \tl_set_eq:Nc \l__knot_tmpc_tl {knot \tl_use:N \l__knot_tmpa_tl}
+  \tl_set_eq:Nc \l__knot_tmpd_tl {knot \tl_use:N \l__knot_tmpb_tl}
+
+  \bool_if:nTF {
+    \l__knot_save_bool
+    &&
+    \tl_if_exist_p:c {
+      knot~ intersections~
+      \tl_use:N \l__knot_name_tl -
+      \tl_use:N \l__knot_tmpa_tl -
+      \tl_use:N \l__knot_tmpb_tl
+    }
+  }
+  {
+    \tl_use:c
+    {
+      knot~ intersections~ \tl_use:N \l__knot_name_tl -
+      \tl_use:N \l__knot_tmpa_tl -
+      \tl_use:N \l__knot_tmpb_tl
+    }
+  }
+  {
+    \pgfintersectionofpaths{\pgfsetpath\l__knot_tmpc_tl}{\pgfsetpath\l__knot_tmpd_tl}
+
+  }
+
+  \knot_debug:x {found~\pgfintersectionsolutions\c_space_tl~ intersections}
+  \int_compare:nT {\pgfintersectionsolutions > 0}
+  {
+    \int_step_function:nnnN
+    {1}
+    {1}
+    {\pgfintersectionsolutions}
+    \knot_do_intersection:n
+  }
+
+  \knot_save_intersections:VV \l__knot_tmpa_tl \l__knot_tmpb_tl
+  \group_end:
+}
+\cs_new_protected_nopar:Npn \knot_save_intersections:nn #1#2
+{
+  \knot_debug:n {knot~ save~ intersections}
+  \bool_if:NT \l__knot_save_bool
+  {
+    \tl_clear:N \l__knot_aux_tl
+    \tl_put_right:Nn \l__knot_aux_tl
+    {
+      \def\pgfintersectionsolutions
+    }
+    \tl_put_right:Nx \l__knot_aux_tl
+    {
+      {\int_eval:n {\pgfintersectionsolutions}}
+    }
+    \int_compare:nT {\pgfintersectionsolutions > 0}
+    {
+      \int_step_inline:nnnn {1} {1} {\pgfintersectionsolutions}
+      {
+        \pgfpointintersectionsolution{##1}
+        \dim_set:Nn \l__knot_tmpa_dim {\pgf@x}
+        \dim_set:Nn \l__knot_tmpb_dim {\pgf@y}
+        \tl_put_right:Nn \l__knot_aux_tl
+        {
+          \expandafter\def\csname pgfpoint@intersect@solution@##1\endcsname
+        }
+        \tl_put_right:Nx \l__knot_aux_tl
+        {
+          {
+            \exp_not:N \pgf@x
+            =
+            \dim_use:N \l__knot_tmpa_dim
+            \exp_not:N \relax
+            \exp_not:N \pgf@y
+            =
+            \dim_use:N \l__knot_tmpb_dim
+            \exp_not:N \relax
+          }
+        }
+      }
+      \tl_set:Nn \l__knot_auxa_tl {\expandafter \gdef \csname knot~ intersections~}
+      \tl_put_right:Nx \l__knot_auxa_tl {\tl_use:N \l__knot_name_tl - #1 - #2}
+      \tl_put_right:Nn \l__knot_auxa_tl {\endcsname}
+      \tl_put_right:Nx \l__knot_auxa_tl {{\tl_to_str:N \l__knot_aux_tl}}
+      \protected@write\@auxout{}{\tl_to_str:N \l__knot_auxa_tl}
+    }
+  }
+}
+\cs_generate_variant:Nn \knot_save_intersections:nn {VV}
+\cs_new_protected_nopar:Npn \knot_do_intersection:n #1
+{
+  \knot_debug:n {knot~ do~ intersection~ #1}
+  \pgfpointintersectionsolution{#1}
+  \dim_set:Nn \l__knot_tmpa_dim {\pgf@x}
+  \dim_set:Nn \l__knot_tmpb_dim {\pgf@y}
+  \knot_debug:x {intersection~at~
+    (\dim_use:N \l__knot_tmpa_dim,\dim_use:N \l__knot_tmpb_dim)}
+  \bool_set_false:N \l__knot_skip_bool
+  \bool_if:NT \l__knot_self_intersections_bool
+  {
+    \tl_set:Nn \l__knot_tmpc_tl {knot previous}
+    \tl_put_right:NV \l__knot_tmpc_tl \l__knot_tmpa_tl
+    \tl_set:Nv \l__knot_tmpc_tl \l__knot_tmpc_tl
+    \tl_if_eq:NNT \l__knot_tmpc_tl \l__knot_tmpb_tl
+    {
+      \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpb_tl {final point}
+      {
+        \bool_set_true:N \l__knot_skip_bool
+      }
+    }
+
+    \tl_set:Nn \l__knot_tmpc_tl {knot previous}
+    \tl_put_right:NV \l__knot_tmpc_tl \l__knot_tmpb_tl
+    \tl_set:Nv \l__knot_tmpc_tl \l__knot_tmpc_tl
+    \tl_if_eq:NNT \l__knot_tmpc_tl \l__knot_tmpa_tl
+    {
+      \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpa_tl {final point}
+      {
+        \bool_set_true:N \l__knot_skip_bool
+      }
+    }
+  }
+  \bool_if:NT \l__knot_ignore_ends_bool
+  {
+    \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpa_tl {initial point}
+    {
+      \bool_set_true:N \l__knot_skip_bool
+    }
+    \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpa_tl {final point}
+    {
+      \bool_set_true:N \l__knot_skip_bool
+    }
+    \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpb_tl {initial point}
+    {
+      \bool_set_true:N \l__knot_skip_bool
+    }
+    \knot_test_endpoint:NVnT \l__knot_tolerance_dim \l__knot_tmpb_tl {final point}
+    {
+      \bool_set_true:N \l__knot_skip_bool
+    }
+  }
+  \bool_if:NF \l__knot_skip_bool
+  {
+
+    \int_gincr:N \g__knot_intersections_int
+    \knot_debug:x {Processing~intersection~\int_use:N \g__knot_intersections_int}
+    \bool_if:nF
+    {
+      \tl_if_exist_p:c {l__knot_ignore_crossing_ \int_use:N
+        \g__knot_intersections_int}
+      &&
+      ! \tl_if_empty_p:c {l__knot_ignore_crossing_ \int_use:N
+        \g__knot_intersections_int}
+    }
+    {
+      \bool_if:nTF
+      {
+        \tl_if_exist_p:c {l__knot_crossing_ \int_use:N
+          \g__knot_intersections_int}
+        &&
+        ! \tl_if_empty_p:c {l__knot_crossing_ \int_use:N
+          \g__knot_intersections_int}
+      }
+      {
+        \tl_set_eq:NN \l__knot_tmpg_tl \l__knot_tmpb_tl
+      }
+      {
+        \tl_set_eq:NN \l__knot_tmpg_tl \l__knot_tmpa_tl
+      }
+      \bool_if:NT \l__knot_self_intersections_bool
+      {
+        \knot_test_endpoint:NVnT
+        \l__knot_redraw_tolerance_dim \l__knot_tmpg_tl {initial point}
+        {
+          \bool_set_true:N \l__knot_prepend_prev_bool
+        }
+        {
+          \bool_set_false:N \l__knot_prepend_prev_bool
+        }
+        \knot_test_endpoint:NVnT
+        \l__knot_redraw_tolerance_dim \l__knot_tmpg_tl {final point}
+        {
+          \bool_set_true:N \l__knot_append_next_bool
+        }
+        {
+          \bool_set_false:N \l__knot_append_next_bool
+        }
+        \bool_if:nT
+        {
+          \l__knot_prepend_prev_bool || \l__knot_append_next_bool
+        }
+        {
+          \tl_clear_new:c {knot \tl_use:N \l__knot_prefix_tl -1}
+          \tl_set_eq:cc
+          {knot \tl_use:N \l__knot_prefix_tl -1}
+          {knot \tl_use:N \l__knot_tmpg_tl}
+
+          \tl_clear_new:c {l__knot_options_ \tl_use:N \l__knot_prefix_tl -1}
+          \tl_set_eq:cc
+          {l__knot_options_ \tl_use:N \l__knot_prefix_tl -1}
+          {l__knot_options_ \tl_use:N \l__knot_tmpg_tl}
+
+          \bool_if:nT
+          {
+            \l__knot_prepend_prev_bool
+            &&
+            \tl_if_exist_p:c {knot previous \tl_use:N \l__knot_tmpg_tl}
+            &&
+            !\tl_if_empty_p:c {knot previous \tl_use:N \l__knot_tmpg_tl}
+          }
+          {
+            \knot_debug:x {Prepending~
+              \tl_use:c {knot previous \tl_use:N \l__knot_tmpg_tl}}
+            \spath_prepend_no_move:cv
+            {knot \tl_use:N \l__knot_prefix_tl -1}
+            {knot \tl_use:c {knot previous \tl_use:N \l__knot_tmpg_tl}}
+            \bool_if:nT
+            {
+              \l__knot_splits_bool
+              &&
+              \tl_if_exist_p:c {knot previous
+                \tl_use:c {knot previous \tl_use:N \l__knot_tmpg_tl}
+              }
+              &&
+              !\tl_if_empty_p:c {knot previous
+                \tl_use:c {knot previous \tl_use:N \l__knot_tmpg_tl}
+              }
+            }
+            {
+              \knot_test_endpoint:NvnT
+              \l__knot_redraw_tolerance_dim
+              {knot previous \tl_use:N \l__knot_tmpg_tl}
+              {initial point}
+              {
+                \knot_debug:x {Prepending~
+                  \tl_use:c {knot previous
+                    \tl_use:c {knot previous \tl_use:N \l__knot_tmpg_tl}
+                  }
+                }
+                \spath_prepend_no_move:cv
+                {knot \tl_use:N \l__knot_prefix_tl -1}
+                {knot \tl_use:c
+                  {knot previous \tl_use:c
+                    {knot previous \tl_use:N \l__knot_tmpg_tl}
+                  }
+                }
+                \tl_set_eq:Nc \l__knot_tmpa_tl
+                {knot \tl_use:N \l__knot_prefix_tl -1}
+              }
+            }
+          }
+
+          \bool_if:nT
+          {
+            \l__knot_append_next_bool
+            &&
+            \tl_if_exist_p:c {knot next \tl_use:N \l__knot_tmpg_tl}
+            &&
+            !\tl_if_empty_p:c {knot next \tl_use:N \l__knot_tmpg_tl}
+          }
+          {
+            \knot_debug:x {Appending~
+              \tl_use:c {knot next \tl_use:N \l__knot_tmpg_tl}}
+            \spath_append_no_move:cv
+            {knot \tl_use:N \l__knot_prefix_tl -1}
+            {knot \tl_use:c {knot next \tl_use:N \l__knot_tmpg_tl}}
+            \bool_if:nT
+            {
+              \l__knot_splits_bool
+              &&
+              \tl_if_exist_p:c {knot next \tl_use:c { knot next \tl_use:N
+                \l__knot_tmpg_tl}}
+              &&
+              !\tl_if_empty_p:c {knot next
+                \tl_use:c { knot next \tl_use:N \l__knot_tmpg_tl}
+              }
+            }
+            {
+              \knot_debug:x {Testing~ whether~ to~ append~
+                {knot next \tl_use:c { knot next \tl_use:N \l__knot_tmpg_tl}}
+              }
+              \knot_test_endpoint:NvnT
+              \l__knot_redraw_tolerance_dim
+              {knot next \tl_use:N \l__knot_tmpg_tl}
+              {final point}
+              {
+                \knot_debug:x {Appending~
+                  {knot next \tl_use:c { knot next \tl_use:N \l__knot_tmpg_tl}}
+                }
+                \spath_append_no_move:cv
+                {knot \tl_use:N \l__knot_prefix_tl -1}
+                {knot \tl_use:c
+                  {knot next \tl_use:c
+                    {knot next \tl_use:N \l__knot_tmpg_tl}
+                  }
+                }
+              }
+            }
+          }
+          \tl_set:Nn \l__knot_tmpg_tl {\tl_use:N \l__knot_prefix_tl -1}
+        }
+      }
+      \pgfscope
+      \group_begin:
+      \tikzset{
+        knot~ diagram/every~ intersection/.try,
+        every~ intersection/.try,
+        knot~ diagram/intersection~ \int_use:N \g__knot_intersections_int/.try
+      }
+      \knot_draw_crossing:VVV \l__knot_tmpg_tl \l__knot_tmpa_dim \l__knot_tmpb_dim
+      \coordinate
+      (\l__knot_name_tl \c_space_tl \int_use:N \g__knot_intersections_int)
+      at (\dim_use:N \l__knot_tmpa_dim, \dim_use:N \l__knot_tmpb_dim);
+      \group_end:
+      \endpgfscope
+    }
+    \tl_if_empty:NF \l__knot_node_tl
+    {
+      \seq_gpush:Nx
+      \g__knot_nodes_seq
+      {
+        \l__knot_node_tl
+        at
+        (\dim_use:N \l__knot_tmpa_dim, \dim_use:N \l__knot_tmpb_dim) {};
+      }
+    }
+  }
+}
+
+\cs_generate_variant:Nn \knot_intersections:nn {VV}
+\prg_new_conditional:Npnn \knot_test_endpoint:NN #1#2 {p,T,F,TF}
+{
+  \dim_compare:nTF
+  {
+    \dim_abs:n { \l__knot_tmpa_dim - \tl_item:Nn #2 {1}}
+    +
+    \dim_abs:n { \l__knot_tmpb_dim - \tl_item:Nn #2 {2}}
+    <
+    #1
+  }
+  {
+    \prg_return_true:
+  }
+  {
+    \prg_return_false:
+  }
+}
+\prg_new_protected_conditional:Npnn \knot_test_endpoint:Nnn #1#2#3 {T,F,TF}
+{
+  \use:c {spath_#3:Nv} \l__knot_tmpd_tl {knot #2}
+  \knot_test_endpoint:NNTF #1 \l__knot_tmpd_tl
+  {
+    \prg_return_true:
+  }
+  {
+    \prg_return_false:
+  }
+}
+
+\cs_generate_variant:Nn \knot_test_endpoint:NnnT {NVnT,NvnT}
+\cs_generate_variant:Nn \knot_test_endpoint:NnnF {NVnF,NvnF}
+\cs_generate_variant:Nn \knot_test_endpoint:NnnTF {NVnTF,NvnTF}
+\cs_new_protected_nopar:Npn \knot_draw_crossing:nnn #1#2#3
+{
+  \knot_debug:n {knot~ draw~ crossing}
+  \group_begin:
+  \pgfscope
+  \path[knot~ diagram/background~ clip] (#2, #3)
+  circle[radius=\l__knot_clip_bg_radius_dim];
+
+  \tl_set:Nn \l__knot_tmpa_tl {knot~ diagram/every~ strand/.try,}
+  \tl_if_exist:cT {l__knot_options_ #1}
+  {
+  \tl_put_right:Nv \l__knot_tmpa_tl {l__knot_options_ #1}
+  }
+  \tl_put_right:Nn \l__knot_tmpa_tl
+  {
+    ,knotbg
+    ,line~ width= \tl_use:N \l__knot_clip_width_tl * \pgflinewidth
+  }
+  \spath_tikz_path:Vv \l__knot_tmpa_tl {knot #1}
+
+  \endpgfscope
+
+  \pgfscope
+  \path[knot~ diagram/clip] (#2, #3)
+  circle[radius=\l__knot_clip_draw_radius_dim];
+
+  \tl_set:Nn \l__knot_tmpa_tl {knot~ diagram/every~ strand/.try,}
+  \tl_if_exist:cT {l__knot_options_ #1}
+  {
+  \tl_put_right:Nv \l__knot_tmpa_tl {l__knot_options_ #1}
+  }
+  \tl_put_right:Nn \l__knot_tmpa_tl
+  {
+    ,knot~ diagram/only~ when~ rendering/.try
+    ,only~ when~ rendering/.try
+  }
+  \spath_tikz_path:Vv \l__knot_tmpa_tl {knot #1}
+
+  \endpgfscope
+  \group_end:
+}
+
+\cs_generate_variant:Nn \knot_draw_crossing:nnn {nVV, VVV}
+
+\cs_new_protected_nopar:Npn \knot_draw_crossing:nn #1#2
+{
+  \tikz@scan@one@point\pgfutil@firstofone #2 \relax
+  \knot_draw_crossing:nVV {#1} \pgf@x \pgf@y
+}
+\cs_new_protected_nopar:Npn \knot_split_strands:
+{
+  \knot_debug:n {knot~ split~ strands}
+  \int_gzero:N \g__knot_filaments_int
+  \int_step_function:nnnN {1} {1} {\l__knot_strands_int} \knot_split_strand:n
+  \int_step_function:nnnN {1} {1} {\g__knot_filaments_int} \knot_compute_nexts:n
+}
+\cs_new_protected_nopar:Npn \knot_compute_nexts:n #1
+{
+  \knot_debug:n {knot~ compute~ nexts}
+  \tl_clear_new:c {knot next \tl_use:c {knot previous filament #1}}
+  \tl_set:cn {knot next \tl_use:c {knot previous filament #1}} {filament #1}
+}
+\cs_new_protected_nopar:Npn \knot_split_strand:n #1
+{
+  \knot_debug:n {knot~ split~ strand}
+  \int_set_eq:NN \l__knot_component_start_int \g__knot_filaments_int
+  \int_incr:N \l__knot_component_start_int
+  \tl_set_eq:Nc \l__knot_tmpa_tl {l__knot_options_strand #1}
+  \spath_remove_empty_components:c {knot strand #1}
+  \spath_segments_to_seq:Nv \l__knot_segments_seq {knot strand #1}
+  \seq_map_function:NN \l__knot_segments_seq \knot_save_filament:N
+}
+\cs_new_protected_nopar:Npn \knot_save_filament:N #1
+{
+  \knot_debug:n {knot~ save~ filament}
+  \tl_set:Nx \l__knot_tmpb_tl {\tl_item:nn {#1} {4}}
+  \token_case_meaning:NnF \l__knot_tmpb_tl
+  {
+    \c_spath_moveto_tl
+    {
+      \int_compare:nT {\l__knot_component_start_int < \g__knot_filaments_int}
+      {
+        \int_set_eq:NN \l__knot_component_start_int \g__knot_filaments_int
+      }
+    }
+    \c_spath_lineto_tl
+    {
+      \int_gincr:N \g__knot_filaments_int
+      \tl_clear_new:c {knot filament \int_use:N \g__knot_filaments_int}
+      \tl_set:cn {knot filament \int_use:N \g__knot_filaments_int} {#1}
+
+      \tl_clear_new:c {l__knot_options_filament \int_use:N \g__knot_filaments_int}
+      \tl_set_eq:cN {l__knot_options_filament \int_use:N \g__knot_filaments_int}
+      \l__knot_tmpa_tl
+
+      \tl_clear_new:c {knot previous filament \int_use:N \g__knot_filaments_int}
+      \int_compare:nF {\l__knot_component_start_int == \g__knot_filaments_int}
+      {
+        \tl_set:cx {knot previous filament \int_use:N \g__knot_filaments_int}
+        {filament \int_eval:n {\g__knot_filaments_int - 1}}
+      }
+    }
+    \c_spath_curvetoa_tl
+    {
+      \int_gincr:N \g__knot_filaments_int
+      \tl_clear_new:c {knot filament \int_use:N \g__knot_filaments_int}
+      \tl_set:cn {knot filament \int_use:N \g__knot_filaments_int} {#1}
+      \tl_clear_new:c {l__knot_options_filament \int_use:N \g__knot_filaments_int}
+      \tl_set_eq:cN {l__knot_options_filament \int_use:N \g__knot_filaments_int}
+      \l__knot_tmpa_tl
+
+      \tl_clear_new:c {knot previous filament \int_use:N \g__knot_filaments_int}
+      \int_compare:nF {\l__knot_component_start_int == \g__knot_filaments_int}
+      {
+        \tl_set:cx
+        {knot previous filament \int_use:N \g__knot_filaments_int}
+        {filament \int_eval:n {\g__knot_filaments_int - 1}}
+      }
+    }
+    \c_spath_closepath_tl
+    {
+      \int_gincr:N \g__knot_filaments_int
+      \tl_clear_new:c {knot filament \int_use:N \g__knot_filaments_int}
+      \tl_clear:N \l__knot_tmpa_tl
+      \tl_put_right:Nx
+      {
+        \tl_item:nn {#1} {1}\tl_item:nn {#1} {2}\tl_item:nn {#1} {3}
+      }
+      \tl_put_right:NV \l__knot_tmpa_tl \c_spath_lineto_tl
+      \tl_put_right:Nx {\tl_item:nn {#1} {5}\tl_item:nn {#1} {6}}
+
+      \tl_set:cV {knot filament \int_use:N \g__knot_filaments_int} \l__knot_tmpa_tl
+      \tl_set_eq:cN {l__knot_options_filament \int_use:N \g__knot_filaments_int}
+      \l__knot_tmpa_tl
+      \tl_clear_new:c {knot previous filament \int_use:N \g__knot_filaments_int}
+      \int_compare:nF {\l__knot_component_start_int == \g__knot_filaments_int}
+      {
+        \tl_set:cx
+        {knot previous filament \int_use:N \g__knot_filaments_int}
+        {filament \int_eval:n {\g__knot_filaments_int - 1}}
+      }
+      \tl_set:cx
+      {knot previous filament \int_use:N \l__knot_component_start_int}
+      {filament \int_use:N \g__knot_filaments_int}
+    }
+  }
+  {
+  }
+}
+\NewDocumentCommand \redraw { m m }
+{
+  \tl_put_right:Nn \l__knot_redraws_tl {\knot_draw_crossing:nn}
+  \tl_put_right:Nx \l__knot_redraws_tl {
+    {strand #1} {#2}% {\dim_use:N \pgf@x} {\dim_use:N \pgf@y}
+  }
+}
+\ExplSyntaxOff
+\def\pgf@sh@@knotanchor#1#2{%
+  \anchor{#2 north west}{%
+    \csname pgf@anchor@knot #1@north west\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 north east}{%
+    \csname pgf@anchor@knot #1@north east\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 south west}{%
+    \csname pgf@anchor@knot #1@south west\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 south east}{%
+    \csname pgf@anchor@knot #1@south east\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 north}{%
+    \csname pgf@anchor@knot #1@north\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 east}{%
+    \csname pgf@anchor@knot #1@east\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 west}{%
+    \csname pgf@anchor@knot #1@west\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+  \anchor{#2 south}{%
+    \csname pgf@anchor@knot #1@south\endcsname%
+    \pgf@x=#2\pgf@x%
+    \pgf@y=#2\pgf@y%
+  }%
+}
+\pgfdeclareshape{knot crossing}
+{
+  \inheritsavedanchors[from=circle] % this is nearly a circle
+  \inheritanchorborder[from=circle]
+  \inheritanchor[from=circle]{north}
+  \inheritanchor[from=circle]{north west}
+  \inheritanchor[from=circle]{north east}
+  \inheritanchor[from=circle]{center}
+  \inheritanchor[from=circle]{west}
+  \inheritanchor[from=circle]{east}
+  \inheritanchor[from=circle]{mid}
+  \inheritanchor[from=circle]{mid west}
+  \inheritanchor[from=circle]{mid east}
+  \inheritanchor[from=circle]{base}
+  \inheritanchor[from=circle]{base west}
+  \inheritanchor[from=circle]{base east}
+  \inheritanchor[from=circle]{south}
+  \inheritanchor[from=circle]{south west}
+  \inheritanchor[from=circle]{south east}
+  \inheritanchorborder[from=circle]
+  \pgf@sh@@knotanchor{crossing}{2}
+  \pgf@sh@@knotanchor{crossing}{3}
+  \pgf@sh@@knotanchor{crossing}{4}
+  \pgf@sh@@knotanchor{crossing}{8}
+  \pgf@sh@@knotanchor{crossing}{16}
+  \pgf@sh@@knotanchor{crossing}{32}
+  \backgroundpath{
+    \pgfutil@tempdima=\radius%
+    \pgfmathsetlength{\pgf@xb}{\pgfkeysvalueof{/pgf/outer xsep}}%
+    \pgfmathsetlength{\pgf@yb}{\pgfkeysvalueof{/pgf/outer ysep}}%
+    \ifdim\pgf@xb<\pgf@yb%
+      \advance\pgfutil@tempdima by-\pgf@yb%
+    \else%
+      \advance\pgfutil@tempdima by-\pgf@xb%
+    \fi%
+  }
+}
+\pgfdeclareshape{knot over cross}
+{
+  \inheritsavedanchors[from=rectangle] % this is nearly a circle
+  \inheritanchorborder[from=rectangle]
+  \inheritanchor[from=rectangle]{north}
+  \inheritanchor[from=rectangle]{north west}
+  \inheritanchor[from=rectangle]{north east}
+  \inheritanchor[from=rectangle]{center}
+  \inheritanchor[from=rectangle]{west}
+  \inheritanchor[from=rectangle]{east}
+  \inheritanchor[from=rectangle]{mid}
+  \inheritanchor[from=rectangle]{mid west}
+  \inheritanchor[from=rectangle]{mid east}
+  \inheritanchor[from=rectangle]{base}
+  \inheritanchor[from=rectangle]{base west}
+  \inheritanchor[from=rectangle]{base east}
+  \inheritanchor[from=rectangle]{south}
+  \inheritanchor[from=rectangle]{south west}
+  \inheritanchor[from=rectangle]{south east}
+  \inheritanchorborder[from=rectangle]
+  \backgroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@ya}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@yb}}
+  }
+  \foregroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@yb}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@ya}}
+ }
+}
+\pgfdeclareshape{knot under cross}
+{
+  \inheritsavedanchors[from=rectangle] % this is nearly a circle
+  \inheritanchorborder[from=rectangle]
+  \inheritanchor[from=rectangle]{north}
+  \inheritanchor[from=rectangle]{north west}
+  \inheritanchor[from=rectangle]{north east}
+  \inheritanchor[from=rectangle]{center}
+  \inheritanchor[from=rectangle]{west}
+  \inheritanchor[from=rectangle]{east}
+  \inheritanchor[from=rectangle]{mid}
+  \inheritanchor[from=rectangle]{mid west}
+  \inheritanchor[from=rectangle]{mid east}
+  \inheritanchor[from=rectangle]{base}
+  \inheritanchor[from=rectangle]{base west}
+  \inheritanchor[from=rectangle]{base east}
+  \inheritanchor[from=rectangle]{south}
+  \inheritanchor[from=rectangle]{south west}
+  \inheritanchor[from=rectangle]{south east}
+  \inheritanchorborder[from=rectangle]
+  \backgroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@yb}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@ya}}
+  }
+  \foregroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@ya}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@yb}}
+ }
+}
+\pgfdeclareshape{knot vert}
+{
+  \inheritsavedanchors[from=rectangle] % this is nearly a circle
+  \inheritanchorborder[from=rectangle]
+  \inheritanchor[from=rectangle]{north}
+  \inheritanchor[from=rectangle]{north west}
+  \inheritanchor[from=rectangle]{north east}
+  \inheritanchor[from=rectangle]{center}
+  \inheritanchor[from=rectangle]{west}
+  \inheritanchor[from=rectangle]{east}
+  \inheritanchor[from=rectangle]{mid}
+  \inheritanchor[from=rectangle]{mid west}
+  \inheritanchor[from=rectangle]{mid east}
+  \inheritanchor[from=rectangle]{base}
+  \inheritanchor[from=rectangle]{base west}
+  \inheritanchor[from=rectangle]{base east}
+  \inheritanchor[from=rectangle]{south}
+  \inheritanchor[from=rectangle]{south west}
+  \inheritanchor[from=rectangle]{south east}
+  \inheritanchorborder[from=rectangle]
+  \backgroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@ya}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xa}{\pgf@yb}}
+    \pgfpathmoveto{\pgfqpoint{\pgf@xb}{\pgf@yb}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@ya}}
+ }
+}
+\pgfdeclareshape{knot horiz}
+{
+  \inheritsavedanchors[from=rectangle] % this is nearly a circle
+  \inheritanchorborder[from=rectangle]
+  \inheritanchor[from=rectangle]{north}
+  \inheritanchor[from=rectangle]{north west}
+  \inheritanchor[from=rectangle]{north east}
+  \inheritanchor[from=rectangle]{center}
+  \inheritanchor[from=rectangle]{west}
+  \inheritanchor[from=rectangle]{east}
+  \inheritanchor[from=rectangle]{mid}
+  \inheritanchor[from=rectangle]{mid west}
+  \inheritanchor[from=rectangle]{mid east}
+  \inheritanchor[from=rectangle]{base}
+  \inheritanchor[from=rectangle]{base west}
+  \inheritanchor[from=rectangle]{base east}
+  \inheritanchor[from=rectangle]{south}
+  \inheritanchor[from=rectangle]{south west}
+  \inheritanchor[from=rectangle]{south east}
+  \inheritanchorborder[from=rectangle]
+  \foregroundpath{
+    \southwest \pgf@xa=\pgf@x \pgf@ya=\pgf@y
+    \northeast \pgf@xb=\pgf@x \pgf@yb=\pgf@y
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@ya}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@ya}}
+    \pgfpathmoveto{\pgfqpoint{\pgf@xa}{\pgf@yb}}
+    \pgfpathlineto{\pgfqpoint{\pgf@xb}{\pgf@yb}}
+ }
+}
+%% 
+%% Copyright (C) 2011-2024 by Andrew Stacey <loopspace@mathforge.org>
+%% 
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License (LPPL), either
+%% version 1.3c of this license or (at your option) any later
+%% version.  The latest version of this license is in the file:
+%% 
+%% http://www.latex-project.org/lppl.txt
+%% 
+%% This work is "maintained" (as per LPPL maintenance status) by
+%% Andrew Stacey.
+%% 
+%% This work consists of the files  spath3_code.dtx
+%%                                  calligraphy_doc.tex
+%%                                  knots_doc.tex
+%%                                  spath3.tex
+%% and the derived files            spath3.ins,
+%%                                  spath3_code.pdf,
+%%                                  spath3.sty,
+%%                                  tikzlibrarycalligraphy.code.tex
+%%                                  tikzlibraryknots.code.tex
+%%                                  tikzlibraryspath3.code.tex
+%%                                  calligraphy.pdf
+%%                                  knots.pdf
+%%                                  spath3.pdf
+%%                                  README.txt
+%% 
+%%
+%% End of file `tikzlibraryknots.code.tex'.

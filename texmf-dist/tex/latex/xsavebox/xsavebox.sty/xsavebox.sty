@@ -1,0 +1,379 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% xsavebox.sty
+%
+% Copyright 2016--\today, Alexander Grahn
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Provides commands for saving and repeating any content (typeset text, external
+% and inline [TikZ/PGF, PSTricks] graphics) similar to standard LaTeX's
+% \savebox, \sbox, \usebox commands and the `lrbox' environment, but without
+% code replication for smaller PDF output size
+%
+%  content saving:
+%
+%    (starred `*' variants allow for colour injection [pdflatex/lualatex only])
+%
+%    \xsavebox{<name>}[<width>][<position>]{...}
+%    \xsavebox*{<name>}[<width>][<position>]{...}
+%
+%    \xsbox{<name>}{...}
+%
+%    \begin{xlrbox}{<name>}...\end{xlrbox}
+%    \begin{xlrbox*}{<name>}...\end{xlrbox*}
+%
+%  content insertion:
+%
+%    \xusebox{<name>}
+%    \the<name> %short form of \xusebox{<name>} for <name> composed of [a-zA-Z]
+%
+% Supports all known engines and backends including pdflatex,
+% latex+dvips+ps2pdf, xelatex, latex+dvipdfmx, lualatex, latex+dvisvgm.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License
+%
+%   http://mirrors.ctan.org/macros/latex/base/lppl.txt
+%
+% This work has the LPPL maintenance status `maintained'.
+%
+% The Current Maintainer of this work is A. Grahn.
+
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+
+\def\g@xsb@version@tl{0.18}
+\def\g@xsb@date@tl{2022/08/04}
+\ProvidesExplPackage{xsavebox}{\g@xsb@date@tl}{\g@xsb@version@tl}
+{saveboxes for repeating content without code replication}
+
+% ensure that backend code is loaded
+\cs_if_exist:NF\c_sys_backend_str{\sys_load_backend:n{}}
+
+\msg_set:nnnn{xsavebox}{support~outdated}{
+  Support~package~`#1'~too~old.
+}{
+  Please~install~an~up~to~date~version~of~`#1'.\\
+  Loading~xsavebox~will~abort!
+}
+
+%re-run message
+\msg_set:nnn{xsavebox}{rerun}{Rerun~to~get~internal~references~right!}
+\cs_new_protected:Nn\xsb_rerun_msg:{
+  \cs_if_exist:NF\g_xsb_rerunwarned_tl{
+    \tl_new:N\g_xsb_rerunwarned_tl
+    \AtEndDocument{\msg_warning:nn{xsavebox}{rerun}}
+  }
+}
+
+%unknown package option error message
+\msg_set:nnnn{xsavebox}{unknown~package~option}{Unknown~package~option~`#1'.}{
+  Package option~'#1'~is~unknown;\\
+  perhaps~it~is~spelled~incorrectly.
+}
+
+% possible values for \c_sys_backend_str: pdftex, luatex, xetex, dvips, dvipdfmx, dvisvgm
+%package options
+\tl_gset:Nn\g_xsb_margin_tl{3pt}
+\keys_define:nn{xsavebox}{
+  pdftex.code:n = {},
+  pdftex.value_forbidden:n = true,
+
+  luatex.code:n = {},
+  luatex.value_forbidden:n = true,
+
+  xetex.code:n = {},
+  xetex.value_forbidden:n = true,
+
+  dvips.code:n = {},
+  dvips.value_forbidden:n = true,
+
+  dvipdfmx.code:n = {
+    \PassOptionsToPackage{dvipdfmx}{pdfbase}
+  },
+  dvipdfmx.value_forbidden:n = true,
+
+  dvisvgm.code:n = {
+    \PassOptionsToPackage{dvisvgm}{pdfbase}
+  },
+  dvisvgm.value_forbidden:n = true,
+
+  margin .code:n = {
+    \setlength\l_tmpa_dim{#1}
+    \tl_gset:Nx\g_xsb_margin_tl{\dim_use:N\l_tmpa_dim}
+  },
+
+  unknown .code:n = {
+    \msg_error:nnx{xsavebox}{unknown~package~option}{\l_keys_key_tl}
+  }
+}
+\ProcessKeyOptions[xsavebox]
+
+\RequirePackage{pdfbase}
+\@ifpackagelater{pdfbase}{2022/08/04}{}{
+  \msg_error:nnn{xsavebox}{support~outdated}{pdfbase.sty}
+  \tex_endinput:D
+}
+
+\cs_gset_eq:NN\xsb_pdfxform:nnnnn\pbs_pdfxform:nnnnn
+\cs_gset_eq:NN\xsb_pdflastxform:\pbs_pdflastxform:
+\cs_gset_eq:NN\xsb_pdfrefxform:n\pbs_pdfrefxform:n
+
+\bool_if:NTF\g_pbs_dvisvgm_bool{
+  \tl_gset:Nn\g_xsb_margin_tl{0pt}
+  \cs_new_protected_nopar:Nn\xsb_updatebbox:nnn{
+    \special{dvisvgm:bbox~#1~#2~#3~transform}
+  }
+}{
+  \cs_new_protected_nopar:Nn\xsb_updatebbox:nnn{}
+}
+
+\int_new:N\g_xsb_id_int
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% content insertion (referencing, actually)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\DeclareDocumentCommand\xusebox{m}{
+  \tl_if_exist:cF{xsb_name_#1}{\msg_error:nnn{xsavebox}{save-box~undefined}{#1}}
+  \tl_use:c{the#1}
+}
+\msg_set:nnnn{xsavebox}{save-box~undefined}{
+  Save-box~`#1'~undefined~\msg_line_context:.
+}{
+  Save-box~`#1'~must~be~defined~/before/~use.
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% saving content
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\DeclareDocumentCommand\xsavebox{smO{\width}O{c}+m}{
+  \xsb_check_box_name:n{#2}
+  \group_begin:
+  \xsb_push_props: %new, empty properties dict
+  \xsb_beginLTR:
+  \hbox_set:Nn\l_xsb_raw_box{ %raw content
+    \bool_lazy_and:nnF{
+      \tl_if_exist_p:c{xsb@\int_use:N\g_xsb_id_int}
+    }{
+      \bool_if_p:c{c_\tl_use:c{xsb@\int_use:N\g_xsb_id_int}_bool}
+    }{ %prevent unused boxes from creating OCGs/OCMDs
+      \DeclareDocumentEnvironment{ocg}{O{}mmm}{\ignorespaces}{\unskip}
+      \DeclareDocumentEnvironment{ocmd}{O{}m}{\ignorespaces}{\unskip}
+    }
+    #5
+  }
+  \hbox_set:Nn\l_xsb_box{ %content re-aligned
+    \makebox[#3][#4]{\hbox_unpack:N\l_xsb_raw_box}
+  }
+  %process one of \l_xsb_raw_box or \l_xsb_box
+  \dim_compare:nTF{\box_wd:N\l_xsb_raw_box>\box_wd:N\l_xsb_box}{
+    \str_if_eq:eeTF{#4}{s}{
+      %sqeezing content correctly
+      \IfBooleanTF{#1}{
+        %for colour injection
+        \hbox_set:Nn\l_xsb_box{
+          \makebox[\box_wd:N\l_xsb_raw_box][l]{
+            \makebox[#3][s]{\hbox_unpack:N\l_xsb_raw_box}
+          }
+        }
+      }{
+        %no colour injection
+        \savebox\l_xsb_box[\box_wd:N\l_xsb_raw_box][l]{
+          \makebox[#3][s]{\hbox_unpack:N\l_xsb_raw_box}
+        }
+      }
+      \xsb_process_box:nnnN{#2}{#3}{#4}\l_xsb_box
+    }{ % raw content
+      \IfBooleanF{#1}{
+        \sbox\l_xsb_raw_box{\hbox_unpack:N\l_xsb_raw_box}
+      }
+      \xsb_process_box:nnnN{#2}{#3}{#4}\l_xsb_raw_box
+    }
+  }{
+    \IfBooleanF{#1}{
+      \savebox\l_xsb_box[#3][#4]{\hbox_unpack:N\l_xsb_raw_box}
+    }
+    \xsb_process_box:nnnN{#2}{\width}{c}\l_xsb_box
+  }
+  \xsb_endLTR:
+  \group_end:
+}
+
+\DeclareDocumentCommand\xsbox{m+m}{\xsavebox{#1}{#2}}
+
+\DeclareDocumentEnvironment{xlrbox}{m}{
+  \xsb_check_box_name:n{#1}
+  \xsb_xlrbox:
+}{
+  \xsb_endxlrbox:n{#1}
+}
+
+\DeclareDocumentEnvironment{xlrbox*}{m}{
+  \xsb_check_box_name:n{#1}
+  \xsb_xlrbox:
+}{
+  \xsb_endxlrbox_star:n{#1}
+}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\msg_set:nnn{xsavebox}{name~in~use}{
+  The~name~`#1'~is~already~in~use~\msg_line_context:.\\
+  Select~a~different~box~name.
+}
+\cs_new_protected_nopar:Nn\xsb_check_box_name:n{
+  \bool_if:nTF{
+    \cs_if_exist_p:c{the#1} && !\tl_if_exist_p:c{xsb_name_#1}
+  }{
+    \msg_error:nnx{xsavebox}{name~in~use}{#1}
+  }{
+    \tl_clear_new:c{xsb_name_#1}
+  }
+}
+
+\cs_new_protected:Nn\xsb_xlrbox:{
+  \group_begin:
+  \xsb_push_props: %new, empty properties dict
+  \xsb_beginLTR:
+  \hbox_set:Nw\l_xsb_box
+  \bool_lazy_and:nnF{ %prevent unused boxes from creating OCGs/OCMDs
+    \tl_if_exist_p:c{xsb@\int_use:N\g_xsb_id_int}
+  }{
+    \bool_if_p:c{c_\tl_use:c{xsb@\int_use:N\g_xsb_id_int}_bool}
+  }{
+    \DeclareDocumentEnvironment{ocg}{O{}mmm}{\ignorespaces}{\unskip}
+    \DeclareDocumentEnvironment{ocmd}{O{}m}{\ignorespaces}{\unskip}
+  }
+  \ignorespaces
+}
+
+\cs_new_protected_nopar:Nn\xsb_endxlrbox:n{
+  \unskip
+  \hbox_set_end:
+  \sbox\l_xsb_box{\hbox_unpack_drop:N\l_xsb_box}
+  \xsb_process_box:nnnN{#1}{\width}{c}\l_xsb_box
+  \xsb_endLTR:
+  \group_end:
+}
+
+\cs_new_protected_nopar:Nn\xsb_endxlrbox_star:n{
+  \unskip
+  \hbox_set_end:
+  \xsb_process_box:nnnN{#1}{\width}{c}\l_xsb_box
+  \xsb_endLTR:
+  \group_end:
+}
+
+\cs_new_protected_nopar:Nn\xsb_process_box:nnnN{
+  %measure natural dimensions
+  \cs_set_nopar:Npn\width {\box_wd:N#4}
+  \cs_set_nopar:Npn\height{\box_ht:N#4}
+  \cs_set_nopar:Npn\depth {\box_dp:N#4}
+  \cs_set_nopar:Npn\totalheight{\dimexpr\height+\depth\relax}
+  \tl_set:Nx\l_xsb_wd_tl{\dim_use:N\width}
+  \tl_set:Nx\l_xsb_ht_tl{\dim_use:N\height}
+  \tl_set:Nx\l_xsb_dp_tl{\dim_use:N\depth}
+  %evaluate width argument (allowing for calc-type expressions)
+  \setlength\l_tmpa_dim{#2}
+  \tl_set:Nx\l_xsb_new_wd_tl{\dim_use:N\l_tmpa_dim}
+  %temporarily (for distilling) push the box bounds somewhat; glyphs tend to
+  %be bigger than their bounding boxes
+  \hbox_set_to_wd:Nnn#4{\width+\g_xsb_margin_tl+\g_xsb_margin_tl}{
+    \hss\hbox_unpack_drop:N#4\hss
+  }
+  \box_set_ht:Nn#4{\height+\g_xsb_margin_tl}
+  \box_set_dp:Nn#4{\depth+\g_xsb_margin_tl}
+  \sys_if_output_dvi:TF{
+    \tl_if_exist:cF{xsb@\int_use:N\g_xsb_id_int}{
+      \tl_gset:cn{xsb@\int_use:N\g_xsb_id_int}{true}
+      \xsb_rerun_msg:
+    }
+  }{
+    \tl_gset:cn{xsb@\int_use:N\g_xsb_id_int}{true}
+  }
+  \xsb_pop_props_to:N\l_tmpa_tl
+  %distill box to Form XObject, if used (ref'ed)
+  \bool_if:cT{c_\tl_use:c{xsb@\int_use:N\g_xsb_id_int}_bool}{
+    \xsb_pdfxform:nnnnn{1}{0}{\l_tmpa_tl}{
+      \cs_if_exist_use:N\ocgbase_insert_oc:}{#4}
+  }
+  %for tracking box usage
+  \iow_now:Nx\@mainaux{
+    \token_to_str:N\pbs@newkey{xsb@\int_use:N\g_xsb_id_int}{false}
+  }
+  %define command for inserting the m-boxed XObject reference
+  \cs_gset_protected:cpx{the#1}{
+    \exp_not:N\tl_if_exist:cF{xsb_\int_use:N\g_xsb_id_int}{
+      %mark box as `used'
+      \exp_not:N\iow_now:Nx\@mainaux{
+        \token_to_str:N\pbs@newkey{xsb@\int_use:N\g_xsb_id_int}{true}
+      }
+      \exp_not:N\tl_new:c{xsb_\int_use:N\g_xsb_id_int}
+    }
+    \exp_not:N\bool_if:cF{c_\tl_use:c{xsb@\int_use:N\g_xsb_id_int}_bool}{
+      \exp_not:N\xsb_rerun_msg:
+    }
+    \exp_not:N\xsb_beginLTR:
+    \xsb_updatebbox:nnn{\l_xsb_new_wd_tl}{\l_xsb_ht_tl}{\l_xsb_dp_tl}
+    \exp_not:N\makebox[\l_xsb_new_wd_tl][#3]{
+      \exp_not:N\hbox_to_wd:nn{\l_xsb_wd_tl}{
+        \exp_not:N\vrule~width~\c_zero_dim~height~\l_xsb_ht_tl~
+          depth~\l_xsb_dp_tl
+        \exp_not:N\skip_horizontal:n{-\g_xsb_margin_tl}
+        \bool_if:cT{c_\tl_use:c{xsb@\int_use:N\g_xsb_id_int}_bool}{
+          \exp_not:N\xsb_pdfrefxform:n{\xsb_pdflastxform:}
+        }
+        \hss
+      }
+    }
+    \exp_not:N\xsb_endLTR:
+  }
+  \int_gincr:N\g_xsb_id_int
+}
+
+\box_new:N\l_xsb_box     %for saving the re-aligned content
+\box_new:N\l_xsb_raw_box %for saving the raw content
+
+%environment for setting LTR typesetting direction with e-TeX based engines
+\cs_new_protected:Nn\xsb_beginLTR:{
+  \cs_if_exist:NT\TeXXeTstate{
+    \int_compare:nT{\TeXXeTstate>\c_zero_int}{\beginL}
+  }
+}
+\cs_new_protected:Nn\xsb_endLTR:{
+  \cs_if_exist:NT\TeXXeTstate{
+    \int_compare:nT{\TeXXeTstate>\c_zero_int}{\endL}
+  }
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%for nested xsavebox/xlrbox cmds/envs, maintain a stack of /Properties
+%dictionaries, mostly used for marked-content property lists, e. g. OCGs;
+%(see PDF Reference)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\seq_new:N\g_xsb_props_seq
+
+%push new, empty properties dictionary on the stack (to be used by THIS pkg)
+\cs_new_protected:Nn\xsb_push_props:{\seq_gpush:Nn\g_xsb_props_seq{}}
+
+%pop current properties dict from stack and place its contents as a
+%/Properties << <prop dict> >> entry into the macro argument
+\cs_new_protected:Nn\xsb_pop_props_to:N{
+  \seq_gpop:NNT\g_xsb_props_seq\l_tmpa_tl{
+    \tl_trim_spaces:N\l_tmpa_tl
+    \str_if_eq:eeF{\l_tmpa_tl}{}{\tl_set:Nx#1{/Properties<<\l_tmpa_tl>>}}
+  }
+}
+
+%add property (usually /key/val entry) to current properties dict;
+%this command is meant to be used by OTHER packages
+\cs_new_protected:Nn\xsb_addto_props:n{
+  \seq_gpop:NNT\g_xsb_props_seq\l_tmpa_tl{
+    \tl_put_right:Nn\l_tmpa_tl{#1~}
+    \seq_gpush:Nx\g_xsb_props_seq{\l_tmpa_tl}
+  }
+}
+
+%get stack size; meant to be used by OTHER packages
+\cs_new:Nn\xsb_count_props:{\seq_count:N\g_xsb_props_seq}

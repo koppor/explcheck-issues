@@ -1,0 +1,1279 @@
+%%=====================================================================
+%%  suai-report.sty — отчёт ГУАП по ГОСТ 7.32-2017 / ГОСТ 2.105-2019
+%%  Только XeLaTeX.
+%%=====================================================================
+\NeedsTeXFormat{LaTeX2e}[2021/11/15]
+\ProvidesPackage{suai-report}[2026/10/02 v2.6 SUAI GOST 7.32-2017 report]
+
+\RequirePackage{iftex}
+\RequireXeTeX
+
+%%---------------------------------------------------------------------
+%%  1. ПАКЕТЫ
+%%  hyperref и bookmark подключаются в разделе 9: им нужно идти после
+%%  titlesec, tocloft и caption.
+%%---------------------------------------------------------------------
+\RequirePackage{fontspec}
+\RequirePackage[english,russian]{babel}
+\RequirePackage[a4paper,left=30mm,right=15mm,top=20mm,bottom=20mm,
+                footskip=12mm,headsep=0pt]{geometry}
+\RequirePackage{setspace,indentfirst,microtype}
+\RequirePackage{amsmath,amssymb}
+\RequirePackage{xcolor,graphicx,float}
+\RequirePackage{titlesec,tocloft,caption}
+\RequirePackage{array,xltabular}
+\RequirePackage{enumitem,listings}
+\RequirePackage{csquotes}                   % biblatex без него ругается
+
+%%---------------------------------------------------------------------
+%%  2. ШРИФТЫ
+%%  Times New Roman — как в бланке ГУАП (титул выверен по нему).
+%%---------------------------------------------------------------------
+\ExplSyntaxOn
+\cs_new_protected:Npn \__suai_font:nnnn #1#2#3#4
+  {
+    \IfFontExistsTF {#2}
+      { #1 {#2} [#4] }
+      {
+        \msg_warning:nnnn { suai } { font } {#2} {#3}
+        #1 {#3} [#4]
+      }
+  }
+\msg_new:nnn { suai } { font } { Шрифт~'#1'~не~найден,~используется~'#2' }
+\__suai_font:nnnn \setmainfont { Times~New~Roman } { TeX~Gyre~Termes } { }
+\__suai_font:nnnn \setsansfont { Liberation~Sans } { TeX~Gyre~Heros } { }
+\__suai_font:nnnn \setmonofont { Liberation~Mono } { TeX~Gyre~Cursor }
+  { Scale = MatchLowercase }
+\ExplSyntaxOff
+
+%%---------------------------------------------------------------------
+%%  3. СТРАНИЦА, АБЗАЦ, РАЗРЫВЫ СТРОК (ГОСТ 7.32-2017, п. 6.1)
+%%---------------------------------------------------------------------
+\onehalfspacing
+% отступы вокруг формул не меньше строки (п. 6.8.1); строка известна
+% только после выбора кегля
+\AtBeginDocument{%
+  \setlength{\abovedisplayskip}{\baselineskip}%
+  \setlength{\belowdisplayskip}{\baselineskip}%
+  \setlength{\abovedisplayshortskip}{\baselineskip}%
+  \setlength{\belowdisplayshortskip}{\baselineskip}}
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\clubpenalty=10000
+\widowpenalty=10000
+% строка с длинным словом лучше чуть разреженная, чем вылезшая на поле
+\tolerance=1000
+\emergencystretch=3em
+\graphicspath{{images/}{./}}
+\pagestyle{plain}
+
+% Разрывы внутри длинных «слов» без пробелов (БД_Продажи, Журнал!$A$2,
+% yandex.cloud/ru/docs): после _ / = + ! -, а в \ttfamily ещё после
+% . , ; : ? & и перед ( [. В обычном тексте по . : ( не рвётся, чтобы
+% не разъехались 76.АВ, «1С:Предприятие», LL(1). Перед цифрой разрыва
+% нет: 1,5 и 01.01.2025 целы. Штраф как у переноса по слогам.
+\newXeTeXintercharclass\suai@brkclass
+\newXeTeXintercharclass\suai@ttbrkclass
+\newXeTeXintercharclass\suai@openclass
+\newXeTeXintercharclass\suai@closeclass
+\newXeTeXintercharclass\suai@digitclass
+\def\suai@setclass#1#2{%
+  \def\suai@next##1{%
+    \ifx\relax##1\else\XeTeXcharclass`##1=#1\expandafter\suai@next\fi}%
+  \suai@next#2\relax}
+\suai@setclass\suai@brkclass{_/=+!-}
+\suai@setclass\suai@ttbrkclass{.,;:?&}
+\suai@setclass\suai@openclass{([}
+\suai@setclass\suai@closeclass{)]'"»}
+\suai@setclass\suai@digitclass{0123456789}
+\newcommand\suai@brk{\penalty50\relax}
+\XeTeXinterchartoks\suai@brkclass\z@{\suai@brk}
+\XeTeXinterchartoks\suai@brkclass\suai@openclass{\suai@brk}
+\AddToHook{ttfamily}{%
+  \XeTeXinterchartoks\suai@ttbrkclass\z@{\suai@brk}%
+  \XeTeXinterchartoks\suai@ttbrkclass\suai@openclass{\suai@brk}%
+  \XeTeXinterchartoks\z@\suai@openclass{\suai@brk}%
+  \XeTeXinterchartoks\suai@digitclass\suai@openclass{\suai@brk}%
+  \XeTeXinterchartoks\suai@closeclass\suai@openclass{\suai@brk}}
+\XeTeXinterchartokenstate=\@ne
+
+%%---------------------------------------------------------------------
+%%  4. ЗАГОЛОВКИ И СОДЕРЖАНИЕ (ГОСТ 7.32-2017, п. 6.2)
+%%---------------------------------------------------------------------
+\newcommand{\suaiheadfont}{\normalfont\fontsize{14}{17}\selectfont\bfseries}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+% Отступ — внутри метки и своей длиной: \raggedright обнуляет и \leftskip
+% из \titlespacing, и \parindent.
+\newlength{\suai@headindent}
+\AtBeginDocument{\setlength{\suai@headindent}{\parindent}}
+\titleformat{\section}[block]
+  {\suaiheadfont\raggedright}{\hspace*{\suai@headindent}\thesection}{0.6em}{}
+\titleformat{\subsection}[block]
+  {\suaiheadfont\raggedright}{\hspace*{\suai@headindent}\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}[block]
+  {\suaiheadfont\raggedright}{\hspace*{\suai@headindent}\thesubsubsection}{0.6em}{}
+\titleformat{name=\section,numberless}[block]
+  {\suaiheadfont\filcenter}{}{0pt}{\MakeUppercase}
+\titlespacing{\section}{0pt}{0pt}{14pt}
+\titlespacing{name=\section,numberless}{0pt}{0pt}{14pt}
+\titlespacing{\subsection}{0pt}{14pt}{14pt}
+\titlespacing{\subsubsection}{0pt}{14pt}{14pt}
+\newcommand{\sectionbreak}{\clearpage}
+
+\newcommand{\suaisection}[1]{%
+  \clearpage
+  \phantomsection
+  \section*{#1}%
+  \addcontentsline{toc}{section}{\texorpdfstring{\MakeUppercase{#1}}{#1}}}
+\newcommand{\suaiintro}{\suaisection{Введение}}
+\newcommand{\suaiconclusion}{\suaisection{Заключение}}
+
+\renewcommand{\cfttoctitlefont}{\hfill\suaiheadfont}
+\renewcommand{\cftaftertoctitle}{\hfill\null}
+\setlength{\cftbeforetoctitleskip}{0pt}
+\setlength{\cftaftertoctitleskip}{14pt}
+\renewcommand{\cftsecfont}{\normalfont}
+\renewcommand{\cftsecpagefont}{\normalfont}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\setlength{\cftbeforesecskip}{0pt}
+\setlength{\cftsecindent}{0pt}
+\setlength{\cftsecnumwidth}{1.7em}
+\setlength{\cftsubsecindent}{1.7em}
+\setlength{\cftsubsecnumwidth}{2.6em}
+\setlength{\cftsubsubsecindent}{4.3em}
+\setlength{\cftsubsubsecnumwidth}{3.4em}
+\AtBeginDocument{\renewcommand{\contentsname}{СОДЕРЖАНИЕ}}
+
+\newcommand{\suaitoc}{\clearpage\tableofcontents}
+
+%%---------------------------------------------------------------------
+%%  5. ПОДПИСИ, ТАБЛИЦЫ, ПЕРЕЧИСЛЕНИЯ (ГОСТ 7.32-2017, пп. 6.5, 6.6;
+%%     ГОСТ 2.105)
+%%---------------------------------------------------------------------
+\DeclareCaptionLabelSeparator{emdash}{~--- }
+% stretch=1: многострочная подпись одинарным интервалом (пп. 6.5.8, 6.6.3)
+\captionsetup{labelsep=emdash,font={normalsize,stretch=1},skip=6pt}
+\captionsetup[figure]{name=Рисунок,position=below,
+                      justification=centering,singlelinecheck=false}
+\captionsetup[table]{name=Таблица,position=above,
+                     justification=raggedright,singlelinecheck=false}
+\captionsetup[lstlisting]{position=above,
+                          justification=raggedright,singlelinecheck=false}
+
+\renewcommand{\arraystretch}{1.25}
+\newcolumntype{P}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+\setlength{\LTcapwidth}{\textwidth}
+\AddToHook{env/tabular/begin}{\singlespacing}     % ГОСТ допускает одинарный
+\AddToHook{env/tabularx/begin}{\singlespacing}
+\AddToHook{env/longtable/begin}{\singlespacing}
+
+% Перечисления как обычные абзацы: метка с абзацного отступа, следующие
+% строки пункта — от левого поля, а не под текстом после метки
+% (так требует нормоконтроль ГУАП). Второй уровень — с отступа 2 см.
+\setlist{nosep,topsep=0pt,partopsep=0pt,parsep=0pt,itemsep=0pt,
+         wide=\parindent,labelsep=0.5em}
+\setlist[2]{wide=2cm}                  % по глубине, а не по типу списка
+\setlist[itemize,1]{label={--}}
+\setlist[itemize,2]{label={--}}
+\setlist[enumerate,1]{label=\arabic*)}
+
+% буквы без ё, з, й, о, ч, ъ, ы, ь
+\newcommand\suai@lower[1]{%
+  \ifcase#1\relax\or а\or б\or в\or г\or д\or е\or ж\or и\or к\or л\or
+  м\or н\or п\or р\or с\or т\or у\or ф\or х\or ц\or ш\or щ\or э\or ю\or я\fi}
+\newcommand\suai@upper[1]{%
+  \ifcase#1\relax\or А\or Б\or В\or Г\or Д\or Е\or Ж\or И\or К\or Л\or
+  М\or Н\or П\or Р\or С\or Т\or У\or Ф\or Х\or Ц\or Ш\or Щ\or Э\or Ю\or Я\fi}
+\newcommand{\gostletter}[1]{\expandafter\suai@lower\csname c@#1\endcsname}
+\AddEnumerateCounter{\gostletter}{\suai@lower}{я}
+
+\newlist{gostenum}{enumerate}{2}
+\setlist[gostenum,1]{label=\gostletter*)}
+\setlist[gostenum,2]{label=\arabic*)}
+
+%%---------------------------------------------------------------------
+%%  6. ЛИСТИНГИ
+%%  Полужирного нет: по п. 6.1.1 он только для заголовков.
+%%---------------------------------------------------------------------
+\renewcommand{\lstlistingname}{Листинг}
+\definecolor{suaiFrame}{HTML}{B5B5B5}
+\definecolor{suaiNumber}{HTML}{8A8A8A}
+\definecolor{suaiKeyword}{HTML}{0B4F9E}
+\definecolor{suaiComment}{HTML}{5C7A5C}
+\definecolor{suaiString}{HTML}{A03030}
+\definecolor{suaiBack}{HTML}{F5F6F7}
+
+% Рамка от поля до поля, номера строк внутри неё (\suai@lstgutter — на 3 цифры)
+\newlength{\suai@lstgutter}
+\setlength{\suai@lstgutter}{27pt}
+\newlength{\suai@lstsep}
+\setlength{\suai@lstsep}{7pt}
+
+\lstdefinestyle{gost}{
+  basicstyle=\ttfamily\fontsize{12}{14.4}\selectfont,
+  numbers=left, numberstyle=\ttfamily\fontsize{10}{12}\selectfont
+                            \color{suaiNumber},
+  numbersep=9pt, stepnumber=1,
+  frame=single, rulecolor=\color{suaiFrame}, framesep=\suai@lstsep,
+  % listings рисует линию рамки ещё на framesep левее framexleftmargin,
+  % поэтому левый отступ блока — сумма: рамка встаёт ровно на поле
+  framexleftmargin=\suai@lstgutter,
+  xleftmargin=\dimexpr\suai@lstgutter+\suai@lstsep\relax,
+  xrightmargin=\suai@lstsep,
+  % рвать можно и не на пробеле: длинный адрес или вызов без пробелов
+  % иначе уходит за рамку
+  breaklines=true, breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{suaiFrame}{$\hookrightarrow$}\space},
+  showstringspaces=false, tabsize=4, columns=fullflexible,
+  keepspaces=true, extendedchars=true, upquote=true,
+  captionpos=t, aboveskip=12pt, belowskip=12pt,
+  commentstyle=\itshape, stringstyle=\normalfont\ttfamily,
+}
+\lstdefinestyle{gostcolor}{
+  style=gost,
+  backgroundcolor=\color{suaiBack},
+  keywordstyle=\color{suaiKeyword},
+  commentstyle=\itshape\color{suaiComment},
+  stringstyle=\color{suaiString},
+}
+\lstset{style=gost}
+
+% listings разбирает только символы 0–255, остальные XeTeX ставит сразу,
+% мимо его буфера: русское слово в начале строки уезжало в конец
+% предыдущей. Кириллица — буквы листинга, тире, кавычки и № — прочие.
+\def\suai@lstchars#1#2#3{%
+  \count@=#2
+  \loop\ifnum\count@<#3
+    \catcode\count@=\active
+    \begingroup\lccode`\~=\count@ \lccode`\A=\count@
+    \lowercase{\endgroup\def~{#1A}}%
+    \advance\count@\@ne
+  \repeat}
+\lst@AddToHook{SelectCharTable}{%
+  \suai@lstchars\lst@ProcessLetter{"0400}{"0460}%
+  \suai@lstchars\lst@ProcessOther{"2010}{"2028}%
+  \suai@lstchars\lst@ProcessOther{"2116}{"2117}}
+
+%%---------------------------------------------------------------------
+%%  7. ПРИЛОЖЕНИЯ (ГОСТ 7.32-2017, п. 6.14)
+%%---------------------------------------------------------------------
+\newcounter{suaiapp}
+\newcommand{\suaiappletter}{\suai@upper{\value{suaiapp}}}
+
+\newcommand\suai@appnumbering[1]{%
+  \setcounter{#1}{0}%
+  \expandafter\def\csname the#1\endcsname{\suaiappletter.\arabic{#1}}%
+  % свои якоря hyperref, иначе ссылка ведёт на рисунок 1 основной части
+  \expandafter\def\csname theH#1\endcsname{app\arabic{suaiapp}.\arabic{#1}}}
+
+\newcommand{\suaiapp}[2][обязательное]{%
+  \clearpage
+  \stepcounter{suaiapp}%
+  \phantomsection
+  % в содержании — обозначение, статус и наименование (п. 6.17.7)
+  \addcontentsline{toc}{section}%
+    {\texorpdfstring{ПРИЛОЖЕНИЕ~\suaiappletter\ (#1)\ #2}{Прил. #2}}%
+  \suai@appnumbering{figure}\suai@appnumbering{table}%
+  \suai@appnumbering{equation}\suai@appnumbering{lstlisting}%
+  {\centering
+   {\suaiheadfont ПРИЛОЖЕНИЕ~\suaiappletter\par}
+   \vspace{2pt}
+   {\normalfont(#1)\par}
+   \vspace{8pt}
+   {\suaiheadfont #2\par}}% заголовок — с прописной буквы (п. 6.17.3)
+  \vspace{14pt}\par}
+
+%%---------------------------------------------------------------------
+%%  8. ТИТУЛЬНЫЙ ЛИСТ
+%%  Снят с бланка ГУАП (Word). Расстояния — между базовыми линиями в bp
+%%  (пункты Word), кегль 12.045 pt = 12 bp. Отступы с minus сжимаются,
+%%  если длинное название не помещается.
+%%---------------------------------------------------------------------
+\ExplSyntaxOn
+\keys_define:nn { suai }
+  {
+    department   .tl_set:c    = suai@department,
+    teacher-post .tl_set:c    = suai@teacherpost,
+    teacher      .tl_set:c    = suai@teacher,
+    type         .tl_set:c    = suai@type,
+    type         .initial:n   = Отчет~о~лабораторной~работе,
+    number       .tl_set:c    = suai@number,
+    title        .tl_set:c    = suai@title,
+    course-label .tl_set:c    = suai@courselabel,
+    course-label .initial:n   = по~курсу:,
+    course       .tl_set:c    = suai@course,
+    group        .tl_set:c    = suai@group,
+    student      .clist_set:N = \l__suai_students_clist,
+    date         .tl_set:c    = suai@date,
+    city         .tl_set:c    = suai@city,
+    city         .initial:n   = Санкт-Петербург,
+    year         .tl_set:c    = suai@year,
+    year         .initial:x   = \int_use:N \c_sys_year_int,
+  }
+% запятая без «=» продолжает значение предыдущего ключа:
+% teacher-post = доцент, канд. техн. наук -> {доцент, канд. техн. наук}
+\tl_new:N \l__suai_key_tl
+\tl_new:N \l__suai_value_tl
+\bool_new:N \l__suai_key_bool
+\cs_new_protected:Npn \__suai_setup_flush:
+  {
+    \bool_if:NT \l__suai_key_bool
+      {
+        \use:e
+          {
+            \exp_not:N \keys_set:nn { suai }
+              { \exp_not:V \l__suai_key_tl = { \exp_not:V \l__suai_value_tl } }
+          }
+        \bool_set_false:N \l__suai_key_bool
+      }
+  }
+\cs_new_protected:Npn \__suai_setup_item:n #1
+  {
+    \bool_if:NTF \l__suai_key_bool
+      { \tl_put_right:Nn \l__suai_value_tl { ,~ #1 } }
+      { \keys_set:nn { suai } {#1} }
+  }
+\cs_new_protected:Npn \__suai_setup_pair:nn #1#2
+  {
+    \__suai_setup_flush:
+    \tl_set:Nn \l__suai_key_tl {#1}
+    \tl_set:Nn \l__suai_value_tl {#2}
+    \bool_set_true:N \l__suai_key_bool
+  }
+\NewDocumentCommand \suaisetup { m }
+  {
+    \bool_set_false:N \l__suai_key_bool
+    \keyval_parse:nnn \__suai_setup_item:n \__suai_setup_pair:nn {#1}
+    \__suai_setup_flush:
+  }
+
+% date = today -> ДД.ММ.ГГГГ на момент сборки
+\cs_new:Npn \__suai_two_digits:N #1
+  { \int_compare:nNnT {#1} < { 10 } { 0 } \int_use:N #1 }
+\cs_new:cpn { suai@thedate }
+  {
+    \tl_if_eq:cnTF { suai@date } { today }
+      {
+        \__suai_two_digits:N \c_sys_day_int .
+        \__suai_two_digits:N \c_sys_month_int .
+        \int_use:N \c_sys_year_int
+      }
+      { \use:c { suai@date } }
+  }
+\cs_new_protected:cpn { suai@forstudents } #1
+  { \clist_map_inline:Nn \l__suai_students_clist {#1} }
+\cs_new:cpn { suai@firststudent }
+  { \clist_if_empty:NF \l__suai_students_clist
+      { \clist_item:Nn \l__suai_students_clist { 1 } } }
+\ExplSyntaxOff
+
+% ширина по бланку: #1 из 48135 (вся строка бланка — 481,35 pt)
+\newcommand\suai@tw[1]{\dimexpr\textwidth*#1/48135\relax}
+% ячейка с текстом над линией; длинный текст переносится вверх
+\newsavebox\suai@cellbox
+\newcommand\suai@cell[2]{%
+  \sbox\suai@cellbox{#2}%
+  \ifdim\wd\suai@cellbox>#1\relax
+    \parbox[b]{#1}{\centering#2}%
+  \else
+    \makebox[#1][c]{\usebox\suai@cellbox}%
+  \fi
+  \kern-#1\rule[-3.25bp]{#1}{0.5bp}}
+\newcommand\suai@cap[2]{\makebox[#1][c]{\fontsize{10.0375}{11.5bp}\selectfont#2}}
+% #1 — расстояние от предыдущей базовой линии, #2 — кегль,
+% #3 — интерлиньяж, #4 — выключка, #5 — текст
+\newcommand\suai@block[5]{%
+  \par\vskip\glueexpr#1-#3\relax
+  \begingroup\fontsize{#2}{#3}\selectfont#4#5\par\endgroup}
+\newcommand\suai@line[2]{%
+  \suai@block{#1}{12.045}{13.8bp}{\noindent}{\makebox[\linewidth][l]{#2}}}
+\newcommand\suai@caps[1]{%
+  \suai@block{10.3bp}{10.0375}{11.5bp}{\noindent}{\makebox[\linewidth][l]{#1}}}
+\newcommand\suai@normal[3]{\suai@block{#1}{12.045}{13.8bp}{#2}{#3}}
+\newcommand\suai@large[3]{\suai@block{#1}{14.0526}{16.1bp}{#2}{#3}}
+
+\renewcommand{\maketitle}{%
+  \newgeometry{left=30mm,right=10mm,top=20mm,bottom=20mm}%
+  \thispagestyle{empty}%
+  \begingroup
+  \def\baselinestretch{1}%
+  \setlength{\parindent}{0bp}\setlength{\parskip}{0bp}%
+  \setlength{\topskip}{0bp}%
+  \lineskiplimit=-\maxdimen \lineskip=0bp
+  \hbox{}%
+  \suai@normal{11.2bp}{\centering}{ГУАП}%
+  \suai@normal{37.8bp}{\centering}{КАФЕДРА № \suai@department}%
+  \suai@normal{73.8bp}{\raggedright}{ОТЧЕТ\\ЗАЩИЩЕН С ОЦЕНКОЙ}%
+  \suai@normal{19.8bp}{\raggedright}{ПРЕПОДАВАТЕЛЬ}%
+  \suai@line{26.7bp}{%
+    \suai@cell{\suai@tw{16175}}{\suai@teacherpost}\hspace{\suai@tw{1420}}%
+    \suai@cell{\suai@tw{14100}}{\suai@thedate}\hspace{\suai@tw{1370}}%
+    \suai@cell{\suai@tw{15070}}{\suai@teacher}}%
+  \suai@caps{%
+    \suai@cap{\suai@tw{16175}}{должность, уч. степень, звание}\hspace{\suai@tw{1420}}%
+    \suai@cap{\suai@tw{14100}}{подпись, дата}\hspace{\suai@tw{1370}}%
+    \suai@cap{\suai@tw{15070}}{инициалы, фамилия}}%
+  \suai@large{79.0bp minus 30bp}{\centering}{%
+    \MakeUppercase{\suai@type}\ifx\suai@number\@empty\else\ №\suai@number\fi}%
+  \suai@large{52.1bp}{\centering}{\MakeUppercase{\suai@title}}%
+  \suai@normal{56.2bp}{\centering}{\suai@courselabel}%
+  \suai@large{27.7bp}{\centering}{\suai@course}%
+  \suai@normal{112bp minus 70bp}{\raggedright}{РАБОТУ ВЫПОЛНИЛ}%
+  \suai@forstudents{%
+    \suai@line{26.7bp}{%
+      \makebox[\suai@tw{10805}][l]{СТУДЕНТ гр. №}%
+      \suai@cell{\suai@tw{8660}}{\suai@group}\hspace{\suai@tw{1190}}%
+      \suai@cell{\suai@tw{13170}}{\suai@thedate}\hspace{\suai@tw{1180}}%
+      \suai@cell{\suai@tw{13130}}{##1}}%
+    \suai@caps{%
+      \hspace{\suai@tw{20655}}% 10805 + 8660 + 1190
+      \suai@cap{\suai@tw{13170}}{подпись, дата}\hspace{\suai@tw{1180}}%
+      \suai@cap{\suai@tw{13130}}{инициалы, фамилия}}}%
+  \suai@normal{114.6bp minus 80bp}{\centering}{\suai@city\ \suai@year}%
+  \vfill
+  \endgroup
+  \clearpage
+  \restoregeometry
+  \setcounter{page}{2}}% титул считается, но не нумеруется
+
+%%---------------------------------------------------------------------
+%%  9. ССЫЛКИ И РИСУНКИ
+%%---------------------------------------------------------------------
+\RequirePackage[hidelinks,bookmarksnumbered]{hyperref}
+\RequirePackage{bookmark,xurl}
+\AtBeginDocument{%
+  \hypersetup{pdftitle={\suai@title}, pdfauthor={\suai@firststudent},
+              pdflang={ru-RU}}}
+
+% метка без префикса — если \label{#2} есть, иначе \label{#1:#2}
+\newcommand{\suairef}[2]{\ifcsname r@#2\endcsname\ref{#2}\else\ref{#1:#2}\fi}
+\newcommand{\figref}[1]{рисунке~\suairef{fig}{#1}}
+\newcommand{\tabref}[1]{таблице~\suairef{tab}{#1}}
+\newcommand{\lstref}[1]{листинге~\suairef{lst}{#1}}
+\newcommand{\formref}[1]{формуле~(\suairef{eq}{#1})}
+
+\ExplSyntaxOn
+\str_new:N \l__suai_dir_str
+\str_new:N \l__suai_name_str
+\str_new:N \l__suai_ext_str
+\cs_new_protected:cpn { suai@basename } #1
+  {
+    \file_parse_full_name:nNNN {#1}
+      \l__suai_dir_str \l__suai_name_str \l__suai_ext_str
+    \tl_set:cx { suai@base } { \l__suai_name_str }
+  }
+% images/scheme.png -> \label{fig:scheme}
+\cs_new_protected:cpn { suai@autolabel } #1#2
+  {
+    \use:c { suai@basename } {#2}
+    \use:e { \exp_not:N \label { #1 : \use:c { suai@base } } }
+  }
+\ExplSyntaxOff
+
+\newlength{\suai@imgwidth}
+\NewDocumentCommand{\suaiimg}{O{0.8\textwidth} m m o}{%
+  \begin{figure}[H]
+    \centering
+    \setlength{\suai@imgwidth}{#1}%
+    \ifdim\suai@imgwidth>\linewidth \setlength{\suai@imgwidth}{\linewidth}\fi
+    \includegraphics[width=\suai@imgwidth,height=0.75\textheight,
+                     keepaspectratio]{#2}%
+    \caption{#3}%
+    \IfNoValueTF{#4}{\suai@autolabel{fig}{#2}}{\label{#4}}%
+  \end{figure}}
+
+\ExplSyntaxOn
+%%---------------------------------------------------------------------
+%% 10. БЛОЧНЫЕ КОМАНДЫ: ЧТЕНИЕ СТРОК
+%%  \suai_read_lines:n {код} собирает строки под командой в
+%%  \g__suai_lines_seq до пустой строки или строки, начинающейся
+%%  с \section, \begin, \end и т. п. или \suai..., и выполняет код.
+%%---------------------------------------------------------------------
+\seq_new:N \g__suai_lines_seq
+\tl_new:N \g__suai_then_tl
+\bool_new:N \l__suai_cmd_bool
+\str_new:N \l__suai_cmd_str
+\cs_new_protected:Npn \__suai_eol: { }   % значение активного ^^M в блоке
+
+\cs_new_protected:Npn \suai_read_lines:n #1
+  {
+    \tl_gset:Nn \g__suai_then_tl {#1}
+    \seq_gclear:N \g__suai_lines_seq
+    \group_begin:
+      \char_set_catcode_active:n { 13 }
+      \__suai_lines_start:
+  }
+% #1 — токены, которые вернуть во входной поток после блока
+\cs_new_protected:Npn \__suai_lines_stop:n #1
+  { \group_end: \tl_use:N \g__suai_then_tl #1 }
+
+% активный конец строки не набрать напрямую: \lowercase делает из
+% активной ~ активный ^^M
+\group_begin:
+  \char_set_lccode:nn { `\~ } { 13 }
+  \char_set_catcode_active:N \~
+  \tex_lowercase:D
+    {
+      \group_end:
+      \tl_const:Nn \c__suai_eol_tl { ~ }
+      \cs_new_protected:Npn \__suai_lines_start:
+        {
+          \cs_set_eq:NN ~ \__suai_eol:
+          \peek_meaning_remove:NTF \par
+            { \__suai_lines_stop:n { \par } }
+            % обе ветки одинаковые: убрать перевод строки, если он есть,
+            % и начать читать. \__suai_line:w обязан стоять внутри ветки —
+            % после \peek_... его подхватил бы сам peek вместо строки файла.
+            { \peek_meaning_remove:NTF \__suai_eol: { \__suai_line:w } { \__suai_line:w } }
+        }
+      \cs_new_protected:Npn \__suai_line:w #1 ~
+        { \tl_trim_spaces_apply:nN {#1} \__suai_line:n }
+    }
+
+\cs_new_protected:Npn \__suai_line:n #1
+  {
+    \tl_if_blank:nTF {#1}
+      { \__suai_lines_stop:n { \par } }
+      {
+        \bool_set_false:N \l__suai_cmd_bool
+        \tl_if_head_is_N_type:nT {#1} { \__suai_check_cmd:w #1 \q_stop }
+        \bool_if:NTF \l__suai_cmd_bool
+          {
+            % \suaicode читает код со следующей строки, и ему нужен
+            % съеденный здесь конец строки
+            \str_if_eq:VnTF \l__suai_cmd_str { suaicode }
+              {
+                \tl_set:Nn \l_tmpa_tl {#1}
+                \tl_put_right:NV \l_tmpa_tl \c__suai_eol_tl
+                \exp_args:NV \__suai_lines_stop:n \l_tmpa_tl
+              }
+              { \__suai_lines_stop:n {#1} }
+          }
+          {
+            \seq_gput_right:Nn \g__suai_lines_seq {#1}
+            \__suai_line:w
+          }
+      }
+  }
+
+\clist_const:Nn \c__suai_stop_clist
+  {
+    par, begin, end, section, subsection, subsubsection, paragraph,
+    clearpage, newpage, maketitle, printbibliography,
+  }
+\cs_new_protected:Npn \__suai_check_cmd:w #1 #2 \q_stop
+  {
+    \token_if_cs:NT #1
+      {
+        \str_set:Nx \l__suai_cmd_str { \cs_to_str:N #1 }
+        \exp_args:NNV \clist_if_in:NnT \c__suai_stop_clist \l__suai_cmd_str
+          { \bool_set_true:N \l__suai_cmd_bool }
+        \exp_args:Nx \str_if_eq:nnT
+          { \str_range:Nnn \l__suai_cmd_str { 1 } { 4 } } { suai }
+          { \bool_set_true:N \l__suai_cmd_bool }
+      }
+  }
+
+%%---------------------------------------------------------------------
+%% 11. ПЕРЕЧИСЛЕНИЯ
+%%  После пунктов «;», после последнего «.». Свои ; . , в конце
+%%  заменяются, ? ! : остаются. Со звёздочкой пунктуация не трогается.
+%%---------------------------------------------------------------------
+\bool_new:N \l__suai_punct_bool
+\tl_new:N \l__suai_item_tl
+\regex_const:Nn \c__suai_trail_regex { [\;\.\,] \s* \Z }
+\regex_const:Nn \c__suai_keep_regex { [\?\!\:] \s* \Z }
+
+\cs_new_protected:Npn \__suai_punct:n #1
+  {
+    \bool_if:NT \l__suai_punct_bool
+      {
+        \regex_replace_once:NnN \c__suai_trail_regex { } \l__suai_item_tl
+        \exp_args:NNV \regex_match:NnF \c__suai_keep_regex \l__suai_item_tl
+          {
+            \tl_put_right:Nx \l__suai_item_tl
+              {
+                \int_compare:nNnTF {#1} = { \seq_count:N \g__suai_lines_seq }
+                  { . } { ; }
+              }
+          }
+      }
+  }
+
+% #1 — окружение, #2 — булево «без пунктуации»
+\cs_new_protected:Npn \__suai_list:nn #1#2
+  {
+    \seq_if_empty:NF \g__suai_lines_seq
+      {
+        \bool_set:Nn \l__suai_punct_bool { ! #2 }
+        \begin{#1}
+          \seq_map_indexed_function:NN \g__suai_lines_seq \__suai_list_item:nn
+        \end{#1}
+      }
+  }
+\cs_new_protected:Npn \__suai_list_item:nn #1#2
+  {
+    \tl_set:Nn \l__suai_item_tl {#2}
+    \__suai_punct:n {#1}
+    \item \tl_use:N \l__suai_item_tl
+  }
+
+\NewDocumentCommand \suailist { s }
+  { \suai_read_lines:n { \__suai_list:nn { itemize } {#1} } }
+\NewDocumentCommand \suaienum { s }
+  { \suai_read_lines:n { \__suai_list:nn { gostenum } {#1} } }
+\NewDocumentCommand \suainum { s }
+  { \suai_read_lines:n { \__suai_list:nn { enumerate } {#1} } }
+\NewDocumentCommand \suaitasks
+  { s O{Для~достижения~поставленной~цели~необходимо~решить~следующие~задачи:} }
+  {
+    \suai_read_lines:n
+      {
+        \tl_if_blank:nF {#2} { \par #2 \par }
+        \__suai_list:nn { gostenum } {#1}
+      }
+  }
+
+%%---------------------------------------------------------------------
+%% 12. ТАБЛИЦА
+%%  Ячейки через |, первая строка — шапка. У каждого столбца четыре
+%%  ширины по набранному тексту, от узкой к широкой:
+%%    1 — самый широкий неразрывный кусок (слог, число);
+%%    2 — без переносов по слогам, но с разрывами из раздела 3;
+%%    3 — самое длинное слово целиком;
+%%    4 — самая широкая ячейка в одну строку.
+%%  Берётся самый широкий уровень, который влезает в полосу, а остаток
+%%  делится пропорционально нехватке до следующего уровня, как в HTML.
+%%  Если не влезает даже уровень 1, столбец получает его, пока хватает
+%%  доли, остальные делят остаток поровну.
+%%---------------------------------------------------------------------
+\int_new:N \l__suai_cols_int
+\prop_new:N \l__suai_level_prop      % {уровень/столбец} -> pt
+\prop_new:N \l__suai_wd_prop         % столбец -> итоговая ширина, pt
+\seq_new:N \l__suai_cells_seq
+\seq_new:N \l__suai_words_seq
+\box_new:N \l__suai_cell_box
+\box_new:N \l__suai_line_box
+\dim_new:N \g__suai_line_dim
+\tl_new:N \l__suai_col_tl
+\fp_new:N \l__suai_avail_fp
+\fp_new:N \l__suai_lo_sum_fp
+\fp_new:N \l__suai_hi_sum_fp
+\fp_new:N \l__suai_ratio_fp
+\fp_new:N \l__suai_free_fp
+\fp_new:N \l__suai_level_fp
+\int_new:N \l__suai_lvl_int
+\int_new:N \l__suai_open_int
+\bool_new:N \l__suai_again_bool
+\tl_new:N \l__suai_spec_tl
+\tl_new:N \l__suai_head_tl
+\tl_new:N \l__suai_body_tl
+\tl_new:N \l__suai_row_tl
+\tl_new:N \l__suai_table_tl
+
+% запас на случай, если набор в колонке окажется чуть шире измеренного
+\fp_const:Nn \c__suai_pad_fp { 1 }
+
+% #1 — уровень, #2 — столбец
+\cs_generate_variant:Nn \prop_item:Nn { Ne }
+\cs_new:Npn \__suai_wd:nn #1#2
+  { \prop_item:Ne \l__suai_level_prop { \int_eval:n {#1} / #2 } }
+% сумма уровня \l__suai_lvl_int по столбцам
+\cs_new:Npn \__suai_sum:
+  { 0 \int_step_function:nN { \l__suai_cols_int } \__suai_sum_item:n }
+\cs_new:Npn \__suai_sum_item:n #1 { + \__suai_wd:nn { \l__suai_lvl_int } {#1} }
+
+\cs_new_protected:Npn \__suai_table_cols:n #1
+  {
+    \seq_set_split:Nnn \l__suai_cells_seq { | } {#1}
+    \int_set:Nn \l__suai_cols_int
+      { \int_max:nn { \l__suai_cols_int } { \seq_count:N \l__suai_cells_seq } }
+  }
+
+\cs_new_protected:Npn \__suai_table_measure:n #1
+  {
+    \seq_set_split:Nnn \l__suai_cells_seq { | } {#1}
+    \seq_map_indexed_function:NN \l__suai_cells_seq \__suai_table_measure:nn
+  }
+
+% #1 — номер столбца, #2 — ячейка
+\cs_new_protected:Npn \__suai_table_measure:nn #1#2
+  {
+    \tl_set:Nn \l__suai_col_tl {#1}
+    \__suai_table_level:nnnn { 1 } { \c_zero_dim } { } {#2}
+    \__suai_table_level:nnnn { 2 } { \c_zero_dim } { \__suai_nohyph: } {#2}
+    \seq_set_split:Nnn \l__suai_words_seq { ~ } {#2}
+    \seq_map_function:NN \l__suai_words_seq \__suai_table_word:n
+    \__suai_table_level:nnnn { 4 } { \c_max_dim } { \__suai_nohyph: } {#2}
+  }
+% уровень 3; группа {} не делится, так что \cmd{a b} меряется целиком
+\cs_new_protected:Npn \__suai_table_word:n #1
+  {
+    \hbox_set:Nn \l__suai_cell_box {#1}
+    \__suai_table_wider:nn { 3 } { \box_wd:N \l__suai_cell_box }
+  }
+\cs_new_protected:Npn \__suai_nohyph:
+  { \lefthyphenmin = 64 \scan_stop: }
+
+% #1 — уровень, #2 — ширина строки, #3 — настройки, #4 — ячейка.
+% Ячейка набирается абзацем шириной #2 (0pt — разрыв везде, где можно,
+% \c_max_dim — только на \newline), берётся самая широкая строка.
+\cs_new_protected:Npn \__suai_table_level:nnnn #1#2#3#4
+  {
+    \vbox_set:Nn \l__suai_cell_box
+      {
+        \dim_set:Nn \hsize {#2}
+        \dim_set_eq:NN \linewidth \hsize
+        \dim_zero:N \parindent
+        \skip_zero:N \leftskip
+        \skip_set:Nn \rightskip { 0pt plus 1fil }
+        \skip_set:Nn \parfillskip { 0pt plus 1fil }
+        \int_set:Nn \pretolerance { -1 }
+        \int_set:Nn \tolerance { 10000 }
+        \int_set:Nn \hbadness { 10000 }
+        \dim_set_eq:NN \hfuzz \c_max_dim
+        \dim_zero:N \emergencystretch
+        #3
+        % \hspace{0pt}: иначе первое слово абзаца не переносится
+        \noindent \skip_horizontal:n { 0pt } #4 \par
+        \dim_gzero:N \g__suai_line_dim
+        \__suai_table_lines:
+      }
+    \__suai_table_wider:nn {#1} { \g__suai_line_dim }
+  }
+\cs_new_protected:Npn \__suai_table_wider:nn #1#2
+  {
+    \prop_put:Nxx \l__suai_level_prop { #1 / \l__suai_col_tl }
+      {
+        \fp_eval:n
+          {
+            max ( \__suai_wd:nn {#1} { \l__suai_col_tl } ,
+                  \dim_to_fp:n {#2} + \c__suai_pad_fp )
+          }
+      }
+  }
+% снимать строки абзаца с конца и мерить их естественную ширину
+\cs_new_protected:Npn \__suai_table_lines:
+  {
+    \tex_unskip:D \tex_unpenalty:D \tex_unskip:D
+    \box_set_to_last:N \l__suai_line_box
+    \box_if_empty:NF \l__suai_line_box
+      {
+        \hbox_set:Nn \l__suai_line_box { \hbox_unpack:N \l__suai_line_box }
+        \dim_gset:Nn \g__suai_line_dim
+          { \dim_max:nn { \g__suai_line_dim } { \box_wd:N \l__suai_line_box } }
+        \__suai_table_lines:
+      }
+  }
+
+% под текст остаётся ширина полосы минус линейки и отбивки столбцов;
+% ищется первый уровень, на котором таблица не влезает
+\cs_new_protected:Npn \__suai_table_widths:
+  {
+    \fp_set:Nn \l__suai_avail_fp
+      {
+        \dim_to_fp:n { \textwidth }
+          - ( \l__suai_cols_int + 1 ) * \dim_to_fp:n { \arrayrulewidth }
+          - 2 * \l__suai_cols_int * \dim_to_fp:n { \tabcolsep }
+      }
+    \int_set:Nn \l__suai_lvl_int { 1 }
+    \fp_set:Nn \l__suai_hi_sum_fp { \__suai_sum: }
+    \bool_until_do:nn
+      {
+        \int_compare_p:nNn { \l__suai_lvl_int } > { 3 }
+        || \fp_compare_p:nNn { \l__suai_hi_sum_fp } > { \l__suai_avail_fp }
+      }
+      {
+        \fp_set_eq:NN \l__suai_lo_sum_fp \l__suai_hi_sum_fp
+        \int_incr:N \l__suai_lvl_int
+        \fp_set:Nn \l__suai_hi_sum_fp { \__suai_sum: }
+      }
+    \fp_compare:nNnTF { \l__suai_hi_sum_fp } > { \l__suai_avail_fp }
+      {
+        \int_compare:nNnTF { \l__suai_lvl_int } = { 1 }
+          { \__suai_table_squeeze: }
+          { \__suai_table_share: }
+      }
+      { \__suai_table_stretch: }
+  }
+
+% всё влезло в одну строку: растянуть самые широкие ячейки на полосу
+\cs_new_protected:Npn \__suai_table_stretch:
+  {
+    \int_step_inline:nn { \l__suai_cols_int }
+      {
+        \prop_put:Nnx \l__suai_wd_prop {##1}
+          {
+            \fp_eval:n
+              {
+                \__suai_wd:nn { 4 } {##1} * \l__suai_avail_fp
+                  / max ( \l__suai_hi_sum_fp , 1 )
+              }
+          }
+      }
+  }
+
+% уровень \l__suai_lvl_int - 1 влезает, \l__suai_lvl_int нет: каждому
+% столбцу нижний уровень плюс доля свободного места по его аппетиту
+\cs_new_protected:Npn \__suai_table_share:
+  {
+    \fp_set:Nn \l__suai_ratio_fp
+      {
+        ( \l__suai_avail_fp - \l__suai_lo_sum_fp )
+          / max ( \l__suai_hi_sum_fp - \l__suai_lo_sum_fp , 1 )
+      }
+    \int_step_inline:nn { \l__suai_cols_int }
+      {
+        \prop_put:Nnx \l__suai_wd_prop {##1}
+          {
+            \fp_eval:n
+              {
+                \__suai_wd:nn { \l__suai_lvl_int - 1 } {##1}
+                  + ( \__suai_wd:nn { \l__suai_lvl_int } {##1}
+                      - \__suai_wd:nn { \l__suai_lvl_int - 1 } {##1} )
+                    * \l__suai_ratio_fp
+              }
+          }
+      }
+  }
+
+% Не влезает даже уровень 1: столбец, которому хватает доли, получает
+% его, остальные делят остаток поровну.
+\cs_new_protected:Npn \__suai_table_squeeze:
+  {
+    \fp_set_eq:NN \l__suai_free_fp \l__suai_avail_fp
+    \int_set_eq:NN \l__suai_open_int \l__suai_cols_int
+    \bool_set_true:N \l__suai_again_bool
+    \bool_do_while:Nn \l__suai_again_bool { \__suai_table_pass: }
+    \int_step_function:nN { \l__suai_cols_int } \__suai_table_rest:n
+  }
+
+% проход: доля растёт после каждого закреплённого столбца, поэтому
+% проходы повторяются, пока находится хоть один новый
+\cs_new_protected:Npn \__suai_table_pass:
+  {
+    \bool_set_false:N \l__suai_again_bool
+    \fp_set:Nn \l__suai_level_fp
+      { \l__suai_free_fp / max ( \l__suai_open_int , 1 ) }
+    \int_step_function:nN { \l__suai_cols_int } \__suai_table_lock:n
+  }
+
+\cs_new_protected:Npn \__suai_table_lock:n #1
+  {
+    \prop_if_in:NnF \l__suai_wd_prop {#1}
+      {
+        \fp_compare:nNnF { \__suai_wd:nn { 1 } {#1} } > { \l__suai_level_fp }
+          {
+            \prop_put:Nnx \l__suai_wd_prop {#1} { \__suai_wd:nn { 1 } {#1} }
+            \fp_sub:Nn \l__suai_free_fp { \__suai_wd:nn { 1 } {#1} }
+            \int_decr:N \l__suai_open_int
+            \bool_set_true:N \l__suai_again_bool
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__suai_table_rest:n #1
+  {
+    \prop_if_in:NnF \l__suai_wd_prop {#1}
+      {
+        \prop_put:Nnx \l__suai_wd_prop {#1}
+          { \fp_eval:n { max ( \l__suai_free_fp / max ( \l__suai_open_int , 1 ) , 1 ) } }
+      }
+  }
+
+% столбец X с долей ширины по тексту; первый — влево, остальные по центру
+\cs_new_protected:Npn \__suai_table_spec:n #1
+  {
+    \tl_put_right:Nx \l__suai_spec_tl
+      {
+        | > {
+          \exp_not:N \hsize =
+            \fp_eval:n
+              {
+                round ( \l__suai_cols_int * \prop_item:Nn \l__suai_wd_prop {#1}
+                          / \l__suai_avail_fp , 4 )
+              }
+            \exp_not:N \hsize
+          \exp_not:N \linewidth = \exp_not:N \hsize
+          \int_compare:nNnTF {#1} = { 1 }
+            { \exp_not:N \raggedright } { \exp_not:N \centering }
+          \exp_not:N \arraybackslash
+          % без клея перед первым словом TeX его не переносит
+          \exp_not:N \hspace { 0pt }
+        } X
+        \int_compare:nNnT {#1} = { \l__suai_cols_int } { | }
+      }
+  }
+
+\cs_new_protected:Npn \__suai_table_row:nn #1#2
+  {
+    \seq_set_split:Nnn \l__suai_cells_seq { | } {#2}
+    \tl_clear:N \l__suai_row_tl
+    \int_step_inline:nn { \l__suai_cols_int }
+      {
+        \tl_put_right:Nx \l__suai_row_tl
+          {
+            \int_compare:nNnF {##1} = { 1 } { & }
+            % шапка — по центру, без полужирного (п. 6.1.1)
+            \int_compare:nNnT {#1} = { 1 } { \exp_not:N \centering }
+            \seq_item:Nn \l__suai_cells_seq {##1}
+          }
+      }
+    \tl_put_right:Nn \l__suai_row_tl { \tabularnewline \hline }
+    \int_compare:nNnTF {#1} = { 1 }
+      { \tl_set_eq:NN \l__suai_head_tl \l__suai_row_tl }
+      { \tl_put_right:NV \l__suai_body_tl \l__suai_row_tl }
+  }
+
+\cs_new_protected:Npn \__suai_table:nn #1#2
+  {
+    \seq_if_empty:NF \g__suai_lines_seq
+      {
+        \int_zero:N \l__suai_cols_int
+        \prop_clear:N \l__suai_level_prop
+        \prop_clear:N \l__suai_wd_prop
+        \seq_map_function:NN \g__suai_lines_seq \__suai_table_cols:n
+        \int_step_inline:nn { \l__suai_cols_int }
+          {
+            \int_step_inline:nn { 4 }
+              { \prop_put:Nnn \l__suai_level_prop { ####1 / ##1 } { 0 } }
+          }
+        \seq_map_function:NN \g__suai_lines_seq \__suai_table_measure:n
+        % уровень не уже предыдущего, иначе доля места выйдет отрицательной
+        \int_step_inline:nn { \l__suai_cols_int }
+          {
+            \tl_set:Nn \l__suai_col_tl {##1}
+            \int_step_inline:nnn { 2 } { 4 }
+              {
+                \__suai_table_wider:nn {####1}
+                  { \fp_to_dim:n { \__suai_wd:nn { ####1 - 1 } {##1} - \c__suai_pad_fp } }
+              }
+          }
+        \__suai_table_widths:
+        \tl_clear:N \l__suai_spec_tl
+        \int_step_function:nN { \l__suai_cols_int } \__suai_table_spec:n
+        \tl_clear:N \l__suai_head_tl
+        \tl_clear:N \l__suai_body_tl
+        \seq_map_indexed_function:NN \g__suai_lines_seq \__suai_table_row:nn
+        \tl_set:Nx \l__suai_table_tl
+          {
+            \exp_not:N \begin{xltabular}{\exp_not:N \textwidth}{\exp_not:V \l__suai_spec_tl}
+            \exp_not:N \caption{\exp_not:n {#2}}
+            \tl_if_blank:nF {#1} { \exp_not:N \label{tab:\exp_not:n {#1}} }
+            \exp_not:N \tabularnewline
+            \exp_not:N \hline
+            \exp_not:V \l__suai_head_tl
+            \exp_not:N \endfirsthead
+            \exp_not:N \multicolumn{\int_use:N \l__suai_cols_int}{@{}l}
+              {Продолжение~таблицы~\exp_not:N \thetable}
+            \exp_not:N \tabularnewline
+            \exp_not:N \hline
+            \exp_not:V \l__suai_head_tl
+            \exp_not:N \endhead
+            \exp_not:V \l__suai_body_tl
+            \exp_not:N \end{xltabular}
+          }
+        \tl_use:N \l__suai_table_tl
+      }
+  }
+
+\NewDocumentCommand \suaitable { O{} m }
+  { \suai_read_lines:n { \__suai_table:nn {#1} {#2} } }
+
+%%---------------------------------------------------------------------
+%% 13. ФОРМУЛА С ПОЯСНЕНИЯМИ
+%%  Строки «обозначение | смысл» дают «где V — ...;», $ добавляется сам.
+%%---------------------------------------------------------------------
+\box_new:N \l__suai_where_box
+\tl_new:N \l__suai_sym_tl
+
+\cs_new_protected:Npn \__suai_where_item:nn #1#2
+  {
+    \seq_set_split:Nnn \l__suai_cells_seq { | } {#2}
+    \int_compare:nNnTF { \seq_count:N \l__suai_cells_seq } > { 1 }
+      {
+        \seq_pop_left:NN \l__suai_cells_seq \l__suai_sym_tl
+        \tl_if_in:NnF \l__suai_sym_tl { $ }
+          { \tl_set:Nx \l__suai_sym_tl { $ \exp_not:V \l__suai_sym_tl $ } }
+        \tl_set:Nx \l__suai_item_tl
+          {
+            \exp_not:V \l__suai_sym_tl
+            \exp_not:N \nobreakspace \exp_not:N \textemdash \c_space_tl
+            \seq_use:Nn \l__suai_cells_seq { | }
+          }
+      }
+      { \tl_set:Nn \l__suai_item_tl {#2} }
+    \__suai_punct:n {#1}
+    \par \noindent
+    \hangindent = \box_wd:N \l__suai_where_box
+    \hangafter = 1 \scan_stop:
+    \int_compare:nNnTF {#1} = { 1 }
+      { \box_use:N \l__suai_where_box }
+      { \skip_horizontal:n { \box_wd:N \l__suai_where_box } }
+    \tl_use:N \l__suai_item_tl
+  }
+
+\cs_new_protected:Npn \__suai_eq:nn #1#2
+  {
+    \begin{equation}
+      #2
+      \tl_if_blank:nF {#1} { \label{eq:#1} }
+    \end{equation}
+    \seq_if_empty:NF \g__suai_lines_seq
+      {
+        \hbox_set:Nn \l__suai_where_box { где \c_space_tl }
+        \bool_set_true:N \l__suai_punct_bool
+        \seq_map_indexed_function:NN \g__suai_lines_seq \__suai_where_item:nn
+        \par
+      }
+  }
+
+\NewDocumentCommand \suaieq { O{} m }
+  { \suai_read_lines:n { \__suai_eq:nn {#1} {#2} } }
+
+%%---------------------------------------------------------------------
+%% 14. СПИСОК ИСТОЧНИКОВ
+%%  Без строк под командой список печатает biblatex, если подключён.
+%%---------------------------------------------------------------------
+\cs_new_protected:Npn \__suai_sources:
+  {
+    \suaisection { Список~использованных~источников }
+    \seq_if_empty:NTF \g__suai_lines_seq
+      { \cs_if_exist:NT \printbibliography { \printbibliography [ heading = none ] } }
+      {
+        \begin{enumerate} [ label = \arabic*. , wide = \parindent ]
+          \seq_map_inline:Nn \g__suai_lines_seq { \item ##1 }
+        \end{enumerate}
+      }
+  }
+\NewDocumentCommand \suaisources { }
+  { \suai_read_lines:n { \__suai_sources: } }
+
+%%---------------------------------------------------------------------
+%% 15. ЛИСТИНГИ
+%%  \suaicode[язык, метка]{файл}{Подпись}[метка] — код из файла (ищется
+%%  и в code/), метка по умолчанию lst:имя-файла.
+%%  \suaicode[язык, метка]{Подпись} — код в тексте: строки с отступом
+%%  под командой, пустые строки внутри можно. Код кончается на первой
+%%  непустой строке без отступа; общий отступ срезается.
+%%  [язык, метка]: без «=» — по позиции, с «=» — ключ listings.
+%%---------------------------------------------------------------------
+\int_new:N \l__suai_code_int
+\cs_new_protected:cpn { suai@codeopts } #1#2
+  {
+    \int_zero:N \l__suai_code_int
+    \clist_map_inline:nn {#1}
+      {
+        \tl_if_in:nnTF {##1} { = }
+          { \lstset {##1} }
+          {
+            \int_incr:N \l__suai_code_int
+            \int_case:nn { \l__suai_code_int }
+              {
+                { 1 } { \lstset { language = {##1} } }
+                { 2 } { \lstset { label = { lst:##1 } } }
+              }
+          }
+      }
+    \lstset { caption = {#2} }
+  }
+
+\msg_new:nnn { suai } { code-empty }
+  {
+    Под~\iow_char:N\\suaicode~нет~строк~с~отступом.~Код~в~тексте~
+    пишется~под~командой~с~отступом,~код~из~файла~—~так:~
+    \iow_char:N\\suaicode[язык]{файл}{Подпись}.
+  }
+\msg_new:nnn { suai } { code-rest }
+  {
+    После~подписи~\iow_char:N\\suaicode~на~той~же~строке~ничего~
+    не~пишется:~код~начинается~со~следующей~строки.
+  }
+
+% Форма узнаётся по второй {…} на той же строке. Конец строки делается
+% активным до того, как TeX её прочтёт, и peek на нём останавливается.
+\NewDocumentCommand \suaicode { O{} m }
+  {
+    \group_begin:
+      \char_set_catcode_active:n { 13 }
+      \char_set_catcode_other:N \%
+      \peek_remove_spaces:n
+        {
+          \peek_catcode:NTF \c_group_begin_token
+            { \group_end: \__suai_code_file:nnnn {#1} {#2} }
+            {
+              \tl_gset:Nn \g__suai_code_then_tl { \__suai_code_typeset:nn {#1} {#2} }
+              \__suai_code_inline:
+            }
+        }
+  }
+
+\NewDocumentCommand \__suai_code_file:nnnn { m m m o }
+  {
+    \group_begin:
+      \use:c { suai@basename } {#2}
+      \exp_args:Nx \lstset { label = { lst: \use:c { suai@base } } }
+      \use:c { suai@codeopts } {#1} {#3}
+      \IfValueT {#4} { \lstset { label = {#4} } }
+      \file_if_exist:nTF {#2}
+        { \lstinputlisting {#2} }
+        { \lstinputlisting { code/#2 } }
+    \group_end:
+  }
+
+%% Код в тексте. Строки читаются как есть (все ASCII — «прочие»,
+%% конец строки активный) и собираются в \g__suai_code_seq, табуляция
+%% сразу разворачивается в пробелы до колонки, кратной 4 (tabsize).
+%% Строка, на которой код кончился, после листинга читается заново
+%% с обычными кодами.
+\tl_new:N \g__suai_code_then_tl
+\seq_new:N \g__suai_code_seq
+\int_new:N \g__suai_code_blank_int    % пустые строки после последней строки кода
+\int_new:N \g__suai_code_indent_int   % общий отступ
+\tl_new:N \g__suai_code_stop_tl
+\tl_new:N \l__suai_code_line_tl
+\int_new:N \l__suai_code_col_int
+\int_new:N \l__suai_code_lead_int
+\iow_new:N \g__suai_code_iow
+\tl_const:Nx \c__suai_code_space_tl { \char_generate:nn { 32 } { 12 } }
+
+\cs_new_protected:Npn \__suai_code_inline:
+  {
+    \seq_gclear:N \g__suai_code_seq
+    \int_gzero:N \g__suai_code_blank_int
+    \int_gset_eq:NN \g__suai_code_indent_int \c_max_int
+    \__suai_code_rest:w
+  }
+
+\group_begin:
+  \char_set_lccode:nn { `\~ } { 13 }
+  \char_set_catcode_active:N \~
+  \tex_lowercase:D
+    {
+      \group_end:
+      % остаток строки с командой: пусто или комментарий
+      \cs_new_protected:Npn \__suai_code_rest:w #1 ~
+        {
+          \tl_if_blank:nF {#1}
+            {
+              \str_if_eq:eeF { \str_head:n {#1} } { \c_percent_str }
+                { \msg_error:nn { suai } { code-rest } }
+            }
+          \int_step_inline:nnn { 0 } { 127 } { \char_set_catcode_other:n {##1} }
+          \char_set_catcode_active:n { 13 }
+          \__suai_code_line:w
+        }
+      \cs_new_protected:Npn \__suai_code_line:w #1 ~
+        { \__suai_code_line:n {#1} }
+    }
+
+\cs_new_protected:Npn \__suai_code_line:n #1
+  {
+    \tl_clear:N \l__suai_code_line_tl
+    \int_zero:N \l__suai_code_col_int
+    \int_set:Nn \l__suai_code_lead_int { -1 }   % -1 — пока одни пробелы
+    \tl_map_inline:nn {#1}
+      {
+        \int_compare:nNnTF { `##1 } = { 9 }
+          {
+            \prg_replicate:nn { 4 - \int_mod:nn { \l__suai_code_col_int } { 4 } }
+              {
+                \tl_put_right:NV \l__suai_code_line_tl \c__suai_code_space_tl
+                \int_incr:N \l__suai_code_col_int
+              }
+          }
+          {
+            \int_compare:nNnT \l__suai_code_lead_int < 0
+              {
+                \int_compare:nNnF { `##1 } = { 32 }
+                  { \int_set_eq:NN \l__suai_code_lead_int \l__suai_code_col_int }
+              }
+            \tl_put_right:Nn \l__suai_code_line_tl {##1}
+            \int_incr:N \l__suai_code_col_int
+          }
+      }
+    \int_compare:nNnTF \l__suai_code_lead_int < 0
+      {
+        \int_gincr:N \g__suai_code_blank_int
+        \__suai_code_line:w
+      }
+      {
+        \int_compare:nNnTF \l__suai_code_lead_int > 0
+          {
+            \seq_if_empty:NF \g__suai_code_seq
+              {
+                \prg_replicate:nn { \g__suai_code_blank_int }
+                  { \seq_gput_right:Nn \g__suai_code_seq { } }
+              }
+            \int_gzero:N \g__suai_code_blank_int
+            \seq_gput_right:NV \g__suai_code_seq \l__suai_code_line_tl
+            \int_gset:Nn \g__suai_code_indent_int
+              { \int_min:nn { \g__suai_code_indent_int } { \l__suai_code_lead_int } }
+            \__suai_code_line:w
+          }
+          {
+            \tl_gset:Nn \g__suai_code_stop_tl {#1}
+            \group_end:
+            \__suai_code_end:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__suai_code_end:
+  {
+    \seq_if_empty:NTF \g__suai_code_seq
+      { \msg_error:nn { suai } { code-empty } }
+      { \tl_use:N \g__suai_code_then_tl }
+    \int_compare:nNnT \g__suai_code_blank_int > 0 { \par }
+    \__suai_code_stop:
+  }
+
+% Строка перечитывается без конца строки: \tl_set_rescan в expl3 2022
+% года падает на строке из одного комментария, поэтому такая строка
+% просто пропускается, а пробел за строкой ставится вручную. Следующему
+% \suaicode вместо пробела нужен активный конец строки, как после
+% \suaitable.
+\cs_new_protected:Npn \__suai_code_stop:
+  {
+    \str_if_eq:eeTF { \str_head:N \g__suai_code_stop_tl } { \c_percent_str }
+      { \tl_clear:N \l_tmpa_tl }
+      {
+        \exp_args:NNnV \tl_set_rescan:Nnn \l_tmpa_tl
+          { \int_set:Nn \tex_endlinechar:D { -1 } } \g__suai_code_stop_tl
+        \str_if_eq:eeTF
+          { \str_range:Nnn \g__suai_code_stop_tl { 1 } { 9 } }
+          { \c_backslash_str suaicode }
+          { \tl_put_right:NV \l_tmpa_tl \c__suai_eol_tl }
+          {
+            \exp_args:NNV \str_if_in:NnF \g__suai_code_stop_tl \c_percent_str
+              { \tl_put_right:NV \l_tmpa_tl \c_space_tl }
+          }
+      }
+    \tl_use:N \l_tmpa_tl
+  }
+
+\cs_new_protected:Npn \__suai_code_typeset:nn #1#2
+  {
+    \iow_open:Nn \g__suai_code_iow { \c_sys_jobname_str .code }
+    \seq_map_inline:Nn \g__suai_code_seq
+      {
+        \iow_now:Nx \g__suai_code_iow
+          { \tl_range:nnn {##1} { \g__suai_code_indent_int + 1 } { -1 } }
+      }
+    \iow_close:N \g__suai_code_iow
+    \group_begin:
+      \use:c { suai@codeopts } {#1} {#2}
+      \lstinputlisting { \c_sys_jobname_str .code }
+    \group_end:
+  }
+\ExplSyntaxOff
+
+% старое окружение, чтобы собирались прежние отчёты
+\lstnewenvironment{code}[2][]{\suai@codeopts{#1}{#2}}{}
+
+\endinput
