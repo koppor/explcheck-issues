@@ -1,0 +1,187 @@
+% Font behavior selection and application logic.
+% This layer owns inline/block behavior strategies, starting with RTL.
+
+\RequirePackage{iftex}
+\ifXeTeX
+  \RequirePackage{bidi}
+\else
+  \providecommand\RL[1]{#1}
+  \expandafter\ifx\csname RTL\endcsname\relax
+    \expandafter\def\csname RTL\endcsname{}
+  \fi
+  \expandafter\ifx\csname endRTL\endcsname\relax
+    \expandafter\def\csname endRTL\endcsname{}
+  \fi
+\fi
+
+\ExplSyntaxOn
+
+\tl_new:N \l__font_inline_behavior_tl
+\tl_new:N \l__font_vertical_strategy_tl
+
+\clist_const:Nn \c__font_tibetan_non_tsheg_punctuation_codepoints_clist
+  {
+    "0F04, "0F05, "0F06, "0F07, "0F08, "0F09, "0F0A,
+    "0F0D, "0F0E, "0F0F, "0F10, "0F11, "0F12, "0F14,
+    "0F3A, "0F3B, "0F3C, "0F3D,
+    "0F85,
+    "0FD0, "0FD1, "0FD2, "0FD3, "0FD4,
+    "0FD9, "0FDA
+  }
+
+\cs_new_protected:Npn \__font_behavior_tibetan_breaks:n #1
+  {
+    \tl_set:Nn \l_tmpa_tl {#1}
+    \regex_replace_all:nnN { ་ ([ཀ-ཬྈ-ྌ]) } { ་ \c{allowbreak} \1 } \l_tmpa_tl
+    \tl_use:N \l_tmpa_tl
+  }
+
+\prg_new_conditional:Npnn \__font_should_infer_rtl: { TF }
+  {
+    \__font_tl_if_in_set:NnTF \l__font_decl_family_id_tl
+      {
+        arabic,urdu,aramaic,nabataean,hebrew,syriac,syriac_eastern,
+        kharosthi,pahlavi_parthian,pahlavi_inscriptional,pahlavi_psalter,
+        avestan,manichaean,phoenician,samaritan,sogdian,sogdian_old,
+        hungarian,turkic,uyghur
+      }
+      { \prg_return_true: }
+      {
+        \__font_tl_if_in_set:NnTF \l__font_script_tl
+          {
+            Arabic,Hebrew,Syriac,Avestan,Nabataean,Phoenician,Samaritan,
+            PsalterPahlavi,ImperialAramaic,Kharoshthi,OldHungarian,
+            OldTurkic,OldUyghur,Sogdian,OldSogdian,Manichaean
+          }
+          { \prg_return_true: }
+          {
+            \tl_if_in:VnTF \l__font_features_tl { script=arab }
+              { \prg_return_true: }
+              {
+                \tl_if_in:VnTF \l__font_features_tl { script=hebr }
+                  { \prg_return_true: }
+                  {
+                    \tl_if_in:VnTF \l__font_features_tl { script=syrc }
+                      { \prg_return_true: }
+                      {
+                        \tl_if_in:VnTF \l__font_features_tl { script=armi }
+                          { \prg_return_true: }
+                          {
+                            \tl_if_in:VnTF \l__font_features_tl { script=mani }
+                              { \prg_return_true: }
+                              {
+                                \tl_if_in:VnTF \l__font_features_tl { script=phli }
+                                  { \prg_return_true: }
+                                  {
+                                    \tl_if_in:VnTF \l__font_features_tl { script=prti }
+                                      { \prg_return_true: }
+                                      {
+                                        \tl_if_in:VnTF \l__font_features_tl { script=sogd }
+                                          { \prg_return_true: }
+                                          {
+                                            \tl_if_in:VnTF \l__font_features_tl { script=ougr }
+                                              { \prg_return_true: }
+                                              {
+                                                \tl_if_in:VnTF \l__font_features_tl { script=khar }
+                                                  { \prg_return_true: }
+                                                  { \prg_return_false: }
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_behavior_defaults:
+  {
+    \tl_if_blank:VTF \l__font_inline_behavior_tl
+      {
+        \__font_should_infer_rtl:TF
+          { \tl_set:Nn \l__font_inline_behavior_tl { rtl } }
+          { \tl_set:NV \l__font_inline_behavior_tl \FontDefaultInlineBehavior }
+      }
+      { }
+    \tl_if_blank:VTF \l__font_vertical_strategy_tl
+      { \tl_set:NV \l__font_vertical_strategy_tl \FontDefaultVerticalStrategy }
+      { }
+  }
+
+\cs_new_protected:Npn \__font_validate_behavior_state:
+  {
+    \__font_tl_if_in_set:NnTF \l__font_inline_behavior_tl
+      { normal,rtl,tibetan,vertical-fallen,vertical-boxed }
+      { }
+      {
+        \PackageError{font-defaults}
+          {Invalid~inline~behavior~`\tl_use:N \l__font_inline_behavior_tl`}
+          {Use~normal,~rtl,~tibetan,~vertical-fallen,~or~vertical-boxed.}
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_script_line_breaking:
+  {
+    \str_if_eq:VnT \l__font_decl_family_id_tl { thai }
+      {
+        \sys_if_engine_xetex:T
+          {
+            \XeTeXlinebreaklocale "th_TH"
+            \global\XeTeXlinebreakskip = 0pt plus 1pt\relax
+            \global\XeTeXlinebreakpenalty = 100\relax
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_behavior_hooks:n #1
+  {
+    \str_if_eq:VnTF \l__font_inline_behavior_tl { rtl }
+      {
+        \cs_set_protected:cpn { __font_behavior_inline_#1:n } ##1
+          { \RL{##1} }
+        \cs_set_protected:cpn { __font_behavior_block_#1:n } ##1
+          {
+            \begingroup
+            \RTL
+            \leftskip=0pt plus 1fil\relax
+            \rightskip=0pt\relax
+            \parfillskip=0pt\relax
+            \noindent ##1
+            \endRTL
+            \endgroup
+          }
+      }
+      {
+        \str_if_eq:VnTF \l__font_inline_behavior_tl { tibetan }
+          {
+            \cs_set_protected:cpn { __font_behavior_inline_#1:n } ##1
+              { \__font_behavior_tibetan_breaks:n {##1} }
+            \cs_set_protected:cpn { __font_behavior_block_#1:n } ##1
+              { \__font_behavior_tibetan_breaks:n {##1} }
+          }
+          {
+            \cs_set_protected:cpn { __font_behavior_inline_#1:n } ##1
+              { ##1 }
+            \cs_set_protected:cpn { __font_behavior_block_#1:n } ##1
+              { ##1 }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_behavior:nn #1#2
+  {
+    \tl_set:Nn \l_tmpa_tl {#2}
+    \tl_if_in:NnTF \l_tmpa_tl { \par }
+      { \use:c { __font_behavior_block_#1:n } {#2} }
+      {
+        \mode_if_horizontal:TF
+          { \use:c { __font_behavior_inline_#1:n } {#2} }
+          { \use:c { __font_behavior_block_#1:n } {#2} }
+      }
+  }
+
+\ExplSyntaxOff

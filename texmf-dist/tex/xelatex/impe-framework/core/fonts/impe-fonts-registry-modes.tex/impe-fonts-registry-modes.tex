@@ -1,0 +1,433 @@
+% Font family registry with on-demand local/global loading.
+% Public interface:
+%   \FontRegisterFamily{ id=..., local={...}, global={...}, ... }
+%   \UseFont{id}[local|global]
+
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+
+\ExplSyntaxOn
+
+\prop_new:N \g__font_family_local_prop
+\prop_new:N \g__font_family_global_prop
+\prop_new:N \g__font_family_default_prop
+\prop_new:N \g__font_family_loaded_prop
+\prop_new:N \g__font_family_range_profile_prop
+\prop_new:N \g__font_family_global_route_prop
+\prop_new:N \g__font_range_profile_keys_prop
+\prop_new:N \g__font_range_key_blocks_prop
+\prop_new:N \g__font_range_key_owner_prop
+\prop_new:N \g__font_range_key_chain_prop
+
+\tl_new:N \l__font_family_id_tl
+\tl_new:N \l__font_family_local_tl
+\tl_new:N \l__font_family_global_tl
+\tl_new:N \l__font_family_default_mode_tl
+\tl_new:N \l__font_family_range_profile_tl
+\tl_new:N \l__font_family_global_route_tl
+\tl_new:N \l__font_family_owned_range_keys_tl
+\tl_new:N \l__font_family_owned_unicode_blocks_tl
+\tl_new:N \l__font_family_flat_decl_tl
+
+\cs_new_protected:Npn \__font_family_reset:
+  {
+    \tl_clear:N \l__font_family_id_tl
+    \tl_clear:N \l__font_family_local_tl
+    \tl_clear:N \l__font_family_global_tl
+    \tl_clear:N \l__font_family_default_mode_tl
+    \tl_clear:N \l__font_family_range_profile_tl
+    \tl_clear:N \l__font_family_global_route_tl
+    \tl_clear:N \l__font_family_flat_decl_tl
+  }
+
+\cs_new_protected:Npn \__font_family_flat_append:nn #1#2
+  {
+    \tl_if_blank:nF {#2}
+      { \tl_put_right:Nn \l__font_family_flat_decl_tl { #1 = {#2}, } }
+  }
+
+\keys_define:nn { font/family }
+  {
+    id           .tl_set:N = \l__font_family_id_tl,
+    local        .tl_set:N = \l__font_family_local_tl,
+    global       .tl_set:N = \l__font_family_global_tl,
+    defaultmode  .tl_set:N = \l__font_family_default_mode_tl,
+    rangeprofile .tl_set:N = \l__font_family_range_profile_tl,
+    globalroute  .tl_set:N = \l__font_family_global_route_tl,
+    command      .code:n = { \__font_family_flat_append:nn { command } {#1} },
+    name         .code:n = { \__font_family_flat_append:nn { name } {#1} },
+    path         .code:n = { \__font_family_flat_append:nn { path } {#1} },
+    regular      .code:n = { \__font_family_flat_append:nn { regular } {#1} },
+    bold         .code:n = { \__font_family_flat_append:nn { bold } {#1} },
+    italic       .code:n = { \__font_family_flat_append:nn { italic } {#1} },
+    bolditalic   .code:n = { \__font_family_flat_append:nn { bolditalic } {#1} },
+    sans         .code:n = { \__font_family_flat_append:nn { sans } {#1} },
+    sansbold     .code:n = { \__font_family_flat_append:nn { sansbold } {#1} },
+    sansitalic   .code:n = { \__font_family_flat_append:nn { sansitalic } {#1} },
+    sansbolditalic .code:n = { \__font_family_flat_append:nn { sansbolditalic } {#1} },
+    mono         .code:n = { \__font_family_flat_append:nn { mono } {#1} },
+    monobold     .code:n = { \__font_family_flat_append:nn { monobold } {#1} },
+    script       .code:n = { \__font_family_flat_append:nn { script } {#1} },
+    language     .code:n = { \__font_family_flat_append:nn { language } {#1} },
+    scriptclass  .code:n = { \__font_family_flat_append:nn { scriptclass } {#1} },
+    inlineaxis   .code:n = { \__font_family_flat_append:nn { inlineaxis } {#1} },
+    inlinedirection .code:n = { \__font_family_flat_append:nn { inlinedirection } {#1} },
+    blockprogression .code:n = { \__font_family_flat_append:nn { blockprogression } {#1} },
+    preservespaces .code:n = { \__font_family_flat_append:nn { preservespaces } {#1} },
+    inlinebehavior .code:n = { \__font_family_flat_append:nn { inlinebehavior } {#1} },
+    layout       .code:n = { \__font_family_flat_append:nn { layout } {#1} },
+    verticalstrategy .code:n = { \__font_family_flat_append:nn { verticalstrategy } {#1} },
+    verticalrotation .code:n = { \__font_family_flat_append:nn { verticalrotation } {#1} },
+    verticalorigin .code:n = { \__font_family_flat_append:nn { verticalorigin } {#1} },
+    verticaltopcorrection .code:n = { \__font_family_flat_append:nn { verticaltopcorrection } {#1} },
+    features     .code:n = { \__font_family_flat_append:nn { features } {#1} },
+    cjkfallback  .code:n = { \__font_family_flat_append:nn { cjkfallback } {#1} },
+    cjkfallbacks .code:n = { \__font_family_flat_append:nn { cjkfallback } {#1} },
+    backend      .code:n = { \__font_family_flat_append:nn { backend } {#1} },
+    fallbackmode .code:n = { \__font_family_flat_append:nn { fallbackmode } {#1} },
+    specialmodule .code:n = { \__font_family_flat_append:nn { specialmodule } {#1} },
+    specialbuilder .code:n = { \__font_family_flat_append:nn { specialbuilder } {#1} },
+    externalcommand .code:n = { \__font_family_flat_append:nn { externalcommand } {#1} },
+    externalengine .code:n = { \__font_family_flat_append:nn { externalengine } {#1} },
+    externalrendercommand .code:n = { \__font_family_flat_append:nn { externalrendercommand } {#1} },
+    externalclusterwise .code:n = { \__font_family_flat_append:nn { externalclusterwise } {#1} },
+  }
+
+\cs_new_protected:Npn \__font_family_validate_mode:n #1 { }
+
+\NewDocumentCommand{\DeclareUnicodeBlock}{mmm}
+  { \__font_declare_unicode_block:nnn {#1} {#2} {#3} }
+
+\NewDocumentCommand{\DeclareRangeKey}{mm}
+  { \prop_gput:Nnn \g__font_range_key_blocks_prop {#1} {#2} }
+
+\NewDocumentCommand{\DeclareRangeCodepointKey}{mmm}
+  {
+    \__font_declare_unicode_block:nnn {#1-codepoints} {#2} {#3}
+    \prop_gput:Nnn \g__font_range_key_blocks_prop {#1} {#1-codepoints}
+  }
+
+\NewDocumentCommand{\DeclareRangeProfile}{mm}
+  { \prop_gput:Nnn \g__font_range_profile_keys_prop {#1} {#2} }
+
+\NewDocumentCommand{\FontRegisterFamily}{m}
+  {
+    \__font_family_reset:
+    \keys_set:nn { font/family } {#1}
+
+    \tl_if_blank:VTF \l__font_family_id_tl
+      {
+        \PackageError{font-family-registry}
+          {Missing~id~field}
+          {Set~id~=...~when~registering~a~font~family.}
+      }
+      { }
+
+    \tl_if_blank:VTF \l__font_family_default_mode_tl
+      { \tl_set:Nn \l__font_family_default_mode_tl { local } }
+      { }
+
+    \__font_family_validate_mode:n { \tl_use:N \l__font_family_default_mode_tl }
+
+    \prop_put:NVV \g__font_family_default_prop \l__font_family_id_tl \l__font_family_default_mode_tl
+
+    \tl_if_blank:VTF \l__font_family_local_tl
+      {
+        \tl_if_blank:VF \l__font_family_flat_decl_tl
+          { \tl_set:NV \l__font_family_local_tl \l__font_family_flat_decl_tl }
+      }
+      { }
+
+    \tl_if_blank:VTF \l__font_family_range_profile_tl
+      { }
+      { \prop_put:NVV \g__font_family_range_profile_prop \l__font_family_id_tl \l__font_family_range_profile_tl }
+
+    \tl_if_blank:VTF \l__font_family_global_route_tl
+      { \tl_set:Nn \l__font_family_global_route_tl { fontspec-range } }
+      { }
+    \prop_put:NVV \g__font_family_global_route_prop \l__font_family_id_tl \l__font_family_global_route_tl
+
+    \tl_if_blank:VTF \l__font_family_local_tl
+      { }
+      { \prop_put:NVV \g__font_family_local_prop \l__font_family_id_tl \l__font_family_local_tl }
+
+    \tl_if_blank:VTF \l__font_family_global_tl
+      { }
+      { \prop_put:NVV \g__font_family_global_prop \l__font_family_id_tl \l__font_family_global_tl }
+  }
+
+\cs_new_protected:Npn \__font_family_use_declaration:nnn #1#2#3
+  {
+    \prop_if_in:NnTF \g__font_family_loaded_prop { #1 / #2 }
+      { }
+      {
+        \tl_set:Nx \l_tmpb_tl { scope = #2, familyid = #1, \exp_not:n {#3} }
+        \exp_args:NV \FontDeclare \l_tmpb_tl
+        \prop_put:Nnn \g__font_family_loaded_prop { #1 / #2 } { loaded }
+      }
+  }
+
+\cs_generate_variant:Nn \__font_family_use_declaration:nnn { nnV }
+\cs_generate_variant:Nn \__font_family_use_loader:nn { nV }
+
+\cs_new_protected:Npn \__font_family_append_range_chain:nn #1#2
+  {
+    \prop_get:NnNTF \g__font_range_key_chain_prop {#2} \l_tmpa_tl
+      {
+        \exp_args:NV \clist_if_in:nnF \l_tmpa_tl {#1}
+          {
+            \tl_put_right:Nn \l_tmpa_tl { , #1 }
+            \prop_gput:NnV \g__font_range_key_chain_prop {#2} \l_tmpa_tl
+          }
+      }
+      { \prop_gput:Nnn \g__font_range_key_chain_prop {#2} {#1} }
+  }
+
+\cs_new_protected:Npn \__font_family_add_owned_range_key:nn #1#2
+  {
+    \tl_if_blank:nF {#2}
+      {
+        \__font_family_append_range_chain:nn {#1} {#2}
+        \prop_if_in:NnTF \g__font_range_key_owner_prop {#2}
+          { }
+          {
+            \prop_gput:Nnn \g__font_range_key_owner_prop {#2} {#1}
+            \tl_if_blank:VTF \l__font_family_owned_range_keys_tl
+              { \tl_set:Nn \l__font_family_owned_range_keys_tl {#2} }
+              { \tl_put_right:Nn \l__font_family_owned_range_keys_tl { , #2 } }
+            \prop_get:NnNT \g__font_range_key_blocks_prop {#2} \l_tmpa_tl
+              {
+                \tl_if_blank:VTF \l__font_family_owned_unicode_blocks_tl
+                  { \tl_set:NV \l__font_family_owned_unicode_blocks_tl \l_tmpa_tl }
+                  { \tl_put_right:Nx \l__font_family_owned_unicode_blocks_tl { , \exp_not:V \l_tmpa_tl } }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_claim_profile:n #1
+  {
+    \tl_clear:N \l__font_family_owned_range_keys_tl
+    \tl_clear:N \l__font_family_owned_unicode_blocks_tl
+    \prop_get:NnNTF \g__font_family_range_profile_prop {#1} \l_tmpa_tl
+      { }
+      {
+        \prop_if_in:NnTF \g__font_range_profile_keys_prop {#1}
+          { \tl_set:Nn \l_tmpa_tl {#1} }
+          { \tl_clear:N \l_tmpa_tl }
+      }
+    \tl_if_blank:VF \l_tmpa_tl
+      {
+        \exp_args:NV \clist_map_inline:nn \l_tmpa_tl
+          {
+            \prop_get:NnNTF \g__font_range_profile_keys_prop {##1} \l_tmpb_tl
+              {
+                \exp_args:NV \clist_map_inline:nn \l_tmpb_tl
+                  { \__font_family_add_owned_range_key:nn {#1} {####1} }
+              }
+              { \__font_family_add_owned_range_key:nn {#1} {##1} }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_use_range_key_global:nn #1#2
+  {
+    \prop_if_in:NnF \g__font_range_key_owner_prop {#2}
+      {
+        \__font_family_append_range_chain:nn {#1} {#2}
+        \prop_gput:Nnn \g__font_range_key_owner_prop {#2} {#1}
+        \prop_get:NnNT \g__font_range_key_blocks_prop {#2} \l_tmpa_tl
+          {
+            \prop_if_in:NnF \g__font_family_loaded_prop { #1 / auto-range / #2 }
+              {
+                \prop_get:NnNTF \g__font_family_global_prop {#1} \l_tmpb_tl
+                  {
+                    \tl_set:Nx \l_tmpc_tl
+                      {
+                        scope = global, familyid = #1,
+                        \exp_not:V \l_tmpb_tl
+                        , unicodeblocks = { \exp_not:V \l_tmpa_tl }
+                      }
+                    \exp_args:NV \FontDeclare \l_tmpc_tl
+                    \prop_put:Nnn \g__font_family_loaded_prop { #1 / auto-range / #2 } { loaded }
+                  }
+                  {
+                    \PackageWarning{font-family-registry}
+                      {Family~`#1'~cannot~provide~range~`#2'~because~it~has~no~global~declaration}
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_apply_auto_companions:n #1
+  {
+    \str_if_eq:nnT {#1} { tangut }
+      {
+        \__font_family_use_range_key_global:nn { shanggu } { cjk-punctuation }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_use_auto_global:n #1
+  {
+    \prop_get:NnNTF \g__font_family_global_route_prop {#1} \l_tmpa_tl
+      { }
+      { \tl_set:Nn \l_tmpa_tl { fontspec-range } }
+    \str_if_eq:VnTF \l_tmpa_tl { none }
+      {
+        \tl_clear:N \l__font_family_owned_range_keys_tl
+        \tl_clear:N \l__font_family_owned_unicode_blocks_tl
+      }
+      {
+        \__font_family_claim_profile:n {#1}
+        \tl_if_blank:VF \l__font_family_owned_unicode_blocks_tl
+          {
+            \prop_if_in:NnF \g__font_family_loaded_prop { #1 / auto-global }
+              {
+                \prop_get:NnNTF \g__font_family_global_prop {#1} \l_tmpa_tl
+                  {
+                    \tl_set:Nx \l_tmpb_tl
+                      {
+                        scope = global, familyid = #1,
+                        \exp_not:V \l_tmpa_tl
+                        , unicodeblocks = { \exp_not:V \l__font_family_owned_unicode_blocks_tl }
+                      }
+                    \exp_args:NV \FontDeclare \l_tmpb_tl
+                    \prop_put:Nnn \g__font_family_loaded_prop { #1 / auto-global } { loaded }
+                  }
+                  {
+                    \prop_get:NnNT \g__font_family_local_prop {#1} \l_tmpa_tl
+                      {
+                        \tl_set:Nx \l_tmpb_tl
+                          {
+                            scope = global, familyid = #1,
+                            \exp_not:V \l_tmpa_tl
+                            , name = { #1 _global }
+                            , unicodeblocks = { \exp_not:V \l__font_family_owned_unicode_blocks_tl }
+                          }
+                        \exp_args:NV \FontDeclare \l_tmpb_tl
+                        \prop_put:Nnn \g__font_family_loaded_prop { #1 / auto-global } { loaded }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_use_auto:n #1
+  {
+    \prop_if_in:NnTF \g__font_family_default_prop {#1}
+      {
+        \prop_if_in:NnT \g__font_family_local_prop {#1}
+          {
+            \prop_get:NnN \g__font_family_local_prop {#1} \l_tmpa_tl
+            \__font_family_use_declaration:nnV {#1} { local } \l_tmpa_tl
+          }
+        \prop_get:NnN \g__font_family_default_prop {#1} \l_tmpa_tl
+        \str_if_eq:VnT \l_tmpa_tl { global }
+          {
+            \prop_if_in:NnT \g__font_family_global_prop {#1}
+              {
+                \prop_get:NnN \g__font_family_global_prop {#1} \l_tmpb_tl
+                \__font_family_use_declaration:nnV {#1} { global } \l_tmpb_tl
+              }
+          }
+        \__font_family_use_auto_global:n {#1}
+        \__font_family_apply_auto_companions:n {#1}
+        \tl_if_blank:VT \l__font_family_owned_unicode_blocks_tl
+          {
+            \str_if_eq:VnF \l_tmpa_tl { global }
+              {
+                \prop_if_in:NnT \g__font_family_global_prop {#1}
+                  {
+                    \prop_get:NnN \g__font_family_global_prop {#1} \l_tmpb_tl
+                    \__font_family_use_declaration:nnV {#1} { global } \l_tmpb_tl
+                  }
+              }
+          }
+      }
+      {
+        \PackageError{font-family-registry}
+          {Unknown~font~family~id}
+          {Register~family~`#1'~with~\string\FontRegisterFamily\ first.}
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_use_loader:nn #1#2
+  {
+    \str_if_eq:nnTF {#2} { local }
+      {
+        \prop_if_in:NnTF \g__font_family_local_prop {#1}
+          {
+            \prop_get:NnN \g__font_family_local_prop {#1} \l_tmpa_tl
+            \__font_family_use_declaration:nnV {#1} { local } \l_tmpa_tl
+          }
+          {
+            \PackageError{font-family-registry}
+              {Unknown~font~family~mode}
+              {Family~`#1'~does~not~provide~mode~`local'.}
+          }
+      }
+      {
+        \str_if_eq:nnTF {#2} { global }
+          {
+            \prop_if_in:NnTF \g__font_family_global_prop {#1}
+              {
+                \prop_get:NnN \g__font_family_global_prop {#1} \l_tmpa_tl
+                \__font_family_use_declaration:nnV {#1} { global } \l_tmpa_tl
+              }
+              {
+                \prop_if_in:NnTF \g__font_family_default_prop {#1}
+                  {
+                    \__font_family_use_auto_global:n {#1}
+                    \tl_if_blank:VT \l__font_family_owned_unicode_blocks_tl
+                      {
+                        \PackageError{font-family-registry}
+                          {Font~family~has~no~global~mode}
+                          {Family~`#1'~does~not~provide~a~global~block~or~rangeprofile.}
+                      }
+                  }
+                  {
+                    \PackageError{font-family-registry}
+                      {Unknown~font~family~id}
+                      {Register~family~`#1'~with~\string\FontRegisterFamily\ first.}
+                  }
+              }
+          }
+          {
+            \PackageError{font-family-registry}
+              {Unknown~font~family~mode}
+              {Use~local~or~global.}
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_family_use_default:n #1
+  { \__font_family_use_auto:n {#1} }
+
+\cs_new_protected:Npn \NextFontFamilyLoadedTF #1#2#3
+  {
+    \prop_if_in:NnTF \g__font_family_loaded_prop { #1 / local }
+      {#2}
+      {
+        \prop_if_in:NnTF \g__font_family_loaded_prop { #1 / global }
+          {#2}
+          {
+            \prop_if_in:NnTF \g__font_family_loaded_prop { #1 / auto-global }
+              {#2}
+              {#3}
+          }
+      }
+  }
+
+\NewDocumentCommand{\UseFont}{m O{}}
+  {
+    \tl_if_blank:nTF {#2}
+      { \__font_family_use_default:n {#1} }
+      { \__font_family_use_loader:nn {#1} {#2} }
+  }
+
+\NewDocumentCommand{\UseFonts}{m O{}}
+  { \clist_map_inline:nn {#1} { \UseFont{##1}[#2] } }
+
+\ExplSyntaxOff

@@ -1,0 +1,653 @@
+% modiagram-latex-integration, Package for LaTeX with interactive web helper for creating complex MO diagrams. Extends standard orbital support (d, f, etc.) with custom symmetry groups and real-time visual configuration for seamless LaTeX integration.
+
+%     Copyright (C) 2026 Viktor Altergott
+
+%     This program is free software: you can redistribute it and/or modify
+%     it under the terms of the GNU General Public License as published by
+%     the Free Software Foundation, either version 3 of the License, or
+%     (at your option) any later version.
+
+%     This program is distributed in the hope that it will be useful,
+%     but WITHOUT ANY WARRANTY; without even the implied warranty of
+%     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%     GNU General Public License for more details.
+
+%     You should have received a copy of the GNU General Public License
+%     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{mohelper}[2026/03/31 v1.0 Enhanced MO Diagram Creator]
+
+\RequirePackage{tikz, xstring}
+\RequirePackage{etoolbox}
+
+\usetikzlibrary{arrows.meta}
+
+\usetikzlibrary{backgrounds}
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
+
+% DEFINING THE WORKING ENVIRONMENT AND DEALING WITH USER INPUT
+
+\newenvironment{mohelper}[1][]{%
+    % Code, der beim START ausgeführt wird (\begin{mohelper})
+    \begin{tikzpicture}[#1] % Erlaubt zusätzliche TikZ-Optionen
+        \setcounter{c@lumns}{-1}
+        \expandafter\typeout\expandafter{\csname invokeL@ter\endcsname}
+        \csgdef{invokeL@ter}{}
+        \initdi@gram
+        }{%
+        % Code, der am ENDE ausgeführt wird (\end{mohelper})
+        \finish@job
+        \setcounter{c@lumns}{0}
+    \end{tikzpicture}
+}
+
+% \def\invokeL@ter{}
+\xdef\@tomside{0}
+
+
+\newcounter{labelID}
+\newcommand{\labelList}{} % Unsere Liste für die IDs
+
+\newcounter{c@lumns}
+\setcounter{c@lumns}{-1}
+
+\newcommand{\fragment}[1]{
+    \addtocounter{c@lumns}{1}
+    % \def\cs{\csname orbit@list\thec@lumns\endcsname}{}
+    \csgdef{orbit@list\thec@lumns}{}
+    \csgdef{l@bel\thec@lumns}{}
+    \xdef\@tomside{\thec@lumns}
+    #1
+    % \ifdefined#2
+    %     \addenergyscale{0}
+    % \fi
+}
+
+\newcommand{\addOrbital}[1]{
+    \pgfkeys{/mohelper/orbitals/.cd,
+        energy/.store in=\tempEnergy,
+        energy=0,
+        sym/.store in=\tempSym,
+        sym=a1,
+        config/.store in=\tempConfig,
+        config={empty},
+        labels/.store in=\tempLabels,
+        labels={},
+        label/.store in=\tempLabel,
+        label=,
+        labelposition/.store in=\tempLabelPosition,
+        labelposition=bottom,
+        column/.store in=\tempSide,
+        column=\@tomside,
+        #1
+    } % handle user input
+
+    \xdef\merg@dstring{}
+    \foreach \spin [count=\ione] in \tempConfig {
+        \edef\labelorbital{}
+        \foreach \ee [count=\itwo] in \tempLabels {
+            \ifdefequal{\ione}{\itwo}{
+                \xdef\labelorbital{\ee}
+            }{}
+        }
+        \ifdefempty{\merg@dstring}{
+            % Erster Eintrag: Kein Komma davor
+            \xdef\merg@dstring{\labelorbital/\spin}
+        }{
+            % Alle weiteren Einträge: Mit Komma trennen
+            \xdef\merg@dstring{\merg@dstring,\labelorbital/\spin}
+        }
+    }
+    \StrCount{\tempConfig}{,}[\arrcount]%
+    \pgfmathsetmacro{\tempDeg}{int(\arrcount + 1)}%
+
+    \degener@te{\tempEnergy}{\merg@dstring}{\tempSide}
+
+    \degener@telabel{\tempEnergy}{\tempDeg}{\tempSide}{\tempLabelPosition}{\tempLabel}
+
+    \foreach \group in \tempSym {
+
+        \listcsxadd{orbit@list\tempSide}{\group/\tempEnergy/\tempDeg}
+    }
+
+    % \expandafter\typeout\expandafter{\csname orbit@listleft\endcsname}
+}
+
+
+\newcommand{\cslistto@rray}[2]{%
+    \xdef#2{}% Ziel leeren
+    \def\do##1{%
+        \ifdefempty{#2}
+        {\xdef#2{##1}}% Erstes Element
+        {\xdef#2{#2,##1}}% Weitere Elemente mit Komma
+    }%
+    \dolistcsloop{#1}%
+}
+\ExplSyntaxOn
+
+
+% Wir erstellen eine "Sequence" (eine moderne Liste)
+\seq_new:N \g_mo_labels_seq
+
+% Ein interner Zeichenbefehl
+\cs_new:Npn \__mo_draw_label:nnn #1 #2 #3 {
+    % Hier wird \minY erst beim Aufruf ausgewertet!
+    \node[below=0pt, font=\scriptsize] at (#1, \minY - 0.5 - #2) {#3};
+}
+
+
+% Connects orbitals of the same symmetry group together
+\newcommand{\finish@job}{
+    \ifcase\thec@lumns
+        \relax
+    \fi
+    \pgfmathsetmacro{\range}{int(\thec@lumns - 1)}
+    \foreach \i in {0,..., \range} {
+            \cslistto@rray{orbit@list\i}{\arrayLeft}
+            \pgfmathsetmacro{\ii}{int(\i + 1)}
+            \cslistto@rray{orbit@list\ii}{\arrayMiddle}
+
+            \foreach \symmetry/\energy/\deg in \arrayLeft{
+
+                \foreach \symmetryy/\energyy/\degy in \arrayMiddle{
+
+                    \ifdefequal{\symmetry}{\symmetryy}{
+
+                        \begin{pgfonlayer}{background}
+                            \connect@further{\energy}{\deg}{\energyy}{\degy}{\i}
+                        \end{pgfonlayer}
+                    }{}
+
+                }
+            }
+        }
+    \seq_map_function:NN \g_mo_labels_seq \use:n
+    \seq_gclear:N \g_mo_labels_seq
+    % \cslistto@rray{invokeL@ter}{\dolater}
+
+    % \foreach \pos/\offset/\text in \dolater{
+    %     \message{show \text}
+    %     \node[below=0pt, font=\scriptsize] at (\pos,\minY-0.5-\offset) {\text};
+    % }
+    \foreach \i in {-1,0,..., \thec@lumns} {
+            \csgdef{orbit@list\i}{}
+        }
+}
+
+
+
+
+
+
+% FURTHER DRAWING LOGIC STUFF
+
+\newcommand{\orbit@llength}{0.8}
+\newcommand{\orbit@ldistance}{0.2}
+\newcommand{\columndistance}{3}
+\def\diagrammode{normal}
+\def\electroncolor{black}
+
+\newcommand{\initdi@gram}{
+    \xdef\minX{100}
+    \xdef\maxX{-100}
+    \xdef\minY{100}
+    \xdef\maxY{-100}
+}
+
+\newcommand{\c@lculateColumnX}[2]{
+    \pgfmathsetmacro{#1}{(\orbit@llength + \columndistance) * #2}
+}
+
+\newcommand{\addEnergyScale}[1]{
+\draw[->, -{Stealth[scale=1.2]}, semithick] (\minX-0.5-#1,\minY-0.5) -- (\minX-0.5-#1,\maxY+0.5) node[anchor=east, font=\footnotesize] {E};
+}
+
+\newcommand{\showEnergyDifference}[3]{
+\c@lculateColumnX{\xcolumn}{#2}
+\StrBefore{#1}{,}[\orbup]%
+\StrBehind{#1}{,}[\orbdown]%
+\c@lculateColumnX{\xposs}{\thec@lumns}
+\pgfmathsetmacro{\xpos}{\orbit@llength/2 + #2 + \xposs}
+
+\draw[<->, red, {Stealth[scale=0.7]}-{Stealth[scale=0.7]}, semithick] (\xpos,\orbdown) -- (\xpos,\orbup) node[midway, right, font=\footnotesize] {#3};
+}
+
+% \newcommand{\addLabel}[2]{
+%     \c@lculateColumnX{\xpos}{\thec@lumns}
+%     \pgfmathsetmacro{\pos}{\orbit@llength /2 + \xpos}
+%     % \edef\inhalt{#1}
+%     % \listcsxadd{invokeL@ter}{\pos/#2/\inhalt}
+%     \csgdef{l@bel\thec@lumns}{#1}
+% }
+
+\newcommand{\addLabel}[2]{
+    \c@lculateColumnX{\xpos}{\thec@lumns}
+    \pgfmathsetmacro{\pos}{\orbit@llength / 2 + \xpos}
+
+    % Wir speichern einen fertigen Funktionsaufruf in der Liste
+    \seq_gput_right:Ne \g_mo_labels_seq {
+        \exp_not:N \__mo_draw_label:nnn
+        {\pos}           % Wird zur Zahl expandiert (eingefroren)
+        {#2}             % Offset wird eingefroren
+        {\exp_not:n {#1}} % Text wird geschützt (nichts passiert)
+    }
+}
+\ExplSyntaxOff
+% 1: energy
+% 2: degeneration
+% 3: column
+% 4: align
+% 5: textcontent
+\newcommand{\degener@telabel}[5]{
+
+    \c@lculateColumnX{\xpos}{#3}
+
+    \ifdefstring{\diagrammode}{compact}{
+        \pgfmathsetmacro{\lengthkette}{\orbit@llength}
+    }{
+        \pgfmathsetmacro{\lengthkette}{#2 * \orbit@llength + (#2 - 1) * \orbit@ldistance}
+    }
+
+    \edef\labelalignment{#4}
+    \ifdefstring{\labelalignment}{left}{
+        \node[anchor=east, font=\scriptsize] at (\xpos + \orbit@llength /2 - \lengthkette /2,#1) {#5};
+    }{}
+    \ifdefstring{\labelalignment}{right}{
+        \node[anchor=west, font=\scriptsize] at (\xpos + \orbit@llength /2 + \lengthkette /2,#1) {#5};
+    }{}
+    \ifdefstring{\labelalignment}{bottom}{
+        \ifdefstring{\diagrammode}{compact}{
+            \edef\labeldistance{3pt}
+        }{
+            \edef\labeldistance{7pt}
+        }
+        \node[below=\labeldistance, font=\scriptsize] at (\xpos + \orbit@llength /2,#1) {#5};
+    }{}
+    \ifdefstring{\labelalignment}{top}{
+        \ifdefstring{\diagrammode}{compact}{
+            \edef\labeldistance{3pt}
+        }{
+            \edef\labeldistance{7pt}
+        }
+        \node[above=\labeldistance, font=\scriptsize] at (\xpos + \orbit@llength /2,#1) {#5};
+    }{}
+
+}
+
+\newcommand{\orbital}[4]{
+    \draw[thick] (#1,#2) -- (#1+\orbit@llength,#2);% node[below, font=\scriptsize] {#3};
+    \ifstrequal{#4}{up}{\electron@up{#1}{#2}}{}
+    \ifstrequal{#4}{down}{\electron@down{#1}{#2}}{}
+    \ifstrequal{#4}{pair}{\electron@up{#1}{#2}\electron@down{#1}{#2}}{}
+
+    \ifdefstring{\diagrammode}{compact}{
+        \edef\labeldistance{3pt}
+    }{
+        \edef\labeldistance{7pt}
+    }
+
+    \node[below=\labeldistance, font=\scriptsize] at (#1+\orbit@llength/2,#2) {#3};
+
+    \pgfmathsetmacro{\tempMinX}{min(\minX, #1)}
+    \pgfmathsetmacro{\tempMaxX}{max(\maxX, #1 + \orbit@llength)} % Hier die volle Breite nehmen!
+    \pgfmathsetmacro{\tempMinY}{min(\minY, #2)}
+    \pgfmathsetmacro{\tempMaxY}{max(\maxY, #2)}
+
+    \xdef\minX{\tempMinX}
+    \xdef\maxX{\tempMaxX}
+    \xdef\minY{\tempMinY}
+    \xdef\maxY{\tempMaxY}
+}
+
+\tikzset{
+electronnormal/.style={\electroncolor, -{Stealth[harpoon]}, thick, semithick},
+electroncompact/.style={\electroncolor, very thin, ->, very thin}
+}
+
+\newcommand{\getElec@specs}{
+    \ifdefstring{\diagrammode}{compact}{
+        \pgfmathsetmacro{\electronlength}{\orbit@ldistance * 0.5}
+        % \edef\electroncolor{red}
+        \edef\electron@style{electroncompact}
+    }{
+        \edef\electronlength{0.3}
+        % \edef\eleccolor{black}
+        \edef\electron@style{electronnormal}
+    }
+}
+
+\newcommand{\electron@up}[2]{
+    \getElec@specs
+    \draw[\electron@style] (#1+0.3,#2-\electronlength) -- (#1+0.3,#2+\electronlength);
+}
+\newcommand{\electron@down}[2]{
+    \getElec@specs
+    \draw[\electron@style] (#1+0.5,#2+\electronlength) -- (#1+0.5,#2-\electronlength);
+}
+
+\DeclareListParser{\@CSVsplitter}{,}
+% param: 
+% 1: y-level
+% 2: array {"name"/"spin",...}
+% 3: column
+\newcommand{\degener@te}[3]{
+
+    \StrCount{#2}{,}[\arrcount]%
+    \pgfmathsetmacro{\arrlength}{int(\arrcount + 1)}%
+
+    \c@lculateColumnX{\xposs}{#3}
+
+    \def\currentIdx{0}%
+
+    \renewcommand*{\do}[1]{% 
+
+        \StrBefore{##1}{/}[\tempName]%
+        \StrBehind{##1}{/}[\tempSpin]%
+
+        \ifdefstring{\diagrammode}{compact}{
+            \pgfmathsetmacro{\ypos}{#1 - ((\orbit@ldistance) * (\arrlength - 1)) / 2 + (\currentIdx) * (\orbit@ldistance)}%
+        }{
+            \pgfmathsetmacro{\xpos}{\xposs - ((\orbit@llength + \orbit@ldistance) * (\arrlength - 1)) / 2 + (\currentIdx) * (\orbit@llength + \orbit@ldistance)}%
+        }%
+
+
+        \ifdefstring{\diagrammode}{compact}{
+            \ifcase\currentIdx
+            \else
+                \def\tempName{}
+            \fi
+
+            \edef\tempcall{\noexpand\orbital{\xposs}{\ypos}{\tempName}{\tempSpin}}
+        }{
+            \edef\tempcall{\noexpand\orbital{\xpos}{#1}{\tempName}{\tempSpin}}
+        }%
+        \tempcall
+
+        \pgfmathsetmacro{\nextIdx}{int(\currentIdx + 1)}%
+        \xdef\currentIdx{\nextIdx}%
+    }%
+
+    % now finally expanding the text
+    \expandafter\docsvlist\expandafter{#2}%
+}
+
+
+%connects to the right. the #5 is the column index that will connect to the (#5 +1) column
+\newcommand{\connect@further}[5]{
+
+    \ifdefstring{\diagrammode}{compact}{
+        \pgfmathsetmacro{\degleft}{1}
+        \pgfmathsetmacro{\degright}{1}
+    }{
+        \pgfmathsetmacro{\degleft}{#2}
+        \pgfmathsetmacro{\degright}{#4}
+    }%
+
+    \pgfmathsetmacro{\xposleft}{(\orbit@llength + \columndistance) * #5 +\orbit@llength /2 + (\orbit@llength * \degleft + \orbit@ldistance * (\degleft - 1)) /2}
+    \pgfmathsetmacro{\xposmiddleleft}{(\orbit@llength + \columndistance) * (#5 + 1) +\orbit@llength /2 - (\orbit@llength * \degright + \orbit@ldistance * (\degright - 1)) /2}
+
+    \draw[on background layer, dashed, thin, gray] (\xposleft,#1) -- (\xposmiddleleft,#3);
+
+}
+
+% ==========================================================================================
+% THIS FOLLOWING AREA CONSISTS OF DEPRECATED MACROS, THEY THROW A WARNING WHEN USING THEM, YOU SHOULD NOT USE THEM ANYMORE!!
+% ==========================================================================================
+
+
+\newcommand{\degenerate}[3]{
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\degenerate is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+    % \StrCount{#2}{,}[\arrlength]
+    % \foreach \name/\spin [count=\i] in {#2}{
+    %         \ifstrequal{#3}{left}{\def\xposs{0}}{}
+    %         \ifstrequal{#3}{middle}{\def\xposs{\orbitallength+\columndistance}}{}
+    %         \ifstrequal{#3}{right}{\def\xposs{\orbitallength*2+\columndistance*2}}{}
+    %         % \def\xpos{\xposs-\orbitallength-\orbitaldistance}
+
+    %         \pgfmathsetmacro{\xpos}{\xposs - (\orbitallength + \orbitaldistance) * \arrlength /2 + (\i - 1) * (\orbitallength + \orbitaldistance)}
+
+    %         \edef\tempcall{\noexpand\orbital{\xpos}{#1}{\name}{\spin}}
+    %         \tempcall
+    %     }
+    \ifdefstring{\diagrammode}{compact}{
+        \def\func{\degeneratecorrectedcompact}%
+    }{\def\func{\degeneratecorrected}}%
+    \func{#1}{#2}{#3}%
+
+}
+
+% draw orbitals in normal mode
+\newcommand{\degeneratecorrected}[3]{%
+    % 1. Anzahl für Zentrierung berechnen
+    \StrCount{#2}{,}[\arrcount]%
+    \pgfmathsetmacro{\arrlength}{int(\arrcount + 1)}%
+
+    % 2. X-Basis bestimmen
+    % \edef\side{#3}
+    % \ifdefstring{\side}{left}{\def\xposs{0}}{}%
+    % \ifdefstring{\side}{middle}{\def\xposs{\orbit@llength+\columndistance}}{}%
+    % \ifdefstring{\side}{right}{\def\xposs{\orbit@llength*2+\columndistance*2}}{}%
+    \c@lculateColumnX{\xposs}{#3}
+
+    % 3. Der "Text-Splitter" von etoolbox
+    % Wir definieren eine Zählvariable für die Position
+    \def\currentIdx{0}%
+
+    % Dieser Befehl geht durch JEDES Element einer Komma-Liste, 
+    % egal ob sie als Text oder Makro kommt.
+    % \DeclareListParser{\@CSVsplitter}{,}%
+    \renewcommand*{\do}[1]{% 
+        % #1 ist jetzt z.B. "v/pair"
+        % Wir spalten den Schrägstrich mit xstring
+        \StrBefore{##1}{/}[\tempName]%
+        \StrBehind{##1}{/}[\tempSpin]%
+
+        % X-Position berechnen
+        \pgfmathsetmacro{\xpos}{\xposs - ((\orbit@llength + \orbit@ldistance) * (\arrlength - 1)) / 2 + (\currentIdx) * (\orbit@llength + \orbit@ldistance)}%
+
+        % Orbital zeichnen
+        % \orbital{\xpos}{#1}{\tempName}{\tempSpin}%
+        \edef\tempcall{\noexpand\orbital{\xpos}{#1}{\tempName}{\tempSpin}}
+        \tempcall
+
+        % Index erhöhen
+        \pgfmathsetmacro{\nextIdx}{int(\currentIdx + 1)}%
+        \xdef\currentIdx{\nextIdx}%
+    }%
+
+    % now finally expanding the text
+    \expandafter\docsvlist\expandafter{#2}%
+}
+% draw orbitals in compact mode
+\newcommand{\degeneratecorrectedcompact}[3]{%
+
+    \StrCount{#2}{,}[\arrcount]%
+    \pgfmathsetmacro{\arrlength}{int(\arrcount + 1)}%
+
+    \c@lculateColumnX{\xposs}{#3}
+
+    \def\currentIdx{0}%
+
+    \renewcommand*{\do}[1]{% 
+
+        \StrBefore{##1}{/}[\tempName]%
+        \StrBehind{##1}{/}[\tempSpin]%
+
+        \pgfmathsetmacro{\ypos}{#1 - ((\orbit@ldistance) * (\arrlength - 1)) / 2 + (\currentIdx) * (\orbit@ldistance)}%
+
+        \ifcase\currentIdx
+        \else
+            \def\tempName{}
+        \fi
+
+        \edef\tempcall{\noexpand\orbital{\xposs}{\ypos}{\tempName}{\tempSpin}}
+        \tempcall
+
+        \pgfmathsetmacro{\nextIdx}{int(\currentIdx + 1)}%
+        \xdef\currentIdx{\nextIdx}%
+    }%
+
+    % now finally expanding the text
+    \expandafter\docsvlist\expandafter{#2}%
+}
+
+% Deprecated
+\newcommand{\sliptogether}[6]{
+
+    \pgfmathsetmacro{\xposleft}{\orbit@llength /2 + (\orbit@llength * #2 + \orbit@ldistance * (#2 - 1)) /2}
+    \pgfmathsetmacro{\xposmiddleleft}{(\orbit@llength + \columndistance) +\orbit@llength /2 - (\orbit@llength * #4 + \orbit@ldistance * (#4 - 1)) /2}
+    \pgfmathsetmacro{\xposmiddleright}{(\orbit@llength + \columndistance)  + + \orbit@llength /2+ (\orbit@llength * #4 + \orbit@ldistance * (#4 - 1)) /2}
+    \pgfmathsetmacro{\xposright}{(\orbit@llength + \columndistance)*2 + \orbit@llength /2 - (\orbit@llength * #6 + \orbit@ldistance * (#6 - 1)) /2}
+
+    \ifcase#2
+
+    \else
+        \draw[dashed, thin, gray] (\xposleft,#1) -- (\xposmiddleleft,#3);
+    \fi
+    \ifcase#6
+
+    \else
+        \draw[dashed, thin, gray] (\xposmiddleright,#3) -- (\xposright,#5);
+    \fi
+
+}
+
+% Deprecated
+\newcommand{\connectorbital}[5]{
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\connectorbital is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+    \ifstrequal{#5}{left}{
+        \ifdefstring{\diagrammode}{compact}{
+            \sliptogether{#1}{1}{#3}{1}{0}{0}%
+        }{
+            \sliptogether{#1}{#2}{#3}{#4}{0}{0}%
+        }%
+    }{
+        \ifdefstring{\diagrammode}{compact}{
+            \sliptogether{0}{0}{#1}{1}{#3}{1}%
+        }{
+            \sliptogether{0}{0}{#1}{#2}{#3}{#4}%
+        }%
+    }%
+}
+
+\newcommand{\overlapp}[3]{%
+
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\overlapp is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+
+    \ifdefstring{\diagrammode}{compact}{
+        \def\func{\degeneratecorrectedcompact}%
+    }{\def\func{\degeneratecorrected}}%
+
+    \foreach \orbs/\elecs in {#1}{%
+            \func{\orbs}{\elecs}{0}%
+        }
+    \foreach \orbs/\elecs in {#2}{%
+            \func{\orbs}{\elecs}{1}%
+        }
+    \foreach \orbs/\elecs in {#3}{%
+            \func{\orbs}{\elecs}{2}%
+        }
+
+    \foreach \atomorbitalone/\elecsleft in {#1}{%
+
+            \StrCount{\elecsleft}{,}[\degeneratefirst]%
+            \pgfmathsetmacro{\degeneratefirst}{\degeneratefirst + 1}
+
+
+            \ifdefstring{\diagrammode}{compact}{\pgfmathsetmacro{\degeneratefirst}{1}}{}%
+
+
+            \foreach \molecorb/\elecsmiddle in {#2}{%
+
+                    \StrCount{\elecsmiddle}{,}[\degeneratesecond]%
+                    \pgfmathsetmacro{\degeneratesecond}{\degeneratesecond + 1}
+
+                    \ifdefstring{\diagrammode}{compact}{\pgfmathsetmacro{\degeneratesecond}{1}}{}%
+
+                    \sliptogether{\atomorbitalone}{\degeneratefirst}{\molecorb}{\degeneratesecond}{0}{0}
+
+
+                    \foreach \atomorbitaltwo/\elecsright in {#3}{
+                            \StrCount{\elecsright}{,}[\degeneratethird]%
+                            \pgfmathsetmacro{\degeneratethird}{\degeneratethird + 1}%
+
+                            \ifdefstring{\diagrammode}{compact}{\pgfmathsetmacro{\degeneratethird}{1}}{}%
+
+                            \sliptogether{0}{0}{\molecorb}{\degeneratesecond}{\atomorbitaltwo}{\degeneratethird}%
+                        }
+                }%
+        }%
+}%
+
+% hier die ganzes utils für a,e,t
+% param: 
+% 1: y-level
+% 2: name des orbitals
+% 3: zugehörigkeit: left right middle
+\newcommand{\nondegenerate}[4]{
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\nondegenerate is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+    % \newcommand{\xposition}{
+    \ifstrequal{#3}{left}{\def\xpos{0}}{}
+    \ifstrequal{#3}{middle}{\def\xpos{\orbit@llength+\columndistance}}{}
+    \ifstrequal{#3}{right}{\def\xpos{\orbit@llength*2+\columndistance*2}}{}
+    % }
+    \orbital{\xpos}{#1}{#2}{#4}
+}
+
+\newcommand{\twicedegenerate}[6]{
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\twicedegenerate is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+    % \newcommand{\xposition}{
+    \ifstrequal{#4}{left}{\def\xposs{0}}{}
+    \ifstrequal{#4}{middle}{\def\xposs{\orbit@llength+\columndistance}}{}
+    \ifstrequal{#4}{right}{\def\xposs{\orbit@llength*2+\columndistance*2}}{}
+    % }
+    \def\xpos{\xposs-\orbit@llength/2-\orbit@ldistance/2}
+    \orbital{\xpos}{#1}{#2}{#5}
+    \orbital{\xpos+\orbit@llength+\orbit@ldistance}{#1}{#3}{#6}
+}
+
+\newcommand{\tripledegenerate}[8]{
+    \PackageWarningNoLine{mohelper}{%
+        \noexpand\tripledegenerate is obsolete and might get removed in future versions of the package.\MessageBreak
+        Please use \noexpand\fragment{...} instead. See the manual for further information on how to use the new system.%
+    }%
+    % \newcommand{\xposition}{
+    \ifstrequal{#5}{left}{\def\xposs{0}}{}
+    \ifstrequal{#5}{middle}{\def\xposs{\orbit@llength+\columndistance}}{}
+    \ifstrequal{#5}{right}{\def\xposs{\orbit@llength*2+\columndistance*2}}{}
+    % }
+    \def\xpos{\xposs-\orbit@llength-\orbit@ldistance}
+    \orbital{\xpos}{#1}{#2}{#6}
+    \orbital{\xpos+\orbit@llength+\orbit@ldistance}{#1}{#3}{#7}
+    \orbital{\xpos+2*\orbit@llength+2*\orbit@ldistance}{#1}{#4}{#8}
+
+}
+
+
+\newcommand{\addenergyscale}[1]{
+\draw[->, -{Stealth[scale=1.2]}, semithick] (\minX-0.5-#1,\minY-0.5) -- (\minX-0.5-#1,\maxY+0.5) node[anchor=east, font=\footnotesize] {E};
+}
+
+\newcommand{\addlabel}[2]{
+    \foreach \name [count=\i] in {#1}{
+            \pgfmathsetmacro{\pos}{\orbit@llength/2 + (\i - 1) * (\orbit@llength + \columndistance)}
+            \node[below=0pt, font=\scriptsize] at (\pos,\minY-0.5-#2) {\name};
+        }
+}

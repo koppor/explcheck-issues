@@ -1,0 +1,186 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                         %
+%  easyformat  Easily add boldface, italics and smallcaps in LaTeX.       %
+%  Copyright (C) 2017  Evert Provoost <evert.provoost@gmail.com>          %
+%                                                                         %
+%  This program is free software: you can redistribute it and/or modify   %
+%  it under the terms of the GNU General Public License as published by   %
+%  the Free Software Foundation, either version 3 of the License, or      %
+%  (at your option) any later version.                                    %
+%                                                                         %
+%  This program is distributed in the hope that it will be useful,        %
+%  but WITHOUT ANY WARRANTY; without even the implied warranty of         %
+%  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          %
+%  GNU General Public License for more details.                           %
+%                                                                         %
+%  You should have received a copy of the GNU General Public License      %
+%  along with this program.  If not, see <http://www.gnu.org/licenses/>.  %
+%                                                                         %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%% NOTE TO THE FUTURE:
+%    In LaTeX3 the `New Font Selection Scheme' is replaced
+%    by XFSS (xfont). Moving will require some research.
+
+
+%% Administration...
+\RequirePackage{expl3}[2016/04/21]
+\ProvidesExplPackage
+  {easyformat}
+  {2017/06/03}
+  {1.4.0}
+  {Easily add boldface, italics and smallcaps.}
+
+
+%% Public macros
+% Add macros to switch the syntax on or off.
+\cs_new:Npn \enableeasyformat
+  {
+    \char_set_catcode_active:N _
+    \char_set_catcode_active:N ^
+  }
+
+\cs_new:Npn \disableeasyformat
+  {
+    \char_set_catcode_math_subscript:N _
+    \char_set_catcode_math_superscript:N ^
+  }
+
+% Add a macro LaTeX should have...
+% Which is protected to fix the double superscript error
+% and able to give correct kerning in mathmode.
+\cs_new_protected:Npn \cir
+  {
+    \mode_if_math:TF
+      { \hat{} }
+      { \c_circumflex_str }
+  }
+
+
+%% Variables
+% Remember the style before changing to italics/boldface/smallcaps.
+\str_new:N \l__prev_shape_str
+\str_set_eq:NN \l__prev_shape_str \shapedefault
+
+\str_new:N \l__prev_case_str
+% Case is the option used in XFSS, however do note that in
+% LaTeX2e's NFSS, smallcaps is a kind of shape.
+\str_set_eq:NN \l__prev_case_str \shapedefault
+
+\str_new:N \l__prev_series_str
+\str_set_eq:NN \l__prev_series_str \seriesdefault
+
+
+%% Formating handling
+% Add macros which change the font shape and font series.
+\cs_new:Npn \__font_set_shape:n #1
+  {
+    \fontshape {#1}
+    \selectfont
+  }
+
+\cs_new:Npn \__font_set_series:n #1
+  {
+    \fontseries {#1}
+    \selectfont
+  }
+
+% Switch italics on or off.
+\cs_new:Npn \__handle_italics:
+  {
+    \str_if_eq:NNTF \f@shape \itdefault
+      {
+        \__font_set_shape:n {\l__prev_shape_str}
+        \str_set_eq:NN \l__prev_shape_str \shapedefault
+        % \maybe@ic adds italics correction if needed.
+        % Probably becomes \xfss_maybe_ic: in LaTeX3.
+        \maybe@ic
+      }
+      {
+        \str_set_eq:NN \l__prev_shape_str \f@shape
+        \itshape
+      }
+  }
+
+% Switch smallcaps on or off.
+\cs_new:Npn \__handle_smallcaps:
+  {
+    \str_if_eq:NNTF \f@shape \scdefault
+      {
+        \__font_set_shape:n {\l__prev_case_str}
+        \str_set_eq:NN \l__prev_case_str \shapedefault
+      }
+      {
+        \str_set_eq:NN \l__prev_case_str \f@shape
+        \scshape
+      }
+  }
+
+% Switch boldface on or off.
+\cs_new:Npn \__handle_boldface:
+  {
+    \str_if_eq:NNTF \f@series \bfdefault
+      {
+        \__font_set_series:n {\l__prev_series_str}
+        \str_set_eq:NN \l__prev_series_str \seriesdefault
+      }
+      {
+        \str_set_eq:NN \l__prev_series_str \f@series
+        \bfseries
+      }
+  }
+
+
+%% Handling the syntax
+% This is where the magic happens (also differentiates between
+% text- and mathmode.)
+% These are protected because they should also work in eg. \section{}
+
+% Syntax handling for the underscore: italics and boldface.
+\cs_new_protected:Npn \__syntax_underscore:
+  {
+    \mode_if_math:TF
+      { \c_math_subscript_token }
+      {
+        \peek_charcode_remove:NTF _
+          % The second underscore is removed when detected.
+          { \__handle_boldface: }
+          { \__handle_italics: }
+      }
+  }
+
+% Syntax handling for the circumflex: smallcaps.
+\cs_new_protected:Npn \__syntax_circumflex:
+  {
+    \mode_if_math:TF
+      { \c_math_superscript_token }
+      { \__handle_smallcaps: }
+  }
+
+% Now give the underscore and the circumflex their behaviour.
+\char_set_active_eq:NN _ \__syntax_underscore:
+\char_set_active_eq:NN ^ \__syntax_circumflex:
+
+
+%% Activate the systems.
+% First disable the Expl3 syntax as it will only cause trouble.
+\ExplSyntaxOff
+
+% Now enable the easyformat syntax.
+\enableeasyformat
+
+% DONE!!!
+
+
+%% IMPLEMENTATION DETAILS:
+%% Why not \textit/bf/sc\bgroup and \egroup?
+%      Well actualy that was the original solution. However this
+%      doesn't differentiate between ending itallics or ending
+%      boldface. The current solution does and this makes the
+%      syntax more predictable and generally more useful.
+
+%% Why no ^^typewriter^^?
+%     because this doesn't add much value, in most contexts
+%     where a monospace font is useful there is already
+%     other syntax available.

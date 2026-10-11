@@ -1,0 +1,2383 @@
+%% xjyutping.sty -- add Jyutping (Cantonese romanisation) above Chinese
+%% characters, with readings chosen from the surrounding words.  Works with
+%% XeLaTeX (xeCJK) and LuaLaTeX (LuaTeX-ja; with xjyutping.lua).
+%%
+%% Copyright (C) 2026 by the xjyutping authors.
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, version 1.3c or later.
+%%
+%% Inspired by xpinyin (Qing Lee); the fancy tone marks follow Visual
+%% Jyutping (Vincent Tam) and the Visual Cantonese Fonts (Jon Chui).  The
+%% reading data (xjyutping-*.def, CC BY-SA 4.0) comes from the LSHK Jyutping
+%% table, rime-cantonese, CC-Canto and the CC-CEDICT Cantonese readings,
+%% 粵音資料集叢 and OpenCC: see README.md.  The history is in CHANGELOG.md.
+%% Versions follow Semantic Versioning 2.0.0.
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage{xjyutping}{2026-09-28}{1.2.0}
+  {Add Jyutping to traditional Chinese characters}
+
+\msg_new:nnn { xjyutping } { engine }
+  {
+    The~xjyutping~package~needs~XeLaTeX~(with~xeCJK)~or~LuaLaTeX~
+    (with~LuaTeX-ja).
+  }
+\msg_new:nnn { xjyutping } { count-mismatch }
+  { `#1'~has~#2~character(s)~but~`#3'~has~#4~syllable(s). }
+% Under XeLaTeX xeCJK passes every Chinese character to a hook that builds
+% its cell.  Under LuaLaTeX the cells are built by xjyutping.lua after
+% LuaTeX-ja has laid out the characters.
+\bool_lazy_or:nnF { \sys_if_engine_xetex_p: } { \sys_if_engine_luatex_p: }
+  { \msg_critical:nn { xjyutping } { engine } }
+\sys_if_engine_xetex:TF
+  { \@ifpackageloaded { xeCJK } { } { \RequirePackage { xeCJK } } }
+  {
+    \@ifpackageloaded { luatexja } { } { \RequirePackage { luatexja } }
+    \lua_now:n { xjyutping = require ( 'xjyutping' ) }
+  }
+
+% ---------------------------------------------------------------------------
+% Options
+% ---------------------------------------------------------------------------
+\keys_define:nn { xjyutping }
+  {
+    ratio    .tl_set:N   = \l__xjyutping_ratio_tl ,
+    vsep     .tl_set:N   = \l__xjyutping_vsep_tl ,
+    hsep     .tl_set:N   = \l__xjyutping_hsep_tl ,
+    width    .tl_set:N   = \l__xjyutping_width_tl ,
+    font     .tl_set:N   = \l__xjyutping_font_tl ,
+    format   .tl_set:N   = \l__xjyutping_format_tl ,
+    multiple .tl_set:N   = \l__xjyutping_multiple_tl ,
+    fancy    .bool_set:N = \l__xjyutping_fancy_bool ,
+    linebreak .bool_set:N = \l__xjyutping_linebreak_bool ,
+    debug    .bool_set:N = \l__xjyutping_debug_bool ,
+  }
+\keys_set:nn { xjyutping }
+  {
+    ratio    = 0.45 ,
+    vsep     = 1.05em ,
+    hsep     = 0.15em plus 0.4em ,
+    width    = auto ,
+    font     = \normalfont ,
+  }
+\NewDocumentCommand \xjyutpingsetup { m }
+  { \keys_set:nn { xjyutping } {#1} \__xjyutping_lua_resnap: }
+
+% ---------------------------------------------------------------------------
+% Data.  \xjp@c@<char>: default reading.  \xjp@m@<char>: the other readings
+% of a polyphone.  \xjp@f@<char>: reading at the end of a run.
+% \xjp@v@<char>: canonical variant.  \xjp@w@<word>: word reading.
+% \xjp@e@<char>: longest word ending in <char>.  User settings live in
+% \xjp@u@<char> and \xjp@w@<word> (then also \xjp@uw@<word>).
+% ---------------------------------------------------------------------------
+% The files are read at the top level, not in a group: inside a group every
+% new control sequence name would take a slot of TeX's save stack.
+\cs_new_protected:cpn { xjp@C } #1#2; { \cs_gset_nopar:cpn { xjp@c@ #1 } {#2} }
+\cs_new_protected:cpn { xjp@M } #1#2 ~ #3;
+  {
+    \cs_gset_nopar:cpn { xjp@c@ #1 } {#2}
+    \cs_gset_nopar:cpn { xjp@m@ #1 } {#3}
+  }
+\cs_new_protected:cpn { xjp@F } #1#2; { \cs_gset_nopar:cpn { xjp@f@ #1 } {#2} }
+\cs_new_protected:cpn { xjp@V } #1#2; { \cs_gset_nopar:cpn { xjp@v@ #1 } {#2} }
+\cs_new_protected:cpn { xjp@W } #1 = #2; { \cs_gset_nopar:cpn { xjp@w@ #1 } {#2} }
+\cs_new_protected:cpn { xjp@E } #1#2; { \cs_gset_nopar:cpn { xjp@e@ #1 } {#2} }
+\int_const:Nn \c__xjyutping_endlinechar_int { \tex_endlinechar:D }
+\char_set_catcode_space:n { 32 }
+\int_set:Nn \tex_endlinechar:D { -1 }
+\file_input:n { xjyutping-chars.def }
+\file_input:n { xjyutping-words.def }
+\int_set_eq:NN \tex_endlinechar:D \c__xjyutping_endlinechar_int
+\char_set_catcode_ignore:n { 32 }
+
+% ---------------------------------------------------------------------------
+% Variables
+% ---------------------------------------------------------------------------
+\bool_new:N \l__xjyutping_enable_bool
+\bool_new:N \l__xjyutping_scope_bool
+\bool_new:N \l__xjyutping_active_bool
+\bool_new:N \l__xjyutping_space_bool
+\bool_new:N \l__xjyutping_prev_bool
+\bool_new:N \l__xjyutping_raw_bool
+\bool_new:N \l__xjyutping_opt_bool
+\bool_new:N \g__xjyutping_cell_bool
+\box_new:N  \l__xjyutping_char_box
+\box_new:N  \l__xjyutping_ruby_box
+\dim_new:N  \l__xjyutping_cell_dim
+\dim_new:N  \g__xjyutping_max_dim
+\dim_new:N  \g__xjyutping_pad_dim
+\skip_new:N \l__xjyutping_hsep_skip
+\fp_new:N   \l__xjyutping_bls_fp
+\int_new:N  \g__xjyutping_block_int
+\int_new:N  \l__xjyutping_pass_int
+\int_new:N  \l__xjyutping_count_int
+\int_new:N  \l__xjyutping_depth_int
+\int_new:N  \l__xjyutping_ctx_int
+\int_new:N  \l__xjyutping_len_int
+\int_new:N  \l__xjyutping_skip_int
+\int_new:N  \l__xjyutping_skip_depth_int
+\int_new:N  \l__xjyutping_best_int
+\int_new:N  \l__xjyutping_i_int
+\int_new:N  \l__xjyutping_j_int
+\seq_new:N  \l__xjyutping_stack_seq
+\seq_new:N  \l__xjyutping_sem_seq
+\seq_new:N  \l__xjyutping_segs_seq
+\seq_new:N  \l__xjyutping_syl_seq
+\seq_new:N  \l__xjyutping_args_seq
+\tl_new:N   \l__xjyutping_tok_tl
+\tl_new:N   \l__xjyutping_pop_tl
+\tl_new:N   \l__xjyutping_key_tl
+\tl_new:N   \l__xjyutping_group_tl
+\tl_new:N   \l__xjyutping_action_tl
+\tl_new:N   \l__xjyutping_class_tl
+\tl_new:N   \l__xjyutping_owner_tl
+\tl_new:N   \l__xjyutping_final_tl
+\tl_new:N   \l__xjyutping_combo_tl
+\tl_new:N   \l__xjyutping_reading_tl
+\tl_new:N   \l__xjyutping_type_tl
+\tl_new:N   \l__xjyutping_syl_tl
+\tl_new:N   \l__xjyutping_out_tl
+\tl_new:N   \l__xjyutping_log_tl
+\tl_new:N   \l__xjyutping_uniform_tl
+\tl_new:N   \g__xjyutping_mark_tl
+\tl_new:N   \g__xjyutping_result_tl
+
+% ---------------------------------------------------------------------------
+% Typesetting one character.  xeCJK passes every ideograph to \CJKsymbol,
+% which a scope replaces.
+% ---------------------------------------------------------------------------
+% Inside the rubies and other internal boxes, Chinese characters are not
+% annotated.
+\sys_if_engine_xetex:TF
+  { \cs_new_protected:Npn \__xjyutping_cjk_inactive: { \makexeCJKinactive } }
+  { \cs_new_protected:Npn \__xjyutping_cjk_inactive: { \xjyutping@lua@off } }
+% The Jyutping font is cached together with its NFSS state, so that a font
+% command in `format' still works at the Jyutping size.
+\cs_new_protected:Npn \__xjyutping_select_font:
+  {
+    \__xjyutping_cjk_inactive:
+    \tl_set:Ne \l__xjyutping_key_tl
+      { xjp@font@ \l__xjyutping_ratio_tl / \f@size / \tl_to_str:N \l__xjyutping_font_tl }
+    \cs_if_exist_use:cF { \l__xjyutping_key_tl }
+      {
+        \fontsize
+          { \l__xjyutping_ratio_tl \tex_dimexpr:D \f@size pt \scan_stop: }
+          { \f@baselineskip }
+        \normalfont
+        \cs_set_eq:NN \xeCJK@family \use_none:n % xeCJK: no CJK font for Jyutping
+        \l__xjyutping_font_tl
+        \selectfont
+        \cs_gset_nopar:cpe { \l__xjyutping_key_tl }
+          {
+            \exp_not:c { \curr@fontshape / \f@size }
+            \tl_set:Nn \exp_not:N \f@encoding { \f@encoding }
+            \tl_set:Nn \exp_not:N \f@family { \f@family }
+            \tl_set:Nn \exp_not:N \f@series { \f@series }
+            \tl_set:Nn \exp_not:N \f@shape { \f@shape }
+            \tl_set:Nn \exp_not:N \f@size { \f@size }
+          }
+      }
+  }
+% Fancy tones (option fancy), after Visual Jyutping: the tone number becomes
+% a stroke tracing the pitch of the tone, followed by a small tone number,
+% raised for the high tones 1 and 2 and lowered for 3 to 6 (jyutˍ₆ ping˗₃).
+% The strokes follow the Visual Jyutping symbols ˉ ˊ ˗ ˎ ˏ ˍ: high, rising
+% to high, mid, falling to low, rising from low, low.  They are drawn, so no
+% font needs special glyphs; pitch 1 is the baseline and pitch 5 the height
+% of a digit.  The marks of a font are built once:
+% \xjp@tone@<font>@<tone> typesets one, and \xjp@tones@<font> holds the
+% greatest height and depth among them.
+\box_new:N \l__xjyutping_tone_box
+\dim_new:N \l__xjyutping_em_dim
+\dim_new:N \l__xjyutping_top_dim
+\dim_new:N \l__xjyutping_stroke_dim
+\dim_new:N \l__xjyutping_tone_ht_dim
+\dim_new:N \l__xjyutping_tone_dp_dim
+\dim_new:N \l__xjyutping_strut_ht_dim
+\dim_new:N \l__xjyutping_strut_dp_dim
+\dim_new:N \g__xjyutping_lift_dim
+\tl_new:N  \l__xjyutping_tone_tl
+\tl_new:N  \g__xjyutping_small_tl
+\cs_new:Npn \__xjyutping_font_key: { \tex_fontname:D \tex_font:D }
+% A length in bp, rounded: every mark keeps its drawing in memory.
+\cs_new:Npn \__xjyutping_bp:n #1
+  { \fp_eval:n { round ( \dim_to_decimal_in_bp:n {#1} , 2 ) } }
+% y of pitch #1 (1 to 5), for the centre of the stroke
+\cs_new:Npn \__xjyutping_pitch:n #1
+  {
+    \__xjyutping_bp:n
+      {
+        0.5 \l__xjyutping_stroke_dim
+        + ( \l__xjyutping_top_dim - \l__xjyutping_stroke_dim )
+          * \int_eval:n { #1 - 1 } / 4
+      }
+  }
+% PDF drawing code with the origin at the current point.  xdvipdfmx's
+% pdf:content adds q ... Q itself; LuaTeX's literal needs them (LuaTeX-ja
+% makes PDF output only).
+\sys_if_engine_luatex:TF
+  {
+    \cs_new_protected:Npn \__xjyutping_literal:n #1
+      { \tex_pdfextension:D literal { q ~ #1 ~ Q } }
+  }
+  { \cs_new_protected:Npn \__xjyutping_literal:n #1 { \tex_special:D { pdf:content ~ #1 } } }
+% A stroke from pitch #1 to pitch #2, 0.4em long after a 0.07em gap.
+\cs_new:Npn \__xjyutping_stroke:nn #1#2
+  {
+    \__xjyutping_bp:n { \l__xjyutping_stroke_dim } ~ w ~ 1 ~ J ~
+    \__xjyutping_bp:n
+      { 0.07 \l__xjyutping_em_dim + 0.5 \l__xjyutping_stroke_dim } ~
+    \__xjyutping_pitch:n {#1} ~ m ~
+    \__xjyutping_bp:n
+      { 0.47 \l__xjyutping_em_dim + 0.5 \l__xjyutping_stroke_dim } ~
+    \__xjyutping_pitch:n {#2} ~ l ~ S
+  }
+\cs_new:Npn \__xjyutping_contour:n #1
+  {
+    \str_case:nn {#1}
+      {
+        { 1 } { \__xjyutping_stroke:nn { 5 } { 5 } }
+        { 2 } { \__xjyutping_stroke:nn { 3 } { 5 } }
+        { 3 } { \__xjyutping_stroke:nn { 3 } { 3 } }
+        { 4 } { \__xjyutping_stroke:nn { 3 } { 1 } }
+        { 5 } { \__xjyutping_stroke:nn { 1 } { 3 } }
+        { 6 } { \__xjyutping_stroke:nn { 1 } { 1 } }
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_tones:
+  {
+    \cs_if_exist:cF { xjp@tones@ \__xjyutping_font_key: }
+      { \__xjyutping_tones_build: }
+  }
+\cs_new_protected:Npn \__xjyutping_tones_build:
+  {
+    \group_begin:
+      \tl_set:Ne \l__xjyutping_key_tl { \__xjyutping_font_key: }
+      \dim_set:Nn \l__xjyutping_em_dim { \tex_fontdimen:D 6 \tex_font:D }
+      \dim_set:Nn \l__xjyutping_top_dim { \tex_fontcharht:D \tex_font:D `6 }
+      \dim_compare:nNnT \l__xjyutping_top_dim = \c_zero_dim
+        { \dim_set:Nn \l__xjyutping_top_dim { 0.7 \l__xjyutping_em_dim } }
+      \dim_set:Nn \l__xjyutping_stroke_dim { 0.08 \l__xjyutping_em_dim }
+      \group_begin:
+        \fontsize { \fp_eval:n { 0.7 * \f@size } } { \f@baselineskip }
+        \selectfont
+        \tl_gset:Ne \g__xjyutping_small_tl
+          { \exp_not:c { \curr@fontshape / \f@size } }
+      \group_end:
+      \dim_zero:N \l__xjyutping_tone_ht_dim
+      \dim_zero:N \l__xjyutping_tone_dp_dim
+      \int_step_inline:nn { 6 }
+        {
+          \cs_gset_nopar:cpe { xjp@tone@ \l__xjyutping_key_tl @ ##1 }
+            {
+              \exp_not:N \hbox_to_wd:nn
+                { \dim_eval:n { 0.51 \l__xjyutping_em_dim + \l__xjyutping_stroke_dim } }
+                {
+                  \exp_not:N \tex_vrule:D
+                    height ~ \dim_use:N \l__xjyutping_top_dim ~
+                    depth ~ \c_zero_dim ~ width ~ \c_zero_dim
+                  \exp_not:N \__xjyutping_literal:n { \__xjyutping_contour:n {##1} }
+                  \exp_not:N \tex_hss:D
+                }
+              \exp_not:N \box_move_up:nn
+                {
+                  \int_compare:nNnTF {##1} < { 3 }
+                    { \dim_eval:n { 0.3 \l__xjyutping_top_dim + 0.12 \l__xjyutping_em_dim } }
+                    { \dim_eval:n { - 0.12 \l__xjyutping_em_dim } }
+                }
+                { \exp_not:N \hbox:n { \exp_not:V \g__xjyutping_small_tl ##1 } }
+            }
+          \hbox_set:Nn \l__xjyutping_tone_box
+            { \use:c { xjp@tone@ \l__xjyutping_key_tl @ ##1 } }
+          \dim_set:Nn \l__xjyutping_tone_ht_dim
+            { \dim_max:nn { \l__xjyutping_tone_ht_dim } { \box_ht:N \l__xjyutping_tone_box } }
+          \dim_set:Nn \l__xjyutping_tone_dp_dim
+            { \dim_max:nn { \l__xjyutping_tone_dp_dim } { \box_dp:N \l__xjyutping_tone_box } }
+        }
+      \cs_gset_nopar:cpe { xjp@tones@ \l__xjyutping_key_tl }
+        {
+          { \dim_use:N \l__xjyutping_tone_ht_dim }
+          { \dim_use:N \l__xjyutping_tone_dp_dim }
+        }
+    \group_end:
+  }
+% A syllable of the ruby; with fancy, a final tone number becomes its mark.
+\cs_new_protected:Npn \__xjyutping_syllable:n #1
+  {
+    \bool_if:NTF \l__xjyutping_fancy_bool
+      {
+        \tl_set:Ne \l__xjyutping_tone_tl { \tl_item:nn {#1} { -1 } }
+        \str_case:VnTF \l__xjyutping_tone_tl
+          { { 1 } { } { 2 } { } { 3 } { } { 4 } { } { 5 } { } { 6 } { } }
+          {
+            \use:e { \tl_range:nnn {#1} { 1 } { -2 } }
+            \__xjyutping_tones:
+            \use:c { xjp@tone@ \__xjyutping_font_key: @ \l__xjyutping_tone_tl }
+          }
+          {#1}
+      }
+      {#1}
+  }
+% Every ruby gets the same height and depth, so lines stay evenly spaced.
+% With fancy, that includes the tone marks; if they reach lower than the
+% letters, the ruby is lifted by the difference (\g__xjyutping_lift_dim),
+% so the gap to the character stays the same.
+\cs_new_protected:Npn \__xjyutping_strut:
+  {
+    \dim_set:Nn \l__xjyutping_strut_ht_dim
+      {
+        \dim_max:nn { \tex_fontcharht:D \tex_font:D `d }
+                    { \tex_fontcharht:D \tex_font:D `6 }
+      }
+    \dim_set:Nn \l__xjyutping_strut_dp_dim
+      {
+        \dim_max:nn { \tex_fontchardp:D \tex_font:D `g }
+                    { \tex_fontchardp:D \tex_font:D `j }
+      }
+    \dim_gzero:N \g__xjyutping_lift_dim
+    \bool_if:NT \l__xjyutping_fancy_bool
+      {
+        \__xjyutping_tones:
+        \exp_last_unbraced:Nv \__xjyutping_strut_fancy:nn
+          { xjp@tones@ \__xjyutping_font_key: }
+      }
+    \tex_vrule:D
+      height \l__xjyutping_strut_ht_dim
+      depth  \l__xjyutping_strut_dp_dim
+      width  \c_zero_dim
+  }
+\cs_new_protected:Npn \__xjyutping_strut_fancy:nn #1#2
+  {
+    \dim_gset:Nn \g__xjyutping_lift_dim
+      { \dim_max:nn { \c_zero_dim } { #2 - \l__xjyutping_strut_dp_dim } }
+    \dim_set:Nn \l__xjyutping_strut_ht_dim
+      { \dim_max:nn { \l__xjyutping_strut_ht_dim } {#1} }
+    \dim_set:Nn \l__xjyutping_strut_dp_dim
+      { \dim_max:nn { \l__xjyutping_strut_dp_dim } {#2} }
+  }
+\cs_new_protected:Npn \__xjyutping_ruby:nn #1#2
+  {
+    \hbox_set:Nn \l__xjyutping_ruby_box
+      {
+        \__xjyutping_select_font:
+        \__xjyutping_strut:
+        \l__xjyutping_format_tl
+        \str_if_eq:nnT {#2} { m } { \l__xjyutping_multiple_tl }
+        \__xjyutping_syllable:n {#1}
+      }
+  }
+% Height of the ruby's baseline above the character's.
+\cs_new:Npn \__xjyutping_vsep: { \l__xjyutping_vsep_tl + \g__xjyutping_lift_dim }
+\cs_new:Npn \__xjyutping_uniform:
+  {
+    \tl_if_empty:NTF \l__xjyutping_uniform_tl
+      { \c_zero_dim } { \l__xjyutping_uniform_tl }
+  }
+\cs_new_protected:Npn \__xjyutping_hsep:
+  { \skip_set:Nn \l__xjyutping_hsep_skip { \l__xjyutping_hsep_tl } }
+% An invisible rule reserves room above each ruby, so a line of rubies keeps
+% its distance from the line above even where \baselineskip is too small.
+% Inside the environment \baselineskip itself leaves the room, and a small
+% rule keeps framed or coloured boxes clear of the line above.
+\cs_new_protected:Npn \__xjyutping_clearance:
+  {
+    \tex_vrule:D
+      height \dim_eval:n
+        {
+          \__xjyutping_vsep: + \box_ht:N \l__xjyutping_ruby_box
+          + \bool_lazy_and:nnTF
+              { \l__xjyutping_scope_bool }
+              {
+                ! \dim_compare_p:nNn { \tex_baselineskip:D } <
+                  { \fp_to_dim:n { \l__xjyutping_bls_fp * \f@size } }
+              }
+              { 0.05em } { 0.35em }
+        }
+      depth \c_zero_dim width \c_zero_dim
+  }
+% #1 character, #2 reading, #3 type (w word, u user, m guessed polyphone,
+% s single-reading character).  A cell is as wide as the uniform width, the
+% character or the ruby, whichever is widest, plus the natural part of hsep.
+% The character sits in the middle; the ruby is a zero-width overlay
+% centred on it.  The character is typeset last, where xeCJK expects it.
+% The left half of the spare room is a kern in front (after an empty box,
+% so it survives a line break); the right half is left pending in
+% \g__xjyutping_pad_dim and paid out by whatever xeCJK puts after the
+% character.
+\cs_new_protected:Npn \__xjyutping_cell:nnn #1#2#3
+  {
+    % a colour change between two cells hides xeCJK's node, so xeCJK added
+    % no glue: add the stretch here
+    \bool_lazy_all:nT
+      {
+        { \g__xjyutping_paid_bool }
+        { \g__xjyutping_cell_bool }
+        { \int_compare_p:nNn { \tex_lastnodetype:D } = { 9 } }
+      }
+      {
+        \__xjyutping_hsep:
+        \skip_horizontal:n
+          { \l__xjyutping_hsep_skip - \dim_eval:n { \l__xjyutping_hsep_skip } }
+      }
+    \bool_gset_false:N \g__xjyutping_paid_bool
+    \hbox_set:Nn \l__xjyutping_char_box
+      { \makexeCJKinactive \__xjyutping_save_CJKsymbol:n {#1} }
+    \__xjyutping_ruby:nn {#2} {#3}
+    \__xjyutping_hsep:
+    \dim_set:Nn \l__xjyutping_cell_dim
+      {
+        (
+          \dim_max:nn { \__xjyutping_uniform: }
+            {
+              \dim_max:nn { \box_wd:N \l__xjyutping_char_box }
+                { \box_wd:N \l__xjyutping_ruby_box }
+            }
+          + \l__xjyutping_hsep_skip - \box_wd:N \l__xjyutping_char_box
+        ) / 2
+      }
+    \hbox:n { }
+    \tex_kern:D \l__xjyutping_cell_dim
+    \hbox_overlap_right:n
+      {
+        \__xjyutping_clearance:
+        \box_move_up:nn { \__xjyutping_vsep: }
+          {
+            \hbox_to_wd:nn { \box_wd:N \l__xjyutping_char_box }
+              { \tex_hss:D \box_use_drop:N \l__xjyutping_ruby_box \tex_hss:D }
+          }
+      }
+    \dim_gset_eq:NN \g__xjyutping_pad_dim \l__xjyutping_cell_dim
+    \bool_gset_true:N \g__xjyutping_cell_bool
+    \__xjyutping_save_CJKsymbol:n {#1}
+  }
+\cs_generate_variant:Nn \__xjyutping_cell:nnn { nVV }
+
+% The right-hand padding goes in front of whatever follows the character:
+% the glue to the next character (\CJKglue), the glue before Latin text
+% (\CJKecglue), a closing bracket, or any command, group end or box
+% (xeCJK's CJK/Boundary transition).  Before other punctuation it is
+% dropped, so the mark hugs its character as usual.  When xeCJK has already
+% left its marker for `the last thing was a CJK character', the padding goes
+% in front of the marker, so that xeCJK still adds its glue after it.
+\cs_new_protected:Npn \__xjyutping_pad:
+  {
+    \dim_compare:nNnT \g__xjyutping_pad_dim > \c_zero_dim
+      {
+        \mode_if_horizontal:T
+          {
+            \xeCJK_if_last_node:nTF { CJK }
+              {
+                \xeCJK_remove_node:
+                \__xjyutping_pad_kern:
+                \xeCJK_make_node:n { CJK }
+              }
+              {
+                \int_compare:nNnTF { \tex_lastnodetype:D } = { 9 }
+                  { % after a colour change: let xeCJK add its glue next
+                    \__xjyutping_pad_kern:
+                    \xeCJK_make_node:n { CJK }
+                  }
+                  { \__xjyutping_pad_kern: }
+              }
+          }
+        \dim_gzero:N \g__xjyutping_pad_dim
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_pad_kern:
+  { \tex_kern:D \g__xjyutping_pad_dim \hbox:n { } }
+% Between two cells only the stretch of hsep is glue (its natural width is
+% in the cells); before the first cell xeCJK's own glue is kept.
+\cs_new_protected:Npn \__xjyutping_CJKglue:
+  {
+    \__xjyutping_pad:
+    \bool_if:NTF \g__xjyutping_cell_bool
+      {
+        \__xjyutping_hsep:
+        \skip_horizontal:n
+          { \l__xjyutping_hsep_skip - \dim_eval:n { \l__xjyutping_hsep_skip } }
+      }
+      { \__xjyutping_save_CJKglue: }
+  }
+\cs_new_protected:Npn \__xjyutping_CJKecglue:
+  { \__xjyutping_pad: \__xjyutping_save_CJKecglue: }
+% When the character is the last thing in a group ({\color{red}長},
+% \textbf{長}, an \xjyutping), the padding is decided after the group closes,
+% by what comes next: it is dropped before punctuation other than closing
+% brackets and paid otherwise.  Only plain groups are looked past: at the
+% end of a box, math or any other kind of group the padding is paid inside
+% it (and tokens after such groups belong to other code).  A mark
+% \__xjyutping_nopad: after a character, put there by the preprocessor when
+% only invisible commands (\label, \index, {}...) stand between the
+% character and punctuation, drops the padding at once.
+\cs_new_eq:NN \__xjyutping_nopad: \scan_stop:
+\bool_new:N \l__xjyutping_nodefer_bool
+\bool_new:N \g__xjyutping_paid_bool
+\prg_new_conditional:Npnn \__xjyutping_if_defer: { TF }
+  {
+    \bool_if:nTF
+      {
+        ! \l__xjyutping_nodefer_bool
+        && (
+          \int_compare_p:nNn { \tex_currentgrouptype:D } = { 1 }
+          || \int_compare_p:nNn { \tex_currentgrouptype:D } = { 14 }
+        )
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_new_protected:Npn \__xjyutping_boundary:w
+  { \peek_after:Nw \__xjyutping_boundary_aux: }
+\cs_new_protected:Npn \__xjyutping_boundary_aux:
+  {
+    \bool_if:nTF
+      {
+        \token_if_eq_catcode_p:NN \l_peek_token \c_group_end_token
+        || \token_if_eq_meaning_p:NN \l_peek_token \group_end:
+        || \token_if_eq_meaning_p:NN \l_peek_token \tex_aftergroup:D
+      }
+      {
+        \group_insert_after:N \__xjyutping_defer:
+        \__xjyutping_save_boundary:w
+      }
+      {
+        \token_if_eq_meaning:NNTF \l_peek_token \scan_stop:
+          { \__xjyutping_boundary_relax:N }
+          {
+            \__xjyutping_pad:
+            \bool_gset_true:N \g__xjyutping_paid_bool
+            \__xjyutping_save_boundary:w
+          }
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_boundary_relax:N #1
+  {
+    \str_if_eq:eeTF { \cs_to_str:N #1 } { __xjyutping_nopad: }
+      {
+        \dim_gzero:N \g__xjyutping_pad_dim
+        \__xjyutping_save_boundary:w
+      }
+      {
+        \__xjyutping_pad:
+        \bool_gset_true:N \g__xjyutping_paid_bool
+        \__xjyutping_save_boundary:w #1
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_defer:
+  {
+    \__xjyutping_if_defer:TF
+      { \group_insert_after:N \__xjyutping_defer_test: }
+      { \__xjyutping_pad: }
+  }
+\cs_new_protected:Npn \__xjyutping_defer_test:
+  { \peek_after:Nw \__xjyutping_defer_test_aux: }
+\cs_new_protected:Npn \__xjyutping_defer_test_aux:
+  {
+    \__xjyutping_if_group_end:TF
+      { \__xjyutping_defer: } % one more group closes first
+      {
+        \token_if_eq_meaning:NNTF \l_peek_token \maybe@ic
+          { \__xjyutping_defer_ic:w }
+          { \__xjyutping_decide: }
+      }
+  }
+% A group end, or \textbf's \check@icr, which comes just before its group end.
+\prg_new_conditional:Npnn \__xjyutping_if_group_end: { TF }
+  {
+    \bool_if:nTF
+      {
+        \token_if_eq_catcode_p:NN \l_peek_token \c_group_end_token
+        || \token_if_eq_meaning_p:NN \l_peek_token \group_end:
+        || \token_if_eq_meaning_p:NN \l_peek_token \check@icr
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+% \textbf and friends leave \maybe@ic after their group: look past it.
+\cs_new_protected:Npn \__xjyutping_defer_ic:w \maybe@ic
+  { \peek_after:Nw \__xjyutping_defer_ic_aux: }
+\cs_new_protected:Npn \__xjyutping_defer_ic_aux:
+  {
+    \__xjyutping_if_group_end:TF { \__xjyutping_defer: } { \__xjyutping_decide: }
+    \maybe@ic
+  }
+\cs_new_protected:Npn \__xjyutping_decide:
+  {
+    \bool_lazy_or:nnTF
+      { \token_if_letter_p:N \l_peek_token }
+      { \token_if_other_p:N \l_peek_token }
+      {
+        \tl_set:Ne \l__xjyutping_syl_tl
+          { \exp_args:Ne \str_item:nn { \token_to_meaning:N \l_peek_token } { -1 } }
+        \int_compare:nNnTF
+          { \tex_XeTeXcharclass:D \exp_after:wN ` \l__xjyutping_syl_tl }
+          = { \xeCJK_class_num:n { FullRight } }
+          { \exp_args:NV \__xjyutping_closing:n \l__xjyutping_syl_tl }
+          { \__xjyutping_pad: }
+      }
+      { \__xjyutping_pad: }
+  }
+% Before a closing bracket or quote the padding is paid; before other
+% closing punctuation it is dropped.
+\cs_new_protected:Npn \__xjyutping_closing:n #1
+  {
+    \str_if_in:nnTF { 」』）】》〉〕］｝”’〗〙〟｠ } {#1}
+      { \__xjyutping_pad: }
+      {
+        \str_if_in:nnT { —…‥⸺ } {#1} { \__xjyutping_long_break: }
+        \dim_gzero:N \g__xjyutping_pad_dim
+      }
+  }
+% xeCJK allows a line break before —— and ……; if the line breaks there,
+% the padding stays at the end of the line, otherwise the kerns cancel.
+\sys_if_engine_xetex:T { \cs_new_eq:NN \__xjyutping_allow_break: \xeCJK_allow_break: }
+\cs_new_protected:Npn \__xjyutping_long_break:
+  {
+    \cs_set_protected:Npe \xeCJK_allow_break:
+      {
+        \tex_kern:D \dim_use:N \g__xjyutping_pad_dim
+        \exp_not:N \__xjyutping_allow_break:
+        \tex_kern:D \dim_eval:n { - \g__xjyutping_pad_dim }
+        \cs_set_eq:NN \exp_not:N \xeCJK_allow_break: \exp_not:N \__xjyutping_allow_break:
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_fullright:N #1
+  { \__xjyutping_closing:n {#1} \__xjyutping_save_fullright:N #1 }
+\cs_new_protected:Npn \__xjyutping_punct:n #1
+  { \dim_gzero:N \g__xjyutping_pad_dim \__xjyutping_save_punct:n {#1} }
+\AddToHook { para/begin } { \dim_gzero:N \g__xjyutping_pad_dim }
+
+% Default reading of a character standing alone; #2 is f at the end of a
+% run.  Sets \l__xjyutping_reading_tl and \l__xjyutping_type_tl.
+\cs_new_protected:Npn \__xjyutping_lookup:nn #1#2
+  {
+    \cs_if_exist:cTF { xjp@u@ #1 }
+      {
+        \tl_set_eq:Nc \l__xjyutping_reading_tl { xjp@u@ #1 }
+        \tl_set:Nn \l__xjyutping_type_tl { u }
+      }
+      {
+        \cs_if_exist:cTF { xjp@c@ #1 }
+          {
+            \bool_lazy_and:nnTF
+              { \str_if_eq_p:nn {#2} { f } }
+              { \cs_if_exist_p:c { xjp@f@ #1 } }
+              { \tl_set_eq:Nc \l__xjyutping_reading_tl { xjp@f@ #1 } }
+              { \tl_set_eq:Nc \l__xjyutping_reading_tl { xjp@c@ #1 } }
+            \tl_set:Ne \l__xjyutping_type_tl
+              { \cs_if_exist:cTF { xjp@m@ #1 } { m } { s } }
+          }
+          {
+            \tl_clear:N \l__xjyutping_reading_tl
+            \tl_clear:N \l__xjyutping_type_tl
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_lookup:nn { eV }
+
+% Marks.  The preprocessor puts one mark before each character: a macro
+% \xjp@R@<type><reading> that expands to \xjyutping@mark{<type><reading>}.
+% Written to the .toc it becomes the robust \xjyutping@mark, which does
+% nothing outside a scope.
+\cs_new_protected:Npn \xjyutping@mark #1
+  {
+    \bool_if:NT \l__xjyutping_enable_bool
+      {
+        \mode_leave_vertical: % paragraph-start code runs before the mark is set
+        \tl_gset:Nn \g__xjyutping_mark_tl {#1}
+        \__xjyutping_mark_next:
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_combo:nn #1#2
+  {
+    \tl_set:Ne \l__xjyutping_combo_tl { xjp@R@ #1 \tl_to_str:n {#2} }
+    \cs_if_exist:cF { \l__xjyutping_combo_tl }
+      { \cs_gset_nopar:cpn { \l__xjyutping_combo_tl } { \xjyutping@mark { #1 #2 } } }
+  }
+\cs_new_protected:Npn \__xjyutping_CJKsymbol:n #1
+  {
+    \tl_if_empty:NTF \g__xjyutping_mark_tl
+      {
+        \__xjyutping_lookup:nn {#1} { }
+        \bool_lazy_and:nnT \l__xjyutping_debug_bool
+          { ! \tl_if_empty_p:N \l__xjyutping_reading_tl }
+          {
+            \iow_log:e
+              {
+                xjyutping>~ [no~context]~ #1 \l__xjyutping_reading_tl :
+                \l__xjyutping_type_tl
+              }
+          }
+      }
+      {
+        \tl_set:Ne \l__xjyutping_type_tl
+          { \exp_args:NV \tl_head:n \g__xjyutping_mark_tl }
+        \tl_set:Ne \l__xjyutping_reading_tl
+          { \exp_args:NV \tl_tail:n \g__xjyutping_mark_tl }
+        \tl_gclear:N \g__xjyutping_mark_tl
+      }
+    \__xjyutping_cell:nVV {#1} \l__xjyutping_reading_tl \l__xjyutping_type_tl
+  }
+
+% LuaLaTeX.  A mark is followed by its character: the ruby is built here,
+% placed in an overlay box of the character's width, and handed to
+% xjyutping.lua together with the pad and the stretch of hsep; the
+% character is then typeset with an attribute that tells xjyutping.lua to
+% build its cell.  (A character that comes without a mark gets its cell
+% from \xjyutping@lua@nocontext, which xjyutping.lua runs.)
+\box_new:N \l__xjyutping_overlay_box
+\cs_new_protected:Npn \__xjyutping_lua_build:nnnN #1#2#3#4
+  {
+    \hbox_set:Nn \l__xjyutping_char_box { \__xjyutping_cjk_inactive: #1 }
+    \__xjyutping_ruby:nn {#2} {#3}
+    \__xjyutping_hsep:
+    \dim_set:Nn \l__xjyutping_cell_dim
+      {
+        (
+          \dim_max:nn { \__xjyutping_uniform: }
+            {
+              \dim_max:nn { \box_wd:N \l__xjyutping_char_box }
+                { \box_wd:N \l__xjyutping_ruby_box }
+            }
+          + \l__xjyutping_hsep_skip - \box_wd:N \l__xjyutping_char_box
+        ) / 2
+      }
+    \hbox_set:Nn \l__xjyutping_overlay_box
+      {
+        \__xjyutping_cjk_inactive:
+        \hbox_overlap_right:n
+          {
+            \__xjyutping_clearance:
+            \box_move_up:nn { \__xjyutping_vsep: }
+              {
+                \hbox_to_wd:nn { \box_wd:N \l__xjyutping_char_box }
+                  { \tex_hss:D \box_use_drop:N \l__xjyutping_ruby_box \tex_hss:D }
+              }
+          }
+      }
+    \use:e
+      {
+        \exp_not:N #4
+        \int_eval:n { \l__xjyutping_overlay_box } ~
+        \int_eval:n { \l__xjyutping_cell_dim } ~
+        \skip_use:N \l__xjyutping_hsep_skip \scan_stop:
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_lua_build:nnnN { nVV }
+\cs_new_protected:Npn \__xjyutping_lua_mark:N #1
+  {
+    \bool_lazy_and:nnTF { ! \mode_if_math_p: } { \__xjyutping_if_cjk_char_p:N #1 }
+      {
+        \tl_set:Ne \l__xjyutping_type_tl
+          { \exp_args:NV \tl_head:n \g__xjyutping_mark_tl }
+        \tl_set:Ne \l__xjyutping_reading_tl
+          { \exp_args:NV \tl_tail:n \g__xjyutping_mark_tl }
+        \tl_gclear:N \g__xjyutping_mark_tl
+        \group_begin:
+          \__xjyutping_lua_build:nVVN {#1}
+            \l__xjyutping_reading_tl \l__xjyutping_type_tl \xjyutping@lua@store
+          #1
+        \group_end:
+      }
+      { \tl_gclear:N \g__xjyutping_mark_tl #1 }
+  }
+% \xjyutping@lua@nocontext {<char>} {<size>} {<snapshot>}, run by
+% xjyutping.lua while it wraps a paragraph or a box, builds the cell of a
+% character that came without a mark.  It works in a throwaway box: TeX's
+% current list is not a place to add to at that moment (a \selectfont may
+% append a whatsit).  The settings are those saved where the character was
+% typeset (\__xjyutping_lua_snapshot:), and pgf's font switch, if TikZ is
+% packing a node, is undone.
+\box_new:N \l__xjyutping_nocontext_box
+\cs_new_protected:cpn { xjyutping@lua@nocontext } #1#2#3
+  {
+    \hbox_set:Nn \l__xjyutping_nocontext_box
+      { \xjyutping@lua@restore #3 ~ \__xjyutping_lua_nocontext:nn {#1} {#2} }
+  }
+\cs_new_protected:Npn \__xjyutping_lua_nocontext:nn #1#2
+  {
+    \cs_if_exist:NT \pgf@selectfontorig
+      { \cs_set_eq:NN \selectfont \pgf@selectfontorig }
+    \fontsize {#2} { \f@baselineskip } \selectfont
+    \__xjyutping_lookup:nn {#1} { }
+    \bool_if:NT \l__xjyutping_debug_bool
+      {
+        \iow_log:e
+          { xjyutping>~ [no~context]~ #1 \l__xjyutping_reading_tl : \l__xjyutping_type_tl }
+      }
+    \tl_if_empty:NF \l__xjyutping_reading_tl
+      {
+        \__xjyutping_lua_build:nVVN {#1}
+          \l__xjyutping_reading_tl \l__xjyutping_type_tl \xjyutping@lua@storeonly
+      }
+  }
+% The settings a no-context cell needs, handed to xjyutping.lua, which
+% keeps one copy of each distinct set and tags what follows with its id.
+\cs_new:Npn \__xjyutping_snap_tl:N #1
+  { \tl_set:Nn \exp_not:N #1 { \exp_not:V #1 } }
+\cs_new:Npn \__xjyutping_snap_bool:N #1
+  { \bool_if:NTF #1 { \bool_set_true:N } { \bool_set_false:N } \exp_not:N #1 }
+\cs_new_protected:Npn \__xjyutping_lua_snapshot:
+  {
+    \use:e
+      {
+        \xjyutping@lua@on
+          {
+            \__xjyutping_snap_tl:N \l__xjyutping_ratio_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_vsep_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_hsep_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_uniform_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_font_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_format_tl
+            \__xjyutping_snap_tl:N \l__xjyutping_multiple_tl
+            \__xjyutping_snap_bool:N \l__xjyutping_fancy_bool
+            \__xjyutping_snap_bool:N \l__xjyutping_debug_bool
+            \__xjyutping_snap_bool:N \l__xjyutping_scope_bool
+            \fp_set:Nn \exp_not:N \l__xjyutping_bls_fp { \fp_use:N \l__xjyutping_bls_fp }
+          }
+      }
+    \xjyutping@lua@size \f@size pt \scan_stop:
+  }
+
+\sys_if_engine_xetex:TF
+  {
+    \cs_new_protected:Npn \__xjyutping_enable:
+      {
+        \bool_if:NF \l__xjyutping_enable_bool
+          {
+            \cs_set_eq:NN \__xjyutping_save_CJKsymbol:n \CJKsymbol
+            \cs_set_eq:NN \CJKsymbol \__xjyutping_CJKsymbol:n
+            \cs_set_eq:NN \__xjyutping_save_CJKglue: \CJKglue
+            \cs_set_eq:NN \CJKglue \__xjyutping_CJKglue:
+            \cs_set_eq:NN \__xjyutping_save_CJKecglue: \CJKecglue
+            \cs_set_eq:NN \CJKecglue \__xjyutping_CJKecglue:
+            \cs_set_eq:NN \__xjyutping_save_boundary:w \xeCJK_CJK_and_Boundary:w
+            \cs_set_eq:NN \xeCJK_CJK_and_Boundary:w \__xjyutping_boundary:w
+            \cs_set_eq:NN \__xjyutping_save_fullright:N \xeCJK_CJK_and_FullRight:N
+            \cs_set_eq:NN \xeCJK_CJK_and_FullRight:N \__xjyutping_fullright:N
+            \cs_set_eq:NN \__xjyutping_save_punct:n \CJKpunctsymbol
+            \cs_set_eq:NN \CJKpunctsymbol \__xjyutping_punct:n
+            \dim_gzero:N \g__xjyutping_pad_dim
+            \bool_gset_false:N \g__xjyutping_cell_bool
+            \tl_gclear:N \g__xjyutping_mark_tl
+            \bool_set_true:N \l__xjyutping_enable_bool
+          }
+      }
+    \cs_new_protected:Npn \__xjyutping_disable:
+      {
+        \bool_if:NT \l__xjyutping_enable_bool
+          {
+            \cs_set_eq:NN \CJKsymbol \__xjyutping_save_CJKsymbol:n
+            \cs_set_eq:NN \CJKglue \__xjyutping_save_CJKglue:
+            \cs_set_eq:NN \CJKecglue \__xjyutping_save_CJKecglue:
+            \cs_set_eq:NN \xeCJK_CJK_and_Boundary:w \__xjyutping_save_boundary:w
+            \cs_set_eq:NN \xeCJK_CJK_and_FullRight:N \__xjyutping_save_fullright:N
+            \cs_set_eq:NN \CJKpunctsymbol \__xjyutping_save_punct:n
+            \bool_set_false:N \l__xjyutping_enable_bool
+          }
+      }
+    \cs_new_eq:NN \__xjyutping_mark_next: \prg_do_nothing:
+    \cs_new_eq:NN \__xjyutping_lua_resnap: \prg_do_nothing:
+  }
+  {
+    \cs_new_protected:Npn \__xjyutping_enable:
+      {
+        \bool_if:NF \l__xjyutping_enable_bool
+          {
+            \tl_gclear:N \g__xjyutping_mark_tl
+            \bool_set_true:N \l__xjyutping_enable_bool
+          }
+        \__xjyutping_lua_snapshot:
+      }
+    \cs_new_protected:Npn \__xjyutping_disable:
+      {
+        \bool_if:NT \l__xjyutping_enable_bool
+          {
+            \bool_set_false:N \l__xjyutping_enable_bool
+            \xjyutping@lua@off
+          }
+      }
+    \cs_new_protected:Npn \__xjyutping_mark_next:
+      { \peek_N_type:TF { \__xjyutping_lua_mark:N } { \tl_gclear:N \g__xjyutping_mark_tl } }
+    % the preprocessor's no-pad marker (see \__xjyutping_nopad: above)
+    \cs_set_protected:Npn \__xjyutping_nopad: { \xjyutping@lua@nopad }
+    \cs_new_protected:Npn \__xjyutping_lua_resnap:
+      { \bool_if:NT \l__xjyutping_enable_bool { \__xjyutping_lua_snapshot: } }
+    % the text size of what follows, for no-context cells
+    \AddToHook { selectfont }
+      { \bool_if:NT \l__xjyutping_enable_bool { \xjyutping@lua@size \f@size pt \scan_stop: } }
+    % no annotation in math (as under XeLaTeX, where xeCJK does not see
+    % it), but again in text inside a box in math: \text, \mbox, the cells
+    % of a tabular (LaTeX builds a tabular in math).  \everyhbox and
+    % \everyvbox are LuaTeX-ja's registers, run from the primitive ones.
+    \bool_new:N \l__xjyutping_math_bool
+    \AtBeginDocument
+      {
+        \tex_everymath:D \exp_after:wN
+          { \tex_the:D \tex_everymath:D \__xjyutping_math: }
+        \tex_everydisplay:D \exp_after:wN
+          { \tex_the:D \tex_everydisplay:D \__xjyutping_math: }
+        \everyhbox \exp_after:wN { \tex_the:D \everyhbox \__xjyutping_unmath: }
+        \everyvbox \exp_after:wN { \tex_the:D \everyvbox \__xjyutping_unmath: }
+      }
+    \cs_new_protected:Npn \__xjyutping_math:
+      {
+        \bool_if:NT \l__xjyutping_enable_bool
+          {
+            \xjyutping@lua@off
+            \bool_set_true:N \l__xjyutping_math_bool
+          }
+      }
+    \cs_new_protected:Npn \__xjyutping_unmath:
+      {
+        \bool_if:NT \l__xjyutping_math_bool
+          {
+            \bool_set_false:N \l__xjyutping_math_bool
+            \__xjyutping_lua_snapshot:
+          }
+      }
+  }
+\bool_new:N \l__xjyutping_plain_bool
+\NewDocumentCommand \enablejyutping { }
+  { \bool_if:NF \l__xjyutping_plain_bool { \__xjyutping_enable: } }
+\NewDocumentCommand \disablejyutping { } { \__xjyutping_disable: }
+% Running heads and feet are never annotated, even when a page is built
+% inside a scope or a heading contains \xjyutping.
+\AddToHook { build/page/reset }
+  {
+    \__xjyutping_disable:
+    \bool_set_false:N \l__xjyutping_scope_bool
+    \bool_set_true:N \l__xjyutping_plain_bool
+  }
+
+% ---------------------------------------------------------------------------
+% User readings.  #3 is g (global, from \setjyutping) or empty (local, used
+% while a block is being read, so that a \setjyutping in the text affects
+% the segmentation of the text after it only).
+% ---------------------------------------------------------------------------
+\cs_new:Npn \__xjyutping_canon:n #1
+  { \cs_if_exist_use:cF { xjp@v@ #1 } { \exp_not:n {#1} } }
+\cs_new_protected:Npn \__xjyutping_split:n #1
+  {
+    \seq_set_split:Nnn \l__xjyutping_syl_seq { ~ } {#1}
+    \seq_remove_all:Nn \l__xjyutping_syl_seq { }
+  }
+\cs_generate_variant:Nn \__xjyutping_split:n { e }
+\cs_new_protected:Npn \__xjyutping_set:nnn #1#2#3
+  {
+    \__xjyutping_split:n {#2}
+    \int_compare:nNnTF { \tl_count:n {#1} } = { \seq_count:N \l__xjyutping_syl_seq }
+      {
+        \int_compare:nNnTF { \tl_count:n {#1} } = { 1 }
+          { \use:c { tl_ #3 set:cn } { xjp@u@ #1 } {#2} }
+          {
+            \tl_set:Ne \l__xjyutping_syl_tl
+              { \seq_use:Nn \l__xjyutping_syl_seq { ~ } }
+            \__xjyutping_set_word:nn {#1} {#3}
+            \__xjyutping_set_word:en
+              { \tl_map_function:nN {#1} \__xjyutping_canon:n } {#3}
+          }
+      }
+      {
+        \int_compare:nNnF { \tl_count:n {#1} } = { 0 }
+          {
+            \msg_warning:nneeee { xjyutping } { count-mismatch }
+              { \exp_not:n {#1} } { \tl_count:n {#1} } { \exp_not:n {#2} }
+              { \seq_count:N \l__xjyutping_syl_seq }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_set:nnn { een }
+\cs_new_protected:Npn \__xjyutping_set_word:nn #1#2
+  {
+    \use:c { tl_ #2 set_eq:cN } { xjp@w@ #1 } \l__xjyutping_syl_tl
+    \use:c { cs_ #2 set_eq:cN } { xjp@uw@ #1 } \prg_do_nothing:
+    \int_compare:nNnT { \tl_count:n {#1} } >
+      { \cs_if_exist_use:cF { xjp@e@ \tl_item:nn {#1} { -1 } } { 0 } }
+      {
+        \use:c { tl_ #2 set:ce }
+          { xjp@e@ \tl_item:nn {#1} { -1 } } { \tl_count:n {#1} }
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_set_word:nn { en }
+\NewDocumentCommand \setjyutping { m m } { \__xjyutping_set:nnn {#1} {#2} { g } }
+
+% ---------------------------------------------------------------------------
+% Reading a block.  The text is walked twice with \tl_analysis_map_inline:nn.
+% Pass 1 collects runs of Chinese characters and segments each run into
+% words; pass 2 copies the text with a mark in front of each character.
+% Formatting commands and braces do not end a run (銀\textbf{行} is still
+% the word 銀行); a \footnote argument is a run of its own, and the text
+% around it carries on.  Arguments of reference-like commands are copied
+% untouched.
+% ---------------------------------------------------------------------------
+% Command table: {<arguments>}{<action>}{<class>}.  Class t (transparent)
+% keeps the run going; a (aside) keeps it going and reads its arguments as
+% separate text; b (break, the default) ends it; z ends it too but takes no
+% arguments, so a brace group after it is ordinary text.  <arguments> is the number
+% of mandatory arguments to copy untouched (optional [...] arguments and a
+% star before them are copied too), or -1 for optional arguments only.
+\prop_new:N \g__xjyutping_cmd_prop
+\cs_new_protected:Npn \__xjyutping_declare:nnnn #1#2#3#4
+  {
+    \clist_map_inline:nn {#1}
+      { \prop_gput:Nnn \g__xjyutping_cmd_prop {##1} { {#2} {#3} {#4} } }
+  }
+\__xjyutping_declare:nnnn
+  {
+    \textbf , \textit , \textsl , \textsf , \textrm , \texttt , \textup ,
+    \textmd , \textsc , \textnormal , \emph , \underline , \bfseries ,
+    \itshape , \slshape , \upshape , \mdseries , \scshape , \sffamily ,
+    \rmfamily , \ttfamily , \normalfont , \em , \tiny , \scriptsize ,
+    \footnotesize , \small , \normalsize , \large , \Large , \LARGE ,
+    \huge , \Huge , \relax , \nobreak , \allowbreak , \- , \/ , \leavevmode ,
+    \phantomsection , \alert , \structure , \songti , \heiti , \kaishu ,
+    \fangsong , \lishu , \youyuan , \selectfont
+  } { 0 } { } { t }
+\__xjyutping_declare:nnnn { \footnotemark } { -1 } { } { t }
+\__xjyutping_declare:nnnn { \zihao } { 1 } { } { t }
+\__xjyutping_declare:nnnn { \fontsize } { 2 } { } { t }
+\__xjyutping_declare:nnnn { \color , \textcolor , \CJKfamily } { 1 } { } { t }
+\__xjyutping_declare:nnnn
+  { \uline , \uuline , \uwave , \sout , \xout , \dashuline , \dotuline }
+  { 0 } { } { t }
+\__xjyutping_declare:nnnn
+  {
+    \CJKunderline , \CJKunderdot , \CJKunderwave , \CJKunderdblline ,
+    \CJKsout , \CJKxout
+  } { -1 } { } { t }
+\__xjyutping_declare:nnnn { \\ } { 0 } { row } { z }
+\__xjyutping_declare:nnnn { \__xjyutping_newline: } { 0 } { } { z }
+\__xjyutping_declare:nnnn
+  {
+    \par , \newline , \linebreak , \pagebreak , \nopagebreak ,
+    \noindent , \indent , \item , \quad , \qquad , \enspace , \ , \hfill ,
+    \hfil , \vfill , \smallskip , \medskip , \bigskip , \clearpage ,
+    \newpage , \cleardoublepage , \centering , \raggedright , \raggedleft ,
+    \maketitle , \tableofcontents , \listoffigures , \listoftables , \today ,
+    \TeX , \LaTeX , \ldots , \dots , \hline , \toprule , \midrule ,
+    \bottomrule , \and
+  } { 0 } { } { z }
+\__xjyutping_declare:nnnn { \bgroup , \begingroup } { 0 } { push } { t }
+\__xjyutping_declare:nnnn { \tabularnewline , \cr , \crcr } { 0 } { row } { z }
+\__xjyutping_declare:nnnn { \egroup , \endgroup } { 0 } { pop } { t }
+\__xjyutping_declare:nnnn { \footnote , \footnotetext , \marginpar } { 0 } { } { a }
+\__xjyutping_declare:nnnn
+  { \label , \index , \glossary , \nocite , \xjyutpingsetup } { 1 } { } { t }
+\__xjyutping_declare:nnnn
+  {
+    \ref , \pageref , \eqref , \autoref , \nameref , \cref , \Cref ,
+    \cpageref , \Cpageref , \labelcref , \namecref , \nameCref ,
+    \lcnamecref , \autopageref , \vref , \vpageref , \cite , \citep ,
+    \citet , \parencite , \textcite , \autocite , \footcite ,
+    \hyperlink , \hypertarget , \includegraphics , \include , \bibitem ,
+    \Vref , \Nameref , \lcnameCref , \namecrefs , \nameCrefs ,
+    \lcnamecrefs , \labelcpageref , \subref , \zref , \citeauthor ,
+    \Citeauthor , \citeyear , \citeyearpar , \citealp , \citealt ,
+    \Citet , \Citep , \Textcite , \Parencite , \Autocite , \citetitle ,
+    \fullcite , \smartcite , \supercite
+  } { 1 } { } { b }
+\__xjyutping_declare:nnnn
+  {
+    \crefrange , \Crefrange , \cpagerefrange , \Cpagerefrange ,
+    \pdfbookmark , \currentpdfbookmark , \subpdfbookmark , \belowpdfbookmark
+  } { 2 } { } { b }
+\__xjyutping_declare:nnnn { \url , \nolinkurl , \href } { 1 } { url } { b }
+\__xjyutping_declare:nnnn { \hyperref } { -1 } { } { b }
+\__xjyutping_declare:nnnn { \begin } { 1 } { push } { b }
+\__xjyutping_declare:nnnn { \end } { 1 } { pop } { b }
+\__xjyutping_declare:nnnn { \input } { 1 } { input } { b }
+\__xjyutping_declare:nnnn { \setjyutping } { 2 } { set } { a }
+\__xjyutping_declare:nnnn { \xjyutping } { 2 } { manual } { b }
+\__xjyutping_declare:nnnn { \xjyutping@mark } { 1 } { mark } { b }
+\__xjyutping_declare:nnnn { \disablejyutping } { 0 } { off } { b }
+\__xjyutping_declare:nnnn { \enablejyutping } { 0 } { on } { b }
+\prg_generate_conditional_variant:Nnn \prop_get:NnN { NV } { F }
+
+% Output goes to one buffer per brace depth (global, so that a long block
+% does not fill TeX's save stack).  Pass 1 only needs the arguments of table
+% commands.
+\cs_new_protected:Npn \__xjyutping_put:n #1
+  {
+    \bool_lazy_or:nnT
+      { \int_compare_p:nNn \l__xjyutping_pass_int = 2 }
+      { ! \int_compare_p:nNn \l__xjyutping_skip_int = \c_zero_int }
+      {
+        \exp_args:Nc \tl_build_gput_right:Nn
+          { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl } {#1}
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_put:n { V , e }
+\cs_generate_variant:Nn \tl_build_gbegin:N { c }
+\cs_generate_variant:Nn \tl_build_gend:N { c }
+\tl_new:c { l__xjyutping_buf_0_tl }
+
+% Pass 2: a space between two Chinese characters is dropped, as xeCJK does.
+\cs_new_protected:Npn \__xjyutping_space_flush:
+  {
+    \bool_if:NT \l__xjyutping_space_bool
+      {
+        \bool_set_false:N \l__xjyutping_space_bool
+        \__xjyutping_put:n { ~ }
+      }
+    \bool_set_false:N \l__xjyutping_prev_bool
+  }
+
+\cs_new_protected:Npn \__xjyutping_walk:n #1
+  {
+    \tl_analysis_map_inline:nn {#1}
+      { \__xjyutping_token:nnn {##1} {##2} {##3} }
+  }
+\cs_generate_variant:Nn \__xjyutping_walk:n { V }
+% The text is split into paragraphs, and each paragraph is analysed on its
+% own: \tl_analysis_map_inline:nn needs much more memory than the text
+% itself, and one analysis of a whole long block would not fit.  The
+% paragraphs are kept in a variable: they may contain # tokens, which must
+% not end up inside the definition of a mapping function.
+\tl_new:N \l__xjyutping_body_tl
+\int_new:N \l__xjyutping_par_int
+\cs_new_protected:Npn \__xjyutping_preprocess:n #1
+  {
+    \int_gincr:N \g__xjyutping_block_int
+    \dim_gzero:N \g__xjyutping_max_dim
+    \__xjyutping_split_pars:Nn \l__xjyutping_body_tl {#1}
+    \__xjyutping_pass:n { 1 }
+    \__xjyutping_pass:n { 2 }
+  }
+% #1 becomes {<paragraph>}{<paragraph>}...  The \prg_do_nothing: in front
+% keeps TeX from stripping the braces of a paragraph that is a single group.
+\cs_new_protected:Npn \__xjyutping_split_pars:Nn #1#2
+  {
+    \tl_set:Nn #1 { \__xjyutping_split:w \prg_do_nothing: #2 \__xjyutping_split_end: }
+    \tl_replace_all:Nnn #1 { \par }
+      { \__xjyutping_split_end: \__xjyutping_split:w \prg_do_nothing: }
+    \tl_set:Ne #1 {#1}
+  }
+\cs_generate_variant:Nn \__xjyutping_split_pars:Nn { NV }
+\cs_new:Npn \__xjyutping_split:w #1 \__xjyutping_split_end:
+  { { \exp_not:o {#1} } }
+\cs_new_protected:Npn \__xjyutping_pass:n #1
+  {
+    \int_set:Nn \l__xjyutping_pass_int {#1}
+    \int_zero:N \l__xjyutping_count_int
+    \int_zero:N \l__xjyutping_depth_int
+    \int_zero:N \l__xjyutping_skip_int
+    \int_zero:N \l__xjyutping_par_int
+    \int_set:Nn \l__xjyutping_ctx_int { 1 }
+    \cs_set_nopar:cpn { xjp@len@1 } { 0 }
+    \bool_set_true:N \l__xjyutping_active_bool
+    \bool_set_false:N \l__xjyutping_space_bool
+    \bool_set_false:N \l__xjyutping_prev_bool
+    \bool_set_false:N \l__xjyutping_raw_bool
+    \bool_set_false:N \l__xjyutping_opt_bool
+    \seq_clear:N \l__xjyutping_opt_seq
+    \__xjyutping_opt_top:
+    \int_set:Nn \l__xjyutping_ovl_int { -1 }
+    \int_zero:N \l__xjyutping_lasthan_int
+    \bool_set_false:N \l__xjyutping_gap_bool
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+    \seq_clear:N \l__xjyutping_stack_seq
+    \seq_clear:N \l__xjyutping_sem_seq
+    \tl_build_gbegin:c { l__xjyutping_buf_0_tl }
+    \tl_map_function:NN \l__xjyutping_body_tl \__xjyutping_paragraph:n
+    \__xjyutping_flush_all:
+    \__xjyutping_space_flush:
+    \tl_build_gend:c { l__xjyutping_buf_0_tl }
+  }
+% Each paragraph but the first is preceded by the \par that separated it.
+\cs_new_protected:Npn \__xjyutping_paragraph:n #1
+  {
+    \int_compare:nNnT \l__xjyutping_par_int > \c_zero_int
+      {
+        \__xjyutping_opt_close:n { -1 }
+        \tl_set:Nn \l__xjyutping_tok_tl { \par }
+        \int_compare:nNnTF \l__xjyutping_skip_int = \c_zero_int
+          { \__xjyutping_token:nn { -1 } { 0 } }
+          { \__xjyutping_skip_token:nn { -1 } { 0 } }
+      }
+    \int_incr:N \l__xjyutping_par_int
+    \__xjyutping_walk:n {#1}
+  }
+
+\cs_new_protected:Npn \__xjyutping_token:nnn #1#2#3
+  {
+    \str_case:nnF {#3}
+      {
+        { 1 } { \__xjyutping_begin_group: }
+        { 2 } { \__xjyutping_end_group: }
+      }
+      {
+        \tl_set:Ne \l__xjyutping_tok_tl {#1}
+        \int_compare:nNnTF \l__xjyutping_ovl_int = \l__xjyutping_depth_int
+          { % inside a beamer overlay specification
+            \int_compare:nNnT {#2} = { `> }
+              { \int_set:Nn \l__xjyutping_ovl_int { -1 } }
+            \__xjyutping_put:V \l__xjyutping_tok_tl
+          }
+          {
+            \int_compare:nNnTF \l__xjyutping_skip_int = \c_zero_int
+              { \__xjyutping_token:nn {#2} {#3} }
+              { \__xjyutping_skip_token:nn {#2} {#3} }
+          }
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_token:nn #1#2
+  {
+    \str_case:nnF {#2}
+      {
+        { A }
+          {
+            \int_compare:nNnT \l__xjyutping_pass_int = 2
+              {
+                \bool_if:NTF \l__xjyutping_prev_bool
+                  { \bool_set_true:N \l__xjyutping_space_bool }
+                  { \__xjyutping_put:V \l__xjyutping_tok_tl }
+              }
+          }
+        { B } { \__xjyutping_char:n {#1} }
+        { C } { \__xjyutping_char:n {#1} }
+        { 0 } { \__xjyutping_cs: }
+        { 4 } { \__xjyutping_tab: \__xjyutping_other: }
+      }
+      { \__xjyutping_other: }
+  }
+% & starts a new alignment cell, which is a new group when typeset: whether
+% text is annotated goes back to what it was at the enclosing \begin.
+\cs_new_protected:Npn \__xjyutping_tab:
+  {
+    \seq_get:NNT \l__xjyutping_sem_seq \l__xjyutping_pop_tl
+      { \exp_after:wN \__xjyutping_sem_restore:nn \l__xjyutping_pop_tl }
+  }
+% The stack of \begin, \begingroup and \bgroup holds
+% {<annotation state before>}{<1 for an alignment environment>}.
+\cs_new_protected:Npn \__xjyutping_sem_push:n #1
+  {
+    \seq_push:Ne \l__xjyutping_sem_seq
+      {
+        {
+          \bool_if:NTF \l__xjyutping_active_bool
+            { \exp_not:N \c_true_bool } { \exp_not:N \c_false_bool }
+        }
+        {#1}
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_sem_restore:nn #1#2
+  { \bool_set_eq:NN \l__xjyutping_active_bool #1 }
+% \\ in an alignment also starts a new cell.
+\cs_new_protected:Npn \__xjyutping_row:
+  {
+    \seq_get:NNT \l__xjyutping_sem_seq \l__xjyutping_pop_tl
+      {
+        \int_compare:nNnT { \exp_after:wN \use_ii:nn \l__xjyutping_pop_tl } = { 1 }
+          { \__xjyutping_tab: }
+      }
+  }
+% Called when the name of an environment is known.
+\clist_const:Nn \c__xjyutping_align_clist
+  {
+    tabular , tabular* , tabularx , tabulary , longtable , longtable* ,
+    array , xltabular , supertabular , tabu , NiceTabular , NiceArray ,
+    align , align* , alignat , alignat* , flalign , flalign* , gather ,
+    gather* , multline , multline* , split , aligned , gathered , cases ,
+    matrix , pmatrix , bmatrix , Bmatrix , vmatrix , Vmatrix , smallmatrix ,
+    eqnarray , eqnarray*
+  }
+\cs_new_protected:Npn \__xjyutping_align_env:n #1
+  {
+    \clist_if_in:NnT \c__xjyutping_align_clist {#1}
+      {
+        \seq_pop:NN \l__xjyutping_sem_seq \l__xjyutping_pop_tl
+        \seq_push:Ne \l__xjyutping_sem_seq
+          { { \exp_after:wN \use_i:nn \l__xjyutping_pop_tl } { 1 } }
+      }
+  }
+% Anything that is not Chinese text ends the run and is copied.
+\cs_new_protected:Npn \__xjyutping_other:
+  {
+    \int_zero:N \l__xjyutping_lasthan_int
+    \bool_set_false:N \l__xjyutping_raw_bool
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+    \int_compare:nNnTF \l__xjyutping_pass_int = 1
+      { \__xjyutping_flush: }
+      {
+        \__xjyutping_space_flush:
+        \__xjyutping_put:V \l__xjyutping_tok_tl
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_char:n #1
+  {
+    \bool_if:NTF \l__xjyutping_raw_bool
+      { \__xjyutping_other: } % already marked by an outer pass
+      {
+        \bool_lazy_and:nnTF
+          { \l__xjyutping_active_bool }
+          { \cs_if_exist_p:c { xjp@c@ \l__xjyutping_tok_tl } }
+          { \__xjyutping_han: }
+          { \__xjyutping_nonhan:n {#1} }
+      }
+  }
+% A character that is not annotated.  Right after a command, a star belongs
+% to the command, [...] is an optional argument read as a run of its own and
+% (in beamer) <...> is an overlay specification, copied untouched.  A space
+% before full-width punctuation is dropped.
+\cs_new_protected:Npn \__xjyutping_nonhan:n #1
+  {
+    \bool_lazy_and:nnTF
+      { \int_compare_p:nNn {#1} = \l__xjyutping_optclose_int }
+      { \int_compare_p:nNn \l__xjyutping_optdepth_int = \l__xjyutping_depth_int }
+      { \__xjyutping_opt_end: }
+      {
+        \str_if_eq:VnTF \l__xjyutping_owner_tl { n }
+          { \__xjyutping_plain:n {#1} }
+          {
+            \int_case:nnF {#1}
+              {
+                { `* }
+                  {
+                    \bool_if:nTF
+                      {
+                        \str_if_eq_p:Vn \l__xjyutping_owner_tl { a }
+                        || \str_if_eq_p:Vn \l__xjyutping_owner_tl { b }
+                      }
+                      {
+                        \__xjyutping_space_flush:
+                        \__xjyutping_put:V \l__xjyutping_tok_tl
+                      }
+                      { \__xjyutping_plain:n {#1} }
+                  }
+                { `[ }
+                  {
+                    \bool_if:nTF
+                      {
+                        \str_if_eq_p:Vn \l__xjyutping_owner_tl { a }
+                        || \str_if_eq_p:Vn \l__xjyutping_owner_tl { b }
+                      }
+                      { \__xjyutping_opt_begin:n { `] } }
+                      { \__xjyutping_plain:n {#1} }
+                  }
+                { `< }
+                  {
+                    \bool_if:NTF \g__xjyutping_beamer_bool
+                      {
+                        \int_set_eq:NN \l__xjyutping_ovl_int \l__xjyutping_depth_int
+                        \__xjyutping_space_flush:
+                        \__xjyutping_put:V \l__xjyutping_tok_tl
+                      }
+                      { \__xjyutping_plain:n {#1} }
+                  }
+              }
+              { \__xjyutping_plain:n {#1} }
+          }
+      }
+  }
+% Is character code #1 in punctuation class #2 (FullLeft: opening marks,
+% FullRight: closing marks, full stops ...)?  Under XeLaTeX xeCJK's classes
+% decide; under LuaLaTeX xjyutping.lua has the same lists.
+\sys_if_engine_xetex:TF
+  {
+    \prg_new_conditional:Npnn \__xjyutping_if_class:nn #1#2 { p }
+      {
+        \int_compare:nNnTF { \tex_XeTeXcharclass:D #1 } = { \xeCJK_class_num:n {#2} }
+          { \prg_return_true: } { \prg_return_false: }
+      }
+  }
+  {
+    \prg_new_conditional:Npnn \__xjyutping_if_class:nn #1#2 { p }
+      {
+        \str_if_eq:eeTF { \lua_now:e { xjyutping.class ( \int_eval:n {#1} ) } } {#2}
+          { \prg_return_true: } { \prg_return_false: }
+      }
+  }
+% Pass 1 notes a character that is followed by nothing visible and then by
+% punctuation that should hug it; pass 2 puts \__xjyutping_nopad: after it.
+\cs_new_protected:Npn \__xjyutping_plain:n #1
+  {
+    \bool_lazy_all:nT
+      {
+        { \int_compare_p:nNn \l__xjyutping_pass_int = 1 }
+        { \int_compare_p:nNn \l__xjyutping_lasthan_int > \c_zero_int }
+        { \l__xjyutping_gap_bool }
+        { \__xjyutping_if_class_p:nn {#1} { FullRight } }
+      }
+      {
+        \exp_args:NnV \str_if_in:nnF { 」』）】》〉〕］｝”’〗〙〟｠ } \l__xjyutping_tok_tl
+          {
+            \cs_gset_nopar:cpn
+              { xjp@np@ \int_use:N \l__xjyutping_lasthan_int } { }
+          }
+      }
+    \int_zero:N \l__xjyutping_lasthan_int
+    \__xjyutping_punct_space:n {#1}
+    \__xjyutping_other:
+  }
+\cs_new_protected:Npn \__xjyutping_punct_space:n #1
+  {
+    \bool_lazy_and:nnT
+      { \l__xjyutping_space_bool }
+      {
+        \bool_lazy_or_p:nn
+          { \__xjyutping_if_class_p:nn {#1} { FullRight } }
+          { \__xjyutping_if_class_p:nn {#1} { FullLeft } }
+      }
+      { \bool_set_false:N \l__xjyutping_space_bool }
+  }
+% Open optional arguments are kept on a stack of {<depth>}{<owner>}{<closing
+% character>}; one still open when its group ends, or at a paragraph end, is
+% closed there.
+\seq_new:N \l__xjyutping_opt_seq
+\int_new:N \l__xjyutping_optclose_int
+\int_new:N \l__xjyutping_ovl_int
+\int_new:N \l__xjyutping_lasthan_int
+\bool_new:N \l__xjyutping_gap_bool
+\bool_new:N \g__xjyutping_beamer_bool
+\cs_new_protected:Npn \__xjyutping_opt_begin:n #1
+  {
+    \seq_push:Ne \l__xjyutping_opt_seq
+      {
+        { \int_use:N \l__xjyutping_depth_int }
+        { \l__xjyutping_owner_tl }
+        { \int_eval:n {#1} }
+      }
+    \__xjyutping_opt_top:
+    \int_compare:nNnTF \l__xjyutping_pass_int = 1
+      {
+        \int_incr:N \l__xjyutping_ctx_int
+        \cs_set_nopar:cpn { xjp@len@ \int_use:N \l__xjyutping_ctx_int } { 0 }
+      }
+      { \__xjyutping_space_flush: }
+    \__xjyutping_put:V \l__xjyutping_tok_tl
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+  }
+\cs_new_protected:Npn \__xjyutping_opt_end:
+  {
+    \__xjyutping_opt_pop:
+    \int_compare:nNnT \l__xjyutping_pass_int = 2
+      { \__xjyutping_space_flush: }
+    \__xjyutping_put:V \l__xjyutping_tok_tl
+  }
+\cs_new_protected:Npn \__xjyutping_opt_pop:
+  {
+    \seq_pop:NN \l__xjyutping_opt_seq \l__xjyutping_pop_tl
+    \int_compare:nNnT \l__xjyutping_pass_int = 1
+      {
+        \__xjyutping_flush:
+        \int_decr:N \l__xjyutping_ctx_int
+      }
+    \tl_set:Ne \l__xjyutping_owner_tl { \exp_after:wN \use_ii:nnn \l__xjyutping_pop_tl }
+    \__xjyutping_opt_top:
+  }
+% Close every optional argument opened deeper than #1.
+\cs_new_protected:Npn \__xjyutping_opt_close:n #1
+  {
+    \bool_while_do:nn
+      { \int_compare_p:nNn \l__xjyutping_optdepth_int > {#1} }
+      { \__xjyutping_opt_pop: }
+  }
+\cs_new_protected:Npn \__xjyutping_opt_top:
+  {
+    \seq_get:NNTF \l__xjyutping_opt_seq \l__xjyutping_pop_tl
+      {
+        \int_set:Nn \l__xjyutping_optdepth_int
+          { \exp_after:wN \use_i:nnn \l__xjyutping_pop_tl }
+        \int_set:Nn \l__xjyutping_optclose_int
+          { \exp_after:wN \use_iii:nnn \l__xjyutping_pop_tl }
+      }
+      {
+        \int_set:Nn \l__xjyutping_optdepth_int { -1 }
+        \int_set:Nn \l__xjyutping_optclose_int { -1 }
+      }
+  }
+\int_new:N \l__xjyutping_optdepth_int
+\int_new:N \l__xjyutping_skipclose_int
+\int_new:N \l__xjyutping_k_int
+\int_new:N \l__xjyutping_top_int
+\str_new:N \l__xjyutping_pat_str
+\tl_new:N  \l__xjyutping_file_tl
+\cs_new_protected:Npn \__xjyutping_han:
+  {
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+    \int_incr:N \l__xjyutping_count_int
+    \int_compare:nNnTF \l__xjyutping_pass_int = 1
+      {
+        \int_set:Nn \l__xjyutping_len_int
+          { \use:c { xjp@len@ \int_use:N \l__xjyutping_ctx_int } + 1 }
+        \cs_set_nopar:cpe { xjp@len@ \int_use:N \l__xjyutping_ctx_int }
+          { \int_use:N \l__xjyutping_len_int }
+        \cs_gset_nopar:cpe
+          { xjp@r@ \int_use:N \l__xjyutping_ctx_int @ \int_use:N \l__xjyutping_len_int }
+          { \exp_not:V \l__xjyutping_tok_tl }
+        \cs_gset_nopar:cpe
+          { xjp@n@ \int_use:N \l__xjyutping_ctx_int @ \int_use:N \l__xjyutping_len_int }
+          { \int_use:N \l__xjyutping_count_int }
+        \int_set_eq:NN \l__xjyutping_lasthan_int \l__xjyutping_count_int
+        \bool_set_false:N \l__xjyutping_gap_bool
+      }
+      {
+        \bool_set_false:N \l__xjyutping_space_bool
+        \__xjyutping_put:e
+          {
+            \exp_not:v { xjp@s@ \int_use:N \l__xjyutping_count_int }
+            \exp_not:V \l__xjyutping_tok_tl
+          }
+        \cs_gset_eq:cN { xjp@s@ \int_use:N \l__xjyutping_count_int } \scan_stop:
+        \cs_if_exist:cT { xjp@np@ \int_use:N \l__xjyutping_count_int }
+          {
+            \__xjyutping_put:n { \__xjyutping_nopad: }
+            \cs_gset_eq:cN { xjp@np@ \int_use:N \l__xjyutping_count_int } \scan_stop:
+          }
+        \bool_set_true:N \l__xjyutping_prev_bool
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_cs:
+  {
+    \bool_set_false:N \l__xjyutping_raw_bool
+    \tl_set:Ne \l__xjyutping_key_tl { \tl_to_str:N \l__xjyutping_tok_tl }
+    \str_if_eq:eeTF { \str_range:Nnn \l__xjyutping_key_tl { 2 } { 7 } } { xjp@R@ }
+      { \__xjyutping_premarked: }
+      {
+        \prop_get:NVNF \g__xjyutping_cmd_prop \l__xjyutping_key_tl
+          \l__xjyutping_action_tl
+          { \tl_set:Nn \l__xjyutping_action_tl { { 0 } { } { b } } }
+        \exp_after:wN \__xjyutping_cs:nnn \l__xjyutping_action_tl
+      }
+  }
+% A mark left by an outer pass: copy it with its character.
+\cs_new_protected:Npn \__xjyutping_premarked:
+  {
+    \int_compare:nNnTF \l__xjyutping_pass_int = 1
+      {
+        \__xjyutping_flush:
+        \__xjyutping_measure:e
+          { \exp_args:NV \__xjyutping_mark_reading:N \l__xjyutping_tok_tl }
+      }
+      {
+        \__xjyutping_space_flush:
+        \__xjyutping_put:V \l__xjyutping_tok_tl
+      }
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+    \bool_set_true:N \l__xjyutping_raw_bool
+  }
+\cs_new:Npn \__xjyutping_mark_reading:N #1
+  { \exp_after:wN \__xjyutping_mark_reading:Nn #1 }
+\cs_new:Npn \__xjyutping_mark_reading:Nn #1#2 { \tl_tail:n {#2} }
+\cs_new_protected:Npn \__xjyutping_cs:nnn #1#2#3
+  {
+    \int_compare:nNnTF \l__xjyutping_pass_int = 1
+      { \str_if_in:nnT { bz } {#3} { \__xjyutping_flush: } }
+      { \__xjyutping_space_flush: }
+    \str_if_eq:nnF {#2} { input }
+      { \__xjyutping_put:V \l__xjyutping_tok_tl }
+    \tl_set:Nn \l__xjyutping_owner_tl {#3}
+    \str_if_eq:nnTF {#3} { t }
+      { \bool_set_true:N \l__xjyutping_gap_bool }
+      { \int_zero:N \l__xjyutping_lasthan_int }
+    \str_case:nn {#2}
+      {
+        { push } { \__xjyutping_sem_push:n { 0 } }
+        { pop }
+          {
+            \seq_pop:NNT \l__xjyutping_sem_seq \l__xjyutping_pop_tl
+              { \exp_after:wN \__xjyutping_sem_restore:nn \l__xjyutping_pop_tl }
+          }
+        { row } { \__xjyutping_row: }
+        { off } { \bool_set_false:N \l__xjyutping_active_bool }
+        { on }  { \bool_set_true:N \l__xjyutping_active_bool }
+      }
+    \int_compare:nNnF {#1} = \c_zero_int
+      {
+        \int_set:Nn \l__xjyutping_skip_int {#1}
+        \int_set_eq:NN \l__xjyutping_skip_depth_int \l__xjyutping_depth_int
+        \tl_set:Nn \l__xjyutping_action_tl {#2}
+        \bool_set_false:N \l__xjyutping_opt_bool
+        \seq_clear:N \l__xjyutping_args_seq
+      }
+  }
+% Tokens while copying the arguments of a command from the table.
+\cs_new_protected:Npn \__xjyutping_skip_token:nn #1#2
+  {
+    \int_compare:nNnTF \l__xjyutping_depth_int > \l__xjyutping_skip_depth_int
+      { \__xjyutping_skip_put:n {#2} }
+      {
+        \bool_if:NTF \l__xjyutping_opt_bool
+          {
+            \int_compare:nNnT {#1} = \l__xjyutping_skipclose_int
+              { \bool_set_false:N \l__xjyutping_opt_bool }
+            \__xjyutping_skip_put:n {#2}
+          }
+          {
+            \str_if_eq:nnTF {#2} { A }
+              { \__xjyutping_skip_put:n {#2} }
+              {
+                \int_case:nnF {#1}
+                  {
+                    { `[ }
+                      {
+                        \bool_set_true:N \l__xjyutping_opt_bool
+                        \int_set:Nn \l__xjyutping_skipclose_int { `] }
+                        \__xjyutping_skip_put:n {#2}
+                      }
+                    { `< }
+                      {
+                        \bool_if:NTF \g__xjyutping_beamer_bool
+                          {
+                            \bool_set_true:N \l__xjyutping_opt_bool
+                            \int_set:Nn \l__xjyutping_skipclose_int { `> }
+                            \__xjyutping_skip_put:n {#2}
+                          }
+                          { \__xjyutping_skip_other:nn {#1} {#2} }
+                      }
+                    { `- } { \__xjyutping_skip_put:n {#2} }
+                    { `* }
+                      {
+                        \str_if_eq:VnT \l__xjyutping_action_tl { manual }
+                          {
+                            \int_set:Nn \l__xjyutping_skip_int { 1 }
+                            \tl_clear:N \l__xjyutping_action_tl
+                          }
+                        \__xjyutping_skip_put:n {#2}
+                      }
+                  }
+                  { \__xjyutping_skip_other:nn {#1} {#2} }
+              }
+          }
+      }
+  }
+% Something other than an argument: for most commands a single unbraced
+% token is the argument (\setjyutping 行{hong4}); otherwise the arguments
+% are over and the token is read as text.
+\cs_new_protected:Npn \__xjyutping_skip_other:nn #1#2
+  {
+    \bool_if:nTF
+      {
+        \int_compare_p:nNn \l__xjyutping_skip_int < \c_zero_int
+        || \str_if_eq_p:Vn \l__xjyutping_action_tl { input }
+        || \str_if_eq_p:Vn \l__xjyutping_action_tl { url }
+      }
+      {
+        \str_if_eq:VnT \l__xjyutping_action_tl { input }
+          { \__xjyutping_put:e { \exp_not:N \input } }
+        \int_zero:N \l__xjyutping_skip_int
+        \__xjyutping_token:nn {#1} {#2}
+      }
+      {
+        \__xjyutping_skip_put:n {#2}
+        \tl_set_eq:NN \l__xjyutping_group_tl \l__xjyutping_tok_tl
+        \__xjyutping_arg_done:
+      }
+  }
+% Copy a token untouched; in URLs a # becomes an ordinary character.
+\cs_new_protected:Npn \__xjyutping_skip_put:n #1
+  {
+    \bool_lazy_and:nnTF
+      { \str_if_eq_p:nn {#1} { 6 } }
+      { \str_if_eq_p:Vn \l__xjyutping_action_tl { url } }
+      { \__xjyutping_put:e { \char_generate:nn { `\# } { 12 } } }
+      { \__xjyutping_put:V \l__xjyutping_tok_tl }
+  }
+\cs_new_protected:Npn \__xjyutping_begin_group:
+  {
+    \bool_set_true:N \l__xjyutping_gap_bool
+    % \hyperref[..]{text}: the optional arguments are over
+    \bool_lazy_all:nT
+      {
+        { \int_compare_p:nNn \l__xjyutping_skip_int < \c_zero_int }
+        { \int_compare_p:nNn \l__xjyutping_depth_int = \l__xjyutping_skip_depth_int }
+        { ! \l__xjyutping_opt_bool }
+      }
+      { \int_zero:N \l__xjyutping_skip_int }
+    \bool_if:nTF
+      {
+        \int_compare_p:nNn \l__xjyutping_pass_int = 1
+        && \int_compare_p:nNn \l__xjyutping_skip_int = \c_zero_int
+        && ( \str_if_eq_p:Vn \l__xjyutping_owner_tl { a }
+             || \str_if_eq_p:Vn \l__xjyutping_owner_tl { b } )
+      }
+      { % an argument read as separate text: start a new run
+        \int_incr:N \l__xjyutping_ctx_int
+        \cs_set_nopar:cpn { xjp@len@ \int_use:N \l__xjyutping_ctx_int } { 0 }
+        \tl_set:Nn \l__xjyutping_class_tl { 1 }
+      }
+      { \tl_set:Nn \l__xjyutping_class_tl { 0 } }
+    \int_compare:nNnT \l__xjyutping_pass_int = 2
+      { \__xjyutping_space_flush: }
+    \seq_push:Ne \l__xjyutping_stack_seq
+      {
+        {
+          \bool_if:NTF \l__xjyutping_active_bool
+            { \exp_not:N \c_true_bool } { \exp_not:N \c_false_bool }
+        }
+        { \l__xjyutping_class_tl }
+        { \l__xjyutping_owner_tl }
+      }
+    \tl_set:Nn \l__xjyutping_owner_tl { n }
+    \int_incr:N \l__xjyutping_depth_int
+    \tl_if_exist:cF { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl }
+      { \tl_new:c { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl } }
+    \tl_build_gbegin:c { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl }
+  }
+\cs_new_protected:Npn \__xjyutping_end_group:
+  {
+    \int_compare:nNnT \l__xjyutping_pass_int = 2
+      { \__xjyutping_space_flush: }
+    \tl_build_gend:c { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl }
+    \tl_set_eq:Nc \l__xjyutping_group_tl
+      { l__xjyutping_buf_ \int_use:N \l__xjyutping_depth_int _tl }
+    \int_decr:N \l__xjyutping_depth_int
+    \bool_set_true:N \l__xjyutping_gap_bool
+    \__xjyutping_opt_close:n { \l__xjyutping_depth_int }
+    \seq_pop:NN \l__xjyutping_stack_seq \l__xjyutping_pop_tl
+    \exp_after:wN \__xjyutping_end_group:nnn \l__xjyutping_pop_tl
+    \bool_if:nTF
+      {
+        \int_compare_p:nNn \l__xjyutping_skip_int > \c_zero_int
+        && \int_compare_p:nNn \l__xjyutping_depth_int = \l__xjyutping_skip_depth_int
+        && ! \l__xjyutping_opt_bool
+      }
+      {
+        \str_if_eq:VnF \l__xjyutping_action_tl { input }
+          { \__xjyutping_put:e { { \exp_not:V \l__xjyutping_group_tl } } }
+        \__xjyutping_arg_done:
+      }
+      { \__xjyutping_put:e { { \exp_not:V \l__xjyutping_group_tl } } }
+  }
+\cs_new_protected:Npn \__xjyutping_end_group:nnn #1#2#3
+  {
+    \bool_set_eq:NN \l__xjyutping_active_bool #1
+    \int_compare:nNnT {#2} = { 1 }
+      {
+        \__xjyutping_flush:
+        \int_decr:N \l__xjyutping_ctx_int
+      }
+    \bool_lazy_and:nnTF
+      { \int_compare_p:nNn {#2} = { 1 } }
+      { \str_if_eq_p:nn {#3} { a } }
+      { \tl_set:Nn \l__xjyutping_owner_tl { n } }
+      { \tl_set:Nn \l__xjyutping_owner_tl {#3} }
+  }
+% A mandatory argument of a command from the table is complete; its text is
+% in \l__xjyutping_group_tl.
+\cs_new_protected:Npn \__xjyutping_arg_done:
+  {
+    \seq_put_right:NV \l__xjyutping_args_seq \l__xjyutping_group_tl
+    \int_decr:N \l__xjyutping_skip_int
+    \int_compare:nNnT \l__xjyutping_skip_int = \c_zero_int
+      {
+        \tl_set:Nn \l__xjyutping_owner_tl { n }
+        \str_case:Vn \l__xjyutping_action_tl
+          {
+            { set }
+              {
+                \int_compare:nNnT \l__xjyutping_pass_int = 1
+                  {
+                    \__xjyutping_flush_all: % text before the setting keeps its readings
+                    \__xjyutping_set:een
+                      { \seq_item:Nn \l__xjyutping_args_seq { 1 } }
+                      { \seq_item:Nn \l__xjyutping_args_seq { 2 } } { }
+                  }
+              }
+            { manual }
+              {
+                \int_compare:nNnT \l__xjyutping_pass_int = 1
+                  {
+                    \__xjyutping_split:e { \seq_item:Nn \l__xjyutping_args_seq { 2 } }
+                    \seq_map_function:NN \l__xjyutping_syl_seq \__xjyutping_measure:n
+                  }
+              }
+            { mark }
+              {
+                \int_compare:nNnT \l__xjyutping_pass_int = 1
+                  {
+                    \__xjyutping_measure:e
+                      { \exp_args:Ne \tl_tail:n { \seq_item:Nn \l__xjyutping_args_seq { 1 } } }
+                  }
+                \bool_set_true:N \l__xjyutping_raw_bool
+              }
+            { input } { \__xjyutping_input: }
+            { push }
+              {
+                \exp_args:Ne \__xjyutping_align_env:n
+                  { \seq_item:Nn \l__xjyutping_args_seq { 1 } }
+              }
+          }
+      }
+  }
+% \input{<file>} inside a block: the file is read here, so that its text is
+% segmented like the rest.  A file that could not be read in one go
+% (\endinput, verbatim, catcode changes) is left to a real \input and gets
+% no word context.
+\cs_new_protected:Npn \__xjyutping_input:
+  { \exp_args:Ne \__xjyutping_input:n { \seq_item:Nn \l__xjyutping_args_seq { 1 } } }
+\cs_new_protected:Npn \__xjyutping_input:n #1
+  {
+    \__xjyutping_input_safe:nTF {#1}
+      {
+        \file_get:nnN {#1} { } \l__xjyutping_out_tl
+        \__xjyutping_split_pars:NV \l__xjyutping_file_tl \l__xjyutping_out_tl
+        \use:e
+          {
+            \exp_not:N \__xjyutping_walk_file:nn
+              { \exp_not:V \l__xjyutping_file_tl }
+              { \int_use:N \l__xjyutping_par_int }
+          }
+      }
+      { \__xjyutping_put:n { \input {#1} } }
+  }
+% A file can be read in one go unless it (outside comments) uses \endinput,
+% a verbatim command or environment, or changes catcodes.
+\ior_new:N \g__xjyutping_ior
+\str_new:N \l__xjyutping_file_str
+\regex_const:Nn \c__xjyutping_comment_regex { (\A|[^\\]) \% .* }
+\regex_const:Nn \c__xjyutping_unsafe_regex
+  {
+    \\ (endinput | verb | Verb | lstinline | mintinline | DefineShortVerb |
+      MakeShortVerb | lstMakeShortInline | obeylines | obeyspaces |
+      makeatletter | makeatother | catcode | ExplSyntaxOn |
+      begin \s* \{ [^\}]* (erbatim | alltt | listing | minted | comment) )
+  }
+\prg_new_protected_conditional:Npnn \__xjyutping_input_safe:n #1 { TF }
+  {
+    \ior_open:NnTF \g__xjyutping_ior {#1}
+      {
+        \str_clear:N \l__xjyutping_file_str
+        \ior_str_map_inline:Nn \g__xjyutping_ior
+          {
+            \str_set:Nn \l__xjyutping_pat_str {##1}
+            \regex_replace_once:NnN \c__xjyutping_comment_regex { \1 }
+              \l__xjyutping_pat_str
+            \str_put_right:NV \l__xjyutping_file_str \l__xjyutping_pat_str
+            \str_put_right:Nn \l__xjyutping_file_str { ~ }
+          }
+        \ior_close:N \g__xjyutping_ior
+        \regex_match:NVTF \c__xjyutping_unsafe_regex \l__xjyutping_file_str
+          { \prg_return_false: } { \prg_return_true: }
+      }
+      { \prg_return_false: }
+  }
+% The first paragraph of the file carries on the current one.
+\cs_new_protected:Npn \__xjyutping_walk_file:nn #1#2
+  {
+    \int_zero:N \l__xjyutping_par_int
+    \tl_map_function:nN {#1} \__xjyutping_paragraph:n
+    \int_set:Nn \l__xjyutping_par_int {#2}
+  }
+
+% Track the widest ruby, for width=auto.
+\cs_new_protected:Npn \__xjyutping_measure:n #1
+  {
+    \str_if_eq:eeF
+      { \cs_if_exist_use:c { xjp@seen@ \tl_to_str:n {#1} } }
+      { \int_use:N \g__xjyutping_block_int }
+      {
+        \cs_gset_nopar:cpe { xjp@seen@ \tl_to_str:n {#1} }
+          { \int_use:N \g__xjyutping_block_int }
+        \clist_map_inline:nn { s , m }
+          {
+            \__xjyutping_ruby:nn {#1} {##1}
+            \dim_gset:Nn \g__xjyutping_max_dim
+              { \dim_max:nn { \g__xjyutping_max_dim } { \box_wd:N \l__xjyutping_ruby_box } }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_measure:n { e }
+
+% ---------------------------------------------------------------------------
+% Segmentation of the current run (pass 1).  Positions 1..n of the run are
+% \xjp@r@<ctx>@<i> (the character) and \xjp@n@<ctx>@<i> (its index in the
+% block); both are freed once the run is done.  These and the marks
+% \xjp@s@<n> are global and are set to \relax after use rather than
+% undefined: that frees their contents but keeps the names, since creating a
+% name inside a group costs a slot of TeX's save stack.  The run is split
+% into the fewest words, then the fewest single characters; on a tie the
+% longer final word wins.  Costs are 100000 per segment + 1 per single
+% character.  The mark for character <n> is stored in \xjp@s@<n>.
+% ---------------------------------------------------------------------------
+\cs_new:Npn \__xjyutping_raw:n #1
+  { \use:c { xjp@r@ \int_use:N \l__xjyutping_ctx_int @ #1 } }
+\cs_new:Npn \__xjyutping_can:n #1
+  { \exp_args:Ne \__xjyutping_canon:n { \__xjyutping_raw:n {#1} } }
+\cs_new:Npn \__xjyutping_word:nnN #1#2#3
+  { \int_step_function:nnN {#1} {#2} #3 }
+\prg_new_conditional:Npnn \__xjyutping_if_word:nn #1#2 { T }
+  {
+    \bool_lazy_or:nnTF
+      { \cs_if_exist_p:c { xjp@w@ \__xjyutping_word:nnN {#1} {#2} \__xjyutping_raw:n } }
+      { \cs_if_exist_p:c { xjp@w@ \__xjyutping_word:nnN {#1} {#2} \__xjyutping_can:n } }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_new:Npn \__xjyutping_longest:n #1
+  {
+    \int_max:nn
+      { \cs_if_exist_use:cF { xjp@e@ \__xjyutping_raw:n {#1} } { 0 } }
+      { \cs_if_exist_use:cF { xjp@e@ \__xjyutping_can:n {#1} } { 0 } }
+  }
+\cs_new_protected:Npn \__xjyutping_flush:
+  {
+    \int_set:Nn \l__xjyutping_len_int
+      { \use:c { xjp@len@ \int_use:N \l__xjyutping_ctx_int } }
+    \int_compare:nNnT \l__xjyutping_len_int > \c_zero_int
+      {
+        \cs_set_nopar:cpn { xjp@cost@0 } { 0 }
+        \int_step_inline:nn { \l__xjyutping_len_int }
+          {
+            \int_set:Nn \l__xjyutping_best_int
+              { \use:c { xjp@cost@ \int_eval:n { ##1 - 1 } } + 100001 }
+            \cs_set_nopar:cpn { xjp@back@ ##1 } { 1 }
+            \int_step_inline:nnn { 2 }
+              { \int_min:nn {##1} { \__xjyutping_longest:n {##1} } }
+              {
+                \__xjyutping_if_word:nnT { ##1 - ####1 + 1 } {##1}
+                  {
+                    \int_compare:nNnT
+                      { \use:c { xjp@cost@ \int_eval:n { ##1 - ####1 } } + 100000 }
+                      < { \l__xjyutping_best_int + 1 }
+                      {
+                        \int_set:Nn \l__xjyutping_best_int
+                          { \use:c { xjp@cost@ \int_eval:n { ##1 - ####1 } } + 100000 }
+                        \cs_set_nopar:cpn { xjp@back@ ##1 } {####1}
+                      }
+                  }
+              }
+            \cs_set_nopar:cpe { xjp@cost@ ##1 } { \int_use:N \l__xjyutping_best_int }
+          }
+        \int_zero:N \l__xjyutping_k_int
+        \int_set_eq:NN \l__xjyutping_j_int \l__xjyutping_len_int
+        \int_do_while:nNnn \l__xjyutping_j_int > \c_zero_int
+          {
+            \int_set:Nn \l__xjyutping_i_int
+              { \l__xjyutping_j_int - \use:c { xjp@back@ \int_use:N \l__xjyutping_j_int } + 1 }
+            \int_incr:N \l__xjyutping_k_int
+            \cs_set_nopar:cpe { xjp@seg@ \int_use:N \l__xjyutping_k_int }
+              { { \int_use:N \l__xjyutping_i_int } { \int_use:N \l__xjyutping_j_int } }
+            \int_set:Nn \l__xjyutping_j_int { \l__xjyutping_i_int - 1 }
+          }
+        \tl_clear:N \l__xjyutping_log_tl
+        \int_step_inline:nnnn { \l__xjyutping_k_int } { -1 } { 1 }
+          { \use:e { \exp_not:N \__xjyutping_emit:nn \use:c { xjp@seg@ ##1 } } }
+        \bool_if:NT \l__xjyutping_debug_bool
+          { \iow_log:e { xjyutping>~ \l__xjyutping_log_tl } }
+        \int_step_inline:nn { \l__xjyutping_len_int }
+          {
+            \cs_gset_eq:cN { xjp@r@ \int_use:N \l__xjyutping_ctx_int @ ##1 } \scan_stop:
+            \cs_gset_eq:cN { xjp@n@ \int_use:N \l__xjyutping_ctx_int @ ##1 } \scan_stop:
+          }
+        \cs_set_nopar:cpn { xjp@len@ \int_use:N \l__xjyutping_ctx_int } { 0 }
+      }
+  }
+% Segment every run that is still open (the current one and those around a
+% \footnote or [...] being read).
+\cs_new_protected:Npn \__xjyutping_flush_all:
+  {
+    \int_set_eq:NN \l__xjyutping_top_int \l__xjyutping_ctx_int
+    \int_step_inline:nn { \l__xjyutping_top_int }
+      {
+        \int_set:Nn \l__xjyutping_ctx_int {##1}
+        \__xjyutping_flush:
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_emit:nn #1#2
+  {
+    \int_compare:nNnTF {#1} = {#2}
+      {
+        \tl_set:Ne \l__xjyutping_final_tl
+          { \int_compare:nNnT {#2} = \l__xjyutping_len_int { f } }
+        \__xjyutping_lookup:eV { \__xjyutping_raw:n {#1} } \l__xjyutping_final_tl
+        \__xjyutping_result:nVV {#1} \l__xjyutping_type_tl \l__xjyutping_reading_tl
+      }
+      {
+        \tl_set:Ne \l__xjyutping_key_tl
+          {
+            \cs_if_exist:cTF { xjp@w@ \__xjyutping_word:nnN {#1} {#2} \__xjyutping_raw:n }
+              { \__xjyutping_word:nnN {#1} {#2} \__xjyutping_raw:n }
+              { \__xjyutping_word:nnN {#1} {#2} \__xjyutping_can:n }
+          }
+        \tl_set:Ne \l__xjyutping_type_tl
+          { \cs_if_exist:cTF { xjp@uw@ \l__xjyutping_key_tl } { u } { w } }
+        \exp_args:Nv \__xjyutping_split:n { xjp@w@ \l__xjyutping_key_tl }
+        \int_step_inline:nnn {#1} {#2}
+          {
+            \seq_pop_left:NN \l__xjyutping_syl_seq \l__xjyutping_syl_tl
+            \__xjyutping_result:nVV {##1} \l__xjyutping_type_tl \l__xjyutping_syl_tl
+          }
+      }
+    \bool_if:NT \l__xjyutping_debug_bool
+      { \tl_put_right:Nn \l__xjyutping_log_tl { ~ | } }
+  }
+\cs_new_protected:Npn \__xjyutping_result:nnn #1#2#3
+  {
+    \__xjyutping_combo:nn {#2} {#3}
+    \cs_gset_nopar:cpe
+      { xjp@s@ \use:c { xjp@n@ \int_use:N \l__xjyutping_ctx_int @ #1 } }
+      { \exp_not:c { \l__xjyutping_combo_tl } }
+    \tl_if_empty:nF {#3} { \__xjyutping_measure:n {#3} }
+    \bool_if:NT \l__xjyutping_debug_bool
+      {
+        \tl_put_right:Ne \l__xjyutping_log_tl
+          {
+            ~ \__xjyutping_raw:n {#1} \exp_not:n {#3} : #2
+            \str_if_eq:nnT {#2} { m }
+              { ( \use:c { xjp@m@ \__xjyutping_raw:n {#1} } ) }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__xjyutping_result:nnn { nVV }
+
+% ---------------------------------------------------------------------------
+% Document interface
+% ---------------------------------------------------------------------------
+% Read a block.  Both passes run in a group, so settings made by a
+% \setjyutping in the text are gone before the text is typeset (the
+% \setjyutping itself then acts at its own place).
+\cs_new_protected:Npn \__xjyutping_prepare:n #1
+  {
+    \group_begin:
+      \__xjyutping_preprocess:n {#1}
+      \tl_gset_eq:Nc \g__xjyutping_result_tl { l__xjyutping_buf_0_tl }
+    \group_end:
+    \str_case:VnF \l__xjyutping_width_tl
+      {
+        { natural } { \tl_clear:N \l__xjyutping_uniform_tl }
+        { auto }
+          {
+            % text that only comes from macros has nothing measured yet
+            \dim_compare:nNnT \g__xjyutping_max_dim = \c_zero_dim
+              { \__xjyutping_measure:n { gwong2 } }
+            \dim_compare:nNnT \g__xjyutping_max_dim > \c_zero_dim
+              {
+                \tl_set:Ne \l__xjyutping_uniform_tl
+                  {
+                    \fp_eval:n { \dim_to_fp:n { \g__xjyutping_max_dim } / \f@size }
+                    \exp_not:n { \tex_dimexpr:D \f@size pt \scan_stop: }
+                  }
+              }
+          }
+      }
+      { \tl_set_eq:NN \l__xjyutping_uniform_tl \l__xjyutping_width_tl }
+  }
+\cs_new_protected:Npn \__xjyutping_typeset:
+  {
+    \__xjyutping_enable:
+    \tl_use:N \g__xjyutping_result_tl
+  }
+% Inside the environment every line is the same distance apart: room for a
+% ruby, its clearance and the depth of a line.  The minimum follows size
+% changes inside the scope.
+\cs_new_protected:Npn \__xjyutping_baselineskip:
+  {
+    \__xjyutping_ruby:nn { } { s }
+    \fp_set:Nn \l__xjyutping_bls_fp
+      {
+        \dim_to_fp:n
+          { \__xjyutping_vsep: + \box_ht:N \l__xjyutping_ruby_box + 0.6em }
+        / \f@size
+      }
+    \bool_set_true:N \l__xjyutping_scope_bool
+    \__xjyutping_raise_baselineskip:
+    \dim_set:Nn \emergencystretch { \dim_max:nn { \emergencystretch } { 2em } }
+  }
+\cs_new_protected:Npn \__xjyutping_raise_baselineskip:
+  {
+    \dim_compare:nNnT { \tex_baselineskip:D } <
+      { \fp_to_dim:n { \l__xjyutping_bls_fp * \f@size } }
+      {
+        \skip_set:Nn \tex_baselineskip:D
+          { \fp_to_dim:n { \l__xjyutping_bls_fp * \f@size } }
+        % tabular rows are spaced by struts: keep them in step
+        \hbox_set:Nn \strutbox
+          {
+            \tex_vrule:D
+              height \dim_eval:n { \tex_baselineskip:D - 0.25em }
+              depth 0.25em width \c_zero_dim
+          }
+      }
+  }
+% After a size change (\small, a footnote, a section title) the minimum is
+% applied again, and the package's glue is put back if the size change
+% replaced it (ctex does).  \size@update is \relax unless the size changed;
+% LaTeX would run it only after this hook.  minipage, \parbox and p columns
+% reset \baselineskip without a font change, so the minimum is also checked
+% at the end of each paragraph.
+\AddToHook { selectfont }
+  {
+    \bool_lazy_and:nnT { \sys_if_engine_xetex_p: } { \l__xjyutping_enable_bool }
+      {
+        \cs_if_eq:NNF \CJKglue \__xjyutping_CJKglue:
+          {
+            \cs_set_eq:NN \__xjyutping_save_CJKglue: \CJKglue
+            \cs_set_eq:NN \CJKglue \__xjyutping_CJKglue:
+          }
+        \cs_if_eq:NNF \CJKecglue \__xjyutping_CJKecglue:
+          {
+            \cs_set_eq:NN \__xjyutping_save_CJKecglue: \CJKecglue
+            \cs_set_eq:NN \CJKecglue \__xjyutping_CJKecglue:
+          }
+      }
+    \bool_if:NT \l__xjyutping_scope_bool
+      { \size@update \__xjyutping_raise_baselineskip: }
+  }
+\DeclareHookRule { selectfont } { xjyutping } { after } { ctex }
+\AddToHook { para/end }
+  { \bool_if:NT \l__xjyutping_scope_bool { \__xjyutping_raise_baselineskip: } }
+
+% The environment collects its body itself, so that with the linebreak
+% option the line ends of the source can be read as characters of their
+% own: the catcode of ^^M is `other' while the body is read.  The body ends
+% as a +b argument does: at the first \end (outside braces) that does not
+% close a \begin of the body, whatever its environment, so that
+% \newenvironment{lesson}{\begin{jyutpingscope}}{\end{jyutpingscope}} works,
+% and that \end is left to read its argument itself.  LuaTeX-ja
+% hides the end of a line that ends in a Chinese character behind a comment
+% character (\ltjlineendcomment) when the line is read; that character is
+% made `ignored', for the first line of the body may have been read already
+% (looking for the optional argument).
+\tl_new:N \l__xjyutping_collect_tl
+\int_new:N \l__xjyutping_nest_int
+\NewDocumentEnvironment { jyutpingscope } { O { } }
+  {
+    \keys_set:nn { xjyutping } {#1}
+    \__xjyutping_baselineskip:
+    \bool_if:NT \l__xjyutping_linebreak_bool
+      {
+        \char_set_catcode_other:n { 13 }
+        \cs_if_exist:NT \ltjlineendcomment
+          { \char_set_catcode_ignore:n { \ltjlineendcomment } }
+      }
+    \tl_clear:N \l__xjyutping_collect_tl
+    \int_zero:N \l__xjyutping_nest_int
+    \__xjyutping_collect:w \q_nil
+  }
+  { \__xjyutping_typeset: \par }
+% #1 is \q_nil and the text up to the next \end: the \q_nil keeps the braces
+% of a text that is a single group.
+\cs_new_protected:Npn \__xjyutping_collect:w #1 \end
+  {
+    \tl_put_right:No \l__xjyutping_collect_tl { \use_none:n #1 }
+    \__xjyutping_count_begins:w #1 \begin \q_nil \q_stop
+    \int_compare:nNnTF \l__xjyutping_nest_int = \c_zero_int
+      { \__xjyutping_collected: }
+      {
+        \int_decr:N \l__xjyutping_nest_int
+        \tl_put_right:Nn \l__xjyutping_collect_tl { \end }
+        \__xjyutping_collect:w \q_nil
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_count_begins:w #1 \begin #2 \q_stop
+  {
+    \quark_if_nil:nF {#2}
+      {
+        \int_incr:N \l__xjyutping_nest_int
+        \__xjyutping_count_begins:w #2 \q_stop
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_collected:
+  {
+    \bool_if:NTF \l__xjyutping_linebreak_bool
+      { \__xjyutping_lines:N \l__xjyutping_collect_tl }
+      { \tl_trim_spaces:N \l__xjyutping_collect_tl }
+    \exp_args:NV \__xjyutping_prepare:n \l__xjyutping_collect_tl
+    \end
+  }
+% linebreak: a line end of the source (a character 13) becomes a line break,
+% a blank line a paragraph break (\par, so the paragraph is indented or
+% spaced as usual), and line ends at the start and the end of the body are
+% dropped.  The break is \__xjyutping_newline:, a \newline that does nothing
+% where there is no line to end (after \begin{center}), nor before \begin,
+% \end or \par, where the paragraph ends anyway.
+\cs_new_protected:Npn \__xjyutping_lines:N #1
+  {
+    \regex_replace_all:nnN { \A [\ \r]+ | [\ \r]+ \Z } { } #1
+    \regex_replace_all:nnN { \ * \r (?: \ * \r )+ \ * } { \c{par} } #1
+    \regex_replace_all:nnN { (\c{\\} | \c{newline}) \ * \r \ * } { \1 } #1
+    \regex_replace_all:nnN { \ * \r \ * } { \c{__xjyutping_newline:} } #1
+  }
+\cs_new_protected:Npn \__xjyutping_newline:
+  { \mode_if_horizontal:T { \peek_after:Nw \__xjyutping_newline_aux: } }
+\cs_new_protected:Npn \__xjyutping_newline_aux:
+  {
+    \bool_lazy_any:nF
+      {
+        { \token_if_eq_meaning_p:NN \l_peek_token \begin }
+        { \token_if_eq_meaning_p:NN \l_peek_token \end }
+        { \token_if_eq_meaning_p:NN \l_peek_token \par }
+      }
+      { \newline }
+  }
+\NewDocumentCommand \xjyutping { s O { } m }
+  {
+    \bool_if:NTF \l__xjyutping_plain_bool
+      { \IfBooleanTF {#1} {#3} { #3 \use_none:n } } % in running heads
+      {
+        \group_begin:
+        \keys_set:nn { xjyutping } {#2}
+        \IfBooleanTF {#1}
+          {
+            \__xjyutping_prepare:n {#3}
+            \__xjyutping_typeset:
+            \group_end:
+          }
+          { \__xjyutping_manual:nn {#3} }
+      }
+  }
+\cs_new_protected:Npn \__xjyutping_clear_mark: { \tl_gclear:N \g__xjyutping_mark_tl }
+% \xjyutping{<text>}{<readings>}: each Chinese character of <text>, also
+% inside braces (\textbf{行}, {\color{red}行}), gets the next reading, and
+% gets it right before itself; anything else is left alone.
+\prg_new_conditional:Npnn \__xjyutping_if_cjk_char:N #1 { p , TF }
+  {
+    \bool_lazy_and:nnTF
+      { \bool_lazy_or_p:nn { \token_if_letter_p:N #1 } { \token_if_other_p:N #1 } }
+      {
+        \bool_lazy_or_p:nn
+          { \cs_if_exist_p:c { xjp@c@ #1 } }
+          {
+            \bool_lazy_any_p:n
+              {
+                { \int_compare_p:n { "3400 <= `#1 <= "4DBF } }
+                { \int_compare_p:n { "4E00 <= `#1 <= "9FFF } }
+                { \int_compare_p:n { "F900 <= `#1 <= "FAFF } }
+                { \int_compare_p:n { "20000 <= `#1 <= "3FFFF } }
+              }
+          }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\int_new:N \g__xjyutping_manual_int
+\seq_new:N \g__xjyutping_syl_seq
+\tl_new:N \g__xjyutping_out_tl
+\tl_new:N \l__xjyutping_save_tl
+\cs_new_protected:Npn \__xjyutping_manual:nn #1#2
+  {
+      \str_case:VnF \l__xjyutping_width_tl
+        { { natural } { \tl_clear:N \l__xjyutping_uniform_tl } { auto } { } }
+        { \tl_set_eq:NN \l__xjyutping_uniform_tl \l__xjyutping_width_tl }
+      \__xjyutping_enable:
+      \__xjyutping_split:n {#2}
+      \seq_gset_eq:NN \g__xjyutping_syl_seq \l__xjyutping_syl_seq
+      \int_gzero:N \g__xjyutping_manual_int
+      \tl_gclear:N \g__xjyutping_out_tl
+      \__xjyutping_manual_map:n {#1}
+      \int_compare:nNnF { \g__xjyutping_manual_int } = { \seq_count:N \l__xjyutping_syl_seq }
+        {
+          \msg_warning:nneeee { xjyutping } { count-mismatch }
+            { \exp_not:n {#1} } { \int_use:N \g__xjyutping_manual_int }
+            { \exp_not:n {#2} } { \seq_count:N \l__xjyutping_syl_seq }
+        }
+      \tl_set_eq:NN \l__xjyutping_out_tl \g__xjyutping_out_tl
+      % a reading left pending is dropped at the end, not passed on to the
+      % next character
+      \group_insert_after:N \__xjyutping_clear_mark:
+      \l__xjyutping_out_tl
+    \group_end:
+  }
+% The text is walked token by token; a brace group stays a group (so that
+% \textbf{行} keeps its argument) and is walked inside.
+\cs_new_protected:Npn \__xjyutping_manual_map:n #1
+  {
+    \tl_if_empty:nF {#1}
+      {
+        \tl_if_head_is_space:nTF {#1}
+          {
+            \tl_gput_right:Nn \g__xjyutping_out_tl { ~ }
+            \exp_args:No \__xjyutping_manual_map:n { \__xjyutping_drop_space:w #1 }
+          }
+          {
+            \tl_if_head_is_group:nTF {#1}
+              { \exp_args:Ne \__xjyutping_manual_group:n { \tl_head:n {#1} } }
+              { \use:e { \exp_not:N \__xjyutping_manual_token:N \tl_head:n {#1} } }
+            \exp_args:Ne \__xjyutping_manual_map:n { \tl_tail:n {#1} }
+          }
+      }
+  }
+\use:n { \cs_new:Npn \__xjyutping_drop_space:w } ~ { }
+\cs_new_protected:Npn \__xjyutping_manual_group:n #1
+  {
+    \group_begin:
+      \tl_set_eq:NN \l__xjyutping_save_tl \g__xjyutping_out_tl
+      \tl_gclear:N \g__xjyutping_out_tl
+      \__xjyutping_manual_map:n {#1}
+      \tl_gset:Ne \g__xjyutping_out_tl
+        { \exp_not:V \l__xjyutping_save_tl { \exp_not:V \g__xjyutping_out_tl } }
+    \group_end:
+  }
+\cs_new_protected:Npn \__xjyutping_manual_token:N #1
+  {
+    \__xjyutping_if_cjk_char:NTF #1
+      {
+        \int_gincr:N \g__xjyutping_manual_int
+        \seq_gpop_left:NNTF \g__xjyutping_syl_seq \l__xjyutping_syl_tl
+          {
+            \tl_gput_right:Ne \g__xjyutping_out_tl
+              {
+                \exp_not:N \xjyutping@mark { u \exp_not:V \l__xjyutping_syl_tl }
+                \exp_not:n {#1}
+              }
+          }
+          { \tl_gput_right:Nn \g__xjyutping_out_tl {#1} }
+      }
+      { \tl_gput_right:Nn \g__xjyutping_out_tl {#1} }
+  }
+
+% nameref writes section and caption titles to the .aux as strings; the
+% marks in them are replaced by the robust \xjyutping@mark{..} first.
+\regex_const:Nn \c__xjyutping_mark_regex { \c{xjp@R@.*} }
+\seq_new:N \l__xjyutping_marks_seq
+\tl_new:N \l__xjyutping_mk_tl
+\tl_new:N \l__xjyutping_mkx_tl
+\cs_new_protected:Npn \__xjyutping_unmark:N #1
+  {
+    \exp_args:NNV \regex_extract_all:NnN \c__xjyutping_mark_regex #1
+      \l__xjyutping_marks_seq
+    \seq_remove_duplicates:N \l__xjyutping_marks_seq
+    \seq_map_inline:Nn \l__xjyutping_marks_seq
+      {
+        \tl_set:Nn \l__xjyutping_mk_tl {##1}
+        \tl_set:No \l__xjyutping_mkx_tl {##1}
+        \regex_replace_all:nnN { \u{l__xjyutping_mk_tl} } { \u{l__xjyutping_mkx_tl} } #1
+      }
+  }
+\AtBeginDocument
+  {
+    \cs_if_exist:NT \label@hook
+      {
+        \tl_gput_left:Nn \label@hook
+          { \cs_if_exist:NT \@currentlabelname { \__xjyutping_unmark:N \@currentlabelname } }
+      }
+  }
+% In PDF bookmarks only the text survives; case changing leaves readings
+% alone.
+\NewExpandableDocumentCommand \xjyutping@pdf { s o m }
+  { \IfBooleanTF {#1} {#3} { #3 \use_none:n } }
+\cs_new_protected:Npn \__xjyutping_pdfstring:
+  {
+    \pdfstringdefDisableCommands
+      {
+        \cs_set_eq:NN \xjyutping@mark \use_none:n
+        \cs_set_eq:NN \xjyutping \xjyutping@pdf
+        \cs_set_eq:NN \setjyutping \use_none:nn
+        \cs_set_eq:NN \disablejyutping \prg_do_nothing:
+        \cs_set_eq:NN \enablejyutping \prg_do_nothing:
+      }
+  }
+\cs_if_exist:NTF \pdfstringdefDisableCommands
+  { \__xjyutping_pdfstring: }
+  { \AddToHook { package/hyperref/after } { \__xjyutping_pdfstring: } }
+% beamer typesets head and foot (also to measure them) outside the output
+% routine; they are plain, like running heads.  TikZ reads on after the
+% text of a node, so the padding is paid inside the node.
+\@ifclassloaded { beamer }
+  {
+    \bool_gset_true:N \g__xjyutping_beamer_bool
+    \AddToHook { cmd/beamer@typesetheadorfoot/before }
+      {
+        \__xjyutping_disable:
+        \bool_set_false:N \l__xjyutping_scope_bool
+        \bool_set_true:N \l__xjyutping_plain_bool
+      }
+  }
+  { }
+\AtBeginDocument
+  {
+    \cs_if_exist:NT \tikzset
+      {
+        \tikzset
+          { every~text~node~part/.append~code = { \bool_set_true:N \l__xjyutping_nodefer_bool } }
+      }
+  }
+\tl_put_right:Nn \l_text_case_exclude_arg_tl { \xjyutping@mark }
+
+\ProcessKeyOptions [ xjyutping ]

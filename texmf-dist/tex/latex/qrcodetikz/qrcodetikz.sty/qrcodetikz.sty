@@ -1,0 +1,320 @@
+%%
+%% This is file `qrcodetikz.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% qrcodetikz.dtx 
+%% 
+%% Copyright (C) 2025 Miguel V. S. Frasson (mvsfrasson@gmail.com)
+%% 
+%% This file is part of the `qrcodetikz' package.
+%% 
+%% This package may be distributed under the terms of the LaTeX
+%% Project Public License, as described in lppl.txt in the base
+%% LaTeX distribution, either version 1.3 or (at your option)
+%% any later version.
+%% 
+%% This program is distributed in the hope that it will be useful,
+%% but WITHOUT ANY WARRANTY; without even the implied warranty of
+%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+%% 
+\NeedsTeXFormat{LaTeX2e}[2020-02-02]
+\ProvidesPackage{qrcodetikz}[2025-05-28 v1.0 Prettier qrcodes]
+\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{qrcode}}
+\ProcessOptions
+\RequirePackage{qrcode}
+\RequirePackage{tikz}
+\ExplSyntaxOn
+\int_new:N \l_qrtz_size_int
+\tl_new:N \l_qrtz_x
+\tl_new:N \l_qrtz_y
+\tl_new:N \l_qrtz_dir
+\tl_new:N \l_qrtz_component
+\tl_new:N \l_qrtz_path
+\tl_new:N \l_qrtz_border
+\tl_new:N \l_qrtz_inner
+\tl_new:N \l_qrtz_straight
+\tl_new:N \l_qrtz_outer
+\intarray_new:Nn \g_qrtz_labels_intarray {177 * 177}
+\seq_new:N \l_qrtz_border_seq
+\prop_new:N \g_qrtz_paths_prop
+\bool_new:N \g_qrtz_aux_fallback_written_bool
+\bool_gset_false:N \g_qrtz_aux_fallback_written_bool
+\bool_new:N \l_qrtz_continue_straight_bool
+\bool_new:N \l_qrtz_can_continue_bool
+\cs_new:Nn \qrtz_index:nn {
+  ( \l_qrtz_size_int - (#2) ) * \l_qrtz_size_int + (#1)
+}
+\cs_new:Nn \qrtz_pixel:nn {
+  \intarray_item:Nn \g_qrtz_labels_intarray { \qrtz_index:nn {#1}{#2} }
+}
+\cs_new:Nn \qrtz_find:nnN {
+  \int_set:Nn #3 { \qrtz_index:nn {#1}{#2} }
+  \int_until_do:nNnn {\intarray_item:Nn \g_qrtz_labels_intarray #3} = #3
+  {
+    \int_set:Nn #3 {\intarray_item:Nn \g_qrtz_labels_intarray #3}
+  }
+}
+\cs_new:Nn \qrtz_union:nnnn {
+  \qrtz_find:nnN {#1}{#2} \l_tmpa_int
+  \qrtz_find:nnN {#3}{#4} \l_tmpb_int
+  \intarray_gset:Nnn \g_qrtz_labels_intarray \l_tmpb_int \l_tmpa_int
+}
+\cs_new:Nn \qrtz_compute_components:n {
+  \int_zero:N \l_tmpa_int
+  \tl_map_inline:nn {#1}
+  {
+    \int_incr:N \l_tmpa_int
+    \intarray_gset:Nnn
+    \g_qrtz_labels_intarray { \l_tmpa_int } { ##1 * \l_tmpa_int }
+  }
+  \int_set:Nn \l_qrtz_size_int { \fp_to_int:n { sqrt( \l_tmpa_int ) } }
+  \int_step_inline:nn { \l_qrtz_size_int } { % i=##1
+    \int_step_inline:nn { \l_qrtz_size_int } { % j = ####1
+
+      \bool_if:nT {
+        \bool_lazy_all_p:n {
+          { \int_compare_p:nNn {##1} < \l_qrtz_size_int }
+          { \int_compare_p:nNn { \qrtz_pixel:nn {##1}{####1} } > 0 }
+          { \int_compare_p:nNn { \qrtz_pixel:nn {1 + ##1}{####1} } > 0 }
+        }
+      }
+      { \qrtz_union:nnnn {##1}{####1} {1 + ##1}{####1} }
+
+      \bool_if:nT {
+        \bool_lazy_all_p:n {
+          { \int_compare_p:nNn {####1} < \l_qrtz_size_int }
+          { \int_compare_p:nNn { \qrtz_pixel:nn {##1}{####1} } > 0 }
+          { \int_compare_p:nNn { \qrtz_pixel:nn {##1}{1 + ####1} } > 0 }
+        }
+      }
+      { \qrtz_union:nnnn {##1}{####1} {##1}{1 + ####1} }
+    }
+  }
+  \int_step_inline:nn { \l_qrtz_size_int } { %   i = ##1
+    \int_step_inline:nn { \l_qrtz_size_int } { % j = ####1
+
+      \int_set:Nn \l_tmpa_int { \qrtz_index:nn {##1} {####1} }
+
+      \int_compare:nNnF
+      {\intarray_item:Nn \g_qrtz_labels_intarray \l_tmpa_int} = 0
+      {
+        \qrtz_find:nnN {##1} {####1} \l_tmpb_int
+        \intarray_gset:Nnn \g_qrtz_labels_intarray \l_tmpa_int \l_tmpb_int
+      }
+    }
+  }
+}
+\cs_new:Nn \qrtz_build_border_list:n {
+  \qrtz_compute_components:n { #1 }
+  %
+  \seq_clear:N \l_qrtz_border_seq
+  %
+  \int_step_inline:nn { \l_qrtz_size_int }
+  {
+    % x = ##1
+    \int_step_inline:nn { \l_qrtz_size_int }
+    {
+      % y = ####1
+      \tl_set:Ne \l_qrtz_component { \qrtz_pixel:nn {##1}{####1} }
+      \int_compare:nNnT { \l_qrtz_component } > 0
+      {
+        \bool_lazy_or:nnT
+        { \int_compare_p:nNn { ##1 } = 1 }
+        { \int_compare_p:nNn { \qrtz_pixel:nn {##1 - 1}{####1} } = 0 }
+        {
+          \seq_put_left:Ne \l_qrtz_border_seq
+          { ##1, \int_eval:n{ ####1 + 1 }, 3, \l_qrtz_component }
+        }
+        %
+        \bool_lazy_or:nnT
+        { \int_compare_p:nNn { ##1 } = { \l_qrtz_size_int } }
+        { \int_compare_p:nNn { \qrtz_pixel:nn {##1 + 1}{####1} } = 0 }
+        {
+          \seq_put_left:Ne \l_qrtz_border_seq
+          { \int_eval:n{ ##1 + 1 }, ####1, 1, \l_qrtz_component }
+        }
+        %
+        \bool_lazy_or:nnT
+        { \int_compare_p:nNn { ####1 } = { \l_qrtz_size_int } }
+        { \int_compare_p:nNn { \qrtz_pixel:nn {##1}{####1+1} } = 0 }
+        {
+          \seq_put_left:Ne \l_qrtz_border_seq
+          {\int_eval:n{##1+1}, \int_eval:n{####1+1}, 2, \l_qrtz_component }
+        }
+        %
+        \bool_lazy_or:nnT
+        { \int_compare_p:nNn { ####1 } = 1 }
+        { \int_compare_p:nNn { \qrtz_pixel:nn {##1}{####1-1} } = 0 }
+        {
+          \seq_put_left:Ne \l_qrtz_border_seq
+          { ##1, ####1, 0, \l_qrtz_component }
+        }
+      }
+    }
+  }
+}
+\cs_new:Nn \qrtz_build_tikz_path:nN {
+  \message{<Computing~ Tikz~ path~ ...}
+  % build border list
+  \qrtz_build_border_list:n { #1 }
+  \tl_set:Nn \l_qrtz_path {}
+  \bool_until_do:nn { \seq_if_empty_p:N \l_qrtz_border_seq }
+  {
+    \bool_set_true:N \l_qrtz_can_continue_bool
+    \bool_set_false:N \l_qrtz_continue_straight_bool
+    \seq_get_left:NN \l_qrtz_border_seq \l_qrtz_border
+    \tl_set:Ne \l_qrtz_x         { \clist_item:Nn \l_qrtz_border 1 }
+    \tl_set:Ne \l_qrtz_y         { \clist_item:Nn \l_qrtz_border 2 }
+    \tl_set:Ne \l_qrtz_dir       { \clist_item:Nn \l_qrtz_border 3 }
+    \tl_set:Ne \l_qrtz_component { \clist_item:Nn \l_qrtz_border 4 }
+    \bool_while_do:Nn \l_qrtz_can_continue_bool
+    {
+      \seq_remove_all:NV \l_qrtz_border_seq \l_qrtz_border
+
+      \bool_if:NF \l_qrtz_continue_straight_bool
+      { % else
+        \tl_put_right:Ne \l_qrtz_path { (\l_qrtz_x,\l_qrtz_y) -- }
+      }
+
+      \tl_set:Ne \l_qrtz_dir { \clist_item:Nn \l_qrtz_border 3 }
+
+      \int_case:nn { \l_qrtz_dir }
+      {
+        0 { \tl_set:Ne \l_qrtz_x { \int_eval:n { \l_qrtz_x + 1 } } }
+        1 { \tl_set:Ne \l_qrtz_y { \int_eval:n { \l_qrtz_y + 1 } } }
+        2 { \tl_set:Ne \l_qrtz_x { \int_eval:n { \l_qrtz_x - 1 } } }
+        3 { \tl_set:Ne \l_qrtz_y { \int_eval:n { \l_qrtz_y - 1 } } }
+      }
+      \tl_set:Ne \l_qrtz_inner { % inner=left: dir+1 mod 4
+        \l_qrtz_x, \l_qrtz_y,
+        \int_eval:n { \int_mod:nn { \l_qrtz_dir + 1 } { 4 } },
+        \l_qrtz_component
+      }
+
+      \tl_set:Ne \l_qrtz_straight {
+        \l_qrtz_x, \l_qrtz_y, \l_qrtz_dir, \l_qrtz_component
+      }
+
+      \tl_set:Ne \l_qrtz_outer { % outer=right: dir-1 +4 mod 4
+        \l_qrtz_x, \l_qrtz_y,
+        \int_eval:n { \int_mod:nn { \l_qrtz_dir + 3 } { 4 } },
+        \l_qrtz_component
+      }
+      \seq_if_in:NVTF \l_qrtz_border_seq \l_qrtz_inner
+      {
+        \bool_set_false:N \l_qrtz_continue_straight_bool
+        \tl_set_eq:NN \l_qrtz_border \l_qrtz_inner
+      }
+      { % else
+        \seq_if_in:NVTF \l_qrtz_border_seq \l_qrtz_straight
+        {
+          \bool_set_true:N \l_qrtz_continue_straight_bool
+          \tl_set_eq:NN \l_qrtz_border \l_qrtz_straight
+        }
+        { % else
+          \seq_if_in:NVTF \l_qrtz_border_seq \l_qrtz_outer
+          {
+            \bool_set_false:N \l_qrtz_continue_straight_bool
+            \tl_set_eq:NN \l_qrtz_border \l_qrtz_outer
+          }
+          { % else (dead-end)
+            \bool_set_false:N \l_qrtz_can_continue_bool
+            \tl_put_right:Nn \l_qrtz_path { cycle }
+          } % fi
+        } % fi
+      } % fi
+    } % end-while
+  } % end-while
+  \tl_set_eq:NN #2 \l_qrtz_path
+  \message{~done>.^^J}%
+}
+\cs_generate_variant:Nn \qrtz_build_tikz_path:nN { eN }
+
+\tl_set_eq:NN \QRTZBinaryToTikzPath \qrtz_build_tikz_path:eN
+\cs_new:Nn \qrtz_get_tikz_path_maybe_saved:nN {
+  \prop_get:NeN \g_qrtz_paths_prop { #1 } { #2 }
+  \use:c {ifqr@forget@mode} \tl_set_eq:NN #2 \q_no_value \fi
+  \quark_if_no_value:NTF #2
+  {
+    \qrtz_build_tikz_path:nN { #1 }{ #2 }
+    \qrtz_save_write_path_to_aux:ee { #1 }{ #2 }
+  }
+  {
+    \message{<Using~ saved~ Tikz~ path>^^J}%
+  }
+}
+
+\cs_generate_variant:Nn \qrtz_get_tikz_path_maybe_saved:nN { eN }
+
+\tl_set_eq:NN \QRTZgetTikzPathMaybeSaved \qrtz_get_tikz_path_maybe_saved:eN
+\cs_new:Nn \qrtz_save_write_path_to_aux:nn {
+  \bool_if:NF \g_qrtz_aux_fallback_written_bool
+  {
+    \iow_shipout:cn { @auxout } { \providecommand{\QRTZsavePath}[2]{} }
+    \bool_gset_true:N \g_qrtz_aux_fallback_written_bool
+  }
+  \message{<Writing~ Tikz~ path~ to~ aux~ file>^^J}%
+  \iow_shipout:cn { @auxout } { \QRTZsavePath {#1}{#2} }
+\prop_get:NnN \g_qrtz_paths_prop { #1 } \l_tmpa_tl
+  \quark_if_no_value:NT \l_tmpa_tl
+  {
+    \message{<Saving~ Tikz~ path~ to~ memory~ for~ later~ use>^^J}%
+    \prop_gput:Nnn \g_qrtz_paths_prop { #1 } { #2 }
+  }
+}
+
+\cs_generate_variant:Nn \qrtz_save_write_path_to_aux:nn { ee }
+
+\tl_set_eq:NN \QRTZsavePath \qrtz_save_write_path_to_aux:nn
+\cs_new:Nn \qrtz_print_qr_matrix:n {
+  \message{^^J~(}
+  \use:c{qr@matrixtobinary}{#1} % stores into \qr@binarymatrix@result
+  \QRTZprintBinaryString{ \use:c{qr@binarymatrix@result} }
+  \message{~)~}
+}
+
+\tl_set_eq:NN \QRTZprintQRmatrix \qrtz_print_qr_matrix:n
+\ExplSyntaxOff
+\newcommand{\QRTZ@extraFillOpts}{}
+\newcommand{\qrcodeFillOptions}[1]{\gdef\QRTZ@extraFillOpts{#1}}
+
+\newcommand{\QRTZprintBinaryString}[1]{%
+  \setlength{\qr@modulesize}{\qr@desiredheight}%
+  \divide\qr@modulesize by \qr@size\relax
+  \setlength{\qr@minipagewidth}{\qr@modulesize}%
+  \multiply\qr@minipagewidth by \qr@size\relax
+  \ifqr@tight
+  \else
+    \advance\qr@minipagewidth by 8\qr@modulesize
+  \fi
+  \QRTZgetTikzPathMaybeSaved{#1}{\QRTZtikzPath}%
+  \pgfmathsetmacro\QRTZtikzScale{0.03514598*\qr@desiredheight/\qr@size}%
+  \expandafter\def\expandafter\QRTZinternalFillOptions\expandafter{\expandafter
+    [\QRTZ@extraFillOpts,scale=\QRTZtikzScale,even odd rule]}%
+  \parbox{\qr@minipagewidth}{%
+    \tikz
+    \expandafter\fill\QRTZinternalFillOptions
+    \ifqr@tight\else(-3,-3)(\qr@size+5,\qr@size+5)\fi
+    \QRTZtikzPath ;%
+  }%
+}
+\let\qr@printmatrixORIGINAL\qr@printmatrix
+\let\qr@printsavedbinarymatrixORIGINAL\qr@printsavedbinarymatrix
+
+\newcommand{\qrcodetikzOn}{%
+  \let\qr@printmatrix\QRTZprintQRmatrix
+  \let\qr@printsavedbinarymatrix\QRTZprintBinaryString
+}
+
+\newcommand{\qrcodetikzOff}{%
+  \let\qr@printmatrix\qr@printmatrixORIGINAL
+  \let\qr@printsavedbinarymatrix\qr@printsavedbinarymatrixORIGINAL
+}
+
+\qrcodetikzOn
+\def\qr@fivezeros{00000}%
+\endinput
+%%
+%% End of file `qrcodetikz.sty'.
