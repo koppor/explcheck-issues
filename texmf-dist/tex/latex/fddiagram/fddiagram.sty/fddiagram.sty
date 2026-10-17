@@ -1,0 +1,382 @@
+%% fddiagram.sty
+%% Copyright 2026 Rodrigo Smarzaro
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3c
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   https://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+%
+% The Current Maintainer of this work is Rodrigo Smarzaro.
+% Contact and bug reports: https://github.com/Smarzaro/fddiagram
+%
+% This work consists of the file fddiagram.sty
+% and the example file examples/fddiagram-exemplos.tex.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage{fddiagram}{2026-09-27}{0.3}{Diagramas automaticos de Dependencias Funcionais a partir de texto}
+
+% ====================================================================
+%  fddiagram --- diagramas de Dependencias Funcionais gerados
+%  automaticamente a partir de uma lista textual de DFs.
+%
+%  USO BASICO
+%  ----------
+%    \usepackage{fddiagram}
+%
+%    \begin{fddiagram}
+%      A,B -> C ;
+%      B,D -> E,F ;
+%      A,D -> G,H ;
+%      A -> I ;
+%      H -> J
+%    \end{fddiagram}
+%
+%  Sintaxe de cada DF: "lado_esquerdo -> lado_direito", com atributos
+%  separados por virgula em cada lado. As DFs sao separadas por ";".
+%  O universo de atributos (quais colunas aparecem e em que ordem) e
+%  derivado automaticamente como a uniao de todos os atributos citados,
+%  na ordem da primeira aparicao -- nao e preciso listar os atributos
+%  a parte. Cada DF ganha sua propria "regua" horizontal (na ordem em
+%  que foi escrita), rotulada df1, df2, ... automaticamente.
+%
+%  OPCOES --- podem ser dadas tanto no carregamento do pacote
+%  (\usepackage[chave=valor,...]{fddiagram}, fixando um novo padrao
+%  para todo o documento) quanto em cada ambiente
+%  (\begin{fddiagram}[chave=valor,...], valendo so para aquele
+%  diagrama e sobrescrevendo o padrao do \usepackage para ele):
+%  -------------------------------------------------
+%    attrs=<lista>      Fixa o universo de atributos e sua ordem
+%                        explicitamente (em vez de derivar automatica-
+%                        mente). Ex.: attrs={A,B,C,D,E}
+%    spacing=<numero>   Distancia horizontal entre atributos, em cm.
+%                        Padrao: 1.05. Aumente para nomes longos.
+%    rowheight=<numero> Distancia vertical entre as reguas de DFs
+%                        consecutivas, em cm. Padrao: 0.6.
+%    stublen=<numero>   Comprimento das marcas curtas (tracos/setas)
+%                        coladas a regua, em cm. Padrao: 0.4.
+%    color=<cor>        Cor das reguas, marcas e rotulos. Padrao: red.
+%    arrow=<ponta>      Estilo de ponta de seta do TikZ/arrows.meta
+%                        para os atributos determinados. Padrao:
+%                        Triangle. Outras opcoes uteis: Stealth,
+%                        {Triangle[open]}, Latex.
+%    labelalign=<modo>  "local" (padrao): cada rotulo (df1, df2, ...)
+%                        fica colado ao inicio da propria regua.
+%                        "left": todos os rotulos ficam alinhados em
+%                        uma unica coluna, na margem esquerda de todo
+%                        o diagrama.
+%    guides=<bool>      Se true, liga cada marca (traco/seta) ate o
+%                        nome do atributo com uma linha-guia fina.
+%                        Padrao: false.
+%    guidecolor=<cor>   Cor da linha-guia. Padrao: lightgray.
+%    guidestyle=<estilo> Estilo de tracejado da linha-guia: dashed ou
+%                        dotted. Padrao: dotted.
+%
+%  LIMITACOES CONHECIDAS (v0.3)
+%  -----------------------------
+%   - Nomes de atributo nao podem conter as substrings "->", "," ou ";"
+%     (sao os delimitadores da sintaxe).
+%   - Cada DF ocupa sua propria linha, na ordem em que foi escrita
+%     (nao ha compactacao automatica de linhas que nao se sobrepoem).
+% ====================================================================
+
+\ExplSyntaxOff
+\RequirePackage{xparse}
+\RequirePackage{l3keys2e}
+\RequirePackage{tikz}
+\usetikzlibrary{arrows.meta}
+\ExplSyntaxOn
+
+% ------------------------------------------------------------------
+% Estado global
+% ------------------------------------------------------------------
+\seq_new:N  \g_fddiagram_universe_seq
+\prop_new:N \g_fddiagram_index_prop
+
+% ------------------------------------------------------------------
+% Chaves de configuracao
+% ------------------------------------------------------------------
+\keys_define:nn { fddiagram }
+ {
+   attrs      .tl_set:N  = \l_fddiagram_attrs_tl,
+   attrs      .initial:n = {},
+   spacing    .fp_set:N  = \l_fddiagram_spacing_fp,
+   spacing    .initial:n = 1.05,
+   rowheight  .fp_set:N  = \l_fddiagram_rowheight_fp,
+   rowheight  .initial:n = 0.6,
+   stublen    .fp_set:N  = \l_fddiagram_stublen_fp,
+   stublen    .initial:n = 0.4,
+   color      .tl_set:N  = \l_fddiagram_color_tl,
+   color      .initial:n = red,
+   arrow      .tl_set:N  = \l_fddiagram_arrow_tl,
+   arrow      .initial:n = Triangle,
+   labelalign .tl_set:N  = \l_fddiagram_labelalign_tl,
+   labelalign .initial:n = local,
+   guides     .bool_set:N = \l_fddiagram_guides_bool,
+   guides     .initial:n = false,
+   guidecolor .tl_set:N  = \l_fddiagram_guidecolor_tl,
+   guidecolor .initial:n = lightgray,
+   guidestyle .tl_set:N  = \l_fddiagram_guidestyle_tl,
+   guidestyle .initial:n = dotted,
+ }
+\ProcessKeysOptions { fddiagram }
+
+% ------------------------------------------------------------------
+% Mensagem de erro amigavel para uma DF sem "->" (ou com mais de um)
+% ------------------------------------------------------------------
+\msg_new:nnn { fddiagram } { malformed-fd }
+ { A~dependencia~funcional~'#1'~nao~contem~exatamente~um~'->'~
+   (confira~se~nao~falta~ou~sobra~um~'->'~nessa~linha). }
+
+% ------------------------------------------------------------------
+% Utilitario: divide uma lista separada por virgulas, aparando espacos,
+% descartando itens vazios, devolve em uma sequencia.
+% #1 = texto  #2 = sequencia destino (\seq)
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_split_csv:nN
+ {
+   \seq_set_split:Nnn #2 { , } { #1 }
+   \seq_set_map:NNn #2 #2 { \tl_trim_spaces:n {##1} }
+   \seq_remove_all:Nn #2 { }
+ }
+
+% ------------------------------------------------------------------
+% Normaliza o corpo bruto do ambiente: uma linha em branco no meio do
+% texto produz um token \par (o argumento "+b" do xparse permite que
+% ele sobreviva ate aqui em vez de travar a compilacao); tratamos esse
+% \par como um espaco em branco comum, para que a deteccao de "DF
+% vazia" (\tl_if_blank:n) e o restante do processamento funcionem
+% normalmente mesmo com linhas em branco no meio da lista de DFs.
+% #1 = corpo bruto  ->  resultado em \l_fddiagram_body_tl
+% ------------------------------------------------------------------
+\tl_new:N \l_fddiagram_body_tl
+\cs_new_protected:Nn \fddiagram_normalize_body:n
+ {
+   \tl_set:Nn \l_fddiagram_body_tl { #1 }
+   \tl_replace_all:Nnn \l_fddiagram_body_tl { \par } { ~ }
+ }
+
+% ------------------------------------------------------------------
+% Deriva o universo de atributos (uniao ordenada, sem repeticao) a
+% partir de uma sequencia JA VALIDADA de DFs (uma DF por item, cada
+% uma contendo exatamente um "->"), quando attrs= nao foi especificado.
+% #1 = nome da sequencia de DFs validas
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_derive_universe:N
+ {
+   \seq_map_inline:Nn #1
+    {
+      \seq_set_split:Nnn \l_fddiagram_sides_seq { -> } { ##1 }
+      \seq_map_inline:Nn \l_fddiagram_sides_seq
+       {
+         \fddiagram_split_csv:nN { ####1 } \l_fddiagram_attrlist_seq
+         \seq_map_inline:Nn \l_fddiagram_attrlist_seq
+          {
+            \seq_if_in:NnF \g_fddiagram_universe_seq { ########1 }
+             { \seq_gput_right:Nn \g_fddiagram_universe_seq { ########1 } }
+          }
+       }
+    }
+ }
+
+\seq_new:N \l_fddiagram_stmts_seq
+\seq_new:N \l_fddiagram_sides_seq
+\seq_new:N \l_fddiagram_attrlist_seq
+
+% ------------------------------------------------------------------
+% Estado adicional para o desenho
+% ------------------------------------------------------------------
+\int_new:N \l_fddiagram_row_int
+\int_new:N \l_fddiagram_min_int
+\int_new:N \l_fddiagram_max_int
+\int_new:N \l_fddiagram_idx_int
+\seq_new:N \l_fddiagram_lhs_seq
+\seq_new:N \l_fddiagram_rhs_seq
+\seq_new:N \l_fddiagram_tmpa_seq
+\fp_new:N \l_fddiagram_x_fp
+\fp_new:N \l_fddiagram_xa_fp
+\fp_new:N \l_fddiagram_xb_fp
+\fp_new:N \l_fddiagram_y_fp
+\fp_new:N \l_fddiagram_ytop_fp
+
+% ------------------------------------------------------------------
+% Desenha a fileira de atributos do universo e popula o dicionario
+% atributo -> indice (posicao inteira, 1..n).
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_draw_universe:
+ {
+   \int_zero:N \l_fddiagram_idx_int
+   \seq_map_inline:Nn \g_fddiagram_universe_seq
+    {
+      \int_incr:N \l_fddiagram_idx_int
+      \prop_gput:Nnx \g_fddiagram_index_prop { ##1 } { \int_use:N \l_fddiagram_idx_int }
+      \fp_set:Nn \l_fddiagram_x_fp { \l_fddiagram_idx_int * \l_fddiagram_spacing_fp }
+      \node ( fddAttrNode \int_use:N \l_fddiagram_idx_int ) at ( \fp_use:N \l_fddiagram_x_fp , 0 ) {$##1$};
+    }
+ }
+
+% ------------------------------------------------------------------
+% Atualiza min/max com o indice do atributo #1 (nome do atributo)
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_update_minmax:n
+ {
+   \int_set:Nn \l_fddiagram_idx_int { \prop_item:Nn \g_fddiagram_index_prop { #1 } }
+   \int_compare:nNnT { \l_fddiagram_idx_int } < { \l_fddiagram_min_int }
+    { \int_set_eq:NN \l_fddiagram_min_int \l_fddiagram_idx_int }
+   \int_compare:nNnT { \l_fddiagram_idx_int } > { \l_fddiagram_max_int }
+    { \int_set_eq:NN \l_fddiagram_max_int \l_fddiagram_idx_int }
+ }
+
+% ------------------------------------------------------------------
+% Desenha uma DF: #1 = texto do lado esquerdo (bruto), #2 = lado direito (bruto)
+% usa e incrementa \l_fddiagram_row_int
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_draw_fd:nn
+ {
+   \int_incr:N \l_fddiagram_row_int
+   \fddiagram_split_csv:nN { #1 } \l_fddiagram_lhs_seq
+   \fddiagram_split_csv:nN { #2 } \l_fddiagram_rhs_seq
+   \int_set:Nn \l_fddiagram_min_int { 999999 }
+   \int_set:Nn \l_fddiagram_max_int { -1 }
+   \seq_map_inline:Nn \l_fddiagram_lhs_seq { \fddiagram_update_minmax:n { ##1 } }
+   \seq_map_inline:Nn \l_fddiagram_rhs_seq { \fddiagram_update_minmax:n { ##1 } }
+   % pre-calcula todas as coordenadas numericas como valores simples
+   \fp_set:Nn \l_fddiagram_xa_fp { \l_fddiagram_min_int  * \l_fddiagram_spacing_fp }
+   \fp_set:Nn \l_fddiagram_xb_fp { \l_fddiagram_max_int  * \l_fddiagram_spacing_fp }
+   \fp_set:Nn \l_fddiagram_y_fp  { -\l_fddiagram_row_int * \l_fddiagram_rowheight_fp }
+   \draw [ \l_fddiagram_color_tl ]
+     ( \fp_use:N \l_fddiagram_xa_fp , \fp_use:N \l_fddiagram_y_fp )
+     -- ( \fp_use:N \l_fddiagram_xb_fp , \fp_use:N \l_fddiagram_y_fp ) ;
+   \seq_map_inline:Nn \l_fddiagram_lhs_seq
+    {
+      \int_set:Nn \l_fddiagram_idx_int { \prop_item:Nn \g_fddiagram_index_prop {##1} }
+      \fp_set:Nn \l_fddiagram_x_fp { \l_fddiagram_idx_int * \l_fddiagram_spacing_fp }
+      \draw [ \l_fddiagram_color_tl ]
+        ( \fp_use:N \l_fddiagram_x_fp , \fp_use:N \l_fddiagram_y_fp )
+        -- ++ ( 0 , \fp_use:N \l_fddiagram_stublen_fp ) ;
+    }
+   \seq_map_inline:Nn \l_fddiagram_rhs_seq
+    {
+      \int_set:Nn \l_fddiagram_idx_int { \prop_item:Nn \g_fddiagram_index_prop {##1} }
+      \fp_set:Nn \l_fddiagram_x_fp { \l_fddiagram_idx_int * \l_fddiagram_spacing_fp }
+      \draw [ -\l_fddiagram_arrow_tl , thick , \l_fddiagram_color_tl ]
+        ( \fp_use:N \l_fddiagram_x_fp , \fp_use:N \l_fddiagram_y_fp )
+        -- ++ ( 0 , \fp_use:N \l_fddiagram_stublen_fp ) ;
+    }
+   \tl_if_eq:NnTF \l_fddiagram_labelalign_tl { left }
+    { \fp_set:Nn \l_fddiagram_xa_fp { 1 * \l_fddiagram_spacing_fp - 0.3 } }
+    { \fp_set:Nn \l_fddiagram_xa_fp { \l_fddiagram_min_int * \l_fddiagram_spacing_fp - 0.3 } }
+   \node [ anchor = east , font = \footnotesize , \l_fddiagram_color_tl ]
+     at ( \fp_use:N \l_fddiagram_xa_fp , \fp_use:N \l_fddiagram_y_fp )
+     { df \int_use:N \l_fddiagram_row_int } ;
+ }
+
+% ------------------------------------------------------------------
+% Desenha APENAS as linhas-guia de uma DF (traco fino do topo da
+% marquinha ate a borda inferior do rotulo do atributo). Usada numa
+% passada separada, ANTES de qualquer regua/marca/seta ser desenhada,
+% para que as linhas-guia fiquem sempre "atras": onde o cruzamento com
+% uma regua de outra DF for inevitavel, a regua (desenhada por cima,
+% na passada seguinte) aparenta continuidade sem interrupcao.
+% #1 = lado esquerdo (bruto), #2 = lado direito (bruto)
+% usa e incrementa \l_fddiagram_row_int (mesma contagem da passada
+% principal, desde que ambas percorram \l_fddiagram_valid_stmts_seq
+% na mesma ordem a partir de \l_fddiagram_row_int = 0)
+% ------------------------------------------------------------------
+\cs_new_protected:Nn \fddiagram_draw_guides:nn
+ {
+   \int_incr:N \l_fddiagram_row_int
+   \fddiagram_split_csv:nN { #1 } \l_fddiagram_lhs_seq
+   \fddiagram_split_csv:nN { #2 } \l_fddiagram_rhs_seq
+   \fp_set:Nn \l_fddiagram_y_fp { -\l_fddiagram_row_int * \l_fddiagram_rowheight_fp }
+   \seq_map_inline:Nn \l_fddiagram_lhs_seq
+    {
+      \int_set:Nn \l_fddiagram_idx_int { \prop_item:Nn \g_fddiagram_index_prop {##1} }
+      \fp_set:Nn \l_fddiagram_x_fp { \l_fddiagram_idx_int * \l_fddiagram_spacing_fp }
+      \draw [ \l_fddiagram_guidestyle_tl , \l_fddiagram_guidecolor_tl ]
+        ( \fp_use:N \l_fddiagram_x_fp , \fp_use:N \l_fddiagram_y_fp )
+        -- ( fddAttrNode \int_use:N \l_fddiagram_idx_int .south ) ;
+    }
+   \seq_map_inline:Nn \l_fddiagram_rhs_seq
+    {
+      \int_set:Nn \l_fddiagram_idx_int { \prop_item:Nn \g_fddiagram_index_prop {##1} }
+      \fp_set:Nn \l_fddiagram_x_fp { \l_fddiagram_idx_int * \l_fddiagram_spacing_fp }
+      \draw [ \l_fddiagram_guidestyle_tl , \l_fddiagram_guidecolor_tl ]
+        ( \fp_use:N \l_fddiagram_x_fp , \fp_use:N \l_fddiagram_y_fp )
+        -- ( fddAttrNode \int_use:N \l_fddiagram_idx_int .south ) ;
+    }
+ }
+
+% ------------------------------------------------------------------
+% Processa o corpo inteiro do ambiente: deriva/usa universo, desenha
+% a fileira de atributos e, em seguida, cada DF.
+% #1 = corpo bruto do ambiente
+% ------------------------------------------------------------------
+\seq_new:N \l_fddiagram_valid_stmts_seq
+
+\cs_new_protected:Nn \fddiagram_process:n
+ {
+   \seq_gclear:N \g_fddiagram_universe_seq
+   \prop_gclear:N \g_fddiagram_index_prop
+   \fddiagram_normalize_body:n { #1 }
+   \seq_set_split:NnV \l_fddiagram_stmts_seq { ; } \l_fddiagram_body_tl
+   \seq_clear:N \l_fddiagram_valid_stmts_seq
+   \seq_map_inline:Nn \l_fddiagram_stmts_seq
+    {
+      \tl_if_blank:nF { ##1 }
+       {
+         \seq_set_split:Nnn \l_fddiagram_sides_seq { -> } { ##1 }
+         \int_compare:nNnTF { \seq_count:N \l_fddiagram_sides_seq } = { 2 }
+          { \seq_put_right:Nn \l_fddiagram_valid_stmts_seq { ##1 } }
+          { \msg_error:nnn { fddiagram } { malformed-fd } { ##1 } }
+       }
+    }
+   \tl_if_blank:VTF \l_fddiagram_attrs_tl
+    { \fddiagram_derive_universe:N \l_fddiagram_valid_stmts_seq }
+    {
+      \seq_clear:N \l_fddiagram_tmpa_seq
+      \exp_args:Nx \fddiagram_split_csv:nN { \l_fddiagram_attrs_tl } \l_fddiagram_tmpa_seq
+      \seq_gset_eq:NN \g_fddiagram_universe_seq \l_fddiagram_tmpa_seq
+    }
+   \fddiagram_draw_universe:
+   \bool_if:NT \l_fddiagram_guides_bool
+    {
+      \int_zero:N \l_fddiagram_row_int
+      \seq_map_inline:Nn \l_fddiagram_valid_stmts_seq
+       {
+         \seq_set_split:Nnn \l_fddiagram_sides_seq { -> } { ##1 }
+         \exp_args:Nxx \fddiagram_draw_guides:nn
+           { \seq_item:Nn \l_fddiagram_sides_seq { 1 } }
+           { \seq_item:Nn \l_fddiagram_sides_seq { 2 } }
+       }
+    }
+   \int_zero:N \l_fddiagram_row_int
+   \seq_map_inline:Nn \l_fddiagram_valid_stmts_seq
+    {
+      \seq_set_split:Nnn \l_fddiagram_sides_seq { -> } { ##1 }
+      \exp_args:Nxx \fddiagram_draw_fd:nn
+        { \seq_item:Nn \l_fddiagram_sides_seq { 1 } }
+        { \seq_item:Nn \l_fddiagram_sides_seq { 2 } }
+    }
+ }
+
+% ------------------------------------------------------------------
+% O ambiente publico
+% ------------------------------------------------------------------
+\NewDocumentEnvironment{fddiagram}{ O{} +b }
+ {
+   \group_begin:
+   \keys_set:nn { fddiagram } { #1 }
+   \begin{center}
+   \begin{tikzpicture}[every node/.style={font=\small}]
+   \fddiagram_process:n { #2 }
+   \end{tikzpicture}
+   \end{center}
+ }
+ {
+   \group_end:
+ }

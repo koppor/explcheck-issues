@@ -1,0 +1,237 @@
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+\RequirePackage{luatexbase}
+\RequirePackage{iftex}
+
+\RequireLuaTeX
+
+\ProvidesExplPackage {luaprogtable}{08/06/2020}{1.0}{Programmatic table interface}
+
+\makeatletter
+\savecatcodetable 20996
+
+\directlua{
+    require~"luaprogtable.lua"
+}
+
+\tl_new:N \g__luaprogtable_tmpa_tl
+\tl_new:N \g__luaprogtable_tmpb_tl
+\tl_new:N \g__luaprogtable_tmpc_tl
+
+\str_new:N \g__luaprogtable_tmpa_str
+\str_new:N \g__luaprogtable_tmpb_str
+\str_new:N \g__luaprogtable_tmpc_str
+
+\int_new:N \g__luaprogtable_tmpa_int
+\int_new:N \g__luaprogtable_tmpb_int
+\int_new:N \g__luaprogtable_tmpc_int
+
+\cs_set:Npn \__luaprogtable_lua_table_item:nn #1#2 {
+    ["#1"]="#2"
+}
+
+\seq_new:N \g__luaprogtable_prop_item_seq
+
+\cs_set:Npn \__luaprogtable_add_lua_table_item:nn #1#2 {
+    \str_gset:Nx \g__luaprogtable_tmpa_str {\luaescapestring{\tl_to_str:n {#1}}}
+    \str_gset:Nx \g__luaprogtable_tmpb_str {\luaescapestring{\tl_to_str:n {#2}}}
+    \seq_gput_right:Nx \g__luaprogtable_prop_item_seq {
+        \exp_args:NVV \__luaprogtable_lua_table_item:nn \g__luaprogtable_tmpa_str \g__luaprogtable_tmpb_str
+    }
+}
+
+\str_new:N \g__luaprogtable_lua_table_str
+
+\cs_set:Npn \__luaprogtable_prop_to_lua_table:N #1 {
+    \seq_gclear:N \g__luaprogtable_prop_item_seq
+    \prop_map_function:NN #1 \__luaprogtable_add_lua_table_item:nn
+    \str_gclear:N \g__luaprogtable_lua_table_str
+    \str_gput_right:NV \g__luaprogtable_lua_table_str \c_left_brace_str
+    \str_gput_right:Nx \g__luaprogtable_lua_table_str {\seq_use:Nn \g__luaprogtable_prop_item_seq {,~}}
+    \str_gput_right:NV \g__luaprogtable_lua_table_str \c_right_brace_str
+}
+
+\prop_new:N \g__luaprogtable_new_prop
+\keys_define:nn { __luaprogtable_new }
+{
+    backend .prop_gput:N = \g__luaprogtable_new_prop,
+    ncols .prop_gput:N = \g__luaprogtable_new_prop,
+    nrows .prop_gput:N = \g__luaprogtable_new_prop,
+    default~before~line .prop_gput:N = \g__luaprogtable_new_prop,
+    default~after~line .prop_gput:N = \g__luaprogtable_new_prop,
+    default~after~spacing .prop_gput:N = \g__luaprogtable_new_prop,
+    input~method .prop_gput:N = \g__luaprogtable_new_prop
+}
+
+\str_new:N \g__luaprogtable_lua_cur_table_str
+\DeclareDocumentCommand{\LPTSetCurrentTable}{m}{
+    \directlua{
+        local _test_table = _lpt_get_table("\luaescapestring{#1}")
+    }
+    \str_gset:Nx \g__luaprogtable_lua_cur_table_str {\luaescapestring{#1}}
+}
+
+\newcommand{\LPTGetCurrentTable}{
+    \str_use:N \g__luaprogtable_lua_cur_table_str
+}
+
+\DeclareDocumentCommand{\LPTNewTable}{mmmO{}}{
+    \prop_gclear:N \g__luaprogtable_new_prop
+    \prop_gput:Nnn \g__luaprogtable_new_prop {backend} {tabular}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {nrows} {0}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {default~before~line} {}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {default~after~line} {}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {default~after~spacing} {}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {input~method} {stringbuffer}
+
+    \keys_set:nn { __luaprogtable_new } {#4}
+
+    \prop_gput:Nnn \g__luaprogtable_new_prop {table~name} {#1}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {ncols} {#2}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {table~preamble} {#3}
+    \prop_gput:Nnn \g__luaprogtable_new_prop {default~value} {}
+
+    \__luaprogtable_prop_to_lua_table:N \g__luaprogtable_new_prop
+
+    \directlua{
+        local~_tmp_table = \str_use:N \g__luaprogtable_lua_table_str;
+        lpt_new_table(_tmp_table);
+    }
+}
+
+\newcommand{\LPTUseTable}{
+    \directlua{
+        lpt_use_table("\LPTGetCurrentTable");
+    }
+}
+
+\DeclareDocumentEnvironment{lptview}{m}{
+    \directlua{
+        _lpt_register_verbatim([[\string\end{lptview}]])
+    }
+}{
+    % now that verbatim material is passed to lua, call corresponding handler
+    \directlua{
+        lpt_table_view("\LPTGetCurrentTable", "\luaescapestring{#1}")
+    }
+}
+
+\DeclareDocumentEnvironment{lptfill}{m}{
+    \directlua{
+        _lpt_register_verbatim([[\string\end{lptfill}]])
+    }
+}{
+    \directlua{
+        lpt_table_fill("\LPTGetCurrentTable", "\luaescapestring{#1}")
+    }
+}
+
+\DeclareDocumentCommand{\LPTFill}{mm}{
+    \directlua{
+        lpt_table_fill("\LPTGetCurrentTable", "\luaescapestring{#1}", "\luaescapestring{\tl_to_str:n {#2}}")
+    }
+}
+
+\prop_new:N \g__luaprogtable_row_prop
+\keys_define:nn { __luaprogtable_row }
+{
+    before~line .prop_gput:N = \g__luaprogtable_row_prop,
+    after~line .prop_gput:N = \g__luaprogtable_row_prop,
+    after~spacing .prop_gput:N = \g__luaprogtable_row_prop
+}
+
+\DeclareDocumentCommand{\LPTSetRowProp}{mm}{
+    \prop_gclear:N \g__luaprogtable_row_prop
+    \keys_set:nn { __luaprogtable_row } {#2}
+
+    \__luaprogtable_prop_to_lua_table:N \g__luaprogtable_row_prop
+    \directlua{
+        local~_tmp_table = \str_use:N \g__luaprogtable_lua_table_str;
+        lpt_set_row_prop("\LPTGetCurrentTable", "\luaescapestring{#1}", _tmp_table)
+    }
+}
+
+\DeclareDocumentCommand{\LPTAddRow}{O{}}{
+    \prop_gclear:N \g__luaprogtable_row_prop
+    \keys_set:nn { __luaprogtable_row } {#1}
+
+    \__luaprogtable_prop_to_lua_table:N \g__luaprogtable_row_prop
+    \directlua{
+        local~_tmp_table = \str_use:N \g__luaprogtable_lua_table_str;
+        lpt_add_row("\LPTGetCurrentTable", _tmp_table)
+    }
+}
+
+\DeclareDocumentCommand{\LPTSetCell}{mO{1,1}m}{
+    \directlua{
+        local~_table = _lpt_get_table("\LPTGetCurrentTable");
+        local~_index = _table:fix_cell_index("\luaescapestring{#1}");
+        local~_shape = _lpt_parse_shape("\luaescapestring{#2}");
+        _table:set_cell(_index[1], _index[2], "\luaescapestring{ \tl_to_str:n {#3} }", _shape)
+    }
+}
+
+\newcommand{\LPTGetTableShape}{
+    \directlua{
+        lpt_get_table_shape("\LPTGetCurrentTable")
+    }
+}
+
+\ExplSyntaxOff
+
+\newcommand{\LPTGetTableNames}{%
+    \directlua{
+        local _names = {}
+        for key, val in pairs(lpt_info) do
+            table.insert(_names, key)
+        end
+        table.sort(_names)
+        local _ret = table.concat(_names, ",")
+        tex.print(_ret)
+    }%
+}
+
+\newcommand{\LPTGetCellData}[1]{%
+    \directlua{
+        local _table = _lpt_get_table("\LPTGetCurrentTable");
+        local _index =  _table:fix_cell_index("\luaescapestring{#1}");
+        local _cell = _table:get_cell(_index[1], _index[2]);
+        tex.print([[\string\unexpanded{]] .. _cell.data .. "}")
+    }%
+}
+
+\newcommand{\LPTGetCellMetaIndex}[2]{%
+    \directlua{
+        local _table = _lpt_get_table("\LPTGetCurrentTable");
+        local _index =  _table:fix_cell_index("\luaescapestring{#2}");
+        local _cell = _table:get_cell(_index[1], _index[2]);
+        local _field = "\luaescapestring{#1}"
+        local _ret = rawget(_cell, _field)
+        if _ret == nil then
+            tex.print(20996, [[\string\c_novalue_tl]])
+        else
+            tex.print("{".. tostring(_ret[1]) .. "}{".. tostring(_ret[2]) .. "}")
+        end
+    }%
+}
+
+\newcommand{\LPTGetCellShape}[1]{%
+    \LPTGetCellMetaIndex{shape}{#1}%
+}
+
+\newcommand{\LPTGetCellParent}[1]{%
+    \LPTGetCellMetaIndex{parent}{#1}%
+}
+
+\newcommand{\LPTDeleteTable}[1]{
+    \directlua{
+        local _name = "\luaescapestring{#1}"
+        local _table = _lpt_get_table(_name)
+        lpt_info[_name] = nil
+    }
+}
+
+
+\makeatother
+
+\endinput

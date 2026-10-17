@@ -1,0 +1,309 @@
+\NeedsTeXFormat{LaTeX2e}[2022-11-01]
+\ProvidesExplPackage
+  {paracolrule}
+  {2026-08-22}
+  {0.1.0}
+  {Decorative separator rules for paracol}
+
+\RequirePackage{paracol}
+\RequirePackage{etoolbox}
+\RequirePackage{l3keys2e}
+
+\bool_new:N \g__paracolrule_tikz_bool
+\@ifpackageloaded{tikz}
+  { \bool_gset_true:N \g__paracolrule_tikz_bool }
+  { }
+\keys_define:nn { paracolrule/options }
+  {
+    tikz .bool_gset:N = \g__paracolrule_tikz_bool,
+    tikz .default:n = true,
+  }
+\ProcessKeysOptions{paracolrule/options}
+\bool_if:NT \g__paracolrule_tikz_bool
+  {
+    \ExplSyntaxOff
+    \RequirePackage{tikz}
+    \ExplSyntaxOn
+  }
+
+\dim_new:N \l__paracolrule_dash_length_dim
+\dim_new:N \l__paracolrule_gap_length_dim
+\dim_new:N \l__paracolrule_pattern_gap_dim
+\dim_new:N \l__paracolrule_extend_top_dim
+\dim_new:N \l__paracolrule_extend_bot_dim
+\dim_new:N \l__paracolrule_adjusted_height_dim
+\int_new:N \l__paracolrule_mark_count_int
+\int_new:N \l__paracolrule_max_mark_count_int
+\int_new:N \l__paracolrule_gap_total_sp_int
+\int_new:N \l__paracolrule_gap_sp_int
+\int_new:N \l__paracolrule_gap_remainder_int
+\tl_new:N  \l__paracolrule_tikz_code_tl
+\dim_set:Nn \l__paracolrule_dash_length_dim { 4pt }
+\dim_set:Nn \l__paracolrule_gap_length_dim  { 2pt }
+
+\msg_new:nnn { paracolrule } { patch-failed }
+  {
+    The~installed~paracol~version~does~not~have~the~expected~rule-building~
+    internals.\\
+    paracolrule~has~restored~the~original~macros~and~will~stop~instead~of~
+    drawing~partial~or~misplaced~rules.
+  }
+\msg_new:nnn { paracolrule } { renderer-undefined }
+  { The~renderer~control~sequence~'#1'~is~undefined. }
+\msg_new:nnn { paracolrule } { tikz-required }
+  {
+    The~'custom-line'~setting~requires~TikZ.\\
+    Load~paracolrule~with~the~'tikz'~option,~or~load~TikZ~first.
+  }
+
+\cs_new_protected:Npn \__paracolrule_solid:n #1
+  { \hrule height #1 width \columnseprule }
+
+\cs_new_protected:Npn \__paracolrule_tiled:nnn #1#2#3
+  {
+    \dim_compare:nNnTF {#2} > { 0pt }
+      {
+        \dim_compare:nNnTF {#1} < { 2 #2 }
+          { \hrule height #1 width \columnseprule }
+          {
+            \dim_set:Nn \l__paracolrule_pattern_gap_dim {#3}
+            \dim_compare:nNnT
+              { \l__paracolrule_pattern_gap_dim } < { 0pt }
+              { \dim_zero:N \l__paracolrule_pattern_gap_dim }
+            \int_set:Nn \l__paracolrule_mark_count_int
+              {
+                \int_div_round:nn
+                  {
+                    \dim_to_decimal_in_sp:n
+                      { #1 + \l__paracolrule_pattern_gap_dim }
+                  }
+                  {
+                    \dim_to_decimal_in_sp:n
+                      { #2 + \l__paracolrule_pattern_gap_dim }
+                  }
+              }
+            \int_set:Nn \l__paracolrule_max_mark_count_int
+              {
+                \int_div_truncate:nn
+                  { \dim_to_decimal_in_sp:n {#1} }
+                  { \dim_to_decimal_in_sp:n {#2} }
+              }
+            \int_set:Nn \l__paracolrule_mark_count_int
+              {
+                \int_max:nn { 2 }
+                  {
+                    \int_min:nn
+                      { \l__paracolrule_mark_count_int }
+                      { \l__paracolrule_max_mark_count_int }
+                  }
+              }
+            \int_set:Nn \l__paracolrule_gap_total_sp_int
+              {
+                \dim_to_decimal_in_sp:n {#1}
+                - \l__paracolrule_mark_count_int
+                  * \dim_to_decimal_in_sp:n {#2}
+              }
+            \int_set:Nn \l__paracolrule_gap_sp_int
+              {
+                \int_div_truncate:nn
+                  { \l__paracolrule_gap_total_sp_int }
+                  { \l__paracolrule_mark_count_int - 1 }
+              }
+            \int_set:Nn \l__paracolrule_gap_remainder_int
+              {
+                \int_mod:nn
+                  { \l__paracolrule_gap_total_sp_int }
+                  { \l__paracolrule_mark_count_int - 1 }
+              }
+            \vbox to #1
+              {
+                \offinterlineskip
+                \hrule height #2 width \columnseprule
+                \int_step_inline:nn
+                  { \l__paracolrule_mark_count_int - 1 }
+                  {
+                    \kern \int_use:N \l__paracolrule_gap_sp_int sp
+                    \int_compare:nNnF
+                      {##1} > { \l__paracolrule_gap_remainder_int }
+                      { \kern 1sp }
+                    \hrule height #2 width \columnseprule
+                  }
+              }
+          }
+      }
+      { \hrule height #1 width \columnseprule }
+  }
+
+\cs_new_protected:Npn \__paracolrule_dashed:n #1
+  {
+    \__paracolrule_tiled:nnn
+      {#1}
+      { \l__paracolrule_dash_length_dim }
+      { \l__paracolrule_gap_length_dim }
+  }
+
+\cs_new_protected:Npn \__paracolrule_dotted:n #1
+  {
+    \__paracolrule_tiled:nnn
+      {#1}
+      { \columnseprule }
+      { \l__paracolrule_gap_length_dim }
+  }
+
+\cs_new_protected:Npn \__paracolrule_double:n #1
+  {
+    \hbox to \columnseprule
+      {
+        \vrule width .3\columnseprule height #1 depth 0pt
+        \hfil
+        \vrule width .3\columnseprule height #1 depth 0pt
+      }
+  }
+
+\bool_if:NTF \g__paracolrule_tikz_bool
+  {
+    \cs_new_protected:Npn \__paracolrule_tikz:n #1
+      {
+        \group_begin:
+          \pcol@colseprulecolor
+          \hbox to \columnseprule
+            {
+              \hss
+              \raisebox{0pt}[#1][0pt]
+                {
+                  \begin{tikzpicture}
+                    [
+                      x=1pt,
+                      y=1pt,
+                      inner~sep=0pt,
+                      outer~sep=0pt,
+                      baseline={(current~bounding~box.south)}
+                    ]
+                    \node (TOP) at (0,#1) {};
+                    \node (BOT) at (0,0) {};
+                    \tl_use:N \l__paracolrule_tikz_code_tl
+                  \end{tikzpicture}
+                }
+              \hss
+            }
+        \group_end:
+      }
+  }
+  {
+    \cs_new_protected:Npn \__paracolrule_tikz:n #1
+      {
+        \msg_error:nn { paracolrule } { tikz-required }
+        \__paracolrule_solid:n {#1}
+      }
+  }
+
+\cs_new_eq:NN \l__paracolrule_renderer_cs \__paracolrule_solid:n
+
+\keys_define:nn { paracolrule }
+  {
+    style .choice:,
+    style / solid .code:n =
+      { \cs_set_eq:NN \l__paracolrule_renderer_cs \__paracolrule_solid:n },
+    style / dashed .code:n =
+      { \cs_set_eq:NN \l__paracolrule_renderer_cs \__paracolrule_dashed:n },
+    style / dotted .code:n =
+      { \cs_set_eq:NN \l__paracolrule_renderer_cs \__paracolrule_dotted:n },
+    style / double .code:n =
+      { \cs_set_eq:NN \l__paracolrule_renderer_cs \__paracolrule_double:n },
+    style .initial:n = solid,
+    dash-length .dim_set:N = \l__paracolrule_dash_length_dim,
+    gap-length  .dim_set:N = \l__paracolrule_gap_length_dim,
+    extend-top .dim_set:N = \l__paracolrule_extend_top_dim,
+    extend-bot .dim_set:N = \l__paracolrule_extend_bot_dim,
+    expand .code:n =
+      {
+        \dim_set:Nn \l__paracolrule_extend_top_dim {#1}
+        \dim_set:Nn \l__paracolrule_extend_bot_dim {#1}
+      },
+    shift .code:n =
+      {
+        \dim_set:Nn \l__paracolrule_extend_bot_dim {#1}
+        \dim_set:Nn \l__paracolrule_extend_top_dim
+          { -\l__paracolrule_extend_bot_dim }
+      },
+    custom-line .code:n =
+      {
+        \tl_set:Nn \l__paracolrule_tikz_code_tl {#1}
+        \cs_set_eq:NN
+          \l__paracolrule_renderer_cs
+          \__paracolrule_tikz:n
+      },
+  }
+
+\NewDocumentCommand \ParacolRuleSetup { m }
+  { \keys_set:nn { paracolrule } {#1} }
+
+\NewDocumentCommand \ParacolRuleSetRenderer { m }
+  {
+    \cs_if_exist:NTF #1
+      { \cs_set_eq:NN \l__paracolrule_renderer_cs #1 }
+      { \msg_error:nnx { paracolrule } { renderer-undefined } { \token_to_str:N #1 } }
+  }
+
+\cs_new_protected:Npn \__paracolrule_segment:n #1
+  { \l__paracolrule_renderer_cs {#1} }
+\cs_new_eq:NN \paracolrule@segment \__paracolrule_segment:n
+
+\cs_new_protected:Npn \__paracolrule_paracol_segment:n #1
+  {
+    \dim_set:Nn \l__paracolrule_adjusted_height_dim
+      {
+        #1
+        + \l__paracolrule_extend_top_dim
+        + \l__paracolrule_extend_bot_dim
+      }
+    \vbox to #1
+      {
+        \offinterlineskip
+        \dim_compare:nNnTF
+          { \l__paracolrule_adjusted_height_dim } > { 0pt }
+          {
+            \kern -\l__paracolrule_extend_top_dim
+            \__paracolrule_segment:n
+              { \l__paracolrule_adjusted_height_dim }
+            \kern -\l__paracolrule_extend_bot_dim
+          }
+          { \vfil }
+      }
+  }
+\cs_new_eq:NN \paracolrule@paracolsegment \__paracolrule_paracol_segment:n
+
+\cs_new_eq:NN \__paracolrule_original_buildcolseprule: \pcol@buildcolseprule
+\cs_new_eq:NN \__paracolrule_original_buildcselt: \pcol@buildcselt
+\bool_new:N \l__paracolrule_patch_build_bool
+\bool_new:N \l__paracolrule_patch_element_bool
+\cs_new_protected:Npn \paracolrule@patchbuildsuccess
+  { \bool_set_true:N \l__paracolrule_patch_build_bool }
+\cs_new_protected:Npn \paracolrule@patchelementsuccess
+  { \bool_set_true:N \l__paracolrule_patch_element_bool }
+
+\ExplSyntaxOff
+\patchcmd{\pcol@buildcolseprule}
+  {\hrule\@height\@tempdima\@width\columnseprule}
+  {\paracolrule@paracolsegment{\@tempdima}}
+  {\paracolrule@patchbuildsuccess}
+  { }
+
+\patchcmd{\pcol@buildcselt}
+  {\hrule\@height\@tempdimc\@width\columnseprule}
+  {\paracolrule@paracolsegment{\@tempdimc}}
+  {\paracolrule@patchelementsuccess}
+  { }
+\ExplSyntaxOn
+
+\bool_if:nF
+  {
+    \l__paracolrule_patch_build_bool &&
+    \l__paracolrule_patch_element_bool
+  }
+  {
+    \cs_set_eq:NN \pcol@buildcolseprule \__paracolrule_original_buildcolseprule:
+    \cs_set_eq:NN \pcol@buildcselt \__paracolrule_original_buildcselt:
+    \msg_fatal:nn { paracolrule } { patch-failed }
+  }
+\endinput

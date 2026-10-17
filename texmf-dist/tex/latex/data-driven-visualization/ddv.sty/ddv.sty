@@ -1,0 +1,424 @@
+%% Copyright 2025-2026 Lukas C. Bossert
+%% This work may be distributed and/or modified under the LaTeX Project
+%% Public License, version 1.3c or later. See LICENSE for the full notice.
+%% LPPL maintenance status: maintained.
+%% Current Maintainer: Lukas C. Bossert <bossert@itc.rwth-aachen.de>.
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{ddv}{2026/10/01}{1.0.0}
+  {CSV-driven concentric arc charts}
+\ExplSyntaxOff
+\RequirePackage{xcolor}
+\RequirePackage{datatool}
+\RequirePackage{wheelchart}
+\usetikzlibrary{decorations.text}
+\ExplSyntaxOn
+
+% Chart state is local; only the private database serial survives a chart.
+\int_new:N \g__ddv_database_int
+\int_new:N \l__ddv_radius_int
+\int_new:N \l__ddv_inner_int
+\int_new:N \l__ddv_rows_int
+\int_new:N \l__ddv_index_int
+\tl_new:N \l__ddv_database_tl
+\tl_new:N \l__ddv_description_tl
+\tl_new:N \l__ddv_color_mode_tl
+\bool_new:N \l__ddv_valid_bool
+\clist_new:N \l__ddv_rgb_clist
+
+\msg_new:nnn {ddv}{invalid-value}
+  {Invalid~value~'#2'~for~'#1'.}
+\msg_new:nnn {ddv}{file-not-found}
+  {Dataset~'#1'~not~found;~chart~skipped.}
+\msg_new:nnn {ddv}{missing-column}
+  {Dataset~is~missing~required~column~'#1';~chart~skipped.}
+\msg_new:nnn {ddv}{empty-category}
+  {No~rows~match~the~dataset~filter;~chart~skipped.}
+\msg_new:nnn {ddv}{invalid-angle}
+  {Invalid~#1~value~'#2'.~Use~a~decimal~number;~totalangle~must~be~in~(0,360].}
+
+% Accept literal integers, with a lower bound appropriate to the key.
+\cs_new_protected:Npn \__ddv_integer:Nnnn #1#2#3#4
+  {
+    \regex_match:nnTF {\A\s*\d{1,4}\s*\Z} {#4}
+      {
+        \int_compare:nNnTF {#4} < {#3}
+          {\msg_error:nnnn {ddv}{invalid-value}{#2}{#4}}
+          {\int_set:Nn #1 {#4}}
+      }
+      {\msg_error:nnnn {ddv}{invalid-value}{#2}{#4}}
+  }
+
+% RGB triples are optional convenience syntax; other values go to xcolor.
+\cs_new_protected:Npn \__ddv_color:nn #1#2
+  {
+    \tl_if_in:nnTF {#2} {,}
+      {
+        \regex_match:nnTF
+          {\A\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\Z} {#2}
+          {
+            \clist_set:Nn \l__ddv_rgb_clist {#2}
+            \bool_set_true:N \l_tmpa_bool
+            \clist_map_inline:Nn \l__ddv_rgb_clist
+              {\int_compare:nNnT {##1} > {255}
+                {\bool_set_false:N \l_tmpa_bool}}
+            \bool_if:NTF \l_tmpa_bool
+              {\definecolor{#1}{RGB}{#2}}
+              {\msg_error:nnnn {ddv}{invalid-value}{RGB~color}{#2}}
+          }
+          {\msg_error:nnnn {ddv}{invalid-value}{RGB~color}{#2}}
+      }
+      {\colorlet{#1}{#2}}
+  }
+
+\NewDocumentCommand\ddvWheelchartSlices{ O{} m}{
+  \wheelchart[
+   arc~data=|\fontsize{\int_use:N \l_ddv_slices_fontsize_int}{0}\selectfont\l_ddv_slices_font_tl|\WCvarA\WCvarB,
+   arc~data~dir={\WCmidangle<180?1:-1},
+   arc~data~pos=0.5,
+   arc~data~style={text~color=ddv-slices-text},
+   data=,
+   gap~radius=0.05,
+   radius={1+\thestagesRadius}{2+\thestagesRadius},
+   slices~end~arc={1}{0},
+   slices~start~arc={1}{0},
+   slices~style=ddv-slice-background,
+   start~angle=\WCvarC,
+   % wheelchart resolves total angle before its per-slice variables exist.
+   total~angle=\ddvAngle,
+   value=1,
+   #1
+ ]{#2}
+}
+
+
+\NewDocumentCommand\ddvWheelchartStages{ O{} m }{
+\wheelchart[
+  arc~data=|\fontsize{\int_use:N \l_ddv_stages_fontsize_int}{0}\selectfont\l_ddv_stages_font_tl|\WCvarA,
+  arc~data~dir={\WCmidangle<180?1:-1},
+  arc~data~pos=0.5,
+  arc~data~style={text~color=ddv-stages-text},
+  data=,
+  gap=.1,
+  radius={1+\thestagesRadius}{2+\thestagesRadius},
+  slices~arrow={.5}{0},
+  slices~style=ddv-stages-background,
+  value=1,
+  #1
+]{#2}
+}
+\NewDocumentCommand\ddvWheelchartTitle{ O{} m }{
+ \wheelchart[
+  arc~data=|\fontsize{\int_use:N \l_ddv_title_fontsize_int}{20}\selectfont\l_ddv_title_font_tl|\WCvarA,
+  arc~data~dir={\WCmidangle<181?1:-1},
+  arc~data~pos=.5,
+  arc~data~style={text~color = ddv-title-text},
+  arc~pos=1,
+  data=,
+  slices~style={fill=none},
+  start~half=90,
+  radius={2+\thestagesRadius}{6+\thestagesRadius},
+  value=1,
+  #1
+]{ {#2} }
+}
+
+
+
+% Accept both {a,b} and the extra braces used in early examples: {{a,b}}.
+\cs_new_protected:Npn \__ddv_clist_set:Nn #1#2
+  {
+    \tl_if_single:nTF {#2}
+      {
+        \tl_if_head_is_group:nTF {#2}
+          {\clist_set:Nn #1 #2}
+          {\clist_set:Nn #1 {#2}}
+      }
+      {\clist_set:Nn #1 {#2}}
+  }
+
+\cs_new_protected:Npn \__ddv_tl_set:Nn #1#2
+  {
+    \tl_if_single:nTF {#2}
+      {
+        \tl_if_head_is_group:nTF {#2}
+          {\tl_set:Nn #1 #2}
+          {\tl_set:Nn #1 {#2}}
+      }
+      {\tl_set:Nn #1 {#2}}
+  }
+
+% Nested options retain braces around values containing commas or equals.
+\clist_map_inline:nn {title,stages,dataset}
+  {
+    \cs_new_protected:cpn {__ddv_set_#1_name:n} ##1
+      {\tl_set:cn {l_ddv_#1_name_tl} {##1}}
+    \cs_new_protected:cpn {__ddv_set_#1_attributes:nn} ##1##2
+      {\keys_set:nn {ddv/#1} {##1={##2}}}
+    \keys_define:nn {ddv}
+      {
+        #1 .code:n =
+          {\exp_args:Ncc \keyval_parse:NNn
+            {__ddv_set_#1_name:n}{__ddv_set_#1_attributes:nn}{##1}},
+      }
+  }
+\keys_define:nn {ddv}
+  {
+    slices .code:n = {\keys_set:nn {ddv/slices}{#1}},
+    innercirclesize .code:n =
+      {\__ddv_integer:Nnnn \l__ddv_inner_int {innercirclesize}{0}{#1}},
+    innercirclesize .initial:n = 4,
+  }
+% The three text layers share typography keys, without expanding font code.
+\clist_map_inline:nn {title,stages,slices}
+  {
+    \int_new:c {l_ddv_#1_fontsize_int}
+    \tl_new:c {l_ddv_#1_options_tl}
+    \keys_define:nn {ddv/#1}
+      {
+        font .tl_set:c = {l_ddv_#1_font_tl},
+        font .initial:n = \bfseries,
+        fontsize .code:n =
+          {\exp_args:Nc \__ddv_integer:Nnnn {l_ddv_#1_fontsize_int}
+            {#1/fontsize}{1}{##1}},
+        fontsize .initial:n = 15,
+        fontcolor .code:n = {\__ddv_color:nn {ddv-#1-text}{##1}},
+        fontcolor .initial:n = black!50,
+        options .code:n =
+          {\exp_args:Nc \__ddv_tl_set:Nn {l_ddv_#1_options_tl}{##1}},
+      }
+  }
+\keys_define:nn {ddv/title}
+  {name .tl_set:N = \l_ddv_title_name_tl}
+\tl_new:N \l_ddv_stages_name_tl
+\keys_define:nn {ddv/stages}
+  {
+    name .code:n = {\__ddv_tl_set:Nn \l_ddv_stages_name_tl {#1}},
+    fontcolor .initial:n = white,
+    bgcolor .code:n = {\__ddv_color:nn {ddv-stages-background}{#1}},
+    bgcolor .initial:n = blue,
+    inside .bool_set:N = \l_ddv_stages_inside_bool,
+    inside .initial:n = false,
+  }
+\tl_new:N \l__ddv_first_color_tl
+\tl_new:N \l__ddv_last_color_tl
+\keys_define:nn {ddv/slices}
+  {
+    bgcolor .code:n =
+      {
+        \__ddv_color:nn {ddv-slices-background}{#1}
+        \tl_set:Nn \l__ddv_color_mode_tl {uniform}
+      },
+    bgcolor .initial:n = blue,
+    bgcolorseries .code:n =
+      {
+        \__ddv_clist_set:Nn \l_tmpa_clist {#1}
+        \int_compare:nNnTF {\clist_count:N \l_tmpa_clist} = {2}
+          {
+            \clist_pop:NN \l_tmpa_clist \l__ddv_first_color_tl
+            \clist_pop:NN \l_tmpa_clist \l__ddv_last_color_tl
+            \exp_args:NnV \__ddv_color:nn {ddv-series-first}\l__ddv_first_color_tl
+            \exp_args:NnV \__ddv_color:nn {ddv-series-last}\l__ddv_last_color_tl
+            \tl_set:Nn \l__ddv_color_mode_tl {series}
+          }
+          {\msg_error:nnnn {ddv}{invalid-value}{slices/bgcolorseries}{#1}}
+      },
+    bgcolorseries .default:n = {blue,red},
+    % Compatibility switches; the last color-selection key wins.
+    sliceColor .choice:,
+    sliceColor/true .code:n = {\tl_set:Nn \l__ddv_color_mode_tl {dataset}},
+    sliceColor/false .code:n = {\tl_set:Nn \l__ddv_color_mode_tl {uniform}},
+    sliceColor .default:n = true,
+    sliceColor .initial:n = true,
+    bgcolorSeries .choice:,
+    bgcolorSeries/true .code:n = {\tl_set:Nn \l__ddv_color_mode_tl {series}},
+    bgcolorSeries/false .code:n = {\tl_set:Nn \l__ddv_color_mode_tl {uniform}},
+    bgcolorSeries .default:n = true,
+    description .bool_set:N = \l_ddv_slices_description_bool,
+    description .initial:n = false,
+  }
+\colorlet{ddv-series-first}{blue}
+\colorlet{ddv-series-last}{red}
+\tl_new:N \l_ddv_dataset_sorting_tl
+\clist_new:N \l_ddv_dataset_filter_clist
+\keys_define:nn {ddv/dataset}
+  {
+    name .tl_set:N = \l_ddv_dataset_name_tl,
+    filter .code:n =
+      {\__ddv_clist_set:Nn \l_ddv_dataset_filter_clist {#1}},
+    filter .initial:n = none,
+    sorting .code:n =
+      {
+        \__ddv_clist_set:Nn \l_tmpa_clist {#1}
+        \tl_set:Nx \l_ddv_dataset_sorting_tl {\exp_not:V \l_tmpa_clist}
+      },
+  }
+\ProcessKeyOptions[ddv]
+
+\prg_new_conditional:Npnn \__ddv_selected: {T}
+  {
+    \clist_if_in:NnTF \l_ddv_dataset_filter_clist {none}
+      {\prg_return_true:}
+      {
+        \exp_args:NNV \clist_if_in:NnTF \l_ddv_dataset_filter_clist \ddvCategory
+          {\prg_return_true:}{\prg_return_false:}
+      }
+  }
+\cs_new_protected:Npn \__ddv_angle:nn #1#2
+  {
+    \regex_match:nnTF {\A\s*[+\-]?(\d+(\.\d*)?|\.\d+)\s*\Z} {#2}
+      {
+        \str_if_eq:nnT {#1}{totalangle}
+          {
+            \fp_compare:nF {0 < (#2) <= 360}
+              {
+                \bool_set_false:N \l__ddv_valid_bool
+                \msg_error:nnnn {ddv}{invalid-angle}{#1}{#2}
+              }
+          }
+      }
+      {
+        \bool_set_false:N \l__ddv_valid_bool
+        \msg_error:nnnn {ddv}{invalid-angle}{#1}{#2}
+      }
+  }
+\cs_new_protected:Npn \__ddv_load:
+  {
+    \file_if_exist:VTF \l_ddv_dataset_name_tl
+      {
+        % Never reuse or delete a database belonging to the calling document.
+        \int_gincr:N \g__ddv_database_int
+        \tl_set:Nx \l__ddv_database_tl {ddv-private-\int_use:N \g__ddv_database_int}
+        \DTLifdbexists{\l__ddv_database_tl}{\__ddv_load:}
+          {
+            \DTLloaddb{\l__ddv_database_tl}{\l_ddv_dataset_name_tl}
+            \clist_map_inline:nn {category,name,description,startangle,totalangle,color}
+              {
+                \DTLifhaskey{\l__ddv_database_tl}{##1}{}
+                  {
+                    \bool_set_false:N \l__ddv_valid_bool
+                    \msg_error:nnn {ddv}{missing-column}{##1}
+                  }
+              }
+            \tl_if_empty:NF \l_ddv_dataset_sorting_tl
+              {
+                \exp_args:NV \clist_map_inline:nn \l_ddv_dataset_sorting_tl
+                  {
+                    \DTLifhaskey{\l__ddv_database_tl}{##1}{}
+                      {
+                        \bool_set_false:N \l__ddv_valid_bool
+                        \msg_error:nnn {ddv}{missing-column}{##1}
+                      }
+                  }
+                \bool_if:NT \l__ddv_valid_bool
+                  {\exp_args:NNV \DTLsort * \l_ddv_dataset_sorting_tl {\l__ddv_database_tl}}
+              }
+            \bool_if:NT \l__ddv_valid_bool
+              {
+                \DTLforeach*{\l__ddv_database_tl}
+                  {\ddvCategory=category,\ddvStart=startangle,\ddvAngle=totalangle}
+                  {
+                    \__ddv_selected:T
+                      {
+                        \int_incr:N \l__ddv_rows_int
+                        \exp_args:NnV \__ddv_angle:nn {startangle}\ddvStart
+                        \exp_args:NnV \__ddv_angle:nn {totalangle}\ddvAngle
+                      }
+                  }
+                \int_compare:nNnT {\l__ddv_rows_int} = {0}
+                  {
+                    \bool_set_false:N \l__ddv_valid_bool
+                    \msg_warning:nn {ddv}{empty-category}
+                  }
+              }
+          }
+      }
+      {
+        \bool_set_false:N \l__ddv_valid_bool
+        \msg_error:nnV {ddv}{file-not-found}\l_ddv_dataset_name_tl
+      }
+  }
+\cs_new_protected:Npn \__ddv_slices:
+  {
+    \DTLforeach*{\l__ddv_database_tl}
+      {\ddvCategory=category,\ddvName=name,\ddvDescription=description,
+       \ddvStart=startangle,\ddvAngle=totalangle,\ddvColor=color}
+      {
+        \__ddv_selected:T
+          {
+            \int_incr:N \l__ddv_radius_int
+            \str_case:Vn \l__ddv_color_mode_tl
+              {
+                {dataset}{\exp_args:NnV \__ddv_color:nn {ddv-slice-background}\ddvColor}
+                {uniform}{\colorlet{ddv-slice-background}{ddv-slices-background}}
+                {series}
+                  {
+                    % Include both endpoints; a one-row chart uses the first.
+                    \int_compare:nNnTF {\l__ddv_rows_int} > {1}
+                      {\tl_set:Nx \l_tmpa_tl
+                        {\fp_eval:n {100*(1-\l__ddv_index_int/(\l__ddv_rows_int-1))}}}
+                      {\tl_set:Nn \l_tmpa_tl {100}}
+                    \colorlet{ddv-slice-background}
+                      {ddv-series-first!\l_tmpa_tl!ddv-series-last}
+                  }
+              }
+            \tl_clear:N \l__ddv_description_tl
+            \bool_if:NT \l_ddv_slices_description_bool
+              {
+                \DTLifnullorempty{\ddvDescription}{}
+                  {\tl_set:Nn \l__ddv_description_tl {\space(\ddvDescription)}}
+              }
+            \exp_args:NNV \ddvWheelchartSlices [\l_ddv_slices_options_tl]
+              {{\ddvName}/{\l__ddv_description_tl}/{\ddvStart}/{\ddvAngle}}
+            \int_incr:N \l__ddv_index_int
+          }
+      }
+  }
+\cs_new_protected:Npn \__ddv_draw:
+  {
+    \begin{tikzpicture}
+      % Preserve the documented radius hook without allocating a global counter.
+      \cs_set:Npn \thestagesRadius {\int_use:N \l__ddv_radius_int}
+      \tl_if_empty:NF \l_ddv_stages_name_tl
+        {
+          \bool_if:NT \l_ddv_stages_inside_bool
+            {\exp_args:NNV \ddvWheelchartStages [\l_ddv_stages_options_tl]
+              {\l_ddv_stages_name_tl}}
+        }
+      \tl_if_empty:NF \l__ddv_database_tl {\__ddv_slices:}
+      \tl_if_empty:NF \l_ddv_stages_name_tl
+        {
+          \bool_if:NF \l_ddv_stages_inside_bool
+            {
+              \int_add:Nn \l__ddv_radius_int {2}
+              \use:e
+                {
+                  \exp_not:N \ddvWheelchartStages
+                    [slices~arrow={1}{-1},gap=.8,
+                     radius={.7+\exp_not:N \thestagesRadius}{2.7+\exp_not:N \thestagesRadius},
+                     \exp_not:V \l_ddv_stages_options_tl]
+                }{\l_ddv_stages_name_tl}
+              \int_incr:N \l__ddv_radius_int
+            }
+        }
+      \tl_if_empty:NF \l_ddv_title_name_tl
+        {\exp_args:NNV \ddvWheelchartTitle [\l_ddv_title_options_tl]
+          {\l_ddv_title_name_tl}}
+    \end{tikzpicture}
+  }
+\NewDocumentCommand \DDV {m}
+  {
+    \group_begin:
+      \keys_set:nn {ddv}{#1}
+      \int_set_eq:NN \l__ddv_radius_int \l__ddv_inner_int
+      \int_zero:N \l__ddv_rows_int
+      \int_zero:N \l__ddv_index_int
+      \tl_clear:N \l__ddv_database_tl
+      \bool_set_true:N \l__ddv_valid_bool
+      \tl_if_empty:NF \l_ddv_dataset_name_tl {\__ddv_load:}
+      \bool_if:NT \l__ddv_valid_bool {\__ddv_draw:}
+      \tl_if_empty:NF \l__ddv_database_tl
+        {\DTLgdeletedb{\l__ddv_database_tl}}
+    \group_end:
+  }
+\ExplSyntaxOff
+\endinput

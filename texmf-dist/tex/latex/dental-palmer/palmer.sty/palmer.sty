@@ -1,0 +1,502 @@
+%% palmer.sty
+%% Copyright 2025-2026 Yosuke Yamazaki
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   https://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX
+% version 2008 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+%
+% The Current Maintainer of this work is Yosuke Yamazaki.
+%
+% This work consists of the files palmer.sty, dental-palmer-doc.tex, and dental-palmer-doc.pdf.
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\ProvidesPackage{palmer}[2026/07/07 v2.0.0 Zsigmondy-Palmer dental notation]
+
+\RequirePackage{tikz}
+\RequirePackage{expl3}
+
+% Reversal for the left quadrants (user enters mesial-to-distal, display is
+% distal-to-mesial). The `no-reverse' key bypasses the reversal.
+%
+% The input is reversed one *unit* at a time, where a unit is
+%   - a brace group (kept intact; its contents are not reversed),
+%   - a UTF-8 multi-byte character (with pdfTeX and other 8-bit engines such
+%     a character arrives as several active byte tokens; a clustering pass
+%     bundles lead byte + continuation bytes into one unit first, so e.g.
+%     \Palmer{<circled 4>5<circled 6>}{}{}{}{}{} works without manual
+%     bracing),
+%   - any other single token.
+% On Unicode engines (LuaTeX, XeTeX) and for (u)pTeX kanji tokens a
+% character is a single token already, so the clustering pass passes it
+% through unchanged; no engine test is needed.
+%
+% A command that takes arguments cannot be reversed automatically (its arity
+% is not deducible from the token stream), so a bare control sequence in a
+% reversed quadrant triggers a warning suggesting a brace group; the token
+% itself is still moved as one unit. The warning is issued at most once per
+% \Palmer call (the latch is reset in \palmer@build).
+\ExplSyntaxOn
+\tl_new:N \l__palmer_cl_tl
+\tl_new:N \l__palmer_cl_unit_tl
+\int_new:N \l__palmer_cl_take_int
+\bool_new:N \g__palmer_rev_warned_bool
+\quark_new:N \q__palmer_stop
+\cs_new_protected:Npn \palmer@revwarnreset
+  { \bool_gset_false:N \g__palmer_rev_warned_bool }
+\cs_new_protected:Npn \__palmer_rev_warn:N #1
+  {
+    \bool_if:NF \g__palmer_rev_warned_bool
+      {
+        \bool_gset_true:N \g__palmer_rev_warned_bool
+        \PackageWarning{palmer}
+          {
+            Command~\token_to_str:N #1~found~in~a~reversed~quadrant~
+            (UL~or~LL).\MessageBreak
+            Reversal~moves~tokens~one~unit~at~a~time,~so~a~command\MessageBreak
+            that~takes~arguments~will~break.~Wrap~the~command~and\MessageBreak
+            its~arguments~in~a~brace~group~to~move~them~as~a\MessageBreak
+            single~unit~(this~also~removes~this~warning)
+          }
+      }
+  }
+% Pass 1: copy the token list, bundling each UTF-8 byte sequence into a
+% brace group. Everything else is copied through unchanged.
+\cs_new_protected:Npn \__palmer_cluster:n #1
+  { \tl_clear:N \l__palmer_cl_tl \__palmer_cl_scan: #1 \q__palmer_stop }
+\cs_new_protected:Npn \__palmer_cl_scan:
+  { \peek_meaning_remove:NTF \q__palmer_stop { } { \__palmer_cl_branch: } }
+\cs_new_protected:Npn \__palmer_cl_branch:
+  {
+    \peek_catcode_remove:NTF \c_space_token
+      { \tl_put_right:Nn \l__palmer_cl_tl { ~ } \__palmer_cl_scan: }
+      {
+        \peek_catcode:NTF \c_group_begin_token
+          { \__palmer_cl_group:n } { \__palmer_cl_tok:N }
+      }
+  }
+\cs_new_protected:Npn \__palmer_cl_group:n #1
+  { \tl_put_right:Nn \l__palmer_cl_tl { {#1} } \__palmer_cl_scan: }
+\cs_new_protected:Npn \__palmer_cl_tok:N #1
+  {
+    \token_if_cs:NT #1 { \__palmer_rev_warn:N #1 }
+    \bool_lazy_and:nnTF
+      { \token_if_active_p:N #1 }
+      { \int_compare_p:nNn {`#1} > { "C1 } }
+      { % UTF-8 lead byte: 0xC2-DF +1, 0xE0-EF +2, 0xF0-F4 +3 continuations
+        \int_set:Nn \l__palmer_cl_take_int
+          {
+            \int_compare:nNnTF {`#1} < {"E0} { 1 }
+              { \int_compare:nNnTF {`#1} < {"F0} { 2 } { 3 } }
+          }
+        \tl_set:Nn \l__palmer_cl_unit_tl {#1}
+        \__palmer_cl_take:
+      }
+      { \tl_put_right:Nn \l__palmer_cl_tl {#1} \__palmer_cl_scan: }
+  }
+\cs_new_protected:Npn \__palmer_cl_take:
+  {
+    \int_compare:nNnTF \l__palmer_cl_take_int = 0
+      {
+        \tl_put_right:Nx \l__palmer_cl_tl
+          { { \exp_not:V \l__palmer_cl_unit_tl } }
+        \__palmer_cl_scan:
+      }
+      { \int_decr:N \l__palmer_cl_take_int \__palmer_cl_take_one:N }
+  }
+\cs_new_protected:Npn \__palmer_cl_take_one:N #1
+  { \tl_put_right:Nn \l__palmer_cl_unit_tl {#1} \__palmer_cl_take: }
+% Pass 2: reverse the clustered units; brace groups stay intact.
+\cs_new_protected:Npn \palmer@revstr@core #1
+  {
+    \__palmer_cluster:n {#1}
+    \tl_reverse:N \l__palmer_cl_tl
+    \tl_use:N \l__palmer_cl_tl
+  }
+\ExplSyntaxOff
+\newcommand{\palmer@revstr}[1]{%
+  \ifnum\palmer@noreverse=1 #1\else\palmer@revstr@core{#1}\fi
+}
+
+
+% Internal storage for quadrant content and width measurement.
+
+\newsavebox{\palmer@ULbox}
+\newsavebox{\palmer@URbox}
+\newsavebox{\palmer@LRbox}
+\newsavebox{\palmer@LLbox}
+\newlength{\palmer@leftmaxlen}
+\newlength{\palmer@rightmaxlen}
+
+% --- Base spacing values -----------------------------------------------------
+% The `gap-ratio' key shrinks the visible white space uniformly. Three
+% scaling rules apply, depending on how the underlying TikZ anchor relates
+% to the visible gap:
+%
+%   Linear      effective = ratio * max
+%               (anchor=east/west places edge at offset, so offset IS the gap)
+%   Interpolate effective = min + ratio * (max - min)
+%               (anchor places bbox CENTER at offset; min = char half-height,
+%               so at ratio=0 chars touch but do not overlap the bars)
+%   Constant    no scaling (char-dependent quantities like midline width)
+%
+% All values are stored as *strings in em* and resolved to absolute pt by
+% \palmer@computeeffective, which runs OUTSIDE the tikz environment. Current
+% pgf resolves `em' correctly even in tikz options and coordinates, but this
+% package does not rely on that: for robustness across pgf versions and for
+% consistency, every em value is converted to pt before entering tikz.
+
+% Linear: visible gap = parameter
+\def\palmer@hsep@max  {0.3em}     % horizontal line to quadrant char
+\def\palmer@hext@max  {0.3em}     % horizontal bar extension past char
+
+% Interpolated: visible gap = parameter - 0.35em (half char height)
+\def\palmer@vsep@min  {0.35em}
+\def\palmer@vsep@max  {0.7em}
+\def\palmer@vext@min  {0.35em}
+\def\palmer@vext@max  {0.7em}
+
+% Constants (no scaling; resolved to absolute pt by computeeffective)
+\def\palmer@hwide@const {0.3em}     % horizontal allowance for midline character
+\def\palmer@vbasel@const{-0.35em}   % midline char anchor offset (pins midline
+                                    % char baseline to quadrant char baseline)
+\def\palmer@linew@const {0.04em}    % thickness of the notation bars
+
+
+% --- User-tunable settings (defaults) ----------------------------------------
+\def\palmer@align    {base}      % base | center | bottom
+\def\palmer@gapratio {1}         % multiplier in [0, 1]; 1 = default = max gap
+\def\palmer@novert   {0}         % 1 = suppress vertical bar(s)
+\def\palmer@noreverse{0}         % 1 = display UL/LL in input order
+
+% String constants for \ifx-comparison against \palmer@align.
+\def\palmer@align@center{center}
+\def\palmer@align@bottom{bottom}
+
+% --- Key=value interface -----------------------------------------------------
+%   align       = base | center | centre | bottom       (default: base)
+%   gap-ratio   = <number in [0, 1]>                    (default: 1)
+%                 (evaluated with pgfmath, so expressions are allowed)
+%   no-vert     [= true | false]                        (default: false)
+%   no-reverse  [= true | false]                        (default: false)
+%
+% Document-level: \palmerset{...} or package options.
+% Per-call: \Palmer[...]{...}.
+% Per-call settings are local because \Palmer wraps content in \hbox.
+% Friendly error for an invalid value given to a choice key.
+\newcommand{\palmer@badchoice}[3]{%
+  \PackageError{palmer}{Value `#2' is not valid for key `#1'}%
+    {Valid values for `#1' are: #3.}%
+}
+\pgfkeys{
+  /palmer/.is family, /palmer,
+    align/.is choice,
+    align/center/.code = {\def\palmer@align{center}},
+    align/centre/.code = {\def\palmer@align{center}},
+    align/base/.code   = {\def\palmer@align{base}},
+    align/bottom/.code = {\def\palmer@align{bottom}},
+    align/.unknown/.code = {\palmer@badchoice{align}%
+      {\pgfkeyscurrentname}{base, center (or centre), bottom}},
+    gap-ratio/.code    = {\palmer@setgapratio{#1}},
+    no-vert/.is choice,
+    no-vert/true/.code  = {\def\palmer@novert{1}},
+    no-vert/false/.code = {\def\palmer@novert{0}},
+    no-vert/.default    = true,
+    no-vert/.unknown/.code = {\palmer@badchoice{no-vert}%
+      {\pgfkeyscurrentname}{true, false (or omit the value for true)}},
+    no-reverse/.is choice,
+    no-reverse/true/.code  = {\def\palmer@noreverse{1}},
+    no-reverse/false/.code = {\def\palmer@noreverse{0}},
+    no-reverse/.default    = true,
+    no-reverse/.unknown/.code = {\palmer@badchoice{no-reverse}%
+      {\pgfkeyscurrentname}{true, false (or omit the value for true)}},
+    .unknown/.code = {\PackageError{palmer}%
+      {Unknown key `\pgfkeyscurrentname'}%
+      {Known keys are: align, gap-ratio, no-vert, no-reverse.}},
+}
+
+% Clamp gap-ratio to [0, 1] with a warning if out of range.
+\newcommand{\palmer@setgapratio}[1]{%
+  \pgfmathsetmacro{\palmer@gap@in}{#1}%
+  \ifdim\palmer@gap@in pt<0pt
+    \def\palmer@gapratio{0}%
+    \PackageWarning{palmer}{gap-ratio `#1' is below 0; clamped to 0}%
+  \else
+    \ifdim\palmer@gap@in pt>1pt
+      \def\palmer@gapratio{1}%
+      \PackageWarning{palmer}{%
+        gap-ratio `#1' is above 1; clamped to 1.\MessageBreak
+        The default spacing is the maximum%
+      }%
+    \else
+      \let\palmer@gapratio\palmer@gap@in
+    \fi
+  \fi
+}
+
+\newcommand{\palmerset}[1]{\pgfkeys{/palmer/.cd, #1}}
+
+% --- Package options ----------------------------------------------------------
+% The same keys may be given as options to \usepackage; they are forwarded
+% to \palmerset and thus become document-wide defaults, e.g.
+%   \usepackage[align=center, gap-ratio=0.5]{palmer}
+% Key option processing (\ProcessKeyOptions) deliberately ignores global
+% options of the document class, so e.g. a4paper/12pt cannot leak in here.
+% A Boolean option given without a value arrives as an empty #1; forward it
+% bare so that the pgfkeys-side `.default' (true) applies.
+% \DeclareKeys/\ProcessKeyOptions need LaTeX >= 2022-06-01; older kernels
+% fall back to \DeclareOption*, which likewise ignores global class options.
+\ifdefined\DeclareKeys
+  \newcommand{\palmer@optbool}[2]{%
+    \def\palmer@tmp{#2}%
+    \ifx\palmer@tmp\@empty\palmerset{#1}\else\palmerset{#1=#2}\fi
+  }
+  \DeclareKeys[palmer]{
+    align.code      = {\palmerset{align=#1}},
+    gap-ratio.code  = {\palmerset{gap-ratio=#1}},
+    no-vert.code    = {\palmer@optbool{no-vert}{#1}},
+    no-reverse.code = {\palmer@optbool{no-reverse}{#1}},
+  }
+  \ProcessKeyOptions[palmer]
+\else
+  \DeclareOption*{\expandafter\palmerset\expandafter{\CurrentOption}}
+  \ProcessOptions\relax
+\fi
+
+% Main user command.
+%
+%   \Palmer[<key=value list>]{UL}{UR}{LR}{LL}{upper-mid}{lower-mid}
+%
+% The optional argument is parsed as a pgfkeys list (empty is fine, all
+% defaults apply). Any settings made here are local to this call because
+% \hbox introduces a TeX group.
+
+\DeclareRobustCommand{\Palmer}[7][]{%
+  \leavevmode
+  \hbox{%
+    \pgfkeys{/palmer/.cd, #1}%
+    \palmer@build{#2}{#3}{#4}{#5}{#6}{#7}%
+  }%
+}
+
+
+% Build pipeline.
+%
+% When `no-vert' is set, midline arguments are forced empty
+% here so that downstream code stays unaware of the option.
+
+\newcommand{\palmer@build}[6]{%
+  \palmer@revwarnreset
+  \palmer@detectempty{#1}{#2}{#3}{#4}%
+  \ifnum\palmer@allempty=1
+    % Error already raised in \palmer@detectempty; produce no output.
+  \else
+    \palmer@detectpattern
+    \palmer@measure{#1}{#2}{#3}{#4}%
+    \palmer@computeeffective
+    \palmer@computebaseline
+    \ifnum\palmer@novert=1
+      \palmer@draw{#1}{#2}{#3}{#4}{}{}%
+    \else
+      \palmer@draw{#1}{#2}{#3}{#4}{#5}{#6}%
+    \fi
+  \fi
+}
+
+% --- Detect which quadrants are empty; error if all four are empty. -----------
+\newcommand{\palmer@detectempty}[4]{%
+  \palmer@isempty{#1}{\palmer@ULempty}%
+  \palmer@isempty{#2}{\palmer@URempty}%
+  \palmer@isempty{#3}{\palmer@LRempty}%
+  \palmer@isempty{#4}{\palmer@LLempty}%
+  \def\palmer@allempty{0}%
+  \ifnum\palmer@ULempty=1 \ifnum\palmer@URempty=1
+    \ifnum\palmer@LRempty=1 \ifnum\palmer@LLempty=1
+      \def\palmer@allempty{1}%
+      \PackageError{palmer}{All four quadrant arguments are empty}%
+        {Provide at least one of UL/UR/LR/LL. If you intend blank space, insert a space.}%
+  \fi\fi\fi\fi
+}
+\newcommand{\palmer@isempty}[2]{%
+  \def\palmer@tmp{#1}%
+  \ifx\palmer@tmp\@empty\def#2{1}\else\def#2{0}\fi
+}
+
+% --- Determine which bars to draw and the pattern type. -----------------------
+%
+% The four-bit signature is UL UR LR LL where each bit is 1 for empty and
+% 0 for populated. ptype is:
+%   1 = upper-only pattern (only the upper bar/quadrants are drawn)
+%   2 = lower-only pattern
+%   3 = full or side pattern (default)
+\newcommand{\palmer@detectpattern}{%
+  \def\palmer@drawleft  {1}%
+  \def\palmer@drawright {1}%
+  \def\palmer@drawupper {1}%
+  \def\palmer@drawlower {1}%
+  \def\palmer@ptype     {3}%
+  \edef\palmer@sig{\palmer@ULempty\palmer@URempty\palmer@LRempty\palmer@LLempty}%
+  % single-quadrant patterns
+  \palmer@case{0111}{\def\palmer@drawright{0}\def\palmer@drawlower{0}\def\palmer@ptype{1}}%
+  \palmer@case{1011}{\def\palmer@drawleft {0}\def\palmer@drawlower{0}\def\palmer@ptype{1}}%
+  \palmer@case{1101}{\def\palmer@drawleft {0}\def\palmer@drawupper{0}\def\palmer@ptype{2}}%
+  \palmer@case{1110}{\def\palmer@drawright{0}\def\palmer@drawupper{0}\def\palmer@ptype{2}}%
+  % two-quadrant patterns
+  \palmer@case{0011}{\def\palmer@drawlower{0}\def\palmer@ptype{1}}%   upper jaw
+  \palmer@case{1100}{\def\palmer@drawupper{0}\def\palmer@ptype{2}}%   lower jaw
+  \palmer@case{0110}{\def\palmer@drawright{0}}%                        left side
+  \palmer@case{1001}{\def\palmer@drawleft {0}}%                        right side
+  % no-vert suppresses both vertical bars
+  \ifnum\palmer@novert=1
+    \def\palmer@drawupper{0}\def\palmer@drawlower{0}%
+  \fi
+}
+\newcommand{\palmer@case}[2]{%
+  \def\palmer@cmp{#1}\ifx\palmer@cmp\palmer@sig #2\fi
+}
+
+% --- Box the quadrant contents and find the wider side. -----------------------
+% UL/LL are boxed through \palmer@revstr so that exactly what will be drawn
+% is measured (kerning is order-dependent, e.g. `AC' vs `CA').
+\newcommand{\palmer@measure}[4]{%
+  \sbox{\palmer@ULbox}{\palmer@revstr{#1}}\sbox{\palmer@URbox}{#2}%
+  \sbox{\palmer@LRbox}{#3}\sbox{\palmer@LLbox}{\palmer@revstr{#4}}%
+  \ifdim\wd\palmer@ULbox>\wd\palmer@LLbox\relax
+    \setlength\palmer@leftmaxlen{\wd\palmer@ULbox}%
+  \else
+    \setlength\palmer@leftmaxlen{\wd\palmer@LLbox}%
+  \fi
+  \ifdim\wd\palmer@URbox>\wd\palmer@LRbox\relax
+    \setlength\palmer@rightmaxlen{\wd\palmer@URbox}%
+  \else
+    \setlength\palmer@rightmaxlen{\wd\palmer@LRbox}%
+  \fi
+}
+
+% --- Compute the effective spacings from the gap-ratio. ----------------------
+% Evaluation happens here (before the tikz block) so that em resolves
+% against the surrounding font. Native \dimexpr arithmetic is used rather
+% than pgfmath to avoid floating-point error.
+\newlength{\palmer@@scratch}
+% Linear: target = ratio * max
+\newcommand{\palmer@scale}[2]{%
+  \setlength{\palmer@@scratch}{#2}%
+  \edef#1{\the\dimexpr\palmer@gapratio\palmer@@scratch\relax}%
+}
+% Interpolated: target = min + ratio * (max - min)
+\newcommand{\palmer@interp}[3]{%
+  \setlength{\palmer@@scratch}{\dimexpr#3-#2\relax}%
+  \edef#1{\the\dimexpr#2+\palmer@gapratio\palmer@@scratch\relax}%
+}
+\newcommand{\palmer@computeeffective}{%
+  \palmer@scale {\palmer@hsep}{\palmer@hsep@max}%
+  \palmer@scale {\palmer@hext}{\palmer@hext@max}%
+  \palmer@interp{\palmer@vsep}{\palmer@vsep@min}{\palmer@vsep@max}%
+  \palmer@interp{\palmer@vext}{\palmer@vext@min}{\palmer@vext@max}%
+  % Constants: also resolved here (in the surrounding font context) so
+  % that no raw `em' units leak into the tikz block.
+  \edef\palmer@hwide {\the\dimexpr\palmer@hwide@const \relax}%
+  \edef\palmer@vbasel{\the\dimexpr\palmer@vbasel@const\relax}%
+  \edef\palmer@linew {\the\dimexpr\palmer@linew@const \relax}%
+}
+
+% --- Compute the baseline shift for the tikz picture. -------------------------
+% Variable parts (depending on diagram extent) are expressed via \palmer@vsep
+% and \palmer@vext so they shrink with gap-ratio. Constants are font-relative.
+% Strategy: set the base-aligned value first, then override for special cases.
+%   ptype=1 (upper-only):  base 0.3em             | bottom 0pt
+%   ptype=2 (lower-only):  base/center -vsep-0.3em | bottom -vsep-vext+0.1em
+%   ptype=3 (full/side):   base -vsep-0.3em       | center -0.3em
+%                                                 | bottom -vsep-vext+0.1em
+\newcommand{\palmer@computebaseline}{%
+  % Default: base alignment.
+  \ifnum\palmer@ptype=1
+    \edef\palmer@bshift{\the\dimexpr0.3em\relax}%
+  \else
+    \edef\palmer@bshift{\the\dimexpr-\palmer@vsep-0.3em\relax}%
+  \fi
+  % Override 1: bottom alignment (applies to all ptypes).
+  \ifx\palmer@align\palmer@align@bottom
+    \ifnum\palmer@ptype=1
+      \def\palmer@bshift{0pt}%
+    \else
+      \edef\palmer@bshift{\the\dimexpr-\palmer@vsep-\palmer@vext+0.1em\relax}%
+    \fi
+  \fi
+  % Override 2: center alignment for full/side patterns only.
+  \ifx\palmer@align\palmer@align@center
+    \ifnum\palmer@ptype=3
+      \edef\palmer@bshift{\the\dimexpr-0.3em\relax}%
+    \fi
+  \fi
+}
+
+% --- TikZ drawing. ------------------------------------------------------------
+\newcommand{\palmer@draw}[6]{%
+  \tikz[baseline=\palmer@bshift, line cap=rect, line width=\palmer@linew]{%
+    % Widen the quadrant offset when a midline character is present.
+    \def\palmer@hasmid{0}%
+    \ifnum\palmer@drawupper=1
+      \def\palmer@tmp{#5}%
+      \ifx\palmer@tmp\@empty\else\def\palmer@hasmid{1}\fi
+    \fi
+    \ifnum\palmer@drawlower=1
+      \def\palmer@tmp{#6}%
+      \ifx\palmer@tmp\@empty\else\def\palmer@hasmid{1}\fi
+    \fi
+    % Quadrant-character horizontal offset (widened when a midline char
+    % is present). The cross bar always extends \palmer@hext past the
+    % character's outer edge, regardless of widening.
+    \ifnum\palmer@hasmid=1
+      \edef\palmer@xoff{\the\dimexpr\palmer@hsep+\palmer@hwide\relax}%
+    \else
+      \let\palmer@xoff\palmer@hsep
+    \fi
+    % Quadrant characters.
+    \ifnum\palmer@ULempty=0
+      \node[inner sep=0pt, outer sep=0pt, anchor=east] (ul)
+        at (-\palmer@xoff, \palmer@vsep) {\palmer@revstr{#1}};
+    \fi
+    \ifnum\palmer@URempty=0
+      \node[inner sep=0pt, outer sep=0pt, anchor=west] (ur)
+        at (\palmer@xoff, \palmer@vsep) {#2};
+    \fi
+    \ifnum\palmer@LRempty=0
+      \node[inner sep=0pt, outer sep=0pt, anchor=west] (lr)
+        at (\palmer@xoff, -\palmer@vsep) {#3};
+    \fi
+    \ifnum\palmer@LLempty=0
+      \node[inner sep=0pt, outer sep=0pt, anchor=east] (ll)
+        at (-\palmer@xoff, -\palmer@vsep) {\palmer@revstr{#4}};
+    \fi
+    % Cross bars. The cross extends \palmer@hext past the outer char edge,
+    % regardless of midline-char widening.
+    \ifnum\palmer@drawleft=1
+      \draw (-\palmer@leftmaxlen-\palmer@xoff-\palmer@hext, 0) -- (0,0);
+    \fi
+    \ifnum\palmer@drawright=1
+      \draw (0,0) -- (\palmer@rightmaxlen+\palmer@xoff+\palmer@hext, 0);
+    \fi
+    \ifnum\palmer@drawupper=1
+      \draw (0, \palmer@vsep+\palmer@vext) -- (0, 0);
+      \def\palmer@tmp{#5}%
+      \ifx\palmer@tmp\@empty\else
+        \node[inner sep=0pt, outer sep=0pt, anchor=base]
+          at (0, \palmer@vsep+\palmer@vbasel) {#5};
+      \fi
+    \fi
+    \ifnum\palmer@drawlower=1
+      \draw (0, 0) -- (0, -\palmer@vsep-\palmer@vext);
+      \def\palmer@tmp{#6}%
+      \ifx\palmer@tmp\@empty\else
+        \node[inner sep=0pt, outer sep=0pt, anchor=base]
+          at (0, -\palmer@vsep+\palmer@vbasel) {#6};
+      \fi
+    \fi
+  }%
+}

@@ -1,0 +1,1193 @@
+%%
+%% This is file `exam-rtl.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% exam-rtl.dtx  (with options: `package')
+%% ===========================================================================
+%% This is a generated file.
+%% 
+%% Copyright (C) 2026 by Nadeer Aljaroudi
+%% 
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is available at:
+%% https://latex-project.org
+%% 
+%% This work consists of the files exam-rtl.dtx, exam-rtl.ins,
+%% exam-rtl-doc.tex, example.tex, and the derived file exam-rtl.sty.
+%% ===========================================================================
+
+
+
+
+
+
+
+
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{exam-rtl}[2026/08/20 v1.0 Arabic/RTL Exam Package]
+
+\RequirePackage{xcolor}
+\RequirePackage{tcolorbox}
+\tcbuselibrary{all}
+\RequirePackage{fontspec}
+\RequirePackage{polyglossia}
+\RequirePackage{bidi}
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+
+\setmainlanguage{arabic}
+\setotherlanguages{english}
+\newfontfamily\arabicfont[Script=Arabic, BoldFont={* Medium}]{IBM Plex Sans Arabic}
+\newfontfamily\arabicfontsf[Script=Arabic, BoldFont={* Medium}]{IBM Plex Sans Arabic}
+\newfontfamily\arabicfonttt[Script=Arabic]{Cascadia Code-SemiLight}
+
+\newcommand{\ArNum}[1]{\textarabic{\arabicdigits{\number#1}}}
+\newcommand{\arbstrut}{\vrule height 1.15em depth 0.51em width 0pt}
+
+\ExplSyntaxOn
+
+\cs_generate_variant:Nn \tl_if_eq:nnT { VVT }
+\cs_generate_variant:Nn \prop_item:Nn { Nx }
+\cs_generate_variant:Nn \msg_warning:nnn { nnx }
+
+\bool_new:N \g__mode_teacher_bool
+\bool_new:N \g__mode_marks_bool
+\bool_new:N \g__mode_difficulty_bool
+\bool_new:N \g__mode_type_bool
+\bool_new:N \g__mode_correction_bool
+
+\int_new:N \g__exam_id_int
+\int_new:N \g__question_number_int
+\int_new:N \g__question_seed_int
+
+\tl_new:N  \g__question_answer_tl
+\tl_new:N  \g__question_type_tl
+\tl_new:N  \g__question_level_tl
+\tl_new:N  \g__question_marks_tl
+
+\prop_new:N \g__question_type_prop
+\prop_put:Nnn \g__question_type_prop {MC} {اختيار~من~متعدد}
+\prop_put:Nnn \g__question_type_prop {TF} {صح~خطأ}
+\prop_put:Nnn \g__question_type_prop {FillBlank} {ملء~فراغ}
+\prop_put:Nnn \g__question_type_prop {Ordering} {ترتيب}
+\prop_put:Nnn \g__question_type_prop {Matching} {توصيل}
+\prop_put:Nnn \g__question_type_prop {Essay} {مقالي}
+\prop_put:Nnn \g__question_type_prop {ShortAnswer} {جواب~قصير}
+\prop_put:Nnn \g__question_type_prop {ReadingPassage} {قطعة~قراءة}
+
+\seq_new:N \g_exam_letters_seq
+\seq_set_from_clist:Nn \g_exam_letters_seq
+{
+  أ , ب , ج , د , هـ , و , ز , ح , ط , ي ,
+  ك , ل , م , ن , س , ع , ف , ص , ق , ر ,
+  ش , ت , ث , خ , ذ , ض , ظ , غ
+}
+
+\NewDocumentCommand{\StudentMode}{}
+  { \bool_gset_false:N \g__mode_teacher_bool }
+
+\NewDocumentCommand{\TeacherMode}{}
+  { \bool_gset_true:N \g__mode_teacher_bool }
+
+\NewDocumentCommand{\ShowMarks}{}
+  { \bool_gset_true:N \g__mode_marks_bool }
+
+\NewDocumentCommand{\ShowDifficulty}{}
+  { \bool_gset_true:N \g__mode_difficulty_bool }
+
+\NewDocumentCommand{\ShowType}{}
+  { \bool_gset_true:N \g__mode_type_bool }
+
+\NewDocumentCommand{\ShowCorrection}{}
+  { \bool_gset_true:N \g__mode_correction_bool }
+
+\NewDocumentCommand{\ExamID}{ m }
+  {
+    \tl_if_blank:nTF {#1}
+      {
+        \int_gset:Nn \g__exam_id_int {0}
+        \sys_gset_rand_seed:n {0}
+      }
+      {
+        \int_gset:Nn \g__exam_id_int {#1}
+        \sys_gset_rand_seed:n {#1}
+      }
+  }
+
+\cs_new_protected:Npn \__question_build_seed:
+  {
+    \int_gset:Nn \g__question_seed_int
+      { \int_eval:n { \g__exam_id_int * 1000 + \g__question_number_int } }
+    \sys_gset_rand_seed:n { \g__question_seed_int }
+  }
+
+\cs_new_protected:Npn \__subquestion_build_seed:n #1
+  {
+    \sys_gset_rand_seed:n
+      {
+        \g__exam_id_int * 10000 +
+        \g__question_number_int * 100 +
+        #1
+      }
+  }
+
+\cs_new_protected:Npn \__exam_print_answer_box:
+{
+    \par\smallskip
+    \begin{tcolorbox}[
+enhanced,
+breakable,
+colback=white,
+colframe=black,
+arc=0pt,
+outer~arc=0pt,
+boxrule=1pt,
+top=10pt,
+bottom=10pt,
+left=10pt,
+right=10pt,
+parbox=true,
+fontupper=\linespread{1.3}\selectfont,
+before~upper={\begin{flushright}},
+after~upper={\end{flushright}},
+coltitle=black,
+fonttitle=\bfseries,
+title={نموذج~الإجابة},
+attach~boxed~title~to~top~right={
+xshift=-5mm,
+yshift=-3mm,
+yshifttext=-1mm
+},
+boxed~title~style={
+colback=white,
+colframe=white,
+left=5pt, right=5pt
+}
+]{
+\setlength{\baselineskip}{1.2\normalbaselineskip}
+\tl_use:N \g__question_answer_tl
+}
+\end{tcolorbox}
+\par\smallskip
+}
+
+\dim_new:N \g__question_number_width_dim
+\dim_new:N \g__question_metadata_width_dim
+\dim_new:N \g__question_text_width_dim
+
+\NewDocumentEnvironment{Question}{ m m m m }
+  {
+    \int_gincr:N \g__question_number_int
+
+    \tl_gset:Nn \g__question_type_tl   {#1}
+    \tl_gset:Nn \g__question_level_tl  {#2}
+    \tl_gset:Nn \g__question_marks_tl  {#3}
+
+    \tl_gclear:N \g__question_answer_tl
+
+    \__question_build_seed:
+
+    \tl_clear:N \l_tmpa_tl
+    \bool_if:nT { \g__mode_type_bool }
+      {
+        \tl_put_right:Nn \l_tmpa_tl
+          { [\prop_item:Nn \g__question_type_prop {#1}] }
+      }
+    \bool_if:nT { \g__mode_difficulty_bool }
+      { \tl_put_right:Nn \l_tmpa_tl { ~[#2] } }
+    \bool_if:nT { \g__mode_marks_bool }
+      { \tl_put_right:Nn \l_tmpa_tl { ~[#3~درجات] } }
+
+    \settowidth{\g__question_metadata_width_dim}
+      { \footnotesize \l_tmpa_tl }
+
+    \settowidth{\g__question_number_width_dim}
+      { \bfseries سؤال~\ArNum{\g__question_number_int}:~ }
+
+    \dim_set:Nn \g__question_text_width_dim
+      {
+        \linewidth
+        - \g__question_number_width_dim
+        - \g__question_metadata_width_dim
+        - 1em
+      }
+
+    \dim_compare:nNnT { \g__question_text_width_dim } < { 0pt }
+      { \dim_set:Nn \g__question_text_width_dim { 0pt } }
+
+    \par\medskip
+    \noindent
+    \makebox[\linewidth][r]
+      {
+        \makebox[\g__question_number_width_dim][r]
+          { \bfseries سؤال~\ArNum{\g__question_number_int}:~ }
+
+        \parbox[t]{\g__question_text_width_dim}
+          {
+            \setlength{\baselineskip}{1.3\normalbaselineskip}
+            \bfseries #4
+            \par
+            \vspace{0.01em}
+          }
+
+        \hfill
+        { \footnotesize
+          \bool_if:nT { \g__mode_type_bool }
+            { [\prop_item:Nn \g__question_type_prop {#1}] }
+          \bool_if:nT { \g__mode_difficulty_bool }
+            { ~[#2] }
+          \bool_if:nT { \g__mode_marks_bool }
+            { ~[#3~درجات] }
+        }
+      }
+    \par\smallskip
+  }
+  {
+    \bool_if:nT { \g__mode_teacher_bool && \g__mode_correction_bool }
+      {
+        \tl_if_empty:NF \g__question_answer_tl
+          { \__exam_print_answer_box: }
+      }
+    \par\medskip
+  }
+
+\int_new:N \l__mc_question_counter_int
+\int_new:N \l__mc_option_counter_int
+\int_new:N \l__mc_columns_int
+\int_new:N \l__mc_correct_index_int
+\seq_new:N \l__mc_options_seq
+\tl_new:N \l__mc_question_text_tl
+
+\dim_new:N \l__mc_label_width_dim
+\dim_new:N \l__mc_label_sep_dim
+\dim_new:N \l__mc_col_sep_dim
+\dim_new:N \l__mc_text_width_dim
+\dim_set:Nn \l__mc_label_width_dim { 1.5em }
+\dim_set:Nn \l__mc_label_sep_dim { 0.8em }
+\dim_set:Nn \l__mc_col_sep_dim { 1.5em }
+
+\dim_new:N \l__mc_before_first_question_dim
+\dim_new:N \l__mc_after_question_text_dim
+\dim_new:N \l__mc_between_questions_dim
+\dim_new:N \l__mc_after_options_dim
+\dim_new:N \l__mc_between_option_lines_dim
+
+\dim_set:Nn \l__mc_before_first_question_dim { 0.5em }
+\dim_set:Nn \l__mc_after_question_text_dim { 0.3em }
+\dim_set:Nn \l__mc_between_questions_dim { 0.1em }
+\dim_set:Nn \l__mc_after_options_dim { 0.3em }
+\dim_set:Nn \l__mc_between_option_lines_dim { 0.3em }
+
+\NewDocumentEnvironment{MC}{ O{4} }
+  {
+    \int_set:Nn \l__mc_columns_int {#1}
+    \int_zero:N \l__mc_question_counter_int
+    \int_zero:N \l__mc_option_counter_int
+    \par
+  }
+  {
+    \int_compare:nNnT { \l__mc_option_counter_int } > { 0 }
+      { \__mc_display_options: }
+    \par
+  }
+
+\NewDocumentCommand{\MCQuestion}{ m m }
+  {
+    \int_compare:nNnT { \l__mc_option_counter_int } > { 0 }
+      {
+        \__mc_display_options:
+        \par\vspace{\l__mc_after_options_dim}
+      }
+
+    \int_incr:N \l__mc_question_counter_int
+
+    \int_compare:nNnTF { \l__mc_question_counter_int } = { 1 }
+      { \par\vspace{\l__mc_before_first_question_dim} }
+      { \par\vspace{\l__mc_between_questions_dim} }
+
+    \par\noindent
+    \makebox[2.65mm][c]{\bfseries\ArNum{\l__mc_question_counter_int}}%
+    \makebox[2.65mm][r]{\bfseries.}%
+    \hspace{0.7mm}%
+    \parbox[t]{\dim_eval:n{\linewidth-6.0mm}}{
+      \setlength{\baselineskip}{1.3\normalbaselineskip}
+      \bfseries#1}
+
+    \par\vspace{\l__mc_after_question_text_dim}
+
+    \int_set:Nn \l__mc_correct_index_int {#2}
+    \int_zero:N \l__mc_option_counter_int
+    \seq_clear:N \l__mc_options_seq
+  }
+
+\NewDocumentCommand{\MCOption}{ m }
+  {
+    \int_incr:N \l__mc_option_counter_int
+    \seq_put_right:Nn \l__mc_options_seq {#1}
+  }
+
+\cs_new_protected:Npn \__mc_display_options:
+  {
+    \int_compare:nNnT { \l__mc_option_counter_int } = { 0 }
+      {
+        \msg_warning:nn { mc } { no-options }
+        \par
+        \scan_stop:
+      }
+
+    \tl_set:Nx \l_tmpa_tl
+      { \seq_item:Nn \l__mc_options_seq { \l__mc_correct_index_int } }
+
+    \seq_shuffle:N \l__mc_options_seq
+
+    \int_set:Nn \l_tmpa_int
+      { \int_mod:nn { \l__mc_option_counter_int } { \l__mc_columns_int } }
+
+    \int_compare:nNnT { \l_tmpa_int } > { 0 }
+      {
+        \int_set:Nn \l_tmpb_int { \l__mc_columns_int - \l_tmpa_int }
+        \prg_replicate:nn { \l_tmpb_int }
+          { \seq_put_right:Nn \l__mc_options_seq { \hspace{0pt} } }
+      }
+
+    \dim_set:Nn \l_tmpb_dim
+      { \int_eval:n { \l__mc_columns_int - 1 } \l__mc_col_sep_dim }
+    \dim_set:Nn \l_tmpa_dim
+      { ( \linewidth - \l_tmpb_dim ) / \l__mc_columns_int }
+
+    \dim_set:Nn \l__mc_text_width_dim
+      { \dim_eval:n
+        { \l_tmpa_dim - \l__mc_label_width_dim - \l__mc_label_sep_dim }
+      }
+
+    \dim_compare:nNnT { \l__mc_text_width_dim } < { 0pt }
+      { \dim_set:Nn \l__mc_text_width_dim { 0pt } }
+
+    \noindent
+    \int_step_inline:nn { \seq_count:N \l__mc_options_seq }
+      {
+        \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l__mc_options_seq { ##1 } }
+
+        \makebox[\l_tmpa_dim][r]
+          {
+            \makebox[\l__mc_label_width_dim][l]
+              {
+                \int_compare:nNnTF { ##1 } > { \l__mc_option_counter_int }
+                  { \hspace{0pt} }
+                  { \seq_item:Nn \g_exam_letters_seq {##1}) }
+              }%
+            \hspace{\l__mc_label_sep_dim}%
+            \parbox[t]{\l__mc_text_width_dim}
+              {
+                \setlength{\baselineskip}{1.3\normalbaselineskip}
+                \raggedleft
+                \arbstrut
+                \l_tmpb_tl
+                \par
+              }
+          }
+
+        \int_compare:nNnT { ##1 } < { \l__mc_option_counter_int + 1 }
+          {
+            \tl_if_eq:VVT \l_tmpb_tl \l_tmpa_tl
+              {
+                \tl_gput_right:Nx \g__question_answer_tl
+                  {
+                    \exp_not:N \makebox[4em][r]
+                      {
+                        (\ArNum{\l__mc_question_counter_int})
+                        ~{$\;\Leftarrow\;$}~
+                        (\seq_item:Nn \g_exam_letters_seq {##1})
+                      }%
+                    \qquad
+                  }
+              }
+          }
+
+        \int_compare:nNnF
+          { \int_mod:nn {##1} { \l__mc_columns_int } } = { 0 }
+          { \hspace{\l__mc_col_sep_dim} }
+
+        \int_compare:nNnT
+          { \int_mod:nn {##1} { \l__mc_columns_int } } = { 0 }
+          {
+            \par\prevdepth=\dp\strutbox%
+            \vspace{\l__mc_between_option_lines_dim}
+          }
+      }
+    \par
+  }
+
+\msg_new:nnn { mc } { no-options }
+  {
+    تحذير:~لا~توجد~خيارات~للسؤال~\int_use:N \l__mc_question_counter_int.
+  }
+
+\int_new:N \l__tf_question_counter_int
+\tl_new:N \l__tf_question_text_tl
+\tl_new:N \l__tf_correct_answer_tl
+\bool_new:N \l__tf_style_bool
+
+\dim_const:Nn \l__tf_number_width_dim { 5.3mm }
+\dim_const:Nn \l__tf_bracket_width_dim { 3em }
+\dim_const:Nn \l__tf_option_width_dim { 8em }
+
+\dim_new:N \l__tf_before_first_question_dim
+\dim_new:N \l__tf_between_questions_dim
+\dim_set:Nn \l__tf_before_first_question_dim { 0.5em }
+\dim_set:Nn \l__tf_between_questions_dim { 0.3\baselineskip }
+
+\NewDocumentEnvironment{TF}{ O{bracket} }
+  {
+    \int_zero:N \l__tf_question_counter_int
+
+    \str_if_eq:nnTF {#1} {bracket}
+      { \bool_set_true:N \l__tf_style_bool }
+      { \bool_set_false:N \l__tf_style_bool }
+  }
+  {}
+
+\NewDocumentCommand{\TFQuestion}{ m m }
+  {
+    \int_incr:N \l__tf_question_counter_int
+
+    \int_compare:nNnTF { \l__tf_question_counter_int } = { 1 }
+      { \par\vspace{\l__tf_before_first_question_dim} }
+      { \par\vspace{\l__tf_between_questions_dim} }
+
+    \par\noindent
+    \makebox[2.65mm][c]{\ArNum{\l__tf_question_counter_int}}%
+    \makebox[2.65mm][r]{.}%
+
+    \bool_if:NTF \l__tf_style_bool
+      {
+        \parbox[t]{\dim_eval:n{\linewidth-10.0mm}}
+          {
+            \setlength{\baselineskip}{1.3\normalbaselineskip}
+            \arbstrut#1\unskip\nobreak\hspace{1em}%
+            \makebox[3em][c]{(\hspace{2em})}
+            \par
+          }
+      }
+      {
+        \parbox[t]{\dim_eval:n{\linewidth-10.0mm-\l__tf_option_width_dim}}
+          {
+            \setlength{\baselineskip}{1.3\normalbaselineskip}
+            \arbstrut#1
+            \par
+          }%
+        \hfill
+        \makebox[\l__tf_option_width_dim][c]
+          {
+            \makebox[3em][c]{صح}%
+            \hspace{1em}%
+            \makebox[3em][c]{خطأ}
+          }
+      }
+    \par\prevdepth=\dp\strutbox%
+
+    \tl_gput_right:Nx \g__question_answer_tl
+      {
+        \exp_not:N \makebox[4em][r]
+          {
+            (\ArNum{\l__tf_question_counter_int})
+            ~{$\;\Leftarrow\;$}~
+            #2
+          }%
+        \qquad
+      }
+  }
+
+\int_new:N \l__ord_question_counter_int
+\int_new:N \l__ord_option_counter_int
+\int_new:N \l__ord_columns_int
+\seq_new:N \l__ord_options_seq
+\seq_new:N \l__ord_original_order_seq
+\tl_new:N  \l__ord_answer_tl
+
+\bool_new:N \l__ord_answer_pending_bool
+
+\dim_new:N \l__ord_answer_width_dim
+\dim_set:Nn \l__ord_answer_width_dim { 5mm }
+
+\dim_new:N \l__ord_label_width_dim
+\dim_new:N \l__ord_label_sep_dim
+\dim_new:N \l__ord_col_sep_dim
+\dim_new:N \l__ord_text_width_dim
+\dim_set:Nn \l__ord_label_width_dim { 1.5em }
+\dim_set:Nn \l__ord_label_sep_dim { 0.8em }
+\dim_set:Nn \l__ord_col_sep_dim { 1.5em }
+
+\dim_new:N \l__ord_before_first_question_dim
+\dim_new:N \l__ord_after_question_text_dim
+\dim_new:N \l__ord_between_questions_dim
+\dim_new:N \l__ord_after_options_dim
+\dim_new:N \l__ord_between_option_lines_dim
+
+\dim_set:Nn \l__ord_before_first_question_dim { 0.5em }
+\dim_set:Nn \l__ord_after_question_text_dim { 0.3em }
+\dim_set:Nn \l__ord_between_questions_dim { 0.1em }
+\dim_set:Nn \l__ord_after_options_dim { 0.3em }
+\dim_set:Nn \l__ord_between_option_lines_dim { 0.3em }
+
+\NewDocumentEnvironment{Ordering}{ O{4} }
+  {
+    \int_set:Nn \l__ord_columns_int {#1}
+    \int_zero:N \l__ord_question_counter_int
+    \int_zero:N \l__ord_option_counter_int
+    \tl_clear:N \l__ord_answer_tl
+    \seq_clear:N \l__ord_options_seq
+    \seq_clear:N \l__ord_original_order_seq
+    \bool_set_false:N \l__ord_answer_pending_bool
+    \par
+  }
+  {
+    \int_compare:nNnT { \l__ord_option_counter_int } > { 0 }
+      { \__ord_display_options: }
+    \par
+  }
+
+\NewDocumentCommand{\OrderQuestion}{ m }
+  {
+    \int_compare:nNnT { \l__ord_option_counter_int } > { 0 }
+      {
+        \__ord_display_options:
+        \par\vspace{\l__ord_after_options_dim}
+      }
+
+    \int_incr:N \l__ord_question_counter_int
+
+    \int_compare:nNnTF { \l__ord_question_counter_int } = { 1 }
+      { \par\vspace{\l__ord_before_first_question_dim} }
+      { \par\vspace{\l__ord_between_questions_dim} }
+
+    \par\noindent
+    \makebox[2.65mm][c]{\bfseries\ArNum{\l__ord_question_counter_int}}%
+    \makebox[2.65mm][r]{\bfseries.}%
+    \hspace{0.7mm}%
+    \parbox[t]{\dim_eval:n{\linewidth-6.0mm}}{
+      \setlength{\baselineskip}{1.3\normalbaselineskip}
+      \bfseries#1}
+
+    \par\vspace{\l__ord_after_question_text_dim}
+
+    \int_zero:N \l__ord_option_counter_int
+    \seq_clear:N \l__ord_options_seq
+    \seq_clear:N \l__ord_original_order_seq
+    \bool_set_false:N \l__ord_answer_pending_bool
+  }
+
+\NewDocumentCommand{\OrderOption}{ m }
+  {
+    \int_incr:N \l__ord_option_counter_int
+    \seq_put_right:Nn \l__ord_options_seq {#1}
+    \seq_put_right:Nn \l__ord_original_order_seq {#1}
+  }
+
+\NewDocumentCommand{\OrderAnswer}{ O{5mm} }
+  {
+    \bool_set_true:N \l__ord_answer_pending_bool
+    \dim_set:Nn \l__ord_answer_width_dim {#1}
+  }
+
+\cs_new_protected:Npn \__ord_print_answer:
+  {
+    \par\noindent
+    الترتيب:\quad
+
+    \int_step_inline:nn { \l__ord_option_counter_int }
+      {
+        \underline{\hspace{\l__ord_answer_width_dim}}\,
+        \int_compare:nNnT { ##1 } < { \l__ord_option_counter_int } { ,\ }
+      }
+    \par\vspace{0.5\baselineskip}
+  }
+
+\cs_new_protected:Npn \__ord_display_options:
+  {
+    \int_compare:nNnT { \l__ord_option_counter_int } = { 0 }
+      {
+        \msg_warning:nn { ord } { no-options }
+        \par
+        \scan_stop:
+      }
+
+    \seq_shuffle:N \l__ord_options_seq
+
+    \int_set:Nn \l_tmpa_int
+      { \int_mod:nn { \l__ord_option_counter_int } { \l__ord_columns_int } }
+
+    \int_compare:nNnT { \l_tmpa_int } > { 0 }
+      {
+        \int_set:Nn \l_tmpb_int { \l__ord_columns_int - \l_tmpa_int }
+        \prg_replicate:nn { \l_tmpb_int }
+          { \seq_put_right:Nn \l__ord_options_seq { \hspace{0pt} } }
+      }
+
+    \dim_set:Nn \l_tmpb_dim
+      { \int_eval:n { \l__ord_columns_int - 1 } \l__ord_col_sep_dim }
+    \dim_set:Nn \l_tmpa_dim
+      { ( \linewidth - \l_tmpb_dim ) / \l__ord_columns_int }
+
+    \dim_set:Nn \l__ord_text_width_dim
+      { \dim_eval:n
+        { \l_tmpa_dim - \l__ord_label_width_dim - \l__ord_label_sep_dim }
+      }
+
+    \dim_compare:nNnT { \l__ord_text_width_dim } < { 0pt }
+      { \dim_set:Nn \l__ord_text_width_dim { 0pt } }
+
+    \noindent
+    \int_step_inline:nn { \seq_count:N \l__ord_options_seq }
+      {
+        \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l__ord_options_seq { ##1 } }
+
+        \makebox[\l_tmpa_dim][r]
+          {
+            \makebox[\l__ord_label_width_dim][l]
+              {
+                \int_compare:nNnTF { ##1 } > { \l__ord_option_counter_int }
+                  { \hspace{0pt} }
+                  { \seq_item:Nn \g_exam_letters_seq {##1}) }
+              }%
+            \hspace{\l__ord_label_sep_dim}%
+            \parbox[t]{\l__ord_text_width_dim}
+              {
+                \setlength{\baselineskip}{1.3\normalbaselineskip}
+                \raggedleft
+                \arbstrut
+                \l_tmpb_tl
+                \par
+              }
+          }
+
+        \int_compare:nNnF
+          { \int_mod:nn {##1} { \l__ord_columns_int } } = { 0 }
+          { \hspace{\l__ord_col_sep_dim} }
+
+        \int_compare:nNnT
+          { \int_mod:nn {##1} { \l__ord_columns_int } } = { 0 }
+          {
+            \par\prevdepth=\dp\strutbox%
+            \vspace{\l__ord_between_option_lines_dim}
+          }
+      }
+    \par
+
+    \__ord_build_correct_order:
+
+    \bool_if:NT \l__ord_answer_pending_bool
+      {
+        \__ord_print_answer:
+        \bool_set_false:N \l__ord_answer_pending_bool
+      }
+  }
+
+\cs_new_protected:Npn \__ord_build_correct_order:
+  {
+    \tl_clear:N \l_tmpa_tl
+
+    \int_step_inline:nn { \l__ord_option_counter_int }
+      {
+        \int_zero:N \l_tmpb_int
+        \tl_set:Nx \l_tmpb_tl
+          { \seq_item:Nn \l__ord_original_order_seq {##1} }
+
+        \int_step_inline:nn { \l__ord_option_counter_int }
+          {
+            \tl_set:Nx \l_tmpc_tl
+              { \seq_item:Nn \l__ord_options_seq {####1} }
+            \tl_if_eq:NNT \l_tmpb_tl \l_tmpc_tl
+              { \int_set:Nn \l_tmpb_int {####1} }
+          }
+
+        \tl_put_right:Nx \l_tmpa_tl
+          { \seq_item:Nn \g_exam_letters_seq { \int_use:N \l_tmpb_int } }
+
+        \int_compare:nNnF {##1} = { \l__ord_option_counter_int }
+          { \tl_put_right:Nn \l_tmpa_tl { ~،~ } }
+      }
+
+    \tl_put_right:Nx \l__ord_answer_tl
+      {
+        \exp_not:N \makebox[4em][r]
+          {
+            (\ArNum{\l__ord_question_counter_int})
+            ~{$\;\Leftarrow\;$}~
+            \l_tmpa_tl
+          }%
+        \par
+      }
+    \tl_gset_eq:NN \g__question_answer_tl \l__ord_answer_tl
+  }
+
+\msg_new:nnn { ord } { no-options }
+  {
+    تحذير:~لا~توجد~خيارات~للسؤال~\int_use:N \l__ord_question_counter_int.
+  }
+
+\int_new:N \l__fb_question_counter_int
+\tl_new:N \l__fb_answer_tl
+\bool_new:N \l__fb_wordbank_bool
+
+\dim_const:Nn \l__fb_number_width_dim { 5.3mm }
+
+\dim_new:N \l__fb_before_first_question_dim
+\dim_new:N \l__fb_between_questions_dim
+\dim_set:Nn \l__fb_before_first_question_dim { 0.2em }
+\dim_set:Nn \l__fb_between_questions_dim { 0.5em }
+
+\NewDocumentEnvironment{FillBlank}{ O{false} }
+  {
+    \int_zero:N \l__fb_question_counter_int
+    \tl_clear:N \l__fb_answer_tl
+    \str_if_eq:nnTF {#1} {true}
+      { \bool_set_true:N \l__fb_wordbank_bool }
+      { \bool_set_false:N \l__fb_wordbank_bool }
+  }
+  {
+    \smallskip
+    \tl_gset_eq:NN \g__question_answer_tl \l__fb_answer_tl
+  }
+
+\NewDocumentCommand{\WordBank}{ O{\quad} m }
+  {
+    \bool_if:NT \l__fb_wordbank_bool
+      {
+        \par\vspace{0.5em}\noindent
+
+        \tl_clear:N \l_tmpa_tl
+        \clist_set:Nn \l_tmpa_clist {#2}
+
+        \hbox_set:Nn \l_tmpa_box { \clist_use:Nn \l_tmpa_clist {#1} }
+        \dim_set:Nn \l_tmpa_dim { \box_wd:N \l_tmpa_box }
+
+        \dim_set:Nn \l_tmpb_dim { 0.9\linewidth }
+
+        \dim_compare:nNnTF { \l_tmpa_dim } > { \l_tmpb_dim }
+          { \dim_set:Nn \l_tmpa_dim { \l_tmpb_dim } }
+          { }
+
+        \dim_add:Nn \l_tmpa_dim { 10pt }
+
+        \makebox[\linewidth][c]
+          {
+            \fbox
+              {%
+                \begin{minipage}{\l_tmpa_dim}
+                  \centering
+                  \vspace{4pt}
+                  \setlength{\baselineskip}{1.3\normalbaselineskip}
+                  \clist_use:Nn \l_tmpa_clist {#1}
+                  \vspace{3pt}
+                \end{minipage}%
+              }
+          }%
+        \par\vspace{0.5em}
+      }
+  }
+
+\NewDocumentCommand{\Blank}{ O{15mm} }
+  { \underline{\hspace{#1}} }
+
+\NewDocumentCommand{\FullBlank}{}
+  { \leavevmode\unskip\enspace\hrulefill\enspace }
+
+\NewDocumentCommand{\FillQuestion}{ m m }
+  {
+    \int_incr:N \l__fb_question_counter_int
+
+    \int_compare:nNnTF { \l__fb_question_counter_int } = { 1 }
+      { \par\vspace{\l__fb_before_first_question_dim} }
+      { \par\vspace{\l__fb_between_questions_dim} }
+
+    \par\noindent
+
+    \makebox[2.65mm][c]{\ArNum{\l__fb_question_counter_int}}%
+    \makebox[2.65mm][r]{.}%
+
+    \parbox[t]{\dim_eval:n{\linewidth-6.0mm}}
+      {
+        \setlength{\baselineskip}{1.3\normalbaselineskip}
+        \arbstrut#1
+        \par
+      }
+    \par\prevdepth=\dp\strutbox%
+
+    \tl_put_right:Nx \l__fb_answer_tl
+      {
+        \exp_not:N (\ArNum{\l__fb_question_counter_int})
+        ~{$\;\Leftarrow\;$}~
+        #2%
+        \par
+      }
+  }
+
+\seq_new:N \l__match_left_seq      % التعريفات (سيظهر في اليسار)
+\seq_new:N \l__match_right_seq     % المصطلحات (سيظهر في اليمين)
+\seq_new:N \l__match_index_seq
+\int_new:N \l__match_count_int
+\tl_new:N  \l__match_answer_tl
+
+\dim_new:N \l__match_label_width_dim
+\dim_new:N \l__match_label_sep_dim
+\dim_new:N \l__match_col_sep_dim
+\dim_new:N \l__match_left_text_width_dim
+\dim_new:N \l__match_right_text_width_dim
+\dim_new:N \l__match_left_width_dim
+\dim_new:N \l__match_right_width_dim
+
+\dim_new:N \l__match_before_first_dim
+\dim_new:N \l__match_between_pairs_dim
+
+\dim_set:Nn \l__match_label_width_dim { 1.75em }
+\dim_set:Nn \l__match_label_sep_dim { 0.5em }
+\dim_set:Nn \l__match_col_sep_dim { 2em }
+\dim_set:Nn \l__match_before_first_dim { 0.5em }
+\dim_set:Nn \l__match_between_pairs_dim { 0.2em }
+
+\msg_new:nnn { matching } { empty-pair }
+  {
+    خطأ~في~نمط~التوصيل:~لا~يوجد~أزواج!~
+    أضف~أزواجاً~باستخدام~\token_to_str:N \MatchPair.
+  }
+
+\msg_new:nnn { matching } { odd-number }
+  {
+    تحذير:~عدد~العناصر~في~العمودين~غير~متساوٍ.~
+    العمود~الأيمن:~#1،~العمود~الأيسر:~#2.
+  }
+
+\NewDocumentEnvironment{Matching}{ O{0.5} }
+  {
+    \seq_clear:N \l__match_left_seq
+    \seq_clear:N \l__match_right_seq
+    \seq_clear:N \l__match_index_seq
+    \tl_clear:N  \l__match_answer_tl
+
+    \dim_set:Nn \l__match_right_width_dim
+      { #1\linewidth - \l__match_label_width_dim - \l__match_label_sep_dim }
+    \dim_set:Nn \l__match_left_width_dim
+      { \linewidth - \l__match_right_width_dim - \l__match_col_sep_dim }
+
+    \dim_set:Nn \l__match_right_text_width_dim
+      { \l__match_right_width_dim
+        - \l__match_label_width_dim
+        - \l__match_label_sep_dim }
+    \dim_set:Nn \l__match_left_text_width_dim
+      { \l__match_left_width_dim
+        - \l__match_label_width_dim
+        - \l__match_label_sep_dim }
+  }
+  {
+    \int_compare:nNnT { \seq_count:N \l__match_left_seq } = { 0 }
+      { \msg_error:nn { matching } { empty-pair } }
+
+    \int_compare:nNnF { \seq_count:N \l__match_left_seq } =
+      { \seq_count:N \l__match_right_seq }
+      {
+        \msg_warning:nnx { matching } { odd-number }
+          { \int_use:N \seq_count:N \l__match_left_seq }
+          { \int_use:N \seq_count:N \l__match_right_seq }
+      }
+
+    \int_set:Nn \l__match_count_int
+      { \seq_count:N \l__match_right_seq }
+
+    \int_step_inline:nn { \l__match_count_int }
+      { \seq_put_right:Nn \l__match_index_seq {##1} }
+
+    \seq_shuffle:N \l__match_index_seq
+
+    \par\vspace{\l__match_before_first_dim}
+    \noindent
+    \begin{minipage}[t]{\l__match_right_width_dim}
+      \raggedleft
+      \int_step_inline:nn { \l__match_count_int }
+        {
+          \makebox[\l__match_label_width_dim][l]
+            { \ArNum{##1}) }%
+          \hspace{\l__match_label_sep_dim}%
+          \parbox[t]{\l__match_right_text_width_dim}
+            {
+              \setlength{\baselineskip}{1.3\normalbaselineskip}
+              \raggedleft
+              \arbstrut
+              \seq_item:Nn \l__match_right_seq {##1}
+              \par
+              \vspace{0.1em}
+            }
+          \par\prevdepth=\dp\strutbox%
+          \vspace{\l__match_between_pairs_dim}
+        }
+    \end{minipage}
+    \hspace{\l__match_col_sep_dim}
+    \begin{minipage}[t]{\l__match_left_width_dim}
+      \raggedleft
+      \int_step_inline:nn { \l__match_count_int }
+        {
+          \makebox[\l__match_label_width_dim][l]
+            { \seq_item:Nn \g_exam_letters_seq {##1}) }%
+          \hspace{\l__match_label_sep_dim}%
+          \parbox[t]{\l__match_left_text_width_dim}
+            {
+              \setlength{\baselineskip}{1.3\normalbaselineskip}
+              \raggedleft
+              \arbstrut
+              \seq_item:Nn \l__match_left_seq
+                { \seq_item:Nn \l__match_index_seq {##1} }
+              \par
+              \vspace{0.1em}
+            }
+          \par\prevdepth=\dp\strutbox%
+          \vspace{\l__match_between_pairs_dim}
+        }
+    \end{minipage}
+    \par\vspace{0.1em}
+
+    \tl_clear:N \l__match_answer_tl
+
+    \int_step_inline:nn { \l__match_count_int }
+      {
+        \int_zero:N \l_tmpa_int
+
+        \int_step_inline:nn { \l__match_count_int }
+          {
+            \int_compare:nNnT
+              { \seq_item:Nn \l__match_index_seq {####1} } = { ##1 }
+              { \int_set:Nn \l_tmpa_int {####1} }
+          }
+
+        \tl_put_right:Nx \l__match_answer_tl
+          {
+            \exp_not:N \makebox[5.25em][r]
+              {
+                (\ArNum{##1})
+                ~{$\;\Leftarrow\;$}~
+                (\seq_item:Nn \g_exam_letters_seq
+                  { \int_use:N \l_tmpa_int })
+              }%
+            \qquad
+          }
+      }
+
+    \tl_gset_eq:NN \g__question_answer_tl \l__match_answer_tl
+  }
+
+\NewDocumentCommand{\MatchPair}{mm}
+  {
+    \seq_put_right:Nn \l__match_left_seq  {#1}   % التعريفات
+    \seq_put_right:Nn \l__match_right_seq {#2}   % المصطلحات
+  }
+
+\int_new:N \l__essay_question_counter_int
+\tl_new:N \l__essay_answer_tl
+\bool_new:N \l__essay_lines_bool
+
+\dim_const:Nn \l__essay_number_width_dim { 5.3mm }
+\dim_new:N \l__essay_line_skip_dim
+\dim_set:Nn \l__essay_line_skip_dim { 0.4\baselineskip }
+
+\dim_new:N \l__essay_before_first_question_dim
+\dim_new:N \l__essay_between_questions_dim
+\dim_new:N \l__essay_after_question_dim
+\dim_new:N \l__essay_user_line_skip_dim
+
+\dim_set:Nn \l__essay_before_first_question_dim { 0.5em }
+\dim_set:Nn \l__essay_between_questions_dim { 0.8\baselineskip }
+\dim_set:Nn \l__essay_after_question_dim { 0.7\baselineskip }
+\dim_set:Nn \l__essay_user_line_skip_dim { 1.4\baselineskip }
+
+\NewDocumentEnvironment{Essay}{ O{true} }
+  {
+    \int_zero:N \l__essay_question_counter_int
+    \tl_clear:N \l__essay_answer_tl
+
+    \str_if_eq:nnTF {#1} {true}
+      { \bool_set_true:N \l__essay_lines_bool }
+      { \bool_set_false:N \l__essay_lines_bool }
+  }
+  {
+    \tl_gset_eq:NN \g__question_answer_tl \l__essay_answer_tl
+  }
+
+\NewDocumentCommand{\EssayQuestion}{ O{4} m m }
+  {
+    \int_incr:N \l__essay_question_counter_int
+
+    \int_compare:nNnTF { \l__essay_question_counter_int } = { 1 }
+      { \par\vspace{\l__essay_before_first_question_dim} }
+      { \par\vspace{\l__essay_between_questions_dim} }
+
+    \par\noindent
+    \makebox[2.65mm][c]{\ArNum{\l__essay_question_counter_int}}%
+    \makebox[2.65mm][r]{.}%
+    \hspace{0.7mm}%
+    \parbox[t]{\dim_eval:n{\linewidth-6.0mm}}
+      {
+        \setlength{\baselineskip}{1.3\normalbaselineskip}
+        #2
+        \par
+      }
+    \par\prevdepth=\dp\strutbox%
+    \par\vspace{\l__essay_after_question_dim}
+
+    \bool_if:NTF \l__essay_lines_bool
+      {
+        \int_step_inline:nn {#1}
+          {
+            \noindent
+            \hspace*{6.0mm}%
+            \rule{\dim_eval:n{\linewidth-6.0mm}}{0.4pt}
+            \par\vspace{\l__essay_line_skip_dim}
+          }
+      }
+      {
+        \int_step_inline:nn {#1}
+          {
+            \par\vspace{\l__essay_user_line_skip_dim}
+          }
+      }
+
+    \tl_put_right:Nx \l__essay_answer_tl
+      {
+        \exp_not:N (\ArNum{\l__essay_question_counter_int})
+        ~{$\;\Leftarrow\;$}~
+        #3
+        \par
+      }
+  }
+
+\int_new:N \l__short_question_counter_int
+\tl_new:N \l__short_answer_tl
+\bool_new:N \l__short_lines_bool
+
+\dim_const:Nn \l__short_number_width_dim { 5.3mm }
+
+\dim_new:N \l__short_line_height_dim
+\dim_new:N \l__short_line_after_dim
+\dim_set:Nn \l__short_line_height_dim { 0.4\baselineskip }
+\dim_set:Nn \l__short_line_after_dim { 0.4\baselineskip }
+
+\dim_new:N \l__short_before_first_question_dim
+\dim_new:N \l__short_between_questions_dim
+\dim_new:N \l__short_after_question_dim
+
+\dim_set:Nn \l__short_before_first_question_dim { 0.5em }
+\dim_set:Nn \l__short_between_questions_dim { 0.1\baselineskip }
+\dim_set:Nn \l__short_after_question_dim { 0.7\baselineskip }
+
+\NewDocumentEnvironment{ShortAnswer}{ O{true} }
+  {
+    \int_zero:N \l__short_question_counter_int
+    \tl_clear:N \l__short_answer_tl
+
+    \str_if_eq:nnTF {#1} {true}
+      { \bool_set_true:N \l__short_lines_bool }
+      { \bool_set_false:N \l__short_lines_bool }
+  }
+  {
+    \tl_gset_eq:NN \g__question_answer_tl \l__short_answer_tl
+  }
+
+\NewDocumentCommand{\ShortQuestion}{ O{1} m m }
+  {
+    \int_incr:N \l__short_question_counter_int
+
+    \int_set:Nn \l_tmpa_int {#1}
+    \int_compare:nNnT {#1} > { 2 }
+      { \int_set:Nn \l_tmpa_int { 2 } }
+
+    \int_compare:nNnTF { \l__short_question_counter_int } = { 1 }
+      { \par\vspace{\l__short_before_first_question_dim} }
+      { \par\vspace{\l__short_between_questions_dim} }
+
+    \par\noindent
+    \makebox[2.65mm][c]{\ArNum{\l__short_question_counter_int}}%
+    \makebox[2.65mm][r]{.}%
+    \hspace{0.7mm}%
+    \parbox[t]{\dim_eval:n{\linewidth-6.0mm}}
+      {
+        \setlength{\baselineskip}{18pt}
+        #2
+        \int_compare:nNnT { \l_tmpa_int } = { 0 }
+          { \quad \underline{\hspace{7em}} }
+      }
+    \par\prevdepth=\dp\strutbox%
+    \vspace{\l__short_after_question_dim}
+
+    \int_compare:nNnT { \l_tmpa_int } > { 0 }
+      {
+        \int_step_inline:nn { \l_tmpa_int }
+          {
+            \par
+            \noindent
+            \hspace*{6.0mm}%
+            \rule{\dim_eval:n{\linewidth-6.0mm}}
+              { \bool_if:NTF \l__short_lines_bool {0.4pt} {0pt} }
+            \par\vspace{\l__short_line_height_dim}
+          }
+        \vspace{\l__short_line_after_dim}
+      }
+    \par
+
+    \tl_put_right:Nx \l__short_answer_tl
+      {
+        \exp_not:N (\ArNum{\l__short_question_counter_int})
+        ~{$\;\Leftarrow\;$}~
+        #3
+        \par
+      }
+  }
+
+\NewDocumentEnvironment{ReadingPassage}{ O{} m }
+  {
+    \par
+    \begin{tcolorbox}[
+      enhanced,
+      breakable,
+      colback=white,
+      colframe=black,
+      arc=0pt,
+      outer~arc=0pt,
+      boxrule=1pt,
+      top=10pt,
+      bottom=10pt,
+      left=10pt,
+      right=10pt,
+      parbox=true,
+      fontupper=\linespread{1.4}\selectfont,
+      before~upper={\begin{RTL}},
+      after~upper={\end{RTL}},
+      coltitle=black,
+      fonttitle=\bfseries,
+      title={\textbf{\tl_if_empty:nTF {#2} {قطعة~القراءة} {#2}}},
+      #1,
+      attach~boxed~title~to~top~center={
+        yshift=-3mm,
+        yshifttext=-1mm
+      },
+      boxed~title~style={
+        colback=white,
+        colframe=white,
+        left=5pt, right=5pt
+      }
+    ]
+  }
+  {
+    \end{tcolorbox}
+    \par\smallskip
+  }
+
+\ExplSyntaxOff
+
+
+
+\endinput
+%%
+%% End of file `exam-rtl.sty'.
