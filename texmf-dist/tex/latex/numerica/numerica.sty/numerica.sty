@@ -1,0 +1,3702 @@
+% This is file `numerica.sty'.
+%
+% This work may be distributed and/or modified under the conditions
+% of the LaTeX Project Public License, either version 1.3c of this 
+% license or any later version; see
+% http://www.latex-project.org/lppl.txt
+%
+% Andrew Parsloe (ajparsloe@gmail.com)
+%
+\RequirePackage{amsmath,mathtools}
+\ProvidesExplPackage{numerica} {2023/08/19} {3.0.0}
+  {Numerically evaluate mathematical expressions in their LaTeX form}
+
+\tl_const:Nn \c_nmc_version_tl { 30 }
+\bool_new:N \l__nmc_dec_comma_bool
+\keys_define:nn { numerica/package }
+  { 
+    comma   .bool_set:N = \l__nmc_dec_comma_bool,
+    comma    .default:n = true,
+    comma    .initial:n = false,
+    rounding .int_set:N = \l__nmc_round_int,
+    rounding .initial:n = 6,
+    approx    .tl_set:N = \l__nmc_eq_tl,
+    approx   .default:n = \approx,
+    approx   .initial:n = {=}
+  }
+\ProcessKeyOptions [ numerica/package ]
+% *unspaced* decimal comma
+\bool_if:NTF \l__nmc_dec_comma_bool
+  {
+    \tl_const:Nn \c__nmc_vv_delim_tl {;}
+    \mathchardef \nmcComma \mathcode`,
+    \AtBeginDocument
+      { 
+        \char_set_active_eq:nN { `, } \__nmc_dec_comma:
+        \char_set_mathcode:nn { `, } { "8000 }
+      }
+  }
+  { \tl_const:Nn \c__nmc_vv_delim_tl {,} }
+
+\cs_new_protected:Npn \__nmc_dec_comma:
+  { \peek_after:Nw \__nmc_check_for_digit:  }
+\cs_new:Npn \__nmc_check_for_digit:
+  {
+    \token_case_charcode:NnTF \l_peek_token 
+        { {0}{} {1}{} {2}{} {3}{} {4}{} {5}{} {6}{} {7}{} {8}{} {9}{} }
+      { { \nmcComma } } { \nmcComma }
+  }
+% \sgn \lb; missing hyp & inverse trig & hyp fns
+\cs_new:Npn \__nmc_fn_def:N #1
+  { \cs_if_free:NT #1 { \DeclareMathOperator{#1}{\cs_to_str:N #1} } }
+\cs_generate_variant:Nn \__nmc_fn_def:N { c }
+\AtBeginDocument 
+  {
+    \clist_map_inline:nn { sgn, lb } { \__nmc_fn_def:c {#1} } 
+    \clist_map_inline:nn { csch, sech } { \__nmc_fn_def:c {#1} }
+    \clist_map_inline:nn { csc, sec, cot } { \__nmc_fn_def:c {arc#1} }
+    \clist_map_inline:nn { sinh, cosh, tanh, csch, sech, tanh }
+      { 
+        \__nmc_fn_def:c {a#1} 
+        \__nmc_fn_def:c {ar#1} 
+        \__nmc_fn_def:c {arc#1} 
+      }
+    \cs_if_free:NT \abs {\DeclarePairedDelimiter{\abs}{\lvert}{\rvert} }
+    \cs_if_free:NT \ceil { \DeclarePairedDelimiter{\ceil}{\lceil}{\rceil} }
+    \cs_if_free:NT \floor { \DeclarePairedDelimiter{\floor}{\lfloor}{\rfloor} }
+    \cs_if_free:NT \sfrac 
+      { 
+        \NewDocumentCommand \sfrac { mm } 
+          { 
+            \mathchoice{{\scriptstyle #1/#2}} {{\scriptstyle #1/#2}}
+                {{\scriptscriptstyle #1/#2}} {{#1/#2}} 
+          }
+      }
+  }
+\RenewDocumentCommand \land {} { \,\wedge\, }
+\RenewDocumentCommand \lor {} { \,\vee\, }
+\NewDocumentCommand \Q {} { \prg_do_nothing: } % Qleave apart
+\NewDocumentCommand \q {} { \prg_do_nothing: } % qleave to 
+\ProvideDocumentCommand \comma {} {,}
+\ProvideDocumentCommand \equals {} { \ensuremath{=} }
+\ProvideDocumentCommand \degree {} { \ensuremath{^\circ} }
+%
+\int_const:Nn \c__nmc_and_int { 0 }
+\int_const:Nn \c__nmc_cmp_int { 1 }
+\int_const:Nn \c__nmc_sum_int { 2 }
+\int_const:Nn \c__nmc_uny_int { 3 }
+\int_const:Nn \c__nmc_prn_int { 4 }
+\int_const:Nn \c__nmc_srd_int { 5 }
+\int_new:N \l__nmc_num_sgn_int % tables
+\tl_new:N \l__nmc_toss_tl
+\tl_new:N \l__nmca_tl
+\fp_new:N \l_tmpc_fp 
+\fp_new:N \l_tmpd_fp
+\int_new:N \l__nmca_int
+\seq_new:N \l_tmpc_seq
+%
+\cs_if_exist:NTF \seq_map_pairwise_function:NNN
+  { \cs_set_eq:NN \__nmc_braid:NNN \seq_map_pairwise_function:NNN }
+  { \cs_set_eq:NN \__nmc_braid:NNN \seq_mapthread_function:NNN } 
+\cs_if_exist:NF \int_if_zero_p:n
+  {
+    \prg_new_conditional:Npnn \int_if_zero:n #1 { p,T,F,TF }
+      { 
+        \int_compare:nNnTF { #1 } = { 0 } 
+          { \prg_return_true: } 
+          { \prg_return_false: } 
+      }
+  } 
+\prg_new_conditional:Npnn \__nmc_if_mod_zero:nn #1#2 { p,T,F,TF }
+  {
+    \bool_if:nTF
+        {
+          !\int_compare_p:nNn { #1 } = { 0 } &&
+          \int_compare_p:nNn { \int_mod:nn { #1 } { #2 } } = { 0 } 
+        }
+      { \prg_return_true: } 
+      { \prg_return_false: }
+  }
+% fpify & delim property lists
+\prop_new:N \g__nmc_class_prop % latex tokens
+
+% #1(clist) tokens; #2(tl) { fpify: delim: } routines
+\cs_new_protected:Npn \__nmc_fill_class:nn #1#2
+  {
+    \clist_map_inline:nn { #1 }
+      { \prop_gput:Nnn \g__nmc_class_prop { ##1 } { #2 } }
+  }
+%
+\__nmc_fill_class:nn { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0 } 
+  { \__nmc_fpify_dec: \__nmc_delim_dec: }
+\__nmc_fill_class:nn { e, \pi, \gamma, \phi, \deg, \infty }
+  { \__nmc_fpify_const: \__nmc_delim_const: }
+% arith
+\__nmc_fill_class:nn { +, - }
+  { \__nmc_fpify_arith: \__nmc_delim_pm: }
+\prop_put:Nnn \g__nmc_class_prop { * }
+  { \__nmc_fpify_arith: \__nmc_delim_arith: }
+\prop_put:Nnn \g__nmc_class_prop { / }
+  { \__nmc_fpify_slash: \__nmc_delim_arith: }
+\__nmc_fill_class:nn { \times, \cdot, \div }
+  { \__nmc_fpify_arith_alt: \__nmc_delim_arith: }
+\prop_put:Nnn \g__nmc_class_prop { ^ }
+  { \__nmc_fpify_power: \__nmc_delim_power: }
+\__nmc_fill_class:nn { \frac, \dfrac }
+  { \__nmc_fpify_frac: \__nmc_delim_frac: }
+\__nmc_fill_class:nn { \tfrac, \sfrac }
+  { \__nmc_fpify_frac: \__nmc_delim_tfrac: }
+% comparisons
+\__nmc_fill_class:nn 
+    {
+      =, <, >, \ne, \neq, \nless, \ngtr,
+      \ge, \geq, \geqq, \geqslant, \le, \leq, \leqq, \leqslant,
+      \ngeq, \ngeqq, \ngeqslant, nleq, \nleqq, \nleqslant,
+    } 
+  { \__nmc_fpify_comparison: \__nmc_delim_comparison: }
+% logic, surd
+\__nmc_fill_class:nn { \wedge, \land, \vee, \lor }
+  { \__nmc_fpify_andor: \__nmc_delim_andor: }
+\__nmc_fill_class:nn { \surd, \neg, \lnot }
+    { \__nmc_fpify_surd: \__nmc_delim_surd: }
+% left
+\__nmc_fill_class:nn { (, [, \{, \lparen, \lbrack, \lbrace }
+  { \__nmc_fpify_lparen: \__nmc_delim_lparen: }
+\__nmc_fill_class:nn { |, \lvert, \lfloor, \lceil }
+  { \__nmc_fpify_lvert: \__nmc_delim_lvert: }
+\__nmc_fill_class:nn { \left, \mleft, \bigl, \Bigl, \biggl, \Biggl }
+  { \__nmc_fpify_lmod: \__nmc_delim_lmod: } 
+% right
+\__nmc_fill_class:nn { \right, \mright, \bigr, \Bigr, \biggr, \Biggr }
+  { \__nmc_fpify_rmod: \__nmc_delim_rparen: } 
+% unary fns: f 
+\__nmc_fill_class:nn
+    { 
+      \sin, \cos, \tan, \csc, \sec, \cot,
+      \arcsin, \arccos, \arctan, \arccsc, \arcsec, \arccot,
+      \sinh, \cosh, \tanh, \csch, \sech, \coth,
+      \asinh, \acosh, \atanh, \acsch, \asech, \acoth,
+      \arsinh, \arcosh, \artanh, \arcsch, \arsech, \arcoth,
+      \arcsinh, \arccosh, \arctanh, \arccsch, \arcsech, \arccoth,
+      \exp, \ln, \lg, \lb, \sgn
+    }
+  { \__nmc_fpify_unary: \__nmc_delim_unary: }
+\prop_put:Nnn \g__nmc_class_prop { \degree }
+  { \__nmc_fpify_degree: \__nmc_delim_append: }
+% factorial
+\prop_put:Nnn \g__nmc_class_prop { ! }
+  { \__nmc_fpify_fact: \__nmc_delim_fact: }
+% f{}
+\__nmc_fill_class:nn  { \sqrt, \abs, \floor, \ceil }
+  { \__nmc_fpify_unarybrace: \__nmc_delim_unarybrace: }
+% binary ( f_{arg1}{arg2}, f{arg1}{arg2} )
+\prop_put:Nnn \g__nmc_class_prop { \log }
+  { \__nmc_fpify_unarysub: \__nmc_delim_log: }
+\__nmc_fill_class:nn {  \tbinom, \binom, \dbinom }
+  { \__nmc_fpify_binom: \__nmc_delim_frac: }
+% nary f(arg1,...)
+\__nmc_fill_class:nn { \min, \max, \gcd }
+  { \__nmc_fpify_nary: \__nmc_delim_nary: }
+\bool_if:NTF \l__nmc_dec_comma_bool
+  { 
+    \prop_put:Nnn \g__nmc_class_prop { , }
+      { \__nmc_fpify_dec: \__nmc_delim_dec: }
+    \prop_put:Nnn \g__nmc_class_prop { ; }
+      {\__nmc_fpify_comma: \__nmc_delim_comma: } 
+  }
+  {
+    \prop_put:Nnn \g__nmc_class_prop { . }
+      { \__nmc_fpify_dec: \__nmc_delim_dec: }
+    \prop_put:Nnn \g__nmc_class_prop { , }
+      {\__nmc_fpify_comma: \__nmc_delim_comma: }
+  }
+% fontlike (ignore cmd; heed {arg} )
+\__nmc_fill_class:nn
+    { 
+      \mathrm, \mathit, \mathcal, \mathtt, \mathbf, \mathbb, 
+      \mathsf, \mathfrak, \mathscr, \mathnormal, \boldsymbol,
+      \ensuremath, \smash, \textrm, \textsf, \texttt,
+      \textit, \textsl, \textsc, \textbf
+    }
+  { \__nmc_fpify_font: \__nmc_delim_font: }
+% ignore cmd, [arg1], {arg2}; heed {arg3}
+\prop_put:Nnn \g__nmc_class_prop { \textcolor }
+  { \__nmc_fpify_color: \__nmc_delim_color: }  
+% splitfrac ( ignore cmd, heed {arg1}{arg2} )
+\__nmc_fill_class:nn { \splitfrac, \splitdfrac }
+  { \__nmc_fpify_splitfrac: \__nmc_delim_append_twobraced: }
+% absorb
+\__nmc_fill_class:nn
+    { 
+      {{}}, \\, &, \to, \q_nil, \dots, \ldots, \cdots,
+      \quad, \qquad, \hfill, \hfil, \mathstrut, $, \(, \), \[, \],
+      \ , \,, \;, \:, \!, \>, \thinspace, \medspace, \thickspace, 
+      \negthinspace, \negmedspace, \negthickspace, \lefteqn,
+      \displaystyle, \textstyle, \scriptstyle, \scriptscriptstyle,
+      \middle, \big, \Big, \bigg, \Bigg, \protect, 
+      \mleftright, \mleftrightrestore, \comma, \equals
+    }
+  { \prg_do_nothing: \__nmc_delim_absorb: }
+\__nmc_fill_class:nn 
+  { \vphantom, \hphantom, \phantom, \label, \mspace, \mbox, \text }
+  { \__nmc_fpify_absorb_m: \__nmc_delim_absorb_i: }
+\__nmc_fill_class:nn { \hspace }
+  { \__nmc_fpify_absorb_sm: \__nmc_delim_absorb_ii: } 
+\__nmc_fill_class:nn  { \xmathstrut, \color }
+  { \__nmc_fpify_absorb_om: \__nmc_delim_absorb_ii: }
+% kerning
+\__nmc_fill_class:nn { \mskip, \mkern }
+  { \__nmc_fpify_mkern: \__nmc_delim_mkern: }
+% ams environs f{arg1} (& f{arg1}{arg2} for aligned, aligned*) 
+\__nmc_fill_class:nn { \begin, \end } 
+  { \__nmc_fpify_BE: \__nmc_delim_BE: }
+% cleave
+\__nmc_fill_class:nn { \q, \Q  }
+  { \prg_do_nothing: \__nmc_delim_cleave: }
+% sum, prod
+\__nmc_fill_class:nn { \sum, \prod }
+  { \__nmc_fpify_sum: \__nmc_delim_sum: }
+% nmcFn
+\__nmc_fill_class:nn 
+    { 
+      \eval, \nmcEvaluate, \iter, \nmcIterate, \solve, \nmcSolve,
+      \recur, \nmcRecur, \tabulate, \nmcTabulate, \info, \nmcInfo,
+      \constants, \nmcConstants, \macros, \nmcMacros, \reuse, \nmcReuse
+    }
+  { \__nmc_fpify_cmd: \__nmc_delim_cmd: }
+% substitution classes %%%%%%%%%%%%%%%%%%%%%%%%%%
+\prop_new:N \l__nmc_subst_var_prop % variables
+\prop_new:N \g__nmc_subst_var_prop % macros (user & reuse)
+\prop_new:N \g__nmc_subst_fpfn_prop % math toks for l3fp eval
+\prop_new:N \g__nmc_subst_misc_prop % misc subst
+
+% #1 prop; #2 seq (keys); #3 seq (values)
+\cs_new_protected:Npn \__nmc_subst:NNN #1#2#3
+  {
+    \cs_set_protected:Npn \__nmc_substitutions:nn ##1##2
+      { \prop_gput:Nnn #1 { ##1 } { ##2 } }
+    \__nmc_braid:NNN #2 #3 \__nmc_substitutions:nn
+  }
+\seq_set_from_clist:Nn \l_tmpa_seq 
+  {
+    e, \pi, \gamma, \phi, \deg, \infty,
+    \sin, \cos, \tan, \csc, \sec, \cot,
+    \arcsin, \arccos, \arctan, \arccsc, \arcsec, \arccot,
+    \sinh, \cosh, \tanh, \csch, \sech, \coth, 
+    \asinh, \acosh, \atanh, \acsch, \asech, \acoth,
+    \arsinh, \arcosh, \artanh, \arcsch, \arsech, \arcoth,
+    \arcsinh, \arccosh, \arctanh, \arccsch, \arcsech, \arccoth,
+    \exp, \ln, \lg, \lb, \sgn, 
+    \max, \min, \surd, \sqrt, \times, \cdot, \div,
+    \abs, \floor, \ceil, \lvert, \lfloor, \lceil,
+    \neg, \lnot, \wedge, \land, \vee, \lor,
+    \le, \leq, \leqq, \leqslant, 
+    \ge, \geq, \geqq, \geqslant,
+    \ne, \neq, \nless, \ngtr,
+    \nleq, \nleqq,\nleqslant, \ngeq, \ngeqq, \ngeqslant 
+  }
+\seq_set_from_clist:Nn \l_tmpb_seq
+  {
+    exp(1), (pi), (0.5772156649015329), 
+    (1.618033988749895), (0.0174532925199433), inf,
+    sin\__nmc_deg:, cos\__nmc_deg:, tan\__nmc_deg:, 
+    csc\__nmc_deg:, sec\__nmc_deg:, cot\__nmc_deg:,
+    asin\__nmc_deg:, acos\__nmc_deg:, atan\__nmc_deg:,
+    acsc\__nmc_deg:, asec\__nmc_deg:, acot\__nmc_deg:,
+    sinh, cosh, tanh, csch, sech, coth,  
+    asinh, acosh, atanh, acsch, asech, acoth,
+    asinh, acosh, atanh, acsch, asech, acoth,
+    asinh, acosh, atanh, acsch, asech, acoth,
+    exp, ln, (0.4342944819032518)ln, (1.442695040888963)ln, sign,
+    max, min, sqrt, sqrt, *, *, /, 
+    abs, floor, ceil, abs, floor, ceil,
+    !, !, &&, &&, ||, ||,
+    <=, <=, <=, <=, >=, >=, >=, >=,
+    !=, !=, !<, !>, !<=, !<=, !<=, !>=, !>=, !>=
+  }
+\__nmc_subst:NNN \g__nmc_subst_fpfn_prop \l_tmpa_seq \l_tmpb_seq 
+
+\seq_set_from_clist:Nn \l_tmpa_seq
+  { 
+    \cosh, \sinh, \tanh, \csch, \sech, \coth,
+    (, [, \{, \lparen, \lbrack, \lbrace,
+    \left, \bigl, \Bigl, \biggl, \Biggl, 
+    \lvert, \lceil, \lfloor,
+    sum, prod, deriv, integ, iter, solve,
+    \eval, \nmcEvaluate, \iter, \nmcIterate, \solve, \nmcSolve,
+    \recur, \nmcRecur, \tabulate, \nmcTabulate, \info, \nmcInfo,
+    \constants, \nmcConstants, \macros, \nmcMacros, \reuse, \nmcReuse,
+    <=, =<, >=, =>
+  } 
+\seq_set_from_clist:Nn \l_tmpb_seq
+  { 
+    acosh, asinh, atanh, acsch, asech, acoth,
+    ), ], \}, \rparen, \rbrack, \rbrace,
+    \right, \bigr, \Bigr, \biggr, \Biggr, 
+    \rvert, \rceil, \rfloor,
+    term, factor, bisection, subdivision, iteration, step,
+    eval, eval, iter, iter, solve, solve,
+    recur, recur, table, table, info, info,
+    consts, consts, macros, macros, reuse, reuse,
+    \leq, \leq, \geq, \geq
+  }
+\__nmc_subst:NNN \g__nmc_subst_misc_prop \l_tmpa_seq \l_tmpb_seq
+% base function variants %%%%%%%%%%%%%%%%%%%%%%%%
+\cs_generate_variant:Nn \tl_if_head_eq_meaning_p:nN { V }
+\cs_generate_variant:Nn \tl_if_head_is_group:nTF { V }
+\cs_generate_variant:Nn \tl_if_in:NnTF { NV }
+\cs_generate_variant:Nn \tl_if_in:NnT { NV }
+\cs_generate_variant:Nn \tl_if_in:nnTF { nV }
+\cs_generate_variant:Nn \tl_if_in:nnT { nV }
+\cs_generate_variant:Nn \tl_if_eq:nnTF { V, VV }
+\cs_generate_variant:Nn \tl_if_eq:nnT  { V }
+\cs_generate_variant:Nn \tl_if_eq:nnF  { V }
+\cs_generate_variant:Nn \tl_replace_once:Nnn { NV, NnV, Nnx }
+\cs_generate_variant:Nn \tl_count_tokens:n { V }
+\cs_generate_variant:Nn \str_if_eq:nnTF { V }
+\cs_generate_variant:Nn \str_if_in:NnTF { NV }
+\cs_generate_variant:Nn \seq_set_split:Nnn { NV, NVV }
+\cs_generate_variant:Nn \seq_use:Nn { NV }
+\cs_generate_variant:Nn \prop_put_if_new:Nnn { No }
+\cs_generate_variant:Nn \iow_open:Nn { NV }
+\cs_generate_variant:Nn \iow_now:Nn  { NV }
+\cs_generate_variant:Nn \regex_extract_once:NnN { NV }
+\cs_generate_variant:Nn \keys_set_known:nn { x }
+\cs_generate_variant:Nn \file_get:nnN { V }
+\cs_generate_variant:Nn \file_get:nnNT { V }
+\cs_generate_variant:Nn \file_get:nnNTF { V }
+% environments
+\tl_new:N \l__nmc_equals_tl 
+\int_new:N \l__nmc_env_def_int % 0 undefined; 1 provisional; 2 defined
+\prop_new:N \g__nmc_env_prop
+\prop_new:N \g__nmc_envi_prop
+\prop_gput_from_keyval:Nn \g__nmc_env_prop
+  {
+    $           = \__nmc_math_env_sym:nnnnn {$}{}{}{}{$},
+    math        = \__nmc_math_env:nnnn
+                      {math}{}{\mskip 12muplus6muminus9mu(vv)}{\quad},
+    \(          = \__nmc_math_env_sym:nnnnn {\(}{}{}{}{\)},
+    \[          = \__nmc_math_env_sym:nnnnn 
+                      {\[}{}{\mskip 36muminus24mu(vv)}{\]\[}{\]},
+    displaymath = \__nmc_math_env:nnnn {displaymath}{}{}{},
+    equation    = \__nmc_math_env:nnnn {equation}{}{}{},
+    equation*   = \__nmc_math_env:nnnn {equation*}{}{}{},
+    multline    = \mode_if_math:TF 
+                      { \__nmc_math_env:nnnn {multline}{}{}{\hfill\\} }
+                      { \__nmc_math_env:nnnn {multline}{}{\\(vv)}{} },
+    multline*   = \mode_if_math:TF
+                      { \__nmc_math_env:nnnn {multline*}{}{}{\hfill\\} }
+                      { \__nmc_math_env:nnnn {multline*}{}{\\(vv)}{} },
+    eqnarray    = \__nmc_math_env_cum:nnnn {eqnarray}{&=&}
+                      {\mskip 36muminus24mu(vv)}{},
+    eqnarray*   = \__nmc_math_env_cum:nnnn {eqnarray*}{&=&}
+                      {\mskip 36muminus24mu(vv)}{},
+    align       = \__nmc_math_env_cum:nnnn {align}{}{}{},
+    align*      = \__nmc_math_env_cum:nnnn {align*}{}{}{},
+    gather      = \__nmc_math_env_cum:nnnn {gather}{=}
+                      {\mskip 12muplus6muminus9mu(vv)}{},
+    gather*     = \__nmc_math_env_cum:nnnn {gather*}{=}
+                      {\mskip 12muplus6muminus9mu(vv)}{},
+    flalign     = \__nmc_math_env_cum:nnnn {flalign}{}{}{},
+    flalign*    = \__nmc_math_env_cum:nnnn {flalign*}{}{}{},
+    alignat     = \__nmc_math_env_cum:nnnn {alignat}{&=\;&}{\qquad&(vv)}{}
+                      \tl_set:Nn \l__nmc_env_arg_tl {2},
+    alignat*    = \__nmc_math_env_cum:nnnn {alignat*}{&=\;&}{\qquad&(vv)}{} 
+                      \tl_set:Nn \l__nmc_env_arg_tl {2},
+  }
+\prop_gput_from_keyval:Nn \g__nmc_envi_prop
+  {
+    aligned     = \__nmc_math_env_cum:nnnn {aligned}{}{}{},
+    alignedat   = \__nmc_math_env_cum:nnnn {alignedat}{&=\;&}{\qquad&(vv)}{}
+                      \tl_set:Nn \l__nmc_env_arg_tl {2},
+    array       = \__nmc_math_env_cum:nnnn {array}{&=&}{&(vv)}{}
+                      \tl_set:Nn \l__nmc_env_arg_tl {rcrl},
+    gathered    = \__nmc_math_env_cum:nnnn {gathered}{=}
+                      {\mskip 12muplus6muminus9mu(vv)}{},
+    cases       = \__nmc_math_env_cum:nnnn {cases}{=}{\quad\hfill(vv)}{},
+    dcases      = \__nmc_math_env_cum:nnnn {dcases}{=}{\quad\hfill(vv)}{}
+  }
+% #1 env #2 equals #3 vv #4 multisep #5 \) et al or arg
+\cs_new_protected:Npn \__nmc_math_env_sym:nnnnn #1#2#3#4#5
+  { 
+    \__nmc_math_env_delims:nn {#1}{#5}
+    \__nmc_math_env_set:Vnnnn \c__nmc_vv_delim_tl{#1}{=}
+        {\mskip 12muplus6muminus9mu(vv)}{\quad}
+    \tl_if_blank:nF {#2#3#4} 
+      { \__nmc_math_env_aux:Vnnn \c__nmc_vv_delim_tl {#2}{#3}{#4} }
+    \tl_replace_once:NnV  \l__nmc_equals_tl { = } \l__nmc_eq_tl
+  }
+\cs_new_protected:Npn \__nmc_math_env:nnnn #1#2#3#4
+  {
+    \__nmc_math_env_delims:n { #1 }
+    \__nmc_math_env_set:Vnnnn \c__nmc_vv_delim_tl {#1}{=}
+        {\mskip 36muminus24mu(vv)}{\end{#1}\begin{#1}}
+    \tl_if_blank:nF {#2#3#4} 
+      { \__nmc_math_env_aux:Vnnn \c__nmc_vv_delim_tl {#2}{#3}{#4} }
+    \tl_replace_once:NnV  \l__nmc_equals_tl { = } \l__nmc_eq_tl
+  }
+\cs_new_protected:Npn \__nmc_math_env_cum:nnnn #1#2#3#4
+  {
+    \__nmc_math_env_delims:n { #1 }
+    \__nmc_math_env_set:Vnnnn \c__nmc_vv_delim_tl{#1}{&=}
+        {\mskip 36muminus24mu(vv)}{\\}
+    \tl_if_blank:nF {#2#3#4} 
+      { \__nmc_math_env_aux:Vnnn \c__nmc_vv_delim_tl {#2}{#3}{#4} }
+    \tl_replace_once:NnV  \l__nmc_equals_tl { = } \l__nmc_eq_tl
+  }
+\cs_new_protected:Npn \__nmc_math_env_set:nnnnn #1#2#3#4#5
+  { 
+    \tl_clear:N \l__nmc_env_arg_tl
+    \tl_set:Nn \l__nmc_env_tl {#2}
+    \tl_set:Nn \l__nmc_equals_tl {#3}
+    \tl_set:Nn \l__nmc_vv_tl {#1#4}
+    \tl_set:Nn \l__nmc_multi_sep_tl {#5}
+  }
+\cs_generate_variant:Nn \__nmc_math_env_set:nnnnn { V }
+\cs_new_protected:Npn \__nmc_math_env_aux:nnnn #1#2#3#4
+  { 
+    \tl_if_blank:nF { #2 } { \tl_set:Nn \l__nmc_equals_tl {#2} }
+    \tl_if_blank:nF { #3 } { \tl_set:Nn \l__nmc_vv_tl {#1#3} }
+    \tl_if_blank:nF { #4 } { \tl_set:Nn \l__nmc_multi_sep_tl {#4} }
+  }
+\cs_generate_variant:Nn  \__nmc_math_env_aux:nnnn { V }
+% general purpose routines %%%%%%%%%%%%%%%%%%%%%%
+% \tl_new:N \l__nmcA_tl etc.
+\clist_map_inline:nn { A,B,C,L,R } { \tl_new:c { l__nmc_#1_tl } }
+% prune head from A, put in B; record new head of A in C
+\cs_new_protected:Npn \__nmc_next:
+  { \exp_last_unbraced:NV\__nmc_next:w \l__nmcA_tl\q_stop}
+\cs_new_protected:Npn \__nmc_next:w #1#2#3\q_stop
+  { \__nmc_assign_vals:nnnN {#1} {#2} {#3} \l__nmcB_tl } 
+% get |arg| 
+\cs_new_protected:Npn \__nmc_absval_arg:N #1
+  { \exp_last_unbraced:NV \__nmc_absval_arg:wN \l__nmcA_tl\q_stop #1 }
+\cs_new_protected:Npn \__nmc_absval_arg:wN #1|#2#3\q_stop #4
+  { \__nmc_assign_vals:nnnN {#1} {#2} {#3} #4 }
+\cs_new_protected:Npn \__nmc_assign_vals:nnnN #1#2#3#4
+  {
+    \tl_if_single:nTF { #2 }
+      { \tl_set:Nn \l__nmcA_tl { #2#3 } }
+      { \tl_set:Nn \l__nmcA_tl { {#2}#3 } } 
+    \tl_set:Nn #4 { #1 }
+    \tl_set:Nn \l__nmcC_tl { #2 }
+  }
+\cs_new_protected:Npn \__nmc_parenth:N #1
+  { \tl_set:Nx #1 { ( \exp_not:o #1 ) } }  
+\cs_new_protected:Npn \__nmc_accum_fn_parenth:Nnn #1#2#3
+  { \tl_put_right:Nx #1 { #3( \exp_not:o {#2} ) } }
+\cs_generate_variant:Nn \__nmc_accum_fn_parenth:Nnn { NV }
+% wrap #3 in #2 & #4, & append to #1
+\cs_new_protected:Npn \__nmc_put_right_wrap:NnNn #1#2#3#4
+  { \tl_put_right:Nx #1 { #2 \exp_not:o #3 #4 } }
+
+\cs_new_protected:Npn \__nmc_get_arg_L:nN #1#2
+  {
+    \tl_set:Nn \l__nmc_L_tl { #1 }
+    \prop_get:NnN \g__nmc_subst_misc_prop { #1 } \l__nmc_R_tl
+    \__nmc_get_arg_L_aux:NNV #1#2 \l__nmc_R_tl
+  }
+\cs_generate_variant:Nn \__nmc_get_arg_L:nN { V }
+
+\cs_new_protected:Npn \__nmc_get_arg_L_aux:NNn #1#2#3
+  { \__nmc_get_arg_LR:NNN #1#2#3 }
+\cs_generate_variant:Nn \__nmc_get_arg_L_aux:NNn { NNV }
+
+% #1 ldelim; #2 <-- arg (delims *not* included)
+% #3 rdelim (*must* differ from #1)
+\cs_new_protected:Npn \__nmc_get_arg_LR:NNN #1#2#3
+  {
+    \int_set:Nn \l__nmca_int { 1 }
+    \tl_map_inline:Nn \l__nmcA_tl
+      {
+        \str_case:nn { ##1 }
+          { 
+            { #1 } { \int_incr:N \l__nmca_int }
+            { #3 } 
+              {
+                \int_decr:N \l__nmca_int
+                \int_if_zero:nT { \l__nmca_int }
+                  {  \__nmc_next: \tl_map_break: }
+              }
+            { \q_nil } 
+              { 
+                \__nmc_error_what:n { Unmatched~\__nmc_verb:n { #1 }\ in }
+                \tl_map_break:
+              }
+          }
+        \__nmc_next:
+        \tl_if_single:nTF { ##1 }
+          { \tl_put_right:Nn #2 { ##1 } }
+          { \tl_put_right:Nn #2 { {##1} } }
+      }
+  }
+% number parsing
+% #1 <== multi-char num poss. in sci notation
+% #2 delim: vs fpify: boolean
+\cs_new_protected:Npn \__nmc_get_dec:NN #1#2 
+  { 
+    \tl_concat:NNN \l__nmcA_tl \l__nmcB_tl \l__nmcA_tl
+    \regex_extract_once:NVN \l__nmc_num_regex \l__nmcA_tl \l_tmpa_seq
+    \seq_pop:NN \l_tmpa_seq #1
+    \bool_if:NF #2
+      { 
+        \bool_if:NT \l__nmc_dec_comma_bool
+          { \tl_replace_once:Nnn #1 {,} {.} }
+        \bool_if:NT \l__nmc_sci_num_in_bool
+          { \tl_replace_once:NVn #1 \l__nmc_sci_num_in_tl {e} }
+      }
+    \regex_replace_once:NnN \l__nmc_num_regex {} \l__nmcA_tl
+    \tl_set:Nx \l__nmcC_tl { \tl_head:N \l__nmcA_tl }
+  }
+% calc fn vals; explicit/implicit eval. of vv-list
+% #1(tl) var; #2(tl) fn; #3(fp) var val; #4(fp) <-- fn val
+% mode 0 (no vals in vv-list change)
+\cs_new_protected:Npn \__nmc_calc_fn_val:nNnN #1#2#3#4
+  {
+    \prop_put:Nnx \l__nmc_subst_var_prop { #1 } { \fp_to_tl:n { #3 } }
+    \__nmc_fpify_set:NV #4 #2
+  }
+\cs_generate_variant:Nn \__nmc_calc_fn_val:nNnN { V } 
+\cs_new_protected:Npn \__nmc_calc_mode:n #1
+  {
+    \tl_set:Nx \l__nmc_mode_tl { \int_eval:n { #1 } }
+    \str_case:Vn \l__nmc_mode_tl
+      { 
+        { 1 } { \cs_set_eq:NN \__nmc_calc_fn_val:nNnN
+                    \__nmc_calc_fn_vali:nNnN }
+        { 2 } { \cs_set_eq:NN \__nmc_calc_fn_val:nNnN
+                    \__nmc_calc_fn_valii:nNnN }
+      }
+  }
+\cs_generate_variant:Nn \__nmc_calc_mode:n { V }
+% mode 1 (all vals in vv-list may change)
+\cs_new_protected:Npn \__nmc_calc_fn_vali:nNnN #1#2#3#4
+  { 
+    \prop_put:Nnx \l__nmc_vv_change_prop { #1 } { \fp_to_tl:n { #3 } }
+    \__nmc_vv_get_vars_vals:NN \l__nmc_calc_fn_seq \l__nmc_vv_change_prop
+    \__nmc_fpify_set:NV #4 #2
+  }
+% mode 2 (some vals in vv-list held const.)  
+\cs_new_protected:Npn \__nmc_calc_fn_valii:nNnN #1#2#3#4
+  { 
+    \prop_put:Nnx \l__nmc_vv_change_prop { #1 } { \fp_to_tl:n { #3 } }
+    \clist_map_inline:Nn \g__nmc_unchanged_clist
+      {
+        \prop_get:NnN \l__nmc_subst_var_prop { ##1 } \l__nmc_subst_tl
+        \prop_put:NnV \l__nmc_vv_change_prop { ##1 } \l__nmc_subst_tl
+      }
+    \__nmc_vv_get_vars_vals:NN \l__nmc_calc_fn_seq \l__nmc_vv_change_prop
+    \__nmc_fpify_set:NV #4 #2
+  }
+% fp-set #1 to fpified #2  
+\cs_new_protected:Npn \__nmc_fpify_set:Nn #1#2
+  { 
+    \group_begin:
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:nN { #2 } \l_tmpa_tl
+    \exp_args:NNNV
+    \group_end:
+        \tl_set:Nn \l__nmc_fp_exprn_tl \l_tmpa_tl
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \fp_set:Nn #1 { \l__nmc_fp_exprn_tl }
+        \__nmc_error_fpflag:
+      }
+  }
+\cs_generate_variant:Nn \__nmc_fpify_set:Nn { NV, cv }
+
+\cs_new:Npn \__nmc_verb:n #1
+  { \texttt{ \tl_to_str:n { #1 } } }
+\cs_generate_variant:Nn \__nmc_verb:n { V }
+\cs_new:Npn \__nmc_verb:N #1
+  { \texttt{ \tl_to_str:N #1 } }
+\cs_generate_variant:Nn \__nmc_verb:N { c }
+% numerica errors %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\int_new:N \l__nmc_depth_int
+\seq_new:N  \g__nmc_error_where_seq
+\bool_new:N \g__nmc_error_bool
+\msg_new:nnn { numerica } { base } 
+    { numerica~error~in~#1~on~line~\msg_line_number:. }
+\cs_new_protected:Npn \__nmc_error_msg:n #1
+  {
+    \tl_set:Nn \l_tmpa_tl { ??? }
+    \seq_if_empty:NF \g__nmc_error_where_seq
+      { 
+        \seq_gpop:NN \g__nmc_error_where_seq \l_tmpa_tl
+        \textsf{ !!!~#1:~\l_tmpa_tl.~!!! }
+      }
+    \msg_log:nnx { numerica } { base } \l_tmpa_tl
+  }
+\cs_new_protected:Npn \__nmc_error_where:n #1
+  { 
+    \seq_gpush:Nx \g__nmc_error_where_seq 
+      { 
+        #1
+        \int_compare:nNnT { \l__nmc_depth_int } > { 1 }
+          { ~(\int_eval:n { (\l__nmc_depth_int-1)/2 } ) } 
+      }
+  }
+\cs_new_protected:Npn \__nmc_error_what:n #1
+  {
+    \bool_gset_true:N \g__nmc_error_bool
+    \tl_gclear:N \g__nmc_reuse_tl
+    \int_compare:nNnF \l__nmc_dbg_int < { 0 }
+      { \__nmc_error_msg:n { #1 } }
+  }
+\cs_generate_variant:Nn \__nmc_error_what:n { V, x }
+% l3fp exceptions; ln(1),cos(90),sin(360) underflow ignored!
+%  Invalid op --> LaTeX *error*, hence
+\fp_trap:nn { invalid_operation } { flag }
+\cs_new_protected:Npn \__nmc_error_fpflag:
+  { 
+    \flag_if_raised:nTF { fp_overflow  } { \__nmc_flag:n { 1 } }
+      { \flag_if_raised:nTF { fp_division_by_zero } { \__nmc_flag:n { 2 } } 
+         { \flag_if_raised:nT { fp_invalid_operation }
+            { \__nmc_flag:n { 3 } } 
+         }
+      }
+  }
+\cs_new_protected:Npn \__nmc_flag:n #1
+  { 
+    \__nmc_error_what:V { \__nmc_verb:n{l3fp}~error~`\clist_item:nn
+        { Overflow, Division~by~zero, Invalid~operation }{ #1 }'~in }
+  } 
+%%%%%%%% multi-tok --> single token vars %%%%%%%%
+% no math delims; #1(seq) vv-list; #2(tl) formula 
+\int_new:N \g__nmc_prep_multitok_int
+\tl_new:N \l_nmc_multitoka_tl
+\tl_new:N \l_nmc_multitokb_tl
+\seq_new:N \l__nmc_multitoka_seq
+\seq_new:N \l__nmc_multitokb_seq
+\cs_new_protected:Npn \__nmc_prep_multitok:NN #1#2
+  {
+    \seq_clear:N \l__nmc_multitoka_seq
+    \seq_map_inline:Nn #1
+      {
+        \seq_set_split:Nnn \l__nmc_multitokb_seq { = } { ##1 }
+        \seq_pop:NN \l__nmc_multitokb_seq \l_tmpb_tl
+        \int_compare:nNnT { \tl_count_tokens:V \l_tmpb_tl } > { 1 }
+          { \seq_push:NV \l__nmc_multitoka_seq \l_tmpb_tl }
+      }
+    % big --> small
+    \seq_sort:Nn \l__nmc_multitoka_seq 
+      {  
+        \int_compare:nNnTF { \tl_count:n {##2} } > { \tl_count:n { ##1 } }
+          { \sort_return_swapped: }
+          { \sort_return_same: } 
+      }
+    % multitoks => \nmc_a, \nmc_b, etc
+    \seq_map_inline:Nn \l__nmc_multitoka_seq
+      { 
+        \int_gincr:N \g__nmc_prep_multitok_int
+        \tl_set:Nn \l_nmc_multitoka_tl { ##1 }
+        \tl_set:Nx \l_nmc_multitokb_tl { \cs:w nmc_\int_to_alph:n 
+            { \g__nmc_prep_multitok_int } \cs_end: }
+        \tl_gset:cn { nmc_\int_to_alph:n { \g__nmc_prep_multitok_int } }
+            { ##1 }
+        \regex_replace_all:nnN 
+            { \u{l_nmc_multitoka_tl} } { \u{l_nmc_multitokb_tl} } #1
+        \regex_replace_all:nnN 
+            { \u{l_nmc_multitoka_tl} } { \u{l_nmc_multitokb_tl} } #2
+      }
+  }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\tl_new:N \l__nmc_mode_tl
+\tl_new:N \l__nmc_formula_tl
+\tl_new:N \l__nmc_formula_dup_tl
+\tl_new:N \l__nmc_env_tl
+\tl_new:N \l__nmc_result_tl
+\tl_new:N \l__nmc_show_tl
+\tl_new:N \l__nmc_display_tl
+\tl_new:N \l__nmc_fp_expr_tl      
+\tl_new:N \l__nmc_fp_exprn_tl
+\tl_new:N \l__nmc_eq_var_tl
+\tl_new:N \l__nmc_eq_val_tl
+\tl_new:N \l__nmc_vv_fp_expr_tl
+\tl_new:N \l__nmc_vv_tl
+\tl_new:N \l__nmc_vvv_tl
+\tl_new:N \l__nmc_punc_tl 
+\tl_new:N \l__nmc_math_delimi_tl
+\tl_new:N \l__nmc_math_delimii_tl
+\tl_new:N \l__nmc_outer_delimi_tl
+\tl_new:N \l__nmc_outer_delimii_tl
+\tl_new:N \l__nmc_env_arg_tl
+\tl_new:N \l__nmc_dbg_vv_tl
+\tl_new:N \l__nmc_dbg_idiii_tl
+\tl_new:N \l__nmc_dbg_idii_tl
+\tl_new:N \l__nmc_dbg_idv_tl
+\tl_new:N  \l__nmc_bool_F_tl
+\tl_new:N  \l__nmc_bool_T_tl
+\int_new:N \l__nmc_sci_expon_int
+\int_new:N \l__nmc_num_alt_int
+\int_new:N \l__nmc_multi_int
+\seq_new:N \l__nmc_vv_visible_seq
+\seq_new:N \l__nmc_vv_no_consts_seq
+\seq_new:N \l__nmc_vv_all_seq
+\seq_new:N \l__nmc_calc_fn_seq
+\seq_new:N \l__nmc_dbg_stored_seq
+\seq_new:N \l__nmc_vva_seq
+\seq_new:N \l__nmc_vvb_seq
+\bool_new:N \l__nmc_TF_out_bool
+\bool_new:N \l__nmc_allow_TF_out_bool
+\bool_new:N \l__nmc_sci_num_x_bool
+\bool_new:N \l__nmc_sci_num_table_bool
+\bool_new:N \l__nmc_num_only_bool
+\bool_new:N \l__nmc_round_bool
+\bool_new:N \l__nmc_see_formula_bool
+\bool_new:N \l__nmc_see_vv_bool
+\bool_new:N \l__nmc_vv_val_only_bool
+\bool_new:N \l__nmc_dbg_count_bool
+\prop_new:N \l__nmc_vv_change_prop
+% ##1 = number-only switch, ##2 = keyval settings,
+% ##3 = formula, ##4 = vv-list, ##5 = number-format spec.,
+% #1 = \nmcCommand, #2 = cmd id, #3 = short-name cmd
+\cs_new_protected:Npn \nmc_define:NnN  #1#2#3
+  {
+    \NewDocumentCommand #1 { s O{} m O{} O{} }
+      { 
+        \group_begin:
+        \bool_set_eq:NN \l__nmc_num_only_bool ##1
+        \__nmc_initialize:n { #2 }
+        \bool_if:NF \g__nmc_error_bool
+          { \__nmc_settings:nn { #2 } { ##2 } }
+        \bool_if:NF \g__nmc_error_bool
+          { \__nmc_formula:nn { #2 } { ##3 } }
+        \bool_if:NF \g__nmc_error_bool
+          { \__nmc_trailing_args:nnn { #2 } { ##4 } { ##5 } }
+        \bool_if:NF \g__nmc_error_bool
+          { \use:c { __nmc_#2_process: } }
+        \int_if_zero:nTF { \l__nmc_dbg_int } 
+          { 
+            \bool_if:NF \g__nmc_error_bool
+              { \use:c { __nmc_#2_display: } }
+          }
+          { \__nmc_dbg_display:nn { \l__nmc_dbg_int } { #2 } }
+        \group_end:
+      }
+    \ProvideDocumentCommand #3 {} { #1 }
+
+    \cs_new_protected:cpn { __nmc_#2_vv_digest:N } ##1 {}
+    \clist_map_inline:nn { initialize, formula, settings, process, display }
+       { \cs_new_protected:cpn { __nmc_#2_##1: } {} }
+  } 
+\nmc_define:NnN \nmcEvaluate { eval } \eval
+
+% initialize
+\cs_new_protected:Npn \__nmc_initialize:n #1
+  { 
+    \bool_gset_false:N \g__nmc_error_bool
+    \bool_set_false:N \l__nmc_sci_num_out_bool
+    \bool_set_false:N \l__nmc_sci_num_x_bool
+    \bool_set_false:N \l__nmc_sci_num_table_bool
+    \bool_set_false:N \l__nmc_round_bool
+    \tl_set:Nn \l__nmc_dbg_idiii_tl { vv-list }
+    \int_zero:N \l__nmc_multi_int
+%
+    \int_incr:N \l__nmc_depth_int 
+    \int_compare:nNnT \l__nmc_depth_int > { 1 } % for nesting
+      { \bool_set_true:N \l__nmc_num_only_bool }
+    \prop_concat:NNN \l__nmc_subst_var_prop 
+        \g__nmc_subst_var_prop \l__nmc_subst_var_prop
+    \use:c { __nmc_#1_initialize: }
+  }
+% #1 id, #2 settings
+\cs_new_protected:Npn \__nmc_settings:nn #1#2
+  { 
+    \__nmc_error_where:n { settings }
+    \tl_if_empty:nF { #2 } 
+      { 
+        \keys_set_known:nn { numerica/generic } { #2 } 
+        \keys_set_known:xn { numerica/#1 }{ #2 }
+      } 
+
+    \tl_if_empty:NT \l__nmc_multi_delim_tl
+      { \tl_set_eq:NN \l__nmc_multi_delim_tl \c__nmc_vv_delim_tl }
+    \use:c { __nmc_#1_settings: }
+    \int_compare:nNnT \l__nmc_depth_int > { 1 } % for nesting
+      { \int_zero:N \l__nmc_dbg_int }
+    \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+  }
+\cs_new_protected:Npn \__nmc_formula:nn #1#2
+  { 
+    \__nmc_error_where:n { formula }
+    \tl_set:Nn \l__nmc_formula_tl { #2 }
+    \tl_trim_spaces:N \l__nmc_formula_tl
+    \use:c { __nmc_#1_formula: } 
+  }
+% #2=vv, #3=number format
+\cs_new_protected:Npn \__nmc_trailing_args:nnn #1#2#3
+  {
+    \__nmc_error_where:n { variable=value~list }
+    \tl_if_in:nnTF { #2 } { = }% vv-list
+      { 
+        \__nmc_vv_extract_visible:nN { #2 } \l__nmc_vva_seq
+        \use:c { __nmc_#1_vv_digest:N } \l__nmc_vva_seq
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+        \__nmc_get_num_format:n { #3 } 
+        \tl_if_blank:nF { #3 }
+          { \bool_set_true:N \l__nmc_round_bool }
+      }
+      { % empty vv-list
+        \use:c { __nmc_#1_vv_digest:N } \c_empty_seq
+        \bool_set_false:N \l__nmc_see_vv_bool
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+        \__nmc_get_num_format:n { #2#3 }
+        \tl_if_blank:nF { #2#3 }
+          { \bool_set_true:N \l__nmc_round_bool }
+      }
+  }
+%%%%%%%%%% debug %%%%%%%%%%
+\cs_new_protected:Npn \__nmc_dbg_display:nn #1#2
+  { 
+    \__nmc_dbg_display:xnn { \mode_if_math:TF { ed }{ * } } { #1 } { #2 } 
+    \tl_clear:N \l__nmc_show_tl
+  }
+\cs_new_protected:Npn \__nmc_dbg_display:nnn #1#2#3
+  { % #2 dbg int, #3 fn id
+    \seq_reverse:N \l__nmc_vv_all_seq
+    \raggedright 
+    \begin{ align#1 }
+      \__nmc_if_mod_zero:nnT { #2 } { 2 }
+        { \__nmc_dbg:Nnn \l__nmc_formula_tl { #2 } \l__nmc_dbg_idii_tl }
+      \__nmc_if_mod_zero:nnT { #2 } { 3 }
+        { \__nmc_dbg:Nnn \l__nmc_dbg_vv_tl { #2 } \l__nmc_dbg_idiii_tl } 
+      \__nmc_if_mod_zero:nnT { #2 } { 5 }
+        {
+          \__nmc_dbg_stored:
+          \__nmc_dbg:Nnn \l_tmpa_tl { #2 } \l__nmc_dbg_idv_tl 
+        }
+      \__nmc_if_mod_zero:nnT { #2 } { 7 }
+        { \__nmc_dbg:Nnn \l__nmc_fp_expr_tl { #2 } { fp-form } }
+      \__nmc_if_mod_zero:nnT { #2 } { 11 }
+        {\__nmc_dbg:Nnn \l__nmc_show_tl { #2 } { LaTeX } }
+    \end{ align#1 }
+    \bool_set_false:N \l__nmc_dbg_count_bool
+  }
+\cs_generate_variant:Nn \__nmc_dbg_display:nnn { x }
+ 
+\cs_new_protected:Npn \__nmc_dbg_vv_view:n #1
+ { 
+    \seq_set_eq:NN \l__nmc_vv_no_consts_seq \l__nmc_vv_all_seq
+    \int_step_inline:nn { \seq_count:N \g__nmc_consts_vv_seq }
+      { \seq_pop:NN \l__nmc_vv_no_consts_seq \l__nmc_toss_tl }
+    \seq_reverse:N \l__nmc_vv_no_consts_seq
+    \int_step_inline:nn { #1 }
+      { \seq_pop:NN \l__nmc_vv_no_consts_seq \l__nmc_toss_tl }
+    \tl_gset:Nx \l__nmc_dbg_vv_tl
+        { \seq_use:Nn \l__nmc_vv_no_consts_seq {,~} }
+  }
+\cs_new_protected:Npn \__nmc_dbg_get_data:
+  { 
+    \seq_clear:N \l__nmc_dbg_stored_seq
+    \__nmc_dbg_vv_view:n { 0 }
+    \seq_map_inline:Nn \l__nmc_vv_no_consts_seq
+      { 
+        \__nmc_split_eq:w ##1\q_stop
+        \prop_get:NVN \l__nmc_subst_var_prop \l__nmc_eq_var_tl \l_tmpa_tl
+        \tl_put_left:Nn \l_tmpa_tl { = }
+        \tl_put_left:NV \l_tmpa_tl \l__nmc_eq_var_tl
+        \seq_put_right:NV \l__nmc_dbg_stored_seq \l_tmpa_tl
+      }
+  }
+\cs_new_protected:Npn \__nmc_dbg_stored:
+  { 
+    \seq_clear:N \l_tmpa_seq
+    \seq_map_inline:Nn \l__nmc_dbg_stored_seq
+      {
+        \prop_get:NnNTF \l__nmc_subst_var_prop { ##1 } \l_tmpa_tl
+          {
+            \tl_put_left:Nn \l_tmpa_tl { ##1= }
+            \seq_put_right:NV \l_tmpa_seq \l_tmpa_tl
+          }
+          { \seq_put_right:Nn \l_tmpa_seq { ##1 } }
+      }
+    \tl_gset:Nx \l_tmpa_tl { \seq_use:Nn \l_tmpa_seq {,~} }
+  }
+\cs_new:Npn \__nmc_dbg:Nnn #1#2#3
+  { 
+    \bool_if:NT \l__nmc_dbg_count_bool { \\ }
+    \hbox:n { #3:} & \quad 
+    \int_compare:nNnTF \l__nmc_depth_int > { 1 }
+      { \hbox:n } { \vbox_top:n } { \tl_to_str:N #1 }
+    \bool_set_true:N \l__nmc_dbg_count_bool
+  }
+\cs_generate_variant:Nn \__nmc_dbg_display:nnnn { V, x }
+%%%%%%%%%% number-formatting routines %%%%%%%%%%%
+\int_zero_new:N \l__nmc_frac_out_int
+\bool_new:N \l__nmc_pad_zeros_bool
+\bool_new:N \l__nmc_sci_num_out_bool
+\cs_new_protected:Npn \__nmc_get_num_format:n #1
+  {
+    \__nmc_error_where:n { result~format~spec }
+    \tl_clear:N \l_tmpa_tl
+    \str_set:Nn \l_tmpa_str { #1 }
+    \int_zero:N \l__nmc_num_alt_int
+    \str_if_in:nnTF { #1 } { ? } 
+      { \__nmc_num_bool_spec: }
+      { 
+        \str_if_in:nnTF { #1 } { / } 
+          { \__nmc_num_frac_spec: }
+          { 
+            \str_if_in:nnT { #1 } { * } 
+              { 
+                \bool_set_true:N \l__nmc_pad_zeros_bool 
+                \str_remove_all:Nn \l_tmpa_str { * }
+              }
+          }
+      }
+    \str_map_inline:Nn \l_tmpa_str
+      { 
+        \str_if_in:nnTF { 1234567890- } { ##1 }
+          { \tl_put_right:Nn \l_tmpa_tl { ##1 } }
+          { \__nmc_num_sci_spec:n { ##1 } }
+      }
+    \tl_if_empty:NF \l_tmpa_tl
+      { \int_set:Nn \l__nmc_round_int \l_tmpa_tl }
+    \int_compare:nNnT { \l__nmc_depth_int } > { 2 }
+      { \__nmc_num_deep_output:N \l_tmpa_tl }
+    \bool_if:NF \g__nmc_error_bool
+      { \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl }
+  }
+\cs_new_protected:Npn \__nmc_num_bool_spec:
+  { 
+    \bool_set_eq:NN \l__nmc_TF_out_bool \l__nmc_allow_TF_out_bool
+    \int_incr:N \l__nmc_num_alt_int
+    \str_remove_once:Nn \l_tmpa_str { ? }
+    \str_if_in:NnT \l_tmpa_str { ? }
+      { 
+        \int_incr:N \l__nmc_num_alt_int
+        \str_remove_once:Nn \l_tmpa_str { ? }
+        \str_if_in:NnT \l_tmpa_str { ? }
+          {
+            \int_incr:N \l__nmc_num_alt_int
+            \str_remove_all:Nn \l_tmpa_str { ? }
+          }
+      }
+    \bool_if:NT \l__nmc_num_only_bool 
+      { \int_set:Nn \l__nmc_num_alt_int { 1 }  }
+  }
+\cs_new_protected:Npn \__nmc_num_frac_spec:
+  {
+    \int_incr:N \l__nmc_frac_out_int % 1
+    \str_remove_once:Nn \l_tmpa_str { / }
+    \str_if_in:NnTF \l_tmpa_str { / }
+      {
+        \int_incr:N \l__nmc_frac_out_int % 2
+        \str_if_in:NnTF \l_tmpa_str { t }
+          { \int_incr:N \l__nmc_frac_out_int } % 3
+          {
+            \str_if_in:NnT \l_tmpa_str { d }
+              { \int_set:Nn \l__nmc_frac_out_int { 4 } }
+          }
+      }
+      { 
+        \str_if_in:NnT \l_tmpa_str { s }
+          { \int_set:Nn \l__nmc_frac_out_int { 5 } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_num_sci_spec:n #1
+  {
+    \str_case:nn { #1 }
+      {
+        { x } { \bool_set_true:N \l__nmc_sci_num_x_bool }
+        { t } { \bool_set_true:N \l__nmc_sci_num_table_bool }
+      }
+    \tl_set:Nn \l__nmc_sci_num_out_tl { #1 }
+    \bool_set_true:N \l__nmc_sci_num_out_bool
+    \int_incr:N \l__nmc_num_alt_int 
+  }
+\cs_new_protected:Npn \__nmc_num_deep_output:N #1
+  {
+    \bool_set_true:N \l__nmc_sci_num_out_bool
+    \bool_set_false:N \l__nmc_sci_num_x_bool
+    \bool_set_false:N \l__nmc_sci_num_table_bool
+    \tl_set:Nn \l__nmc_sci_num_out_tl { e }
+    \bool_set_false:N \l__nmc_pad_zeros_bool
+    \int_zero:N \l__nmc_num_alt_int
+  }
+%%%%%%%%%%
+% #1=fpify-ed in; #2=tl fmt'ed out; #3=int rndg; #4 sci bool
+\cs_new_protected:Npn \__nmc_num_format:nNnN #1#2#3#4
+  { 
+    \bool_if:NTF \l__nmc_TF_out_bool
+      { \__nmc_num_bool_out:nNn { #1 } #2 { \l__nmc_num_alt_int } }
+      { 
+        \int_if_zero:nTF \l__nmc_frac_out_int
+          {
+            \bool_if:NTF #4
+              { 
+                \exp_last_unbraced:Nx \__nmc_sci_output_aux:wNn 
+                    { \fp_to_scientific:n { #1 } } \q_stop #2 { #3 }
+              }
+              { \__nmc_num_format_decimal:nNn { #1 } #2 { #3 } }
+            \bool_if:NT \l__nmc_dec_comma_bool
+              { \tl_replace_once:Nnn #2 {.} {,} }
+          }
+          { \__nmc_num_frac_out:nNn { #1 } #2 { #3 }}
+      }
+  }
+\cs_new_protected:Npn \__nmc_num_bool_out:nNn #1#2#3
+  { 
+    \fp_compare:nNnTF { 0 } = { round(#1, \l__nmc_round_int) }
+      { \tl_set:Nx #2 { \clist_item:nn {0,F,\texttt{F}} { #3 } } }
+      { \tl_set:Nx #2 { \clist_item:nn {1,T,\texttt{T}} { #3 } } }
+  }
+\cs_new_protected:Npn \__nmc_num_frac_out:nNn #1#2#3
+  { 
+    \group_begin:
+    \int_set:Nn \l_tmpa_int { \l__nmc_frac_denom_min_int - 1 }
+    \fp_set:Nn \l_tmpc_fp { #1 }
+    \fp_set_eq:NN \l_tmpb_fp \c_one_fp
+    \fp_set:Nn \l_tmpa_fp { \l_tmpc_fp * \l_tmpa_int } 
+    \fp_do_until:nNnn { 0 } = { \l_tmpb_fp }
+      {
+        \int_incr:N \l_tmpa_int 
+        \int_compare:nNnTF { \l_tmpa_int } > { \l__nmc_frac_denom_max_int }
+          { 
+            \__nmc_error_what:n { No~result~to~\int_use:N \l__nmc_round_int\ 
+            zeros~with~$ \int_use:N \l__nmc_frac_denom_min_int \le 
+            \texttt{denom} \le \int_use:N \l__nmc_frac_denom_max_int $~in }
+            \fp_zero:N \l_tmpb_fp
+          }
+          { 
+            \fp_add:Nn \l_tmpa_fp { \l_tmpc_fp } 
+            \fp_set:Nn \l_tmpb_fp { round( ( \l_tmpa_fp - 
+                round( \l_tmpa_fp, 0 ) ) / \l_tmpa_int, #3 ) }
+          }
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \__nmc_num_frac_out_aux:xxNNN { \fp_to_int:n {abs(\l_tmpa_fp)} } 
+            { \int_use:N \l_tmpa_int } \l__nmca_tl
+                \l__nmc_frac_out_int \l_tmpa_fp
+            
+      }
+    \exp_args:NNNV
+    \group_end:
+      \tl_set:Nn #2 { \l__nmca_tl }
+  }
+\cs_new_protected:Npn  \__nmc_num_frac_out_aux:nnNNN #1#2#3#4#5
+  { 
+    \int_case:nn { #4 }
+      {
+        { 1 } { \tl_set:Nn #3 { #1 / #2 } }
+        { 2 } { \tl_set:Nn #3 { \frac { #1 } { #2 } } }
+        { 3 } { \tl_set:Nn #3 { \tfrac { #1 } { #2 } } }
+        { 4 } { \tl_set:Nn #3 { \dfrac { #1 } { #2 } } }
+        { 5 }
+          { 
+            \cs_if_exist:NTF \sfrac
+              { \tl_set:Nn #3 { \sfrac { #1 } { #2 } } }
+              { \tl_set:Nn #3 { \scriptstyle #1 / #2 } }
+          }
+      }
+    \fp_compare:nNnT { #5 } < { 0 } 
+      { \tl_put_left:Nn #3 {-} }
+  }
+\cs_generate_variant:Nn \__nmc_num_frac_out_aux:nnNNN { xx }
+
+\cs_new_protected:Npn \__nmc_num_format_decimal:nNn #1#2#3
+  {
+    \tl_set:Nx #2 { \fp_eval:n { 0 + round( #1, #3 ) } }
+    \__nmc_error_fpflag:
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \int_set:Nn \l__nmc_num_sgn_int { \fp_sign:n { #2 } }
+        \bool_lazy_and:nnT { \int_compare_p:nNn { #3 } > { 0 } } 
+            { \l__nmc_pad_zeros_bool } { \__nmc_num_pad:Nn #2 { #3 } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_num_pad:Nn #1#2
+  { 
+    \tl_if_in:NnTF #1 { . }
+      { \tl_set:Nx #1 { \__nmc_num_pad_aux:Vn  #1 { #2 } } }
+      { \tl_set:Nx #1 { \__nmc_num_pad_aux:Vn  { #1.} { #2 } } }
+  }
+\cs_new:Npn \__nmc_num_pad_aux:nn #1#2
+  { \__nmc_num_pad:wN #1\q_stop { #2 } }
+\cs_generate_variant:Nn \__nmc_num_pad_aux:nn { V }
+\cs_new:Npn \__nmc_num_pad:wN #1.#2\q_stop#3
+  { 
+    \int_if_zero:nTF { #3 } { #1 }
+        { #1.#2\prg_replicate:nn { #3 - \tl_count:n { #2 } } { 0 } }
+  }
+\cs_new_protected:Npn \__nmc_sci_output_aux:wNn #1e#2\q_stop#3#4
+  { % #1e#2=fp input; #3=formatted tl out; #4 = rounding 
+    \tl_set:Nx #3 { \fp_eval:n { 0 + round( #1, #4 ) } }
+    \__nmc_error_fpflag:
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \int_set:Nn \l__nmc_sci_expon_int { #2 }
+        \tl_if_eq:VnT #3 { 10 }
+          {
+            \int_incr:N \l__nmc_sci_expon_int
+            \tl_set:Nn #3 { 1 }
+          }
+        \bool_if:NT \l__nmc_pad_zeros_bool
+          { \__nmc_num_pad:Nn #3 { #4 } }
+        \bool_lazy_or:nnT { !\int_if_zero_p:n { \l__nmc_sci_expon_int } }
+            { \int_compare_p:nNn { \l__nmc_num_alt_int } > { 1 } }
+          { 
+            \bool_if:NTF \l__nmc_sci_num_table_bool
+              { \tl_put_left:Nx #3 { \__nmc_sci_num_table:n { #2 } } }
+              {
+                \tl_put_right:Nx #3 { \__nmc_sci_write:n 
+                    { \int_use:N \l__nmc_sci_expon_int } }
+              }
+          }
+      }
+    \int_set:Nn \l__nmc_num_sgn_int { \fp_sign:n { #1 } } % tables
+  }
+\cs_new:Npn \__nmc_sci_write:n #1
+  { % #1 exponent
+    \int_compare:nNnTF { \l__nmc_depth_int } > { 2 }
+      { e#1 }
+      {
+        \bool_if:NTF \l__nmc_sci_num_x_bool
+          { \exp_not:N \times 10^{#1} } 
+          { \text{ \l__nmc_sci_num_out_tl {#1} } }
+      }
+  }
+\cs_new:Npn \__nmc_sci_num_table:n #1
+  { (#1)\exp_not:n {\,} }
+% vv-list routines %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_vv_extract_visible:nN #1#2
+  { % #2 reverses #1
+    \seq_clear:N \l__nmc_vv_visible_seq
+    \seq_set_split:NVn \l__nmc_vvb_seq \c__nmc_vv_delim_tl { #1 } 
+    \seq_remove_all:Nn \l__nmc_vvb_seq {}
+    \seq_clear:N #2 
+    \seq_map_inline:Nn  \l__nmc_vvb_seq % remove { } from {var}
+      { 
+        \tl_if_head_is_group:nTF { ##1 }
+          { \seq_put_left:Nx #2 { \tl_head:n { ##1 } \tl_tail:n { ##1 } } }
+          { 
+            \seq_put_right:Nn \l__nmc_vv_visible_seq { ##1 } 
+            \seq_put_left:Nn #2 { ##1 }
+          }
+      }
+    \seq_if_empty:NTF \l__nmc_vv_visible_seq 
+      { \bool_set_false:N \l__nmc_see_vv_bool }
+      { 
+        \tl_replace_once:Nnx \l__nmc_vv_tl { vv } 
+            { \seq_use:NV \l__nmc_vv_visible_seq \c__nmc_vv_delim_tl }
+      }
+  }
+% #1 is reversed vv seq
+\cs_new_protected:Npn \__nmc_vv_digest:N #1
+  { 
+    \seq_concat:NNN \l__nmc_vv_all_seq \g__nmc_consts_vv_seq #1
+    \bool_if:NT \l__nmc_multitok_bool
+      { \__nmc_prep_multitok:NN \l__nmc_vv_all_seq \l__nmc_formula_tl }
+    \__nmc_vv_get_vars_vals:NN \l__nmc_vv_all_seq \c_empty_prop
+  } 
+% #1(seq) vv-list;#2(prop) changed vars (implicit-mode)
+\cs_new_protected:Npn \__nmc_vv_get_vars_vals:NN #1#2
+  { 
+    \seq_set_eq:NN \l_tmpa_seq #1
+    \seq_clear:N \l__nmc_calc_fn_seq
+    \seq_map_inline:Nn \l_tmpa_seq
+      { 
+        \__nmc_vv_split_item:n { ##1 }
+        \bool_if:NT \g__nmc_error_bool { \seq_map_break: }
+        \__nmc_vv_record:NVN \l__nmc_eq_var_tl \l__nmc_eq_val_tl #2
+        \bool_if:NTF \g__nmc_error_bool { \seq_map_break: }
+          { \seq_put_right:Nn \l__nmc_calc_fn_seq { ##1 } } 
+      }
+  }
+\cs_new_protected:Npn \__nmc_vv_get_vars_vals_lims:NN #1#2
+  { % for summation, integration limits
+    \__nmc_vv_split_item:V #1
+    \bool_if:NF \g__nmc_error_bool
+      { \__nmc_vv_record:NVN \l__nmc_eq_var_tl \l__nmc_eq_val_tl #2 }
+  }
+% changed var=vals in prop #3
+\cs_new_protected:Npn \__nmc_vv_record:NnN #1#2#3
+  { 
+    \prop_get:NVNF #3 #1 \l__nmc_vv_fp_expr_tl
+      { 
+        \tl_clear:N \l__nmc_vv_fp_expr_tl
+        \__nmc_fpify:nN { #2 } \l__nmc_vv_fp_expr_tl
+      }
+    \bool_if:nF 
+        {
+          \l__nmc_vv_val_only_bool ||
+          \g__nmc_error_bool
+        }
+      { \__nmc_vv_write:VN #1 \l__nmc_vv_fp_expr_tl }
+  }
+\cs_generate_variant:Nn \__nmc_vv_record:NnN { NV }
+% #1 = var; #2 = val as fp expr.
+\cs_new_protected:Npn \__nmc_vv_write:nN #1#2
+  { 
+    \tl_if_empty:NF #2
+      { 
+        \tl_if_eq:VnTF #2 { inf }
+          { \prop_put:Nnn \l__nmc_subst_var_prop { #1 } { inf } }
+          { \prop_put:Nnx \l__nmc_subst_var_prop { #1 } { \fp_to_tl:n {#2} } } 
+        \__nmc_error_fpflag:
+      }
+  }
+\cs_generate_variant:Nn \__nmc_vv_write:nN { V }
+\cs_new_protected:Npn \__nmc_vv_split_item:n #1
+  {
+    \bool_set_false:N \l__nmc_vv_val_only_bool
+    \tl_if_in:nnTF { #1 } { = }
+      { 
+        \__nmc_split_eq:w #1\q_stop 
+        \tl_if_empty:NT \l__nmc_eq_val_tl
+          { \__nmc_error_what:n 
+              { No~value~for~\__nmc_verb:N\l__nmc_eq_var_tl\ in } }
+      }
+      {
+        \bool_set_true:N \l__nmc_vv_val_only_bool
+        \tl_set:Nn \l__nmc_eq_val_tl { #1 }
+      }
+  }
+\cs_generate_variant:Nn \__nmc_vv_split_item:n { V }
+\cs_new_protected:Npn \__nmc_split_eq:w #1=#2\q_stop
+  { 
+    \tl_set:Nn \l__nmc_eq_var_tl { #1 }
+    \tl_trim_spaces:N \l__nmc_eq_var_tl
+    \tl_set:Nn \l__nmc_eq_val_tl { #2 }
+  }
+%%%%%%%%%%%% eval-specific routines %%%%%%%%%%%%%
+\cs_set_protected:Npn \__nmc_eval_initialize:
+  { 
+    \tl_set:Nn \l__nmc_dbg_idii_tl { formula }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { stored }
+    \tl_clear:N \l__nmc_show_tl
+    \__nmc_env_initialize:
+  }
+\cs_new_protected:Npn \__nmc_env_initialize:
+  {
+    \int_zero:N \l__nmc_env_def_int
+    \bool_set_true:N \l__nmc_allow_TF_out_bool
+    \bool_if:NTF \l__nmc_num_only_bool
+      { 
+        \bool_set_false:N \l__nmc_see_formula_bool
+        \bool_set_false:N \l__nmc_see_vv_bool
+        \__nmc_math_env_delims:nn {}{}
+        \tl_clear:N \l__nmc_env_arg_tl
+        \tl_set:Nn \l__nmc_multi_sep_tl { ~ }
+        \int_set:Nn \l__nmc_env_def_int { 2 }
+      }
+      {
+        \mode_if_math:T
+          {
+            \int_incr:N \l__nmc_env_def_int
+            \prop_get:NVNT \g__nmc_envi_prop \@currenvir \l_tmpb_tl
+              { 
+                \__nmc_env_params_def:Nnn \l_tmpb_tl { 0 } { 1 }
+                \__nmc_math_env_delims:nn {}{}
+                \tl_clear:N \l__nmc_env_arg_tl
+                \int_incr:N \l__nmc_env_def_int
+              }
+           }
+       }
+  }
+\cs_set_protected:Npn \__nmc_eval_settings: 
+  { \__nmc_env_settings: }
+\cs_set_protected:Npn \__nmc_env_settings: 
+  { 
+    \int_if_zero:nTF \l__nmc_env_def_int % math mode F/T
+      { \exp_args:NV \__nmc_env_s_zero:n \l__nmc_env_s_tl }
+      { \exp_args:NV  \__nmc_env_s_one:n \l__nmc_env_s_tl }
+  }
+\cs_new_protected:Npn \__nmc_env_s_zero:n #1
+  {
+    \prop_get:NnNTF \g__nmc_envi_prop { #1 } \l_tmpb_tl
+      { 
+        \__nmc_error_what:n { Math~mode~needed~for~\__nmc_verb:n {#1}\ 
+            environment~in } 
+      }
+      {
+        \prop_if_in:NnT \g__nmc_env_prop { #1 }
+          { 
+            \__nmc_env_delims_outer:n { #1 }
+            \int_incr:N \l__nmc_env_def_int
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_s_one:n #1
+  {
+    \int_compare:nNnT { \l__nmc_env_def_int } = { 1 }
+      { 
+        \prop_get:NnNT \g__nmc_envi_prop { #1 } \l_tmpb_tl
+          { 
+            \__nmc_env_params_def:Nnn \l_tmpb_tl { 1 } { 1 }
+            \int_incr:N \l__nmc_env_def_int
+          }
+      }
+  }
+\cs_set_protected:Npn \__nmc_eval_formula: 
+  { \__nmc_env_formula: }
+\cs_new_protected:Npn \__nmc_env_formula:
+  {
+    \__nmc_env_extract_formula:x { \tl_head:N \l__nmc_formula_tl }
+    \int_if_zero:nTF \l__nmc_env_def_int % m mode F, no or invalid env
+      { \exp_args:NVV \__nmc_env_f_zero:nn \l__nmc_env_s_tl \l__nmc_env_f_tl }
+      { 
+        \int_compare:nNnT { \l__nmc_env_def_int } = { 1 }
+          { \exp_args:NVV \__nmc_env_f_one:nn 
+              \l__nmc_env_s_tl \l__nmc_env_f_tl } % mmode T or set env
+      }
+    \__nmc_env_params_set:oooN \l__nmc_s_equals_tl \l__nmc_s_vv_tl 
+        \l__nmc_s_multi_sep_tl \l__nmc_env_s_arg_tl
+    \bool_if:NT \l__nmc_env_rbrace_bool
+      { 
+        \exp_args:NV \__nmc_env_rbrace:n \l__nmc_env_rbrace_tl
+        \bool_if:NF \l__nmc_vv_settings_bool
+          { \tl_set:Nn \l__nmc_vv_tl { ,\mskip 12muplus6muminus6mu (vv) } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_rbrace:n #1
+  {
+    \prop_if_in:NVT \g__nmc_envi_prop \l__nmc_env_tl
+      { 
+        \tl_if_blank:nTF { #1 }
+          { \tl_set:Nn \l__nmcA_tl { .\q_nil } }
+          { \tl_set:Nn \l__nmcA_tl { #1\q_nil } }
+        \__nmc_next:
+        \quark_if_nil:NTF \l__nmcC_tl
+          { 
+            \tl_set:Nn \l__nmc_env_sp_rbrace_tl { \right }
+            \tl_set_eq:NN \l__nmc_env_rbrace_tl \l__nmcB_tl
+          }
+          {
+            \tl_concat:NNN \l__nmc_env_sp_rbrace_tl \l__nmcB_tl \right
+            \tl_set_eq:NN \l__nmc_env_rbrace_tl \l__nmcC_tl
+          }
+        \tl_set:Nn \l__nmc_multi_sep_tl { \\ }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_f_zero:nn #1#2
+  {
+    \prop_get:NnNTF \g__nmc_envi_prop { #2 } \l_tmpb_tl
+      { 
+        \__nmc_error_what:n { Math~mode~needed~for~\__nmc_verb:n {#2}\ 
+            environment~in } 
+      }
+      { 
+        \prop_get:NnNTF \g__nmc_env_prop { #2 } \l_tmpb_tl
+          { \__nmc_env_params_def:Nnn \l_tmpb_tl { 1 } { 1 } }
+          { \__nmc_env_f_zero_aux:nn { #1 } { #2 } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_f_zero_aux:nn #1#2
+  { 
+    \bool_if:nTF { \tl_if_blank_p:n { #1 } && \tl_if_blank_p:n { #2 } }
+      { 
+        \prop_get:NnN \g__nmc_env_prop { $ } \l_tmpb_tl
+        \__nmc_env_params_def:Nnn \l_tmpb_tl { 0 } { 0 }
+      }
+      { 
+        \tl_if_empty:nTF { #1 }
+          { \__nmc_error_what:n { Unknown~math~environment~
+              \__nmc_verb:n { #2 }~in } }
+          { 
+            \__nmc_error_where:n { settings }
+            \__nmc_error_what:n { Unknown~math~environment~
+              \__nmc_verb:n { #1 }~in } 
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_f_one:nn #1#2
+  { 
+    \prop_get:NnNTF \g__nmc_envi_prop { #2 } \l_tmpb_tl
+      { 
+        \__nmc_env_params_def:Nnn \l_tmpb_tl { 1 } { 1 }
+        \mode_if_math:F
+          {
+            \tl_concat:NNN \l__nmc_math_delimi_tl 
+                \l__nmc_outer_delimi_tl\l__nmc_math_delimi_tl
+            \tl_concat:NNN \l__nmc_math_delimii_tl
+                \l__nmc_math_delimii_tl \l__nmc_outer_delimii_tl
+          }
+      }
+      { 
+        \mode_if_math:TF
+          {
+            \exp_args:NV \__nmc_env_params_def:nn \@currenvir { 0 }
+            \__nmc_math_env_delims:nn {}{}
+          }
+          { \__nmc_env_params_def:nn { #1 } { 1 } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_params_def:nn #1#2
+  {
+    \prop_get:NnNTF \g__nmc_env_prop { #1 } \l_tmpb_tl
+      { \__nmc_env_params_def:Nnn \l_tmpb_tl { #2 } { 1 } }
+      {
+        \prop_get:NnN \g__nmc_env_prop { $ } \l_tmpb_tl
+        \__nmc_env_params_def:Nnn \l_tmpb_tl { 0 } { 0 }
+      }
+  }
+\cs_new_protected:Npn \__nmc_env_params_def:Nnn #1#2#3
+  { 
+    #1
+    \__nmc_int_to_bool:Nn \l__nmc_see_formula_bool { #2 }
+    \__nmc_int_to_bool:Nn \l__nmc_see_vv_bool { #3 }
+  }
+\cs_new_protected:Npn \__nmc_env_params_set:nnnN #1#2#3#4
+  { 
+    \tl_if_empty:nF { #1 } { \tl_set:Nn \l__nmc_equals_tl { #1 } }
+    \bool_if:NT \l__nmc_vv_settings_bool { \tl_set:Nn \l__nmc_vv_tl { #2 } }
+    \tl_if_empty:nF { #3 } { \tl_set:Nn \l__nmc_multi_sep_tl { #3 } }
+    \tl_if_empty:NF { #4 } { \tl_set_eq:NN \l__nmc_env_arg_tl #4 }
+    \int_if_zero:nF { 1 + \l__nmc_see_force_int }
+      { 
+        \__nmc_int_to_bool:Nn \l__nmc_see_formula_bool 
+            { \l__nmc_see_force_int } 
+      }
+  }
+\cs_generate_variant:Nn \__nmc_env_params_set:nnnN { ooo }
+\tl_new:N \l__nmc_env_f_tl
+\cs_new_protected:Npn \__nmc_env_extract_formula:n #1
+  {
+    \str_case:nn {#1}
+      {
+        {$}  { \__nmc_env_extract_formula_aux:n {$}  }
+        {\(} { \__nmc_env_extract_formula_aux:n {\(} } 
+        {\[} { \__nmc_env_extract_formula_aux:n {\[} }
+        {\begin} 
+          {
+            \tl_set:Nx \l__nmc_env_f_tl 
+              { \tl_item:Nn \l__nmc_formula_tl { 2 } }
+            \tl_set:Nx \l__nmc_formula_tl 
+                { \tl_range:Nnn\l__nmc_formula_tl {3}{-3} }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__nmc_env_extract_formula:n { x }
+\cs_new_protected:Npn \__nmc_env_extract_formula_aux:n #1
+  {
+    \tl_set:Nx \l__nmc_formula_tl 
+        { \tl_range:Nnn\l__nmc_formula_tl {2}{-2} }
+    \tl_set:Nn \l__nmc_env_f_tl { #1 }
+  }
+\cs_new_protected:Npn \__nmc_math_env_delims:nn #1#2
+  { 
+    \tl_set:Nn \l__nmc_math_delimi_tl {#1}
+    \tl_set:Nn \l__nmc_math_delimii_tl {#2}
+  }
+\cs_new_protected:Npn \__nmc_math_env_delims:n #1
+  { \__nmc_math_env_delims:nn { \begin{#1} } { \end{#1} } } 
+\cs_new_protected:Npn \__nmc_env_delims_outer:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        {$}  { \__nmc_math_env_delims:nn {$}{$}  }
+        {\(} { \__nmc_math_env_delims:nn {\(}{\)} } 
+        {\[} { \__nmc_math_env_delims:nn {\[}{\]} }
+      }
+      { \__nmc_math_env_delims:n {#1} }
+    \tl_set_eq:NN \l__nmc_outer_delimi_tl \l__nmc_math_delimi_tl
+    \tl_set_eq:NN \l__nmc_outer_delimii_tl \l__nmc_math_delimii_tl
+  }
+\cs_generate_variant:Nn \__nmc_env_delims_outer:n { V }
+%
+\cs_set_protected:Npn \__nmc_eval_vv_digest:N #1
+  { \__nmc_vv_digest:N #1 }
+%
+\cs_set_protected:Npn \__nmc_eval_process:
+  { 
+    \__nmc_error_where:n { formula }
+    % prepare
+    \seq_set_split:NVV \l__nmc_multi_seq
+        \l__nmc_multi_delim_tl \l__nmc_formula_tl
+    \seq_remove_all:Nn \l__nmc_multi_seq {}
+    \int_set:Nn \l__nmc_multi_int { \seq_count:N \l__nmc_multi_seq }
+    % loop: process -> display/debug
+    \seq_map_variable:NNn \l__nmc_multi_seq \l__nmc_formula_tl
+      {
+        \int_decr:N \l__nmc_multi_int
+        \tl_clear:N \l__nmc_display_tl
+        \tl_set_eq:NN \l__nmc_formula_dup_tl \l__nmc_formula_tl
+        \tl_clear:N \l__nmc_fp_expr_tl
+        \__nmc_fpify:VN \l__nmc_formula_tl \l__nmc_fp_expr_tl
+        \bool_if:NF \g__nmc_error_bool
+          { 
+            \tl_set:Nx \l__nmc_result_tl { \fp_to_tl:n { \l__nmc_fp_expr_tl } }
+            \__nmc_error_fpflag:
+          } 
+        \bool_if:NT \g__nmc_error_bool
+          { \seq_map_break: }
+        \int_compare:nNnTF { \l__nmc_depth_int } <  { 3 }
+          { \__nmc_eval_process_aux: }
+          { \tl_put_right:NV \l__nmc_show_tl \l__nmc_result_tl }
+      }
+
+    \int_if_zero:nF \l__nmc_dbg_int
+      { 
+        \__nmc_dbg_get_data: 
+        \__nmc_if_mod_zero:nnT \l__nmc_dbg_int { 11 }
+          { \__nmc_eval_display: }
+      }
+  }
+\cs_new_protected:Npn \__nmc_eval_process_aux:
+  { 
+    \__nmc_num_format:nNnN { \l__nmc_result_tl } \l__nmc_result_tl
+        { \l__nmc_round_int } \l__nmc_sci_num_out_bool
+    \tl_put_right:Nx \l__nmc_display_tl
+      {
+        \bool_if:NT \l__nmc_see_formula_bool
+          {
+            \exp_not:o \l__nmc_formula_dup_tl
+            \bool_if:NTF \l__nmc_TF_out_bool 
+              { \rightarrow } { \l__nmc_equals_tl }
+           }
+        \exp_not:o \l__nmc_result_tl
+        \bool_if:nT { \l__nmc_see_vv_bool && !\l__nmc_env_rbrace_bool }
+          { \exp_not:o \l__nmc_vv_tl }
+      }
+    \int_if_zero:nF { \l__nmc_multi_int }
+      {
+        \__nmc_eval_rdisplay:ooo \l__nmc_display_tl 
+           \l__nmc_multi_punc_tl \l__nmc_multi_sep_tl
+      }
+  }
+\cs_set_protected:Npn \__nmc_eval_display:
+  { 
+    \tl_gset:NV \g__nmc_reuse_tl \l__nmc_result_tl
+    \__nmc_eval_rdisplay:ooo \l__nmc_display_tl 
+        \l__nmc_punc_tl \l__nmc_math_delimii_tl
+    \bool_if:NTF \l__nmc_env_rbrace_bool
+      {
+        \bool_if:NF \l__nmc_see_vv_bool
+          { \tl_clear:N \l__nmc_vv_tl }
+        \__nmc_eval_rdisplay:ooo \l__nmc_env_sp_rbrace_tl
+           \l__nmc_env_rbrace_tl \l__nmc_vv_tl
+        \__nmc_eval_ldisplay:noo {\left.} 
+            \l__nmc_math_delimi_tl \l__nmc_env_arg_tl
+      }
+      {
+        \__nmc_eval_ldisplay:noo {} 
+            \l__nmc_math_delimi_tl \l__nmc_env_arg_tl
+      }
+    \__nmc_if_mod_zero:nnF { \l__nmc_dbg_int } { 11 }
+      { 
+        \mode_if_math:TF
+          { 
+            \exp_after:wN \group_end: \l__nmc_show_tl
+            \group_begin:
+          }
+          { \l__nmc_show_tl }
+      }
+  }
+\cs_new_protected:Npn \__nmc_eval_rdisplay:nnn #1#2#3
+  { \tl_put_right:Nn \l__nmc_show_tl { #1 #2 #3 } }
+\cs_generate_variant:Nn  \__nmc_eval_rdisplay:nnn { ooo }
+\cs_new_protected:Npn \__nmc_eval_ldisplay:nnn #1#2#3
+  { 
+    \tl_if_blank:nTF { #3 }
+      { \tl_put_left:Nn \l__nmc_show_tl { #1 #2 } }
+      { \tl_put_left:Nn \l__nmc_show_tl { #1 #2 {#3} } }
+  }
+\cs_generate_variant:Nn  \__nmc_eval_ldisplay:nnn { noo }
+%%%%%%%%%%%% fpify LaTeX math expr %%%%%%%%%%%%%
+\bool_new:N \l__nmc_insert_aster_bool
+\tl_new:N \l__nmc_subst_tl
+\tl_new:N \l__nmc_accum_tl
+\tl_new:N \l__nmc_arg_tl
+% unary functions
+\tl_new:N \l__nmc_fn_tl
+\tl_new:N \l__nmc_fn_arg_tl
+\tl_new:N \l__nmc_power_arg_tl
+\bool_new:N \l__nmc_hyperbolic_bool
+\bool_new:N \l__nmc_trig_bool
+% factorial
+\fp_new:N \l__nmc_fact_fp
+\tl_new:N \l__nmc_fact_arg_tl
+% n-ary
+\int_new:N \l_tmpc_int
+\int_new:N \l_tmpd_int
+\bool_new:N \l__nmc_comma_nary_bool
+% sqrt
+\tl_new:N \l__nmc_ubrace_n_tl
+% binom
+\tl_new:N \l__nmc_binom_top_tl
+\tl_new:N \l__nmc_binom_bot_tl 
+% sum/prod
+\tl_new:N \l__nmc_sum_var_tl
+\tl_new:N \l__nmc_summand_tl
+\tl_new:N \l__nmc_sum_op_tl
+\tl_new:N \l__nmc_sum_type_tl
+\tl_new:N \l__nmc_sum_typei_tl
+\tl_new:N \g__nmc_sum_A_tl
+\bool_new:N \l__nmc_sum_bool
+\int_new:N \l__nmc_sum_index_int
+\int_new:N \l__nmc_sum_end_int
+\int_new:N \l__nmc_sum_round_int
+\int_new:N \l__nmc_suma_int
+\int_new:N \l__nmc_sumb_int
+\fp_new:N \l__nmc_sum_total_fp
+\fp_new:N \l__nmc_sum_prev_fp
+\fp_new:N \l__nmc_sum_rounded_fp
+
+% #1 = latex expr #2 = fp-ified result
+\cs_new_protected:Npn \__nmc_fpify:nN #1#2
+  { 
+    \group_begin:
+    \bool_set_false:N \l__nmc_superscript_bool
+    \bool_set_false:N \l__nmc_insert_aster_bool
+    \bool_set_false:N \l__nmc_trig_bool
+    \tl_clear:N \l__nmc_accum_tl
+    \tl_clear:N \l__nmcC_tl
+    \tl_if_empty:nTF { #1 }
+      { \__nmc_error_what:n { Empty~argument~to~fp-ify~in } }
+      { \tl_set:Nn \l__nmcA_tl  { #1\q_nil } }
+    \bool_until_do:nn 
+        { 
+          \quark_if_nil_p:N \l__nmcC_tl
+          || \g__nmc_error_bool
+        }
+      { 
+        \tl_clear:N \l__nmc_arg_tl
+        \__nmc_next: 
+        \prop_get:NVNTF \g__nmc_class_prop \l__nmcB_tl \l_tmpb_tl
+          { \exp_last_unbraced:NV \use_i:nn \l_tmpb_tl }
+          { \tl_if_empty:NF \l__nmcB_tl { \__nmc_fpify_var: } }
+      } 
+    \exp_args:NNNV
+    \group_end:
+        \tl_put_right:Nn #2 \l__nmc_accum_tl
+  }
+\cs_generate_variant:Nn \__nmc_fpify:nN { V }
+% (fpify) #2, append to #1
+\cs_new_protected:Npn \__nmc_accum_fpify_parenth:NN #1#2
+  {
+    \group_begin:
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN #2 \l_tmpa_tl
+    \exp_args:NNNV
+    \group_end:
+        \__nmc_accum_fn_parenth:Nnn #1\l_tmpa_tl{}
+  }
+% (fp-ify) next braced arg, append to #1
+\cs_new_protected:Npn \__nmc_fpify_next_braced:N #1
+  { 
+    \__nmc_next:
+    \__nmc_accum_fpify_parenth:NN #1 \l__nmcB_tl
+  }
+%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_fpify_unknown:
+  { 
+    \exp_args:NnV\str_if_in:nnTF { )]\}\rbrace } \l__nmcB_tl
+      { \__nmc_error_what:n { Unmatched~\__nmc_verb:N\l__nmcB_tl\ in } }
+      { 
+        \tl_if_single:NTF \l__nmcB_tl
+          {
+            \__nmc_error_what:n 
+                { Unknown~token~\__nmc_verb:V\l__nmcB_tl\ in }
+          }
+          { \__nmc_fpify:VN \l__nmcB_tl \l__nmc_accum_tl } % brace group
+      }
+  }
+% to ensure e.g. 3*4 instead of 34
+\cs_new_protected:Npn \__nmc_insert_aster:
+  {
+    \bool_if:NT \l__nmc_insert_aster_bool
+      { \tl_put_right:Nn \l__nmc_accum_tl { * } }
+  }
+\cs_new_protected:Npn \__nmc_fpify_dec:
+  { 
+    \__nmc_get_dec:NN \l__nmc_fact_arg_tl \c_false_bool
+    \tl_if_eq:VnF \l__nmcC_tl { ! }
+      {
+        \__nmc_insert_aster:
+        \tl_put_right:NV \l__nmc_accum_tl \l__nmc_fact_arg_tl
+        \bool_set_true:N \l__nmc_insert_aster_bool
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_var:
+  { % ( ) in case var < 0 raised to power
+
+    \prop_get:NVNTF \l__nmc_subst_var_prop \l__nmcB_tl \l__nmc_subst_tl
+      {
+        \tl_set_eq:NN \l__nmc_fact_arg_tl \l__nmc_subst_tl
+        \tl_if_in:noF { ! } \l__nmcC_tl
+          { 
+            \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl \l__nmc_subst_tl {}
+            \bool_set_true:N \l__nmc_insert_aster_bool
+          }
+      }
+      {
+        \tl_trim_spaces:N \l__nmcB_tl
+        \tl_if_empty:NF \l__nmcB_tl
+          { \__nmc_fpify_unknown:{} }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_const:
+  { % if const used as var
+    \prop_get:NVNTF \l__nmc_subst_var_prop \l__nmcB_tl \l__nmc_subst_tl
+      { \__nmc_fpify_var: }
+      {
+        \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l__nmc_subst_tl
+        \tl_if_eq:VnTF \l__nmcC_tl { ! }
+          { \tl_clear:N \l__nmc_fact_arg_tl }
+          { \tl_put_right:NV \l__nmc_accum_tl \l__nmc_subst_tl }
+        \bool_set_true:N \l__nmc_insert_aster_bool
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_arith:
+  {
+    \tl_put_right:NV \l__nmc_accum_tl \l__nmcB_tl
+    \bool_set_false:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_slash:
+  { 
+    \tl_put_right:NV \l__nmc_accum_tl \l__nmcB_tl
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_uny_int } 
+    \__nmc_accum_fpify_parenth:NN \l__nmc_accum_tl \l__nmc_arg_tl
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_arith_alt:
+  {
+    \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l__nmcB_tl
+    \tl_put_right:NV \l__nmc_accum_tl \l__nmcB_tl
+    \bool_set_false:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_comparison:
+  { 
+    \tl_if_in:noTF { <=> } \l__nmcC_tl
+      { 
+        \tl_concat:NNN \l_tmpa_tl \l__nmcB_tl \l__nmcC_tl 
+        \__nmc_next:
+      }
+      {
+        \prop_get:NVNF \g__nmc_subst_fpfn_prop \l__nmcB_tl \l_tmpa_tl 
+          { \tl_set_eq:NN \l_tmpa_tl \l__nmcB_tl } % < = > 
+      }
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_cmp_int }
+    \tl_clear:N \l_tmpb_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpb_tl
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl \l_tmpb_tl { - }
+        \tl_set:Nx \l__nmc_accum_tl 
+            { round( \l__nmc_accum_tl, \int_use:N \l__nmc_round_int ) }
+        \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+        \tl_put_right:Nn \l__nmc_accum_tl { 0 }
+      }
+  } 
+\cs_new_protected:Npn \__nmc_fpify_andor:
+  { 
+    \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l_tmpa_tl 
+    \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_and_int }
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl
+    \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+    \bool_set_false:N \l__nmc_insert_aster_bool  
+  }
+\cs_new_protected:Npn \__nmc_fpify_lparen:
+  {
+    \__nmc_get_arg_L:VN \l__nmcB_tl \l__nmc_arg_tl
+    \tl_set_eq:NN \l__nmc_fact_arg_tl \l__nmc_arg_tl
+    \tl_if_eq:VnTF \l__nmcC_tl { ! }
+      { \bool_set_false:N \l__nmc_insert_aster_bool }
+      {
+        \__nmc_accum_fpify_parenth:NN \l__nmc_accum_tl \l__nmc_arg_tl 
+        \bool_set_true:N \l__nmc_insert_aster_bool
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_lvert:
+  { 
+    \tl_if_eq:VnTF \l__nmcB_tl { | } 
+      { 
+        \tl_set:Nn \l__nmc_L_tl { \lvert }
+        \__nmc_absval_arg:N \l__nmc_arg_tl
+        \tl_set:Nn \l__nmc_R_tl { \rvert }
+      }
+      { 
+        \tl_set_eq:NN \l__nmc_L_tl \l__nmcB_tl
+        \__nmc_get_arg_L:VN \l__nmcB_tl \l__nmc_arg_tl 
+      }
+    \__nmc_fpify_lvert_aux:
+  }
+\cs_new_protected:Npn \__nmc_fpify_lvert_aux:
+  {
+    \tl_if_eq:VnTF \l__nmcC_tl { ! }
+      {
+        \tl_set:NV \l__nmc_fact_arg_tl \l__nmc_L_tl
+        \tl_put_right:NV \l__nmc_fact_arg_tl \l__nmc_arg_tl 
+        \tl_put_right:NV \l__nmc_fact_arg_tl \l__nmc_R_tl
+      }
+      {
+        \tl_clear:N \l_tmpa_tl
+        \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl
+        \str_case:onF \l__nmc_L_tl
+          {
+            { \lvert  } { \tl_put_right:Nn \l__nmc_accum_tl { abs(   } }
+            { \lceil  } { \tl_put_right:Nn \l__nmc_accum_tl { ceil(  } }
+            { \lfloor } { \tl_put_right:Nn \l__nmc_accum_tl { floor( } }
+            { | } { \tl_put_right:Nn \l__nmc_accum_tl { abs( } }
+            { / } { \tl_put_right:Nn \l__nmc_accum_tl { / } }
+          }
+          { \tl_put_right:Nn \l__nmc_accum_tl { ( } }
+        \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+        \tl_if_eq:VnF \l__nmc_R_tl { . }
+          { 
+            \tl_put_right:Nn \l__nmc_accum_tl { ) }
+            \bool_set_true:N \l__nmc_insert_aster_bool
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_lmod:
+  {
+    \tl_set_eq:NN \l__nmc_L_tl \l__nmcB_tl
+    \prop_get:NVN \g__nmc_subst_misc_prop \l__nmc_L_tl \l__nmc_R_tl
+    \str_case:on \l__nmcC_tl
+      {
+        { | } { \__nmc_fpify_lmod_abs:V \l__nmc_L_tl }
+        { . } { \__nmc_next: } %\__nmc_fpify_lmod_aux:V \l__nmc_L_tl }
+        { / } %{ \__nmc_next: }
+          { 
+            \tl_put_right:Nn \l__nmc_accum_tl { / }
+            \__nmc_fpify_lmod_aux:V \l__nmc_L_tl 
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_lmod_abs:n #1
+  { 
+    \__nmc_next:
+    \tl_put_right:Nn \l__nmc_accum_tl { abs( }
+    \exp_args:NNNV\__nmc_get_arg_LR:NNN { #1 } \l__nmc_arg_tl \l__nmc_R_tl 
+    \__nmc_next:
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl
+    \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+    \tl_put_right:Nn \l__nmc_accum_tl { ) }
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_generate_variant:Nn \__nmc_fpify_lmod_abs:n { V }
+
+\cs_new_protected:Npn \__nmc_fpify_lmod_aux:n #1
+  { 
+    \__nmc_next:
+    \exp_args:NNNV\__nmc_get_arg_LR:NNN #1 \l__nmc_arg_tl \l__nmc_R_tl
+    \tl_if_eq:VnT \l__nmcC_tl { . }
+      { \__nmc_next: }
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl
+    \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_generate_variant:Nn \__nmc_fpify_lmod_aux:n { V }
+ 
+\cs_new_protected:Npn \__nmc_fpify_rmod:
+  { 
+    \tl_if_eq:VnT \l__nmcC_tl { . }
+      { \__nmc_next: }
+  }
+\cs_new_protected:Npn \__nmc_fpify_unary:
+  {
+    \tl_set:NV \l__nmc_fn_tl \l__nmcB_tl
+    \tl_if_eq:VnTF \l__nmcC_tl { ^ }
+      { \__nmc_fpify_unary_superscript: }
+      { \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmc_fn_tl \l__nmc_fn_tl }
+    \str_if_in:NnTF \l__nmc_fn_tl { h }
+      { \bool_set_true:N \l__nmc_hyperbolic_bool }
+      { 
+        \bool_set_false:N \l__nmc_hyperbolic_bool 
+        \bool_set_true:N \l__nmc_trig_bool
+      }
+    % get fn arg
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_uny_int } 
+    \tl_clear:N \l__nmc_fn_arg_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l__nmc_fn_arg_tl
+    \bool_if:NT \l__nmc_hyperbolic_bool
+      { 
+        \tl_set:Nx \l__nmc_fn_tl 
+            { \__nmc_fpify_unary_hyperbolic:N \l__nmc_fn_arg_tl }
+      }
+    % append fn
+    \bool_if:NTF \l__nmc_hyperbolic_bool
+      { \tl_put_right:NV \l__nmc_accum_tl \l__nmc_fn_tl }
+      { 
+        \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl 
+            \l__nmc_fn_arg_tl \l__nmc_fn_tl
+      }
+    \bool_if:NT \l__nmc_superscript_bool
+      { % e.g. \sin^{2}
+        \tl_put_right:Nn \l__nmc_accum_tl { ^ } 
+        \tl_put_right:NV \l__nmc_accum_tl \l__nmc_power_arg_tl
+        \bool_set_false:N \l__nmc_superscript_bool
+      }
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_unary_superscript:
+  {
+    \__nmc_next:
+    \tl_clear:N \l__nmc_power_arg_tl
+    \__nmc_fpify_next_braced:N \l__nmc_power_arg_tl
+    \tl_if_eq:VnTF \l__nmc_power_arg_tl { (-1) }
+      { % inverse trig/hyp. function?
+        \prop_get:NVNF \g__nmc_subst_misc_prop \l__nmc_fn_tl \l__nmc_fn_tl 
+          {
+            \prop_get:NVN \g__nmc_subst_fpfn_prop
+                \l__nmc_fn_tl \l__nmc_subst_tl
+            \tl_concat:NNN \l__nmc_fn_tl a \l__nmc_subst_tl
+          }
+      }
+      { % not inverse fn
+        \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmc_fn_tl \l__nmc_fn_tl 
+        \bool_set_true:N \l__nmc_superscript_bool
+      }
+  }
+\cs_new:Npn \__nmc_fpify_unary_hyperbolic:N #1
+  { 
+    \str_case:on \l__nmc_fn_tl
+      { 
+        { sinh } { ( 0.5( exp(#1)- exp(-(#1)) ) ) }
+        { cosh } { ( 0.5( exp(#1) + exp(-(#1)) ) ) }
+        { tanh } { ( (exp(2(#1))-1)/(exp(2(#1))+1) ) }
+        { asinh } { ln( #1 + sqrt((#1)^2+1) ) }
+        { acosh } { ln( #1 + sqrt((#1)^2-1) ) }
+        { atanh } { ( 0.5 ln( (1+(#1))/(1-(#1)) ) ) }
+        { csch } { 1/( 0.5( exp(#1)- exp(-(#1)) ) ) }
+        { sech } { 1/( 0.5( exp(#1) + exp(-(#1)) ) ) }
+        { coth } { ( (exp(2(#1))+1)/(exp(2(#1))-1) ) }
+        { acsch } { ( ln(1/(#1)+sqrt(1/(#1)^2+1)) ) }
+        { asech } { ( ln(1/(#1)+sqrt(1/(#1)^2-1)) ) }
+        { acoth } { ( 0.5 ln( ((#1)+1)/((#1)-1) ) ) }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_degree:
+  {
+    \bool_if:NF \l__nmc_deg_bool
+      { \tl_put_right:Nn \l__nmc_accum_tl { (0.0174532925199433) } }
+  }
+\cs_new_protected:Npn \__nmc_fpify_power:
+  {
+    \tl_put_right:Nn \l__nmc_accum_tl { ^ }
+    \__nmc_fpify_next_braced:N \l__nmc_accum_tl
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_frac:
+  {
+    \tl_put_right:Nn \l__nmc_accum_tl { ( }
+    \__nmc_fpify_next_braced:N \l__nmc_accum_tl
+    \tl_put_right:Nn \l__nmc_accum_tl { / }
+    \__nmc_fpify_next_braced:N \l__nmc_accum_tl
+    \tl_put_right:Nn \l__nmc_accum_tl { ) }
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_unarybrace:
+  { 
+    \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l__nmc_subst_tl
+    \tl_if_eq:VnT \l__nmcC_tl { * }
+      { \__nmc_next: }
+    \tl_if_eq:VnTF \l__nmcC_tl { [ }
+      { % n-th root
+        \tl_if_eq:VnTF \l__nmc_subst_tl { sqrt }
+          { 
+            \__nmc_next:
+            \__nmc_fpify_ubrace_n: 
+          }
+          { 
+            \__nmc_next: \__nmc_next: \__nmc_next:
+            \__nmc_fpify_ubrace_aux:
+          }
+      }
+      { \__nmc_fpify_ubrace_aux: }
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_ubrace_aux:
+  {
+    \tl_set_eq:NN \l_tmpa_tl \l__nmc_subst_tl
+    \__nmc_fpify_next_braced:N \l_tmpa_tl
+    \tl_if_eq:VnTF \l__nmcC_tl { ! }
+      { \__nmc_fpify_ubrace_fact: }
+      { \tl_put_right:NV \l__nmc_accum_tl \l_tmpa_tl }
+  }
+\cs_new_protected:Npn \__nmc_fpify_ubrace_n:
+  { 
+    \__nmc_error_where:n { \textbackslash sqrt }
+    \tl_clear:N \l__nmc_arg_tl
+    \tl_clear:N \l__nmc_ubrace_n_tl
+    \tl_put_right:Nn \l__nmc_accum_tl { ( }
+    \__nmc_get_arg_LR:NNN [ \l__nmc_arg_tl ]
+    \__nmc_fpify:VN \l__nmc_arg_tl \l__nmc_ubrace_n_tl
+    \tl_set:Nx \l__nmc_ubrace_n_tl { \fp_to_int:n \l__nmc_ubrace_n_tl }
+    \int_compare:nNnF { \l__nmc_ubrace_n_tl } > { 0 }
+      { 
+        \__nmc_error_what:n 
+          { Integer~$>0$~required~for~[arg]~of } 
+      }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+        \__nmc_next:
+        \tl_clear:N \l_tmpa_tl
+        \__nmc_fpify:VN \l__nmcB_tl \l_tmpa_tl
+        \bool_if:nTF 
+            { 
+              \fp_compare_p:nNn { \l_tmpa_tl } < { 0 }
+              && \int_if_even_p:n { \l__nmc_ubrace_n_tl }
+            }
+          { \flag_raise:n { fp_invalid_operation  } \__nmc_error_fpflag: }
+          {        
+            \tl_put_right:Nx \l__nmc_accum_tl
+               { \__nmc_fpify_ubrace_n_aux:VV {\l_tmpa_tl}{ \l__nmc_ubrace_n_tl }}
+          }
+      }
+    \tl_put_right:Nn \l__nmc_accum_tl { ) }
+  }
+\cs_new:Npn \__nmc_fpify_ubrace_n_aux:nn #1#2
+  { sign( #1 )( abs( #1 ) )^( 1/( #2 ) ) }
+\cs_generate_variant:Nn \__nmc_fpify_ubrace_n_aux:nn { VV }
+
+\cs_new_protected:Npn \__nmc_fpify_ubrace_fact:
+  {
+    \tl_if_eq:VnF \l__nmc_subst_tl { sqrt }
+      { 
+        \str_case:onT \l__nmc_subst_tl
+          {
+            { abs  } { \tl_set:Nn \l__nmc_fact_arg_tl { \abs } }
+            { ceil } { \tl_set:Nn \l__nmc_fact_arg_tl { \ceil } }
+            { floor} { \tl_set:Nn \l__nmc_fact_arg_tl { \floor } }
+          }
+          {
+            \tl_put_right:Nx \l__nmc_fact_arg_tl 
+                { { \exp_not:o \l__nmcB_tl } }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_unarysub:
+  { % e.g. \log_{10}
+    \str_if_eq:VnTF \l__nmcC_tl { _ }
+      { 
+        \__nmc_next: \__nmc_next:
+        \__nmc_fpify_unarysub:N \l__nmcB_tl
+      }
+      { \__nmc_fpify_unarysub:N \l__nmc_log_base_tl }
+  }
+\cs_new_protected:Npn \__nmc_fpify_unarysub:N #1
+  { 
+    \__nmc_fpify:VN #1 \l__nmc_arg_tl
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \fp_compare:nF { 0 < \l__nmc_arg_tl != 1 }
+          {
+            \__nmc_error_what:n 
+                { Valid~base~required~for~\__nmc_verb:n { \log }~in } 
+          }
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { 
+        \tl_set:Nx \l_tmpa_tl { \fp_eval:n { 1/(ln(\l__nmc_arg_tl)) } }
+        \__nmc_error_fpflag:
+      }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl \l_tmpa_tl {}
+        \tl_put_left:Nn \l__nmcA_tl { \ln }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_surd:
+  {
+    \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l__nmc_subst_tl
+    \tl_put_right:NV \l__nmc_accum_tl \l__nmc_subst_tl
+    \tl_clear:N \l__nmc_arg_tl
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_srd_int }
+    \__nmc_parenth:N \l__nmc_arg_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l__nmc_accum_tl
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_fact:
+  { 
+    \__nmc_error_where:n { factorial }
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_fact_arg_tl \l_tmpa_tl
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \tl_set:Nx \l_tmpa_tl { \fp_to_int:n \l_tmpa_tl }
+        \tl_if_eq:VnTF \l__nmcC_tl { ! }
+          { \__nmc_fpify_fact_repeated: }
+          { 
+            \int_compare:nNnTF { \l_tmpa_tl } < { 0 }
+              { \__nmc_error_what:n { Integer~$\ge 0$~required~in } }
+              {
+                \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+                \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl
+                    \l_tmpa_tl { fact }
+              }
+          }
+      }
+    \bool_set_true:N \l__nmc_insert_aster_bool 
+  }
+\cs_new_protected:Npn \__nmc_fpify_fact_repeated:
+  { 
+    \int_compare:nNnTF { \l_tmpa_tl } < { -1 }
+      { 
+        \__nmc_error_what:n 
+            { Integer~$\ge -1$~required~for~double~factorial~in } 
+      }
+      { 
+        \__nmc_fpify_double_fact:N \l_tmpa_tl 
+        \tl_set:Nx \l_tmpa_tl { \fp_use:N \l__nmc_fact_fp } 
+        \__nmc_accum_fn_parenth:NVn \l__nmc_accum_tl \l_tmpa_tl {} 
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_double_fact:N #1
+  { 
+    \__nmc_next:
+    \int_compare:nNnTF { #1 } > { 0 }
+      {
+        \int_if_even:nTF { #1 }
+          { \__nmc_fpify_fact_do:nNn { 2 } #1 { 2 } }
+          { \__nmc_fpify_fact_do:nNn { 1 } #1 { 2 } }
+      }
+      { \fp_set:Nn \l__nmc_fact_fp { 1 } } 
+  }
+% multiply nos from #1 to #2, put  in \l__nmc_fact_fp
+% step #3 = 1 (!), = 2 (!!)
+\cs_new_protected:Npn \__nmc_fpify_fact_do:nNn #1#2#3
+  { 
+    \fp_set:Nn \l__nmc_fact_fp { #1 }
+    \int_step_inline:nnnn { #1 + #3 } { #3 } { #2 }
+      { \fp_set:Nn \l__nmc_fact_fp { \l__nmc_fact_fp * ##1 } }
+  }
+\cs_new_protected:Npn \__nmc_fpify_nary:
+  { 
+    \bool_set_true:N \l__nmc_comma_nary_bool
+    \str_case:on \l__nmcB_tl
+      {
+        { \gcd } { \__nmc_fpify_nary_gcd: }
+        { \max } { \__nmc_fpify_nary_maxmin: }
+        { \min } { \__nmc_fpify_nary_maxmin: }
+      }
+    \bool_set_false:N \l__nmc_comma_nary_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_nary_gcd:
+  {
+    \__nmc_insert_aster:
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c_max_int }
+    \tl_set:Nx \l__nmc_arg_tl { \tl_range:Nnn \l__nmc_arg_tl { 2 } { -2 } }
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl
+    \seq_set_split:NnV \l_tmpa_seq {,} \l_tmpa_tl % , for l3fp
+    % eval. 1st expr.
+    \seq_pop:NN \l_tmpa_seq \l_tmpb_tl
+    \int_set:Nn \l_tmpb_int { \fp_to_int:n \l_tmpb_tl }
+    \seq_map_inline:Nn \l_tmpa_seq
+      {
+        \int_set:Nn \l_tmpd_int { \fp_to_int:n { ##1 } }
+        \int_set:Nn \l_tmpa_int { \int_max:nn { \l_tmpd_int } { \l_tmpb_int } }
+        \int_set:Nn \l_tmpb_int { \int_min:nn { \l_tmpd_int } { \l_tmpb_int } }
+        \int_set:Nn \l_tmpc_int { \int_mod:nn { \l_tmpa_int } { \l_tmpb_int } }
+        \int_until_do:nNnn { \l_tmpc_int } = { 0 }
+          {
+            \int_set_eq:NN \l_tmpa_int \l_tmpb_int
+            \int_set_eq:NN \l_tmpb_int \l_tmpc_int
+            \int_set:Nn \l_tmpc_int { \int_mod:nn
+                { \l_tmpa_int } { \l_tmpb_int } }
+          }
+      }
+    \tl_put_right:Nx \l__nmc_accum_tl { \int_use:N \l_tmpb_int }
+    \bool_set_false:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_nary_maxmin:
+  { 
+    \prop_get:NVN \g__nmc_subst_fpfn_prop \l__nmcB_tl \l__nmc_subst_tl
+    \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c_max_int }
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_fpify:VN \l__nmc_arg_tl \l_tmpa_tl 
+    % em-brace in case nested
+    \tl_put_right:Nx \l__nmc_accum_tl 
+        { { \l__nmc_subst_tl \exp_not:o \l_tmpa_tl } }
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_comma:
+  { 
+    \tl_put_right:Nn \l__nmc_accum_tl {,}
+    \bool_set_false:N \l__nmc_insert_aster_bool
+  }
+\cs_new_protected:Npn \__nmc_fpify_binom:
+  {
+    \__nmc_fpify_next_braced:N \l__nmc_binom_top_tl
+    \__nmc_fpify_next_braced:N \l__nmc_binom_bot_tl
+    \__nmc_error_where:n { binomial~coeff }
+    \tl_set:Nx \l__nmc_binom_bot_tl { \fp_to_int:n \l__nmc_binom_bot_tl }
+    \int_compare:nNnT \l__nmc_binom_bot_tl < { 0 }
+      { \__nmc_error_what:n {Integer~$\ge 0$~required~in~\{arg2\}~of } }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+        \__nmc_fpify_binom_calc:NN 
+            \l__nmc_binom_top_tl \l__nmc_binom_bot_tl
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_binom_calc:NN #1 #2
+  {
+    \tl_put_right:Nn \l__nmc_accum_tl { ( }
+    \int_if_zero:nTF { #2 }
+      { \tl_put_right:Nn \l__nmc_accum_tl { 1 } }
+      { % calc. top
+        \fp_set:Nn \l_tmpa_fp { #1 }
+        \int_step_inline:nnnn { 1 } { 1 } { #2 - 1 }
+          { \fp_set:Nn \l_tmpa_fp { \l_tmpa_fp * ( #1 - ##1 ) } }
+        \tl_put_right:Nx \l__nmc_accum_tl { \fp_use:N \l_tmpa_fp } 
+        \tl_put_right:Nn \l__nmc_accum_tl { / }
+        \__nmc_fpify_fact_do:nNn { 1 } #2 { 1 }
+        \tl_put_right:Nx \l__nmc_accum_tl { \fp_use:N \l__nmc_fact_fp }
+      }
+    \tl_put_right:Nn \l__nmc_accum_tl { ) }
+  }
+\cs_new_protected:Npn \__nmc_fpify_font:
+  { 
+    \__nmc_next:
+    \__nmc_accum_fpify_parenth:NN \l__nmc_accum_tl \l__nmcB_tl
+  }
+\cs_new_protected:Npn \__nmc_fpify_splitfrac:
+  {
+    \__nmc_next:
+    \tl_set_eq:NN \l_tmpb_tl \l__nmcB_tl
+    \__nmc_next:
+    \tl_put_right:NV \l_tmpb_tl \l__nmcB_tl
+    \__nmc_accum_fpify_parenth:NN \l__nmc_accum_tl \l_tmpb_tl 
+  }
+% \cs { m }, \cs { o m }, \cs { * m }
+\cs_new_protected:Npn \__nmc_fpify_absorb_m:
+  { \__nmc_next:  }
+\cs_new_protected:Npn \__nmc_fpify_absorb_om:
+  { 
+    \str_if_eq:VnT \l__nmcC_tl { [ }
+      { 
+        \__nmc_next:
+        \__nmc_get_arg_LR:NNN [ \l__nmc_toss_tl ] 
+      }
+    \__nmc_next:  
+  }
+\cs_new_protected:Npn \__nmc_fpify_absorb_sm:
+  { 
+    \str_if_eq:VnT \l__nmcC_tl { * }
+      { \__nmc_next: }
+    \__nmc_next:
+  }
+\cs_new_protected:Npn  \__nmc_fpify_color:
+  { 
+    \__nmc_fpify_absorb_om:
+    \__nmc_fpify_next_braced:N \l__nmc_accum_tl
+    \bool_set_true:N \l__nmc_insert_aster_bool
+  }
+\regex_new:N \l__nmc_glue_regex
+\regex_set:Nn \l__nmc_glue_regex 
+  { (\d+\s*mu)|(\1\s*plus\s*\d+\s*mu)|\2\s*minus\s*\d+\s*mu }
+\cs_new_protected:Npn \__nmc_fpify_mkern:
+  {
+    \exp_args:NV \token_if_eq_catcode:NNTF \l__nmcC_tl \mkern
+      { \__nmc_next: }
+      { 
+        \regex_replace_case_once:nNT
+          {
+            { \d+\s*mu\s*plus\s*\d+\s*mu\s*minus\s*\d+\s*mu } {}
+            { \d+\s*mu\s*plus\s*\d+\s*mu } {}
+            { \d+\s*mu\s*minus\s*\d+\s*mu } {}
+            { \d+\s*mu } {}
+          } \l__nmcA_tl
+          { \tl_set:Nx \l__nmcC_tl { \tl_head:N \l__nmcA_tl } }
+      }
+  }
+\cs_new_protected:Npn \__nmc_fpify_BE:
+  { 
+    \__nmc_next: 
+    \tl_if_in:VnT \l__nmcB_tl { alignat }
+      { \__nmc_next: }
+  }
+\cs_new_protected:Npn \__nmc_fpify_cmd:
+  {  % \cm { s O m O O }
+    % \__nmc_insert_aster:
+    \prop_get:NoNT \g__nmc_subst_misc_prop \l__nmcB_tl \l_tmpa_tl
+      { 
+        \exp_args:NV \__nmc_cmd:n \l_tmpa_tl
+        \bool_set_false:N \l__nmc_insert_aster_bool
+        \bool_set_false:N \l__nmc_wraps_math_bool
+      }
+  }
+\cs_new_protected:Npn \__nmc_cmd:n #1
+  { % #1=id; \cm { s O m O O }
+    \tl_put_right:Nn \l__nmc_accum_tl { ( }
+    \tl_set:Nn \l__nmc_arg_tl { {#1} }
+    \tl_if_eq:VnT \l__nmcC_tl { * }
+      { \__nmc_next: }
+    \bool_set_true:N \l__nmc_num_only_bool
+    \__nmc_get_sqbrarg:N \l__nmc_arg_tl % settings
+    \__nmc_next:
+    \tl_put_right:Nx \l__nmc_arg_tl { { \exp_not:o \l__nmcB_tl } }
+    \__nmc_get_sqbrarg:N \l__nmc_arg_tl % vv
+    \__nmc_get_sqbrarg:N \l__nmc_arg_tl % num format
+    \group_begin:
+    \int_add:Nn \l__nmc_depth_int { 2 }
+    \exp_last_unbraced:No \__nmc_cmd_aux:nnnnn \l__nmc_arg_tl
+    \bool_if:nT { \l__nmc_round_bool && !\g__nmc_error_bool }
+      { 
+        \tl_set:Nx \l__nmc_result_tl 
+          { \fp_eval:n { round(\l__nmc_result_tl, \l__nmc_round_int) } }
+      }
+    \exp_args:NNNV
+    \group_end:
+      \tl_put_right:Nn \l__nmc_accum_tl \l__nmc_result_tl
+    \tl_put_right:Nn \l__nmc_accum_tl { ) }
+  }
+\cs_new_protected:Npn \__nmc_cmd_aux:nnnnn #1#2#3#4#5
+  { 
+     \__nmc_initialize:n { #1 }
+     \__nmc_formula:nn {#1} {#3}
+      \bool_if:NF \g__nmc_error_bool
+        { \__nmc_settings:nn {#1} {#2} }
+      \bool_if:NF \g__nmc_error_bool
+        { \__nmc_trailing_args:nnn {#1} {#4} {#5} }
+      \bool_if:NF \g__nmc_error_bool
+        { \use:c { __nmc_#1_process: } }
+  }
+\cs_new_protected:Npn \__nmc_get_sqbrarg:N #1
+  {
+    \tl_if_eq:VnTF \l__nmcC_tl { [ }
+      { 
+        \__nmc_next:
+        \tl_clear:N \l_tmpa_tl
+        \__nmc_get_arg_LR:NNN [ \l_tmpa_tl ]
+        \tl_put_right:Nx #1 { { \exp_not:o \l_tmpa_tl } }
+      }
+      { \tl_put_right:Nn #1 { {} } }
+  }
+% sum/prod %%%%%%%%%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_fpify_sum:
+  {
+    \__nmc_insert_aster:
+    \group_begin:
+    \tl_if_eq:VnTF \l__nmcB_tl { \sum }
+      { % sum
+        \tl_set:Nn \l__nmc_sum_op_tl { + }
+        \fp_zero:N \l__nmc_sum_total_fp
+        \fp_set:Nn \l__nmc_sum_prev_fp { 1 }
+        \tl_set:Nn \l__nmc_sum_type_tl { sum }
+        \tl_set:Nn \l__nmc_sum_typei_tl { summation }
+        \bool_set_true:N \l__nmc_sum_bool
+      }
+      { % product
+        \tl_set:Nn \l__nmc_sum_op_tl { * }
+        \fp_set:Nn \l__nmc_sum_total_fp { 1 }
+        \fp_set:Nn \l__nmc_sum_prev_fp { 2 }
+        \tl_set:Nn \l__nmc_sum_type_tl { product }
+        \tl_set:Nn \l__nmc_sum_typei_tl { product }
+        \bool_set_false:N \l__nmc_sum_bool
+      }
+    \__nmc_error_where:n { \l__nmc_sum_type_tl }
+
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \__nmc_error_where:n { \l__nmc_sum_type_tl }
+        \__nmc_sum_get_limits:NNN \l__nmc_sum_var_tl
+            \l__nmc_sum_index_int \l__nmc_sum_end_int
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+      }
+    \bool_if:NTF \g__nmc_error_bool
+      { \group_end: }
+      { % get the summand/multiplicand
+        \__nmc_delim_arg:Nnn \l__nmc_arg_tl { 1 } { \c__nmc_sum_int }
+        \tl_if_eq:VnF \l__nmcC_tl { ( }
+          { \__nmc_parenth:N \l__nmc_arg_tl }
+        \tl_set_eq:NN \l__nmc_summand_tl \l__nmc_arg_tl
+        % do the sum/prod
+        \__nmc_error_where:n { \l__nmc_sum_type_tl }
+        \__nmc_sum_do:nn { \l__nmc_sum_index_int } { \l__nmc_sum_end_int }
+        \tl_gset_eq:NN \g_tmpa_tl \l__nmcA_tl
+        \tl_gset_eq:NN \g_tmpb_tl \l__nmcC_tl
+        \exp_args:NNNV
+        \group_end:
+            \fp_set:Nn \l__nmc_sum_total_fp { \l__nmc_sum_total_fp }
+        \tl_set_eq:NN \l__nmcA_tl \g_tmpa_tl 
+        \tl_set_eq:NN \l__nmcC_tl \g_tmpb_tl
+        \tl_put_right:Nx \l__nmc_accum_tl { \fp_use:N \l__nmc_sum_total_fp }
+        \bool_set_true:N \l__nmc_insert_aster_bool
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+      }
+  }
+\cs_new_protected:Npn \__nmc_sum_get_limits:NNN #1#2#3
+  { % #1 (tl) sum var #2, #3 (ints) lower, upper limits
+    \str_if_eq:VnTF \l__nmcC_tl { _ }
+      { 
+        \__nmc_sum_limit_lower:NN #1#2 
+        \bool_if:NF \g__nmc_error_bool
+          { \__nmc_sum_limit_upper:N #3 }
+      }
+      {   
+        \__nmc_sum_limit_upper:N #3
+        \__nmc_sum_limit_lower:NN #1#2
+      }
+  }
+\cs_new_protected:Npn \__nmc_sum_limit_lower:NN #1#2
+  { 
+    \__nmc_next: \__nmc_next:
+    \bool_if:NT \l__nmc_multitok_bool
+      { % may not be in vv-list
+        \seq_clear:N \l_tmpc_seq
+        \seq_push:NV \l_tmpc_seq \l__nmcB_tl
+        \__nmc_prep_multitok:NN \l_tmpc_seq \l__nmcA_tl 
+        \seq_pop:NN \l_tmpc_seq \l__nmcB_tl
+      }
+    \str_if_in:NnTF \l__nmcB_tl { = }
+      { 
+        \__nmc_vv_get_vars_vals_lims:NN \l__nmcB_tl \c_empty_prop
+        \tl_set_eq:NN #1 \l__nmc_eq_var_tl
+        \__nmc_sum_limit_assign:NNn #2 \l__nmc_vv_fp_expr_tl { lower }
+        \seq_if_in:NVF \l__nmc_calc_fn_seq \l__nmcB_tl
+          { \seq_put_left:NV \l__nmc_calc_fn_seq \l__nmcB_tl }
+      }
+      {
+        \__nmc_error_what:n 
+           { No~\l__nmc_sum_typei_tl\ variable~in }
+      }
+  }
+\cs_new_protected:Npn \__nmc_sum_limit_upper:N #1
+  {
+    \__nmc_next: \__nmc_next:
+    \__nmc_vv_get_vars_vals_lims:NN \l__nmcB_tl \c_empty_prop
+    \bool_if:NF \g__nmc_error_bool
+      { \__nmc_sum_limit_assign:NNn #1 \l__nmc_vv_fp_expr_tl { upper } }
+  }
+\cs_new_protected:Npn \__nmc_sum_limit_assign:NNn #1#2#3
+  { 
+    \tl_if_in:VnTF #2 { inf }
+      { \int_set:Nn #1 { \fp_sign:n { #2 } * \c_max_int } }
+      {
+        \fp_compare:nNnTF { abs(#2) } > { \c_max_int }
+          { \int_set:Nn #1 { \fp_sign:n { #2 } * \c_max_int } }
+          { 
+            \tl_set:Nx #2 { \fp_to_int:n #2 }
+            \bool_if:NF \g__nmc_error_bool
+              { \int_set:Nn #1 { #2 } }
+          }
+      }
+  }
+% #1#2 lower/upper limits (int); result in \l__nmc_sum_total_fp
+\cs_new_protected:Npn \__nmc_sum_do:nn #1#2
+  { 
+    \int_compare:nNnTF  { \c_max_int } = 
+        { \int_max:nn { \int_abs:n { #1 } } { \int_abs:n { #2 } } }
+      { 
+        \bool_if:NTF \l__nmc_sum_bool
+          { \__nmc_sum_do_infinite:Nn #1 { sum } }
+          { \__nmc_sum_do_infinite:Nn #1 { prod } }
+          
+      }
+      { \int_step_function:nnnN { #1 } { 1 } { #2 } \__nmc_sum_eval:n }
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \int_compare:nNnT { #2 } < {  #1 }
+          {
+            \tl_if_eq:VnTF \l__nmc_sum_op_tl { * }
+              { \fp_set:Nn \l__nmc_sum_total_fp { 1 } }
+              { \fp_set:Nn \l__nmc_sum_total_fp { 0 } }
+          }
+      }
+  }
+\cs_set:Npn \__nmc_sum_do_infinite:Nn #1#2
+  { 
+    \int_set:Nn \l__nmc_sum_round_int
+      { \l__nmc_round_int + \use:c { l__nmc_#2_extra_int } }
+    \int_set:Nn \l__nmc_suma_int { #1 - 1 }
+    % check loop
+    \bool_do_while:nn { \l__nmc_sum_cont_bool }
+      { % main loop
+        \bool_set_false:N \l__nmc_sum_cont_bool
+        \fp_until_do:nNnn { \l__nmc_sum_prev_fp }
+            = { \l__nmc_sum_rounded_fp }
+          { 
+            \int_incr:N \l__nmc_suma_int
+            \fp_set_eq:NN \l__nmc_sum_prev_fp \l__nmc_sum_rounded_fp
+            \__nmc_sum_eval:n { \l__nmc_suma_int }
+            \fp_set:Nn \l__nmc_sum_rounded_fp
+                { round( \l__nmc_sum_total_fp, \l__nmc_sum_round_int ) }
+          }
+          % query terms
+          \int_set:Nn \l__nmc_sumb_int 
+              { \l__nmc_suma_int + \use:c { l__nmc_#2_query_int } }
+          \int_while_do:nNnn { \l__nmc_suma_int } < { \l__nmc_sumb_int }
+            {
+              \int_incr:N \l__nmc_suma_int 
+              \__nmc_sum_query:n { \l__nmc_suma_int }
+            }
+      }
+    \tl_gset:cx { g__nmc_info_\tl_range:Nnn \l__nmc_sum_type_tl{1}{4} _tl }
+        { \int_eval:n { \l__nmc_suma_int - #1 
+            - \use:c { l__nmc_#2_query_int } } }
+  }
+\cs_new_protected:Npn \__nmc_sum_eval:n #1
+  { 
+    \__nmc_calc_fn_val:VNnN \l__nmc_sum_var_tl \l__nmc_summand_tl 
+        { #1 } \l_tmpb_fp 
+    \fp_set:Nn \l__nmc_sum_total_fp
+        { \l__nmc_sum_total_fp \l__nmc_sum_op_tl \l_tmpb_fp }
+  }
+\cs_new_protected:Npn \__nmc_sum_query:n #1
+  { 
+    \__nmc_sum_eval:n { #1 }
+    \fp_set:Nn \l__nmc_sum_rounded_fp 
+        { round( \l__nmc_sum_total_fp, \l__nmc_sum_round_int ) }
+    \fp_compare:nNnF { \l__nmc_sum_prev_fp } = { \l__nmc_sum_rounded_fp }
+      { 
+        \bool_set_true:N \l__nmc_sum_cont_bool 
+        \int_set_eq:NN \l__nmc_sumb_int \l__nmc_suma_int
+      }  
+  } 
+% delimit math args %%%%%%%%%%%%%%%%%%%
+\tl_new:N \l__nmc_delim_arg_tl
+\tl_new:N \l__nmc_delim_argi_tl
+\int_new:N \l__nmc_delim_pas_int
+\int_new:N \l__nmc_delim_pos_int
+\bool_new:N \l__nmc_delim_stop_bool
+\bool_new:N \l__nmc_delim_lmod_bool
+\prg_new_conditional:Npnn \__nmc_if_pospas_gtr:n #1 { p, TF }
+  {
+    \bool_if:nTF
+        {
+          \int_compare_p:nNn { \l__nmc_delim_pos_int } > { 1 }
+          && 
+          \int_compare_p:nNn { \l__nmc_delim_pas_int } > { #1 }
+        }
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+% #1 <-- \l__nmc_delim_arg_tl; % #2 (int) initial pos
+% #3 (int) parsing state
+\cs_new_protected:Npn \__nmc_delim_arg:Nnn #1#2#3
+  { 
+    \tl_if_head_is_group:VTF \l__nmcA_tl
+      {
+        \__nmc_next:
+        \tl_set_eq:NN #1 \l__nmcB_tl
+      }
+      {
+        \group_begin:
+        \bool_set_false:N \__nmc_delim_stop_bool
+        \bool_set_false:N \l__nmc_delim_lmod_bool
+        \int_set:Nn \l__nmc_delim_pos_int { #2 }
+        \int_set:Nn \l__nmc_delim_pas_int { #3 }
+        \tl_clear:N \l__nmc_delim_arg_tl
+        \bool_until_do:nn 
+            { 
+              \l__nmc_delim_stop_bool ||
+              \quark_if_nil_p:N \l__nmcC_tl
+            }
+          { 
+            \prop_get:NVNTF \g__nmc_class_prop \l__nmcC_tl \l__nmc_class_tl
+              { \exp_last_unbraced:NV \use_ii:nn \l__nmc_class_tl }
+              { \__nmc_delim_var: } 
+            \int_incr:N \l__nmc_delim_pos_int
+          }
+        \tl_gset_eq:NN \g_tmpa_tl \l__nmcA_tl
+        \tl_gset_eq:NN \g_tmpb_tl \l__nmc_delim_arg_tl
+        \exp_args:NNNV
+        \group_end: 
+            \tl_set:Nn \l__nmcC_tl \l__nmcC_tl 
+        \tl_set_eq:NN \l__nmcA_tl \g_tmpa_tl
+        \tl_set_eq:NN #1 \g_tmpb_tl
+      }
+  }
+% delimit arg routines %%%%%%%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_delim_stop:
+  { 
+    \tl_if_eq:VnTF \l__nmcC_tl { \q }  
+      { \bool_set_false:N \l__nmc_delim_stop_bool }
+      { \bool_set_true:N  \l__nmc_delim_stop_bool }
+  }
+\cs_new_protected:Npn \__nmc_delim_stop_if_gtr:n #1
+  { 
+    \int_compare:nNnT { \l__nmc_delim_pas_int } > { #1 }
+      { \__nmc_delim_stop: }
+  }
+\cs_new_protected:Npn \__nmc_delim_append:
+  { 
+    \__nmc_next:
+    \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcB_tl
+  }
+\cs_new_protected:Npn \__nmc_delim_append_braced:
+  {
+    \__nmc_next:
+    \tl_put_right:Nx \l__nmc_delim_arg_tl { { \exp_not:o\l__nmcB_tl } }
+  }
+\cs_new_protected:Npn \__nmc_delim_append_twobraced:
+    {
+      \__nmc_delim_append:
+      \__nmc_delim_append_braced:
+      \__nmc_delim_append_braced:
+    }
+\cs_new_protected:Npn \__nmc_delim_append_sqbra:
+  {
+    \__nmc_next:
+    \tl_clear:N \l_tmpa_tl
+    \__nmc_get_arg_LR:NNN [ \l_tmpa_tl ]
+    \__nmc_put_right_wrap:NnNn \l__nmc_delim_arg_tl
+        { [ } \l_tmpa_tl { ] }
+  }
+\cs_new_protected:Npn \__nmc_delim_dec:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_uny_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_next:
+        \__nmc_get_dec:NN \l_tmpa_tl \c_true_bool
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l_tmpa_tl
+        \bool_if:NT \l__nmc_trig_bool
+          { \__nmc_degrees: }
+      }
+  }
+\cs_new_protected:Npn \__nmc_degrees:
+  {
+    \tl_if_eq:VnT \l__nmcC_tl { \degree }
+      {
+        \bool_if:NF \l__nmc_deg_bool 
+          { \tl_put_right:Nn \l__nmc_delim_arg_tl 
+              { (0.0174532925199433) } }
+        \__nmc_next: 
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_var:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_uny_int } 
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append: }
+  }
+\cs_new_protected:Npn \__nmc_delim_const:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_uny_int } 
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append: }
+  }
+\cs_new_protected:Npn \__nmc_delim_arith:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int }
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append: }
+  }
+\cs_new_protected:Npn \__nmc_delim_pm:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_cmp_int }
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append: }
+  }
+\cs_new_protected:Npn \__nmc_delim_comparison:
+  { 
+    \int_compare:nNnT { \l__nmc_delim_pas_int } = { \c__nmc_cmp_int }
+      {
+        \tl_put_left:NV \l__nmcA_tl \l__nmc_delim_arg_tl
+        \tl_put_left:Nn \l__nmcA_tl { \land } 
+        \tl_put_left:Nn \l__nmcC_tl { \land } 
+      }
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_and_int  } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_delim_append:
+        \__nmc_delim_arg:Nnn \l__nmc_delim_argi_tl { 1 } { \c__nmc_cmp_int }
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+      }
+  } 
+\cs_new_protected:Npn \__nmc_delim_andor:
+  { \__nmc_delim_stop: }
+  
+\cs_new_protected:Npn \__nmc_delim_lparen:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int }
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_next:
+        \str_case:on \l__nmcB_tl
+          {
+            { (  } { \__nmc_delim_lparen:nn { ( } { ) } }
+            { [  } { \__nmc_delim_lparen:nn { [ } { ] } }
+            { \{ } { \__nmc_delim_lparen:nn {\{ } {\} } }
+            { \lparen } { \__nmc_delim_lparen:nn { \lparen } { \rparen } }
+            { \lbrack } { \__nmc_delim_lparen:nn { \lbrack } { \rbrack } }
+            { \lbrace } { \__nmc_delim_lparen:nn { \lbrace } { \rbrace } }
+          }
+        \__nmc_delim_lparen_auxi:
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_lparen:nn #1#2
+  { 
+    \tl_put_right:Nn \l__nmc_delim_arg_tl { ( }
+    \__nmc_get_arg_LR:NNN #1 \l__nmc_delim_arg_tl #2
+    \bool_if:NT \l__nmc_delim_lmod_bool
+      { 
+        \tl_set:Nx \l__nmc_delim_arg_tl 
+            { \tl_range:Nnn \l__nmc_delim_arg_tl { 1 } { -2 } }
+      }
+    \tl_put_right:Nn \l__nmc_delim_arg_tl { ) }
+    \int_incr:N \l__nmc_delim_pos_int
+  }
+\cs_generate_variant:Nn \__nmc_delim_lparen:nn { VV }
+
+\cs_new_protected:Npn \__nmc_delim_lparen_auxi:
+  {
+    \int_compare:nNnT { \l__nmc_delim_pas_int } = { \c__nmc_uny_int }
+      {
+        \__nmc_delim_arg:Nnn 
+          \l__nmc_delim_argi_tl { 2 } { \c__nmc_prn_int } 
+      }
+    \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+    \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+  }
+\cs_new_protected:Npn \__nmc_delim_rparen:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_cmp_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_next:
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcB_tl
+      }
+  }  
+\cs_new_protected:Npn \__nmc_delim_lvert:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int }
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_next:
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcB_tl
+        \str_case:on \l__nmcB_tl
+          {
+            { \lvert  } { \__nmc_delim_lvert:nn { \lvert  } { \rvert  } }
+            { \lceil  } { \__nmc_delim_lvert:nn { \lceil  } { \rceil  } }
+            { \lfloor } { \__nmc_delim_lvert:nn { \lfloor } { \rfloor } }
+            { | } 
+              { 
+                \__nmc_absval_arg:N \l__nmc_delim_arg_tl
+                \tl_put_right:Nn \l__nmc_delim_arg_tl { | }
+              }
+          }
+        \__nmc_delim_lparen_auxi:n { 0 } 
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_lvert:nn #1#2
+  { 
+    \__nmc_delim_lparen:nn { #1 } { #2 }
+    \tl_put_right:Nn \l__nmc_delim_arg_tl { #2 }
+  }
+\cs_new_protected:Npn \__nmc_delim_lmod:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int }
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_next:
+        \tl_if_in:nVTF { |/ } \l__nmcC_tl
+          {
+            \prop_get:NVN \g__nmc_subst_misc_prop \l__nmcB_tl \l_tmpb_tl
+            \__nmc_delim_lparen:VV \l__nmcB_tl \l_tmpb_tl 
+            \__nmc_next:
+            \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcB_tl
+            \tl_if_eq:VnTF \l__nmcC_tl { | }
+              { \__nmc_delim_lparen_auxi:n { 0 } }
+              {
+                \__nmc_next:
+                \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcB_tl 
+                \__nmc_delim_stop: 
+              }
+          }
+          { 
+            \tl_if_eq:VnTF \l__nmcC_tl { . } 
+              { \__nmc_next: }
+              { \bool_set_true:N \l__nmc_delim_lmod_bool }
+            \int_decr:N \l__nmc_delim_pos_int
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_unary:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_delim_append:
+        \tl_if_head_is_group:VTF \l__nmcA_tl
+          { 
+            \__nmc_delim_append_braced:
+            \__nmc_delim_stop:
+          }
+          { 
+            \tl_if_eq:VnT \l__nmcC_tl { ^ }
+              {
+                \__nmc_delim_append:
+                \__nmc_delim_append_braced:
+              }
+            \__nmc_delim_arg:Nnn 
+                \l__nmc_delim_argi_tl { 1 } { \c__nmc_uny_int }
+            \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+            \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_power:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_prn_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_delim_append:
+        \__nmc_delim_append_braced:
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_tfrac:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_uny_int } 
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append_twobraced: }
+  }
+\cs_new_protected:Npn \__nmc_delim_frac: % also \(d)binom
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_delim_append_twobraced:
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_unarybrace:
+  { 
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_delim_append:
+        \str_case:on \l__nmcC_tl
+          {
+            { * } { \__nmc_delim_append: }
+            { [ } { \__nmc_delim_append_sqbra: }
+          }
+        \__nmc_delim_append_braced:
+        \__nmc_delim_arg:Nnn \l__nmc_delim_argi_tl { 2 } 
+              { \c__nmc_prn_int } 
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_log:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_delim_append: 
+        \__nmc_delim_append: 
+        \__nmc_delim_append_braced:
+        \__nmc_delim_arg:Nnn \l__nmc_delim_argi_tl { 1 } { \c__nmc_uny_int }
+        \__nmc_accum_fn_parenth:NVn \l__nmc_delim_arg_tl 
+            \l__nmc_delim_argi_tl {}
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_surd:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_uny_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_delim_append:
+        \tl_clear:N \l__nmc_delim_argi_tl
+        \tl_if_eq:VnT \l__nmcB_tl { \prod }
+          { 
+            \prg_replicate:nn { 2 } 
+                { \__nmc_delim_append: \__nmc_delim_append_braced: }
+          }
+        \tl_if_head_is_group:VTF \l__nmcA_tl
+          { 
+            \__nmc_delim_append_braced:
+            \__nmc_delim_stop:
+          }
+          {
+            \__nmc_delim_arg:Nnn \l__nmc_delim_argi_tl { 1 } { \c__nmc_srd_int }
+            \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+            \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_fact:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_prn_int } 
+      { \__nmc_delim_stop: }
+      { 
+        \__nmc_delim_append:
+        \tl_if_eq:VnT \l__nmcC_tl { ! }
+          { \__nmc_delim_append: }
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_cleave:
+  { 
+    \__nmc_next:
+    \tl_if_eq:VnTF \l__nmcB_tl { \q } 
+      { \int_zero:N \l__nmc_delim_pos_int } % adhere
+      { \bool_set_true:N \l__nmc_delim_stop_bool } % sever
+  }
+\cs_new_protected:Npn \__nmc_delim_nary:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_delim_append:
+        \__nmc_get_arg_LR:NNN ( \l__nmcB_tl )
+        \__nmc_put_right_wrap:NnNn \l__nmc_delim_arg_tl 
+            { ( } \l__nmcB_tl { ) }
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_sum_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_comma:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_cmp_int }
+      { \__nmc_delim_stop: }
+      { \__nmc_delim_append: }
+  }
+\cs_new_protected:Npn \__nmc_delim_sum:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int }
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_delim_append: 
+        \__nmc_delim_append:
+        \__nmc_delim_append_braced:
+        \__nmc_delim_append:
+        \__nmc_delim_append_braced:
+        \__nmc_delim_arg:Nnn \l__nmc_delim_argi_tl { 1 } { \c__nmc_sum_int }
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmc_delim_argi_tl
+        \__nmc_delim_stop_if_gtr:n { \c__nmc_cmp_int }
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_absorb:
+  { 
+    \__nmc_next: 
+    \int_decr:N \l__nmc_delim_pos_int
+  }
+\cs_new_protected:Npn \__nmc_delim_absorb_i:
+  { 
+    \__nmc_delim_absorb:
+    \__nmc_next:
+  }
+\cs_new_protected:Npn \__nmc_delim_absorb_ii:
+  { 
+    \__nmc_delim_absorb_i:
+    \str_case:VnT \l__nmcB_tl
+      {
+        { * } { }
+        { [ } { \__nmc_get_arg_LR:NNN [ \l__nmc_toss_tl ] }
+      }
+      { \__nmc_next: }
+  }
+\cs_new_protected:Npn \__nmc_delim_color:
+  { 
+    \__nmc_next:
+    \str_if_eq:VnT \l__nmcC_tl { [ }
+      { 
+        \__nmc_next:
+        \__nmc_get_arg_LR:NNN [ \l__nmc_toss_tl ]
+      }
+    \__nmc_delim_font:
+  }
+\cs_new_protected:Npn \__nmc_delim_font:
+  { 
+    \__nmc_next: \__nmc_next:
+    \tl_put_left:NV \l__nmcA_tl \l__nmcB_tl
+    \tl_set:Nx \l__nmcC_tl { \tl_head:N \l__nmcB_tl }
+    \int_decr:N \l__nmc_delim_pos_int
+  }
+\cs_new_protected:Npn \__nmc_delim_mkern:
+  {
+    \__nmc_delim_absorb:
+    \__nmc_fpify_mkern:
+  }
+\cs_new_protected:Npn \__nmc_delim_BE:
+  {
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_cmp_int }
+      { \__nmc_delim_stop: }
+      {
+        \__nmc_next: \__nmc_next:
+        \str_if_in:VnTF \l__nmcB_tl { alignat }
+          { \__nmc_next: }
+        \tl_put_right:Nn \l__nmc_delim_arg_tl { \c_group_begin_token } 
+        \__nmc_get_arg_LR:NNN \begin \l__nmc_delim_arg_tl \end
+        \tl_put_right:Nn \l__nmc_delim_arg_tl { \c_group_end_token } 
+        \__nmc_next:
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_cmd:
+  { % \cmd { s O m O O }
+    \__nmc_if_pospas_gtr:nTF { \c__nmc_sum_int } 
+      { \__nmc_delim_stop: }
+      {
+        \tl_put_right:NV \l__nmc_delim_arg_tl \l__nmcC_tl
+        \__nmc_next:
+        \tl_if_eq:VnT \l__nmcC_tl { * }
+          { \__nmc_next: }
+        \tl_put_right:Nn \l__nmc_delim_arg_tl { * }
+        \__nmc_delim_nmcfn_aux:NN [ ]
+        \__nmc_next: 
+        \tl_put_right:Nx 
+            \l__nmc_delim_arg_tl { { \exp_not:o \l__nmcB_tl } }
+        \__nmc_delim_nmcfn_aux:NN [ ]
+        \__nmc_delim_nmcfn_aux:NN [ ]
+      }
+  }
+\cs_new_protected:Npn \__nmc_delim_nmcfn_aux:NN #1#2
+  {
+    \tl_if_eq:VnT \l__nmcC_tl { [ }
+      {
+        \__nmc_next:
+        \tl_clear:N \l_tmpa_tl
+        \__nmc_get_arg_LR:NNN #1 \l_tmpa_tl ]
+        \__nmc_put_right_wrap:NnNn \l__nmc_delim_arg_tl 
+            { #1 } \l_tmpa_tl { #2 }
+      }
+  }
+%%%%%%%%% info on "infinite" processes %%%%%%%%%%
+\nmc_define:NnN \nmcInfo { info } \info
+
+\clist_map_inline:nn { sum,prod } 
+  { 
+    \tl_new:c { g__nmc_info_#1_tl } 
+    \tl_gset:cn { g__nmc_info_#1_tl } { 0 }
+  }
+\seq_new:N \l_nmc_info_seq
+\clist_new:N \g__nmc_info_proc_clist 
+\clist_gset:Nn \g__nmc_info_proc_clist { sum, prod }
+
+\cs_set_protected:Npn \__nmc_info_initialize:
+  { 
+    \seq_clear:N \l_tmpa_seq
+    \tl_set:Nn \l__nmc_dbg_idii_tl { process } 
+    \clist_map_inline:Nn \g__nmc_info_proc_clist
+      { 
+        \seq_put_right:Nx \l_nmc_info_seq
+            { ##1~{ \use:c { g__nmc_info_##1_tl } } }
+      }
+  }
+\cs_set_protected:Npn \__nmc_info_formula:
+  { \tl_clear:N \l__nmc_formula_dup_tl }
+
+\cs_set_protected:Npn \__nmc_info_process:
+  { 
+    \int_if_zero:nTF \l__nmc_dbg_int
+      {
+        \tl_set_eq:Nc \l__nmc_result_tl 
+            { g__nmc_info_\l__nmc_formula_tl _tl } 
+      }
+      { \tl_set:Nx \l__nmc_formula_tl { \seq_use:Nn \l_nmc_info_seq {,~} } }
+  }
+\cs_set_protected:Npn \__nmc_info_display:
+  { 
+    \tl_set_eq:NN \l__nmc_show_tl \l__nmc_result_tl
+    \bool_if:NF \l__nmc_num_only_bool
+      {
+        \prop_if_in:NVTF \g__nmc_subst_misc_prop \l__nmc_formula_tl
+          { 
+            \tl_if_empty:cT { g__nmc_info_\l__nmc_formula_tl _tl }
+              { \tl_set:Nn \l__nmc_show_tl { 0 } }
+            \prop_get:NVN \g__nmc_subst_misc_prop \l__nmc_formula_tl \l_tmpb_tl
+            \tl_put_right:Nn \l__nmc_show_tl { \  }
+            \tl_put_right:NV \l__nmc_show_tl \l_tmpb_tl % pluralise?
+            \int_if_zero:nF { \l__nmc_result_tl - 1 } 
+              { \tl_put_right:Nn \l__nmc_show_tl { s } }
+            \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+          }
+          {
+            \__nmc_error_where:n { info~command }
+            \__nmc_error_what:n 
+                { Unknown~process~\__nmc_verb:N \l__nmc_formula_tl\ in }
+          }
+      }
+    \l__nmc_show_tl  
+  }
+%%%%%%%%%%%%% user-defined macros %%%%%%%%%%%%%%%
+\clist_new:N \g__nmc_macros_clist
+\clist_new:N \l__nmc_macrosa_clist
+\clist_new:N \l__nmc_macrosb_clist
+\bool_new:N \l__nmc_macros_free_bool
+
+\nmc_define:NnN \nmcMacros { macros } \macros
+
+\cs_set_protected:Npn \__nmc_macros_initialize:
+  { 
+    \tl_set:Nn \l__nmc_dbg_idii_tl { macros }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { stored }
+    \tl_set_eq:NN \l__nmc_multi_delim_tl \c__nmc_vv_delim_tl
+  }
+\cs_set_protected:Npn \__nmc_macros_vv_digest:N #1
+  {
+    \__nmc_error_where:n { macros~command }
+    \seq_set_split:NVV \l_tmpa_seq \l__nmc_multi_delim_tl \l__nmc_formula_tl
+    \clist_set:Nx \l__nmc_macrosa_clist { \seq_use:Nn \l_tmpa_seq {,} }
+    \clist_clear:N \l__nmc_macrosb_clist
+    \clist_map_inline:Nn \l__nmc_macrosa_clist
+      { 
+        \cs_if_exist:NTF ##1
+          { \__nmc_storemacros:NN \l__nmc_macrosb_clist ##1 }
+          { 
+            \__nmc_error_what:n { Undefined~macro~\__nmc_verb:n {##1}in }
+            \clist_map_break:
+          }
+      } 
+    \bool_if:NF \g__nmc_error_bool
+      {
+        \tl_set:No \l__nmc_formula_tl \l__nmc_macrosb_clist
+        \__nmc_vv_digest:N #1
+        \int_if_zero:nF \l__nmc_dbg_int
+          { \__nmc_dbg_vv_view:n { 0 } }
+        \clist_set:No \l__nmc_macrosb_clist \l__nmc_formula_tl
+      }
+  }
+% https://tex.stackexchange.com/questions/683578/storing-the-unknown-contents-of-a-macro-in-a-clist
+% (thanks to David Carlisle) % #1 clist #2 macro
+\cs_new_protected:Npn \__nmc_storemacros:NN #1#2
+  {
+    \ifcsname
+      \exp_after:wN \use_none:n \token_to_str:N #2~ code
+      \endcsname
+      \exp_after:wN\exp_after:wN\exp_after:wN \clist_put_right:Nn
+      \exp_after:wN\exp_after:wN\exp_after:wN #1
+      \exp_after:wN\exp_after:wN\exp_after:wN 
+        { 
+          \exp_after:wN\exp_after:wN\exp_after:wN #2
+            \exp_after:wN\exp_after:wN \exp_after:wN 
+          { 
+            \csname 
+            \exp_after:wN \use_none:n \token_to_str:N #2~ code
+            \endcsname 
+          } 
+        }
+    \else
+      \exp_after:wN \clist_put_right:Nn \exp_after:wN #1
+        \exp_after:wN { \exp_after:wN #2 \exp_after:wN { #2 } }
+    \fi
+  }
+\cs_set_protected:Npn \__nmc_macros_process:
+  { 
+    \bool_if:NTF \l__nmc_macros_free_bool
+      { \__nmc_macros_deregister:N \l__nmc_macrosa_clist }
+      { \__nmc_macros_register:N \l__nmc_macrosb_clist }
+    \clist_gremove_duplicates:N \g__nmc_macros_clist
+    \bool_if:NT \l__nmc_num_only_bool
+      { \tl_set:Nx \l__nmc_result_tl {\clist_count:N \g__nmc_macros_clist }}
+  }
+\cs_set_protected:Npn \__nmc_macros_display:
+  {
+    \bool_if:NT \l__nmc_num_only_bool
+      { \l__nmc_result_tl }
+  }
+%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_macros_deregister:N #1
+  {
+    \clist_if_empty:NT #1 
+      { 
+        \clist_set_eq:NN #1 \g__nmc_macros_clist
+        \tl_set:No \l__nmc_formula_tl \g__nmc_macros_clist
+      }
+    \clist_map_inline:Nn #1
+      { 
+        \cs_if_exist:NT ##1
+          {
+            \clist_gremove_all:Nn \g__nmc_macros_clist { ##1 }
+            \prop_gremove:NV \g__nmc_subst_var_prop { ##1 }
+          }
+      }
+    \__nmc_macros_reg_dbg_aux:Nn \c_true_bool { freed }
+  }
+\cs_new_protected:Npn \__nmc_macros_register:N #1
+  { 
+    \__nmc_error_where:n { macros~command }
+    \clist_reverse:N #1
+    \clist_map_inline:Nn #1
+      {
+        \__nmc_macros_reg_split:w ##1\q_stop
+        \bool_if:NT \g__nmc_error_bool
+          { \clist_map_break: }
+      }
+    \bool_if:NF \g__nmc_error_bool
+      { \__nmc_macros_reg_props: }
+  }
+\cs_new_protected:Npn \__nmc_macros_reg_split:w #1#2\q_stop
+  { 
+    \tl_clear:N \l__nmc_vv_fp_expr_tl
+    \__nmc_fpify:nN { #2 } \l__nmc_vv_fp_expr_tl
+    \bool_if:NF \g__nmc_error_bool 
+      { 
+        \prop_put:Nnx \l__nmc_subst_var_prop { #1 }
+            { \fp_eval:n \l__nmc_vv_fp_expr_tl }
+        \__nmc_error_fpflag:
+      }
+  }
+\cs_new_protected:Npn \__nmc_macros_reg_props:
+  { 
+    \clist_gconcat:NNN \g__nmc_macros_clist 
+        \l__nmc_macrosa_clist \g__nmc_macros_clist
+    \clist_remove_duplicates:N \g__nmc_macros_clist
+    \clist_map_inline:Nn \l__nmc_macrosa_clist
+      {
+        \prop_get:NnN \l__nmc_subst_var_prop { ##1 } \l_tmpa_tl
+        \prop_gput:Nno \g__nmc_subst_var_prop { ##1 } \l_tmpa_tl
+      }
+    \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl 
+    \int_if_zero:nF { \l__nmc_dbg_int }
+      { \__nmc_macros_reg_dbg: }
+  }
+\cs_new_protected:Npn \__nmc_macros_reg_dbg:
+  {
+    \tl_if_empty:NTF \l__nmc_formula_tl
+      { 
+        \__nmc_macros_reg_dbg_aux:Nn \c_true_bool { macros }
+        \clist_clear:N \l__nmc_macrosb_clist
+        \clist_map_inline:Nn \g__nmc_macros_clist 
+          { \__nmc_storemacros:NN \l__nmc_macrosb_clist ##1 }
+        \tl_set:No \l__nmc_formula_tl \l__nmc_macrosb_clist
+      }
+      { \__nmc_macros_reg_dbg_aux:Nn \l__nmc_macros_free_bool { added } }
+  }
+\cs_new_protected:Npn \__nmc_macros_reg_dbg_aux:Nn #1#2
+  { 
+    \tl_set:Nn \l__nmc_dbg_idii_tl { #2 }
+    \bool_if:nT { #1 || \seq_if_empty_p:N \l__nmc_vva_seq }
+      { 
+        \int_if_zero:nF { \l__nmc_dbg_int }
+          { \int_set:Nn \l__nmc_dbg_int { 2*5 } }
+      }
+    \seq_set_from_clist:NN \l__nmc_dbg_stored_seq \g__nmc_macros_clist 
+  } 
+%%%%%%%%%%%% user-defined constants %%%%%%%%%%%%%
+\seq_new:N \g__nmc_consts_seq % all
+\seq_new:N \g__nmc_consts_vv_seq % multitok in vv-list
+\seq_new:N \l__nmc_constsa_seq
+\seq_new:N \l__nmc_constsb_seq
+\int_new:N \g__nmc_consts_vv_int % count multitok + 1
+\int_gincr:N \g__nmc_consts_vv_int % the +1 if zero
+\bool_new:N \l__nmc_consts_add_bool
+
+\nmc_define:NnN \nmcConstants { consts } \constants
+
+\cs_set_protected:Npn \__nmc_consts_initialize:
+  {
+    \tl_set:Nn \l__nmc_dbg_idii_tl { added }
+    \tl_set:Nn \l__nmc_dbg_idv_tl { constants }
+    \tl_set_eq:NN \l__nmc_multi_delim_tl \c__nmc_vv_delim_tl
+  }
+\cs_set_protected:Npn \__nmc_consts_vv_digest:N #1
+  { % #1=*reversed* vv-list
+    \bool_if:nF 
+        { \l__nmc_consts_add_bool || \tl_if_empty_p:N \l__nmc_formula_tl }
+      { \__nmc_consts_clear: }
+    \seq_set_split:NVV \l__nmc_constsa_seq 
+        \l__nmc_multi_delim_tl \l__nmc_formula_tl
+    \seq_remove_all:Nn \l__nmc_constsa_seq {}
+    \seq_reverse:N \l__nmc_constsa_seq
+    \seq_concat:NNN \l__nmc_constsb_seq #1 \l__nmc_constsa_seq
+    \__nmc_vv_digest:N \l__nmc_constsb_seq
+    \seq_set_split:NVV \l__nmc_constsb_seq 
+        \l__nmc_multi_delim_tl \l__nmc_formula_tl
+    \seq_remove_all:Nn \l__nmc_constsb_seq {}
+    \seq_reverse:N \l__nmc_constsb_seq
+    \tl_set:Nx \l__nmc_formula_tl 
+        { \seq_use:NV \l__nmc_constsb_seq \c__nmc_vv_delim_tl }
+    \int_if_zero:nF \l__nmc_dbg_int
+      { \__nmc_dbg_vv_view:n { \seq_count:N \l__nmc_constsa_seq } }
+  }
+\cs_new_protected:Npn \__nmc_consts_clear:
+  {
+    \seq_gclear:N \g__nmc_consts_vv_seq 
+    \seq_map_inline:Nn \g__nmc_consts_seq
+      {
+        \__nmc_split_eq:w ##1\q_stop
+        \prop_gremove:NV \g__nmc_subst_var_prop \l__nmc_eq_var_tl
+      }
+    \seq_gclear:N \g__nmc_consts_seq
+  }
+\cs_set_protected:Npn \__nmc_consts_process:
+  { 
+    \__nmc_error_where:n { constants~command }
+    \tl_if_empty:NF \l__nmc_formula_tl
+      { 
+        \seq_map_inline:Nn \l__nmc_constsb_seq
+          { 
+            \__nmc_split_eq:w ##1\q_stop
+            \prop_get:NVN \l__nmc_subst_var_prop \l__nmc_eq_var_tl \l_tmpb_tl
+            \seq_pop:NN \l__nmc_constsa_seq \l_tmpa_tl
+            \exp_last_unbraced:No\__nmc_split_eq:w \l_tmpa_tl\q_stop
+            \int_compare:nNnTF { \tl_count:N \l__nmc_eq_var_tl } = { 1 }
+              { 
+                \prop_gput:NVV \g__nmc_subst_var_prop 
+                    \l__nmc_eq_var_tl \l_tmpb_tl
+                \tl_set:Nx \l_tmpa_tl 
+                    { \exp_not:o \l__nmc_eq_var_tl = \l_tmpb_tl }
+              }
+              { 
+                \tl_set:Nx \l_tmpb_tl { \fp_eval:n \l_tmpb_tl } % 1e2 => 100
+                \tl_set:Nx \l_tmpa_tl 
+                    { \exp_not:o \l__nmc_eq_var_tl = \l_tmpb_tl }
+                \bool_if:NT \l__nmc_dec_comma_bool
+                  { \tl_replace_once:Nnn \l_tmpb_tl {.} {,} }
+                \tl_put_left:Nx \l_tmpb_tl { \exp_not:o \l__nmc_eq_var_tl = }
+                \seq_gput_right:NV \g__nmc_consts_vv_seq \l_tmpb_tl % ,
+              }
+            \seq_gput_right:NV \g__nmc_consts_seq \l_tmpa_tl % . 
+          }
+        \int_gset:Nn \g__nmc_consts_vv_int
+            { 1 + \seq_count:N \g__nmc_consts_vv_seq }
+      }
+    \int_compare:nNnT { \l__nmc_dbg_int } = { 30 }
+      {
+        \tl_if_empty:NT \l__nmc_formula_tl
+          { \int_set:Nn \l__nmc_dbg_int { \l__nmc_dbg_int / 2 } }
+        \seq_if_empty:NT \l__nmc_vva_seq 
+          { \int_set:Nn \l__nmc_dbg_int { \l__nmc_dbg_int / 3 } }
+      }
+    \seq_set_eq:NN \l__nmc_dbg_stored_seq \g__nmc_consts_seq
+    \bool_if:NT \l__nmc_num_only_bool
+      { \tl_set:Nx \l__nmc_result_tl { \seq_count:N \g__nmc_consts_seq } }
+  }
+\cs_set_protected:Npn \__nmc_consts_display:
+  {
+    \bool_if:NT \l__nmc_num_only_bool
+      { \bool_if:NT \l__nmc_num_only_bool { \l__nmc_result_tl } }
+  }
+%%%%%%% save/retrieve results to/from file %%%%%%
+\tl_new:N \g__nmc_reuse_tl
+\bool_new:N \l__nmc_reuse_named_bool
+\bool_new:N \g__nmc_reuse_filed_bool
+\bool_new:N \g__nmc_reuse_defined_bool
+\tl_new:N \g__nmc_reuse_filed_tl
+\clist_new:N \g__nmc_reuse_exclude_clist
+\seq_new:N \g__nmc_reuse_names_seq
+\int_new:N \l__nmc_reuse_mode_int
+\ior_new:N \g__nmc_ior
+\iow_new:N \g__nmc_iow
+\tl_gset:Nn \g__nmc_reuse_filename_tl { .nmc }
+\tl_gput_left:NV \g__nmc_reuse_filename_tl \jobname
+% save \g__nmc_reuse_tl from last \eval-uation etc to \#1
+\nmc_define:NnN \nmcReuse { reuse } \reuse
+
+\cs_set_protected:Npn \__nmc_reuse_initialize:
+  { \tl_set:Nn \l__nmc_dbg_idiii_tl { saved } }
+\cs_set_protected:Npn \__nmc_reuse_process:
+  { 
+    \__nmc_error_where:n { reuse~command }
+    \__nmc_reuse_filed:
+    \tl_if_empty:NTF \l__nmc_formula_tl
+      { 
+        \int_if_zero:nTF { 1 + \l__nmc_reuse_mode_int }
+          { \__nmc_reuse_delete_all: }
+          { \__nmc_reuse_define: }
+      }
+      {
+        \int_case:nn \l__nmc_reuse_mode_int
+          {
+            { -1 } { \__nmc_reuse_delete_one:c \l__nmc_formula_tl }
+            { 0 } { \__nmc_reuse_save_one:c \l__nmc_formula_tl }
+            { 1 } 
+              { 
+                \__nmc_reuse_delete_one:c \l__nmc_formula_tl 
+                \__nmc_reuse_save_one:c \l__nmc_formula_tl 
+              }
+            { 2 } { \__nmc_reuse_load_one: }
+          }
+      }
+    \__nmc_reuse_view:Nn \l__nmc_formula_tl { \l__nmc_dbg_int }
+  }
+\cs_set_protected:Npn \__nmc_reuse_display:
+  {
+    \bool_if:NT \l__nmc_num_only_bool
+      { 
+        \bool_if:NF \g__nmc_reuse_filed_bool
+          { \__nmc_reuse_filed: }
+        \clist_count:N \g__nmc_reuse_filed_tl
+      }
+  }
+%%%%%%%%%%
+\cs_new_protected:Npn \__nmc_reuse_filed:
+  { 
+    \bool_gset_false:N \g__nmc_reuse_filed_bool
+    \file_get:VnNT \g__nmc_reuse_filename_tl {} \g__nmc_reuse_filed_tl
+      { 
+        \bool_lazy_or:nnTF 
+            { \tl_if_empty_p:N \g__nmc_reuse_filed_tl }
+            { \tl_if_head_eq_meaning_p:VN \g__nmc_reuse_filed_tl \par }
+          { \tl_gclear:N \g__nmc_reuse_filed_tl }
+          { 
+            \bool_gset_true:N \g__nmc_reuse_filed_bool 
+            \seq_gclear:N \g__nmc_reuse_names_seq
+            \clist_gclear:N \g__nmc_reuse_exclude_clist
+            \clist_gset:NV \g__nmc_reuse_filed_tl \g__nmc_reuse_filed_tl
+            \clist_map_inline:Nn \g__nmc_reuse_filed_tl
+              { \__nmc_reuse_names:Nn ##1 }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_reuse_names:Nn #1#2
+  { 
+    \seq_gput_right:Nn \g__nmc_reuse_names_seq #1
+    \cs_if_free:NF #1
+      { \clist_gput_right:Nn \g__nmc_reuse_exclude_clist #1 }
+  }
+\cs_new_protected:Npn \__nmc_reuse_define:
+  {
+    \__nmc_error_where:n { \g__nmc_reuse_filename_tl }
+    \clist_map_inline:Nn \g__nmc_reuse_filed_tl
+      { \__nmc_reuse_gset:Nn ##1 }
+    \bool_gset_true:N \g__nmc_reuse_defined_bool
+    \seq_gpop:NN \g__nmc_error_where_seq \l_tmpa_tl
+  }
+\cs_new_protected:Npn \__nmc_reuse_gset:Nn #1#2
+  { \cs_if_free:NT #1 { \tl_gset:Nn #1 { #2 } } }
+%%%%%%%%%
+\cs_new_protected:Npn \__nmc_reuse_load_one:
+  { 
+    \clist_map_inline:Nn \g__nmc_reuse_filed_tl
+      { \__nmc_reuse_load_one:cNn  \l__nmc_formula_tl ##1 }
+  }
+\cs_new_protected:Npn \__nmc_reuse_load_one:NNn #1#2#3
+  {
+    \tl_if_eq:nnT { #1 } { #2 } 
+      { 
+        \__nmc_reuse_gset:Nn #2 { #3 } 
+        \clist_map_break:
+      }
+  }
+\cs_generate_variant:Nn \__nmc_reuse_load_one:NNn { c }
+\cs_new_protected:Npn \__nmc_reuse_delete_all:
+  {
+    \seq_map_inline:Nn \g__nmc_reuse_names_seq
+      { 
+        \clist_if_in:NnF \g__nmc_reuse_exclude_clist { ##1 }
+          { \cs_undefine:N ##1 }
+      }
+    \tl_gclear:N \g__nmc_reuse_filed_tl
+    \seq_gclear:N \g__nmc_reuse_names_seq
+    \clist_gclear:N \g__nmc_reuse_exclude_clist
+    \bool_gset_false:N \g__nmc_reuse_filed_bool
+    \bool_gset_false:N \g__nmc_reuse_defined_bool
+    \iow_open:NV \g__nmc_iow \g__nmc_reuse_filename_tl
+    \iow_close:N \g__nmc_iow 
+  }
+\cs_new_protected:Npn \__nmc_reuse_delete_one:N #1
+  { 
+    \seq_gremove_all:Nn \g__nmc_reuse_names_seq { #1 }
+    \clist_gremove_all:Nn \g__nmc_reuse_exclude_clist { #1 }
+    \tl_gset:NV \g_tmpa_tl \g__nmc_reuse_filed_tl
+    \tl_gclear:N \g__nmc_reuse_filed_tl
+    \clist_map_inline:Nn \g_tmpa_tl
+      { \__nmc_reuse_undefine:NNn #1 ##1 }
+    \iow_open:NV \g__nmc_iow \g__nmc_reuse_filename_tl
+    \iow_now:NV \g__nmc_iow \g__nmc_reuse_filed_tl
+    \iow_close:N \g__nmc_iow
+  }
+\cs_generate_variant:Nn \__nmc_reuse_delete_one:N { c }
+
+\cs_new_protected:Npn \__nmc_reuse_undefine:NNn #1#2#3
+  { 
+    \tl_if_eq:nnTF { #1 } { #2 } 
+      { \cs_undefine:N #1 }
+      { \clist_gput_right:Nn \g__nmc_reuse_filed_tl { #2 { #3 } } }
+  }
+\cs_new_protected:Npn \__nmc_reuse_save_one:N #1
+  { 
+    \__nmc_reuse_check_name:N #1
+    \bool_if:nF { \g__nmc_error_bool || \l__nmc_reuse_named_bool }
+      { 
+        \tl_set:Nx \l_tmpa_tl { { \exp_not:o \g__nmc_reuse_tl } }
+        \tl_put_left:Nn \l_tmpa_tl { #1 }
+        \exp_last_unbraced:NV \tl_gset:Nn \l_tmpa_tl
+        \clist_gput_left:NV \g__nmc_reuse_filed_tl \l_tmpa_tl
+        \iow_open:NV \g__nmc_iow \g__nmc_reuse_filename_tl
+        \str_set:NV \l_tmpa_str \g__nmc_reuse_filed_tl
+        \iow_now:NV \g__nmc_iow \l_tmpa_str
+        \iow_close:N \g__nmc_iow
+      }
+  }
+\cs_generate_variant:Nn \__nmc_reuse_save_one:N { c }
+
+\cs_new_protected:Npn \__nmc_reuse_check_name:N #1
+  {
+    \seq_if_in:NnTF \g__nmc_reuse_names_seq { #1 }
+      { 
+        \__nmc_error_where:n { \g__nmc_reuse_filename_tl }
+        \tl_set:Nx \l_tmpa_tl { { \exp_not:o \g__nmc_reuse_tl } }
+        \tl_put_left:Nn \l_tmpa_tl { #1 }
+        \str_if_in:NVTF \g__nmc_reuse_filed_tl \l_tmpa_tl
+          {
+            \exp_last_unbraced:NV \tl_gset:Nn \l_tmpa_tl
+            \bool_set_true:N \l__nmc_reuse_named_bool
+          }
+          { 
+            \tl_if_empty:NTF \g__nmc_reuse_tl
+              { 
+                \__nmc_reuse_load_one: 
+                \bool_set_true:N \l__nmc_reuse_named_bool
+                \__nmc_error_what:n 
+                    { Nothing~to~save~to~\__nmc_verb:n { #1 } in }
+              }
+              {  
+                \__nmc_error_what:n { Saved~value~for~\__nmc_verb:n {#1}
+                    already~exists~in~file }
+              }
+          }
+        \seq_gpop:NN \g__nmc_error_where_seq \l__nmc_toss_tl
+      }
+      { 
+        \tl_if_empty:NTF \g__nmc_reuse_tl
+          { \__nmc_error_what:n 
+              { Nothing~to~save~to~\__nmc_verb:n {#1} in } }
+          {
+            \cs_if_exist:NT #1
+              { 
+                \__nmc_error_what:n { \__nmc_verb:n { #1 }
+                    defined~elsewhere;~failed~save~in } 
+              }
+          }
+      }
+  }
+\cs_new_protected:Npn \__nmc_reuse_view:Nn #1#2
+  {
+    \tl_set:Nx \l__nmc_dbg_vv_tl 
+        { \clist_use:Nn \g__nmc_reuse_filed_tl {,~} }  
+  }
+%%%%%%%%%%%%%%%%%%% settings %%%%%%%%%%%%%%%%%%%%
+\bool_new:N \l__nmc_vv_settings_bool
+\bool_new:N \l__nmc_env_rbrace_bool
+\bool_new:N \l__nmc_num_spaces_bool
+\bool_new:N \l__nmc_multitok_bool
+\bool_new:N \l__nmc_deg_bool 
+\bool_new:N \l__nmc_sci_num_in_bool
+\int_new:N \l__nmc_see_force_int
+\tl_new:N  \l__nmc_sci_num_in_tl
+\tl_new:N \l__nmc_s_vv_tl
+\tl_new:N \l__nmc_multi_punc_tl
+\tl_new:N \l__nmc_env_rbrace_tl
+\tl_new:N \l__nmc_env_sp_rbrace_tl
+\tl_new:N \l__nmc_multi_sep_tl 
+\int_new:N \l__nmc_dbg_int
+\int_new:N  \l__nmc_prod_extra_int
+\int_new:N  \l__nmc_prod_query_int
+\regex_new:N  \l__nmc_num_regex
+
+\cs_new_protected:Npn \__nmc_num_spaces:n #1
+  {
+    \int_if_zero:nTF { #1 }
+      { \regex_set:Nn \l__nmc_num_regex { (\-?\d*[.,]?\d*) } }
+      { \regex_set:Nn \l__nmc_num_regex { (\-?[\s\d]*[.,]?[\s\d]*) } }
+    \bool_if:NT \l__nmc_sci_num_in_bool
+      { \exp_args:NV \__nmc_sci_num_in:nn \l__nmc_sci_num_in_tl { #1 } }
+  }
+\cs_set_protected:Npn \__nmc_sci_num_in:nn #1#2
+  { 
+    \int_if_zero:nTF { #2 }
+      { \regex_set:Nn \l__nmc_num_regex 
+            { (\-?\d*[.,]?\d*(?:#1\d+|#1\-\d+)?) } }
+      { \regex_set:Nn \l__nmc_num_regex 
+            { (\-?[\s\d]*[.,]?[\s\d]*(?:#1\d+|#1\-\d+)?) } }
+  }
+\cs_new_protected:Npn \__nmc_dbg_int:nn #1#2
+  {  
+    \int_compare:nNnTF { \int_abs:n { #1 } } = { 1 } 
+      {  \int_set:Nn \l__nmc_dbg_int { \int_sign:n { #1 }*#2 } }
+      {  \int_set:Nn \l__nmc_dbg_int { #1 } }
+  }
+\cs_new:Npn \__nmc_int_to_bool:Nn #1#2
+  { \bool_set:Nn #1 { !\int_if_zero_p:n { #2 } } }
+\cs_new:Npn \__nmc_deg:
+  { \bool_if:NT { \l__nmc_deg_bool } { d } } 
+\cs_new:Npn \__nmc_set_dead:n #1
+  { See~the~documentation;~\__nmc_verb:n {`#1'}~key~discontinued~in }
+\keys_define:nn { numerica/generic }
+  {
+    dbg     .code:n = \__nmc_dbg_int:nn { #1 } { 2*3*5*7*11 },
+    dbg  .initial:n = 0,
+    ^       .code:n = \bool_set_true:N \l__nmc_sci_num_in_bool
+                      \tl_set:Nn \l__nmc_sci_num_in_tl { #1 }
+                      \__nmc_sci_num_in:nn { #1 } { 0 },
+    ^    .default:n = e,
+    xx      .code:n = \__nmc_int_to_bool:Nn \l__nmc_multitok_bool { #1 },
+    xx   .initial:n = 1,
+    ff    .tl_set:N = \l__nmc_multi_delim_tl,
+    ff   .default:V = \c__nmc_vv_delim_tl,
+    ff   .initial:n = \prg_do_nothing:,
+    1s2     .code:n = \__nmc_num_spaces:n { #1 },
+    1s2  .default:n = 1,
+    1s2  .initial:n = 0,
+    /min .int_set:N = \l__nmc_frac_denom_min_int,
+    /min .initial:n = 1,
+    /max .int_set:N = \l__nmc_frac_denom_max_int,
+    /max .initial:n = 200,
+    vvmode  .code:n = \__nmc_calc_mode:n { \int_if_zero:nTF { #1 }01 },
+    vv@     .code:n = \__nmc_calc_mode:n { \int_if_zero:nTF { #1 }01 },
+    vv@  .initial:n = 0,
+    o       .code:n = \__nmc_int_to_bool:Nn \l__nmc_deg_bool { #1 },
+    o    .default:n = 1,
+    o    .initial:n = 0,
+    log   .tl_set:N = \l__nmc_log_base_tl,
+    log  .initial:n = 10,
+    S+   .int_set:N = \l__nmc_sum_extra_int,
+    S+   .initial:n = 2,
+    S?   .int_set:N = \l__nmc_sum_query_int,
+    S?   .initial:n = 0,
+    P+   .int_set:N = \l__nmc_prod_extra_int,
+    P+   .initial:n = 2,
+    P?   .int_set:N = \l__nmc_prod_query_int,
+    P?   .initial:n = 0,
+%
+    env  .tl_set:N = \l__nmc_env_s_tl,
+    arg  .tl_set:N = \l__nmc_env_s_arg_tl,
+    eq   .tl_set:N = \l__nmc_s_equals_tl,
+    eq  .default:n = {=},
+    vvi    .code:n = \bool_set_true:N \l__nmc_vv_settings_bool
+                      \tl_set:Nn \l__nmc_s_vv_tl { #1 }, % deprecated
+    vvd    .code:n = \bool_set_true:N \l__nmc_vv_settings_bool
+                      \tl_set:Nn \l__nmc_s_vv_tl { #1 }, % deprecated
+    vv     .code:n = \bool_set_true:N \l__nmc_vv_settings_bool
+                      \tl_set:Nn \l__nmc_s_vv_tl { #1 },
+    pp   .tl_set:N = \l__nmc_multi_punc_tl,
+    pp  .default:n = {,},
+    sep  .tl_set:N = \l__nmc_s_multi_sep_tl,
+    \}    .code:n  = \tl_set:Nn \l__nmc_env_rbrace_tl { #1 }
+                     \bool_set_true:N \l__nmc_env_rbrace_bool,
+    \}  .default:n = \ \},
+    p    .tl_set:N = \l__nmc_punc_tl,
+    p   .default:n = {,},
+    f   .int_set:N = \l__nmc_see_force_int,
+    f   .initial:n = -1,
+%
+    ()    .code:n = \__nmc_error_what:n { \__nmc_set_dead:n { () } }
+                    \int_zero:N \l__nmc_dbg_int, 
+    reuse .code:n = \__nmc_error_what:n { \__nmc_set_dead:n { reuse } },
+    *     .code:n = \msg_warning:nnn {numerica} {base} 
+                { settings:~*~key~discontinued;~use~e.g.~env=multline* }
+  }
+% display related
+\keys_define:nn { numerica/eval } 
+  { view    .code:n = \__nmc_dbg_int:nn { 1 } { 2*3*5*7*11 } }
+\keys_define:nn { numerica/info }
+  { view .code:n = \__nmc_dbg_int:nn { 1 } { 2 } }
+\keys_define:nn { numerica/macros }
+  { 
+    view .code:n = \__nmc_dbg_int:nn { 1 } { 2*3*5 },
+    free .code:n = \bool_set_true:N \l__nmc_macros_free_bool
+  }
+\keys_define:nn { numerica/consts }
+  { 
+    view .code:n = \__nmc_dbg_int:nn { 1 } { 2*3*5 },
+    add  .code:n = \bool_set_true:N \l__nmc_consts_add_bool
+  } 
+\keys_define:nn { numerica/reuse }
+  {
+    view    .code:n = \__nmc_dbg_int:nn { 1 } { 3 },
+    delete  .code:n = \int_set:Nn \l__nmc_reuse_mode_int { -1 },
+    save    .code:n = \int_set:Nn \l__nmc_reuse_mode_int { 0 },
+    renew   .code:n = \int_set:Nn \l__nmc_reuse_mode_int { 1 },
+    load    .code:n = \int_set:Nn \l__nmc_reuse_mode_int { 2 }
+  }
+%%%%%%%%%%
+% for debugging \__nmc_fpify:nN & \__nmc_delim_arg:Nnn
+% A, B, C generated by \__nmc_next:
+% \ProvideDocumentCommand \abc {} 
+  % { 
+    % \exp_args:Nx \clist_show:n
+      % { 
+        % { A~=~\exp_not:o \l__nmcA_tl },
+        % { B~=~\exp_not:o \l__nmcB_tl },
+        % { C~=~\exp_not:o \l__nmcC_tl }
+      % }
+  % }
+% end of file `numerica.sty'

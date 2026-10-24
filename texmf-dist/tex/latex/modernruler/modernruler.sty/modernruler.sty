@@ -1,0 +1,736 @@
+%%% License %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This package is licensed under the terms of the MIT License.
+
+% Copyright (c) 2025-2026 Kosei Kawaguchi
+
+% Permission is hereby granted, free of charge, 
+% to any person obtaining a copy of this software and associated documentation files 
+% (the "Software"), to deal in the Software without restriction, 
+% including without limitation the rights to use, copy, modify, merge, publish, 
+% distribute, sublicense, and/or sell copies of the Software, 
+% and to permit persons to whom the Software is furnished to do so, 
+% subject to the following conditions:
+
+% The above copyright notice and this permission notice 
+% shall be included in all copies or substantial portions of the Software.
+
+% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+% EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+% IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, 
+% DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
+% ARISING FROM, 
+% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage
+  {modernruler}
+  {2026/05/19}{Version 2.2.0}{ `modernruler` provides enhanced ruler commands}
+
+%%% parameters
+\cs_if_exist:NF \zw
+   {
+      \dim_new:N \zw
+      \dim_set:Nn \zw { 1em }
+   }
+
+\cs_if_exist:NF \ltjgetparameter
+   {
+      \cs_new:Npn \ltjgetparameter #1 { 4 }
+   }
+%%%
+
+
+%%% basical settings
+\RequirePackage{kvoptions, pgfkeys} 
+\RequirePackage{varwidth, zref-savepos}
+\RequirePackage[most]{tcolorbox}
+%%%
+
+
+%%% keyval package options for \undernote
+\SetupKeyvalOptions{%
+  family=undernote,%
+  prefix=undernote@%
+}
+\DeclareStringOption[\footnotesize]{notesize}
+\DeclareStringOption[3mm]{notepos}
+\DeclareStringOption[4mm]{noteshift}
+\DeclareStringOption[.07\zw]{noterulethickness}
+\DeclareStringOption[1.5mm]{noterulehshift}
+\DeclareStringOption[1.5mm]{noterulehsize}
+\DeclareStringOption[0em]{notesep}
+\DeclareStringOption[5em]{noteoverhang}
+\DeclareStringOption[0]{noteparstyle}
+\DeclareStringOption[black]{notelinecolor}
+\ProcessKeyvalOptions*
+
+% kvoptions は \undernote@xxx を生成するので、内部名 \xxx@internal@undernote
+% へ橋渡し。pgfkeys の .store~in も後者へ書くので、ここで名前空間を統一する。
+%
+% 各キーの意味:
+%   notesize           注釈部分の文字サイズ
+%   notepos            注釈へ伸ばす縦線の長さの最小値
+%   noteshift          衝突回避で下にずらす1段階分の移動量
+%   noterulethickness  注釈線の太さ
+%   noterulehshift     下線左端から縦線までの右ずれ
+%   noterulehsize      縦線の下から伸ばす横線の長さ
+%   notesep            次の注釈との最低横間隔（これ未満なら前の注釈を下げる）
+%   noteoverhang       注釈本体を後ろに張り出させる量
+%   noteparstyle       0=囲みなし / 1=実線で囲う / 2=点線で囲う
+%   notelinecolor      注釈線の色
+\clist_map_inline:nn
+   {
+      notesize, notepos, noteshift, noterulethickness, noterulehshift,
+      noterulehsize, notesep, noteoverhang, noteparstyle, notelinecolor
+   }
+   { \cs_set_eq:cc { #1 @internal@undernote } { undernote@ #1 } }
+
+\msg_new:nnn { modernruler } { invalid-number }
+   {
+      The ~ input ~ is ~ an ~ invalid ~ number. ~
+      `noteparstyle` ~ must ~ be ~ `0`, ~ `1`, ~ or ~ `2`.
+   }
+%%%
+
+
+%%% noteparstyle dispatcher
+% \__modernruler_set_par_lines:n {<extra-keys>}
+%   \hline@undernote@par と \vlines@undernote@par を再定義する。
+%   引数 #1 は \mruleth / \mruletv のオプションリストに前置されるキー値断片
+%   （例えば "dash=true," を渡せば点線スタイルになる）。
+\cs_new_protected:Npn \__modernruler_set_par_lines:n #1
+   {
+      \cs_set:Npn \hline@undernote@par
+         {
+            \mruleth [
+               #1
+               height = \noterulethickness@internal@undernote ,
+               width  = \undernote@textlen@tempo ,
+               color  = \notelinecolor@internal@undernote
+            ]
+         }
+      \cs_set:Npn \vlines@undernote@par
+         {
+            \mruletv [
+               #1
+               height = \l__modernruler_vline_dim ,
+               width  = \noterulethickness@internal@undernote ,
+               depth  = 0pt ,
+               color  = \notelinecolor@internal@undernote
+            ]
+            \mruleth [
+               #1
+               height = \noterulethickness@internal@undernote ,
+               width  = \noterulehsize@internal@undernote ,
+               depth  = 0pt ,
+               color  = \notelinecolor@internal@undernote
+            ]
+         }
+   }
+
+% \__modernruler_apply_noteparstyle:n {<n>}
+%   \wrap@undernote / \wrap@undernote@par を切り替え、
+%   下線（\hline@undernote@par）と縦線+横線（\vlines@undernote@par）を
+%   noteparstyle=#1 に対応する形で再定義する。
+%   - 0: 囲みなし（NoframeBox）       実線
+%   - 1: 実線で囲う（FramedBox）       実線
+%   - 2: 点線で囲う（DashedBox）       点線
+\cs_new_protected:Npn \__modernruler_apply_noteparstyle:n #1
+   {
+      \int_case:nnF {#1}
+         {
+            { 0 }
+               {
+                  \cs_set_eq:NN \wrap@undernote     \wrap@undernote@styleC
+                  \cs_set_eq:NN \wrap@undernote@par \wrap@undernote@par@styleC
+                  \__modernruler_set_par_lines:n { }
+               }
+            { 1 }
+               {
+                  \cs_set_eq:NN \wrap@undernote     \wrap@undernote@styleA
+                  \cs_set_eq:NN \wrap@undernote@par \wrap@undernote@par@styleA
+                  \__modernruler_set_par_lines:n { }
+               }
+            { 2 }
+               {
+                  \cs_set_eq:NN \wrap@undernote     \wrap@undernote@styleB
+                  \cs_set_eq:NN \wrap@undernote@par \wrap@undernote@par@styleB
+                  \__modernruler_set_par_lines:n { dash = true , }
+               }
+         }
+         { \msg_warning:nn { modernruler } { invalid-number } }
+   }
+%%%
+
+
+%%% setting commands for \undernote
+\pgfkeys{
+  /KKTeX/unote/.is~family,
+  /KKTeX/unote,
+  notesize/.store~in          = \notesize@internal@undernote,
+  notepos/.store~in           = \notepos@internal@undernote,
+  noteshift/.store~in         = \noteshift@internal@undernote,
+  noterulethickness/.store~in = \noterulethickness@internal@undernote,
+  noterulehshift/.store~in    = \noterulehshift@internal@undernote,
+  noterulehsize/.store~in     = \noterulehsize@internal@undernote,
+  notesep/.store~in           = \notesep@internal@undernote,
+  noteoverhang/.store~in      = \noteoverhang@internal@undernote,
+  notelinecolor/.store~in     = \notelinecolor@internal@undernote,
+  noteparstyle/.code          = {
+      \cs_set:Npn \noteparstyle@internal@undernote {#1}
+      \__modernruler_apply_noteparstyle:n {#1}
+  }
+}
+
+\NewDocumentCommand{\SetUNote}{ O{} }{%
+  \pgfkeys{/KKTeX/unote, #1}%
+}
+%%%
+
+
+%%% modern rule commands
+
+% 変数の宣言
+\dim_new:N  \l_mrule_width_dim
+\dim_new:N  \l_mrule_height_dim
+\dim_new:N  \l_mrule_depth_dim
+\dim_new:N  \l_mrule_dash_len_dim
+\dim_new:N  \l_mrule_gap_len_dim
+\tl_new:N   \l_mrule_color_tl
+\tl_new:N   \l_mrule_gap_color_tl
+\bool_new:N \l_mrule_dash_bool
+\dim_new:N  \l__mrule_tmp_remaining_dim
+\dim_new:N  \l__mrule_segment_dim
+
+% キーの定義
+\keys_define:nn { modernrule }
+{
+   width    .dim_set:N = \l_mrule_width_dim,
+   height   .dim_set:N = \l_mrule_height_dim,
+   depth    .dim_set:N = \l_mrule_depth_dim,
+   color    .tl_set:N  = \l_mrule_color_tl,
+   dash     .bool_set:N = \l_mrule_dash_bool,
+   dash-len .dim_set:N  = \l_mrule_dash_len_dim,
+   gap-len  .dim_set:N  = \l_mrule_gap_len_dim,
+   gap-color .tl_set:N = \l_mrule_gap_color_tl,
+
+   % デフォルト値
+   width    .initial:n = 0pt,
+   height   .initial:n = 0pt,
+   depth    .initial:n = 0pt,
+   color    .initial:n = black,
+   dash     .initial:n = false,
+   dash-len .initial:n = 3pt,
+   gap-len  .initial:n = 2.5pt,
+   gap-color .initial:n = white,
+}
+
+% 1セグメント描画関数。第1引数: 色、第2引数: 長さ。
+% 水平方向は \vrule を、垂直方向は \hrule をそれぞれの「長さ方向」に伸ばす。
+\cs_new_protected:Npn \__modernruler_seg_h:nn #1 #2
+   {
+      { \color{#1} \vrule width #2 height \l_mrule_height_dim depth \l_mrule_depth_dim }
+   }
+\cs_new_protected:Npn \__modernruler_seg_v:nn #1 #2
+   {
+      { \color{#1} \hrule width \l_mrule_width_dim height #2 }
+   }
+
+% \__modernruler_dash_loop:N \<segment-emitter>
+%   \l__mrule_tmp_remaining_dim を残量として、
+%   メイン色（\l_mrule_color_tl）→ ギャップ色（\l_mrule_gap_color_tl）を
+%   交互に出力しながら残量を 0 まで減らす。
+\cs_new_protected:Npn \__modernruler_dash_loop:N #1
+   {
+      \dim_while_do:nNnn { \l__mrule_tmp_remaining_dim } > { 0pt }
+         {
+            % メイン色: 残量と dash 長の min を出力
+            \dim_set:Nn \l__mrule_segment_dim
+               { \dim_min:nn { \l__mrule_tmp_remaining_dim } { \l_mrule_dash_len_dim } }
+            #1 { \l_mrule_color_tl } { \l__mrule_segment_dim }
+            \dim_sub:Nn \l__mrule_tmp_remaining_dim { \l__mrule_segment_dim }
+            % ギャップ色: 残量があれば、残量と gap 長の min を出力
+            \dim_compare:nNnT { \l__mrule_tmp_remaining_dim } > { 0pt }
+               {
+                  \dim_set:Nn \l__mrule_segment_dim
+                     { \dim_min:nn { \l__mrule_tmp_remaining_dim } { \l_mrule_gap_len_dim } }
+                  #1 { \l_mrule_gap_color_tl } { \l__mrule_segment_dim }
+                  \dim_sub:Nn \l__mrule_tmp_remaining_dim { \l__mrule_segment_dim }
+               }
+         }
+   }
+
+% 水平方向：2色点線
+\NewDocumentCommand{\mruleth}{ O{} }
+{
+   \group_begin:
+   \keys_set:nn { modernrule } { #1 }
+   \mode_if_vertical:T { \nointerlineskip }
+   \bool_if:NTF \l_mrule_dash_bool
+      {
+         \hbox_to_wd:nn { \l_mrule_width_dim }
+            {
+               \dim_set:Nn \l__mrule_tmp_remaining_dim { \l_mrule_width_dim }
+               \__modernruler_dash_loop:N \__modernruler_seg_h:nn
+               \hss
+            }
+      }
+      {
+         \hbox_to_wd:nn { \l_mrule_width_dim }
+            { \__modernruler_seg_h:nn { \l_mrule_color_tl } { \l_mrule_width_dim } }
+      }
+   \mode_if_vertical:T { \nointerlineskip }
+   \group_end:
+}
+
+% 垂直方向：2色点線
+\NewDocumentCommand{\mruletv}{ O{} }
+{
+   \group_begin:
+   \keys_set:nn { modernrule } { #1 }
+   \bool_if:NTF \l_mrule_dash_bool
+      {
+         \vbox:n
+            {
+               \dim_set:Nn \l__mrule_tmp_remaining_dim { \l_mrule_height_dim }
+               \__modernruler_dash_loop:N \__modernruler_seg_v:nn
+            }
+      }
+      {
+         \vbox:n
+            { \__modernruler_seg_v:nn { \l_mrule_color_tl } { \l_mrule_height_dim } }
+      }
+   \group_end:
+}
+%%%
+
+%%% undernote
+% 注釈囲い枠（実線/点線兼用）。
+% 第1引数: borderline の線種（solid または dashed）。
+\DeclareTotalTCBox{\FramedBox@undernote}{ m O{} +m }{%
+  on~line, arc=0pt,
+  sharp~corners, boxsep=-.5mm+.25\zw,
+  left=.3mm, right=.3mm, top=.3mm, bottom=.3mm,
+  colback=white, colframe=white, boxrule=0pt,
+  enhanced, before={\hspace*{.25\zw}\hspace{-.5mm}},
+  borderline={\noterulethickness@internal@undernote}{-.25\zw+.5mm}{#1, \notelinecolor@internal@undernote},
+  #2
+}{#3}
+\DeclareTotalTCBox{\NoframeBox@undernote}{ O{} +m }{%
+  on~line, arc=0pt,
+  sharp~corners, boxsep=-.5mm,
+  left=.8mm, right=.8mm, top=0.3mm, bottom=0.3mm,
+  colback=white, colframe=white, boxrule=0pt,
+  enhanced, before={\hspace*{-.172\zw}},
+  #1
+}{#2}
+
+\dim_new:N \undernote@textlen@tempo
+
+% モジュール内スクラッチ変数（旧コードの \dimen@ / \count@ / \@tempcnt[ab] /
+% \@tempdim[ab] を意味のある名前に置き換えたもの）
+\dim_new:N \l__modernruler_vline_dim          % \vlines@undernote@par の縦線長さ
+\dim_new:N \l__modernruler_aux_width_dim      % aux に書き出すノート横幅
+\dim_new:N \l__modernruler_yrange_min_dim     % 行範囲判定の y 下限
+\dim_new:N \l__modernruler_yrange_max_dim     % 行範囲判定の y 上限
+\dim_new:N \l__modernruler_noteshift_dim      % 1 段分の縦シフト量（除数）
+\dim_new:N \l__modernruler_required_drop_dim  % 衝突回避に必要な総縦移動量
+\dim_new:N \l__modernruler_right_edge_dim     % 注釈右端の物理的限界
+\int_new:N \l__modernruler_iter_int           % 汎用ループカウンタ
+\int_new:N \l__modernruler_line_start_int    % 現行範囲の開始 id
+\int_new:N \l__modernruler_line_end_int       % 現行範囲の終了 id
+\int_new:N \l__modernruler_i_int              % 衝突判定の外側ループ
+\int_new:N \l__modernruler_j_int              % 衝突判定の内側ループ
+\int_new:N \l__modernruler_level_int          % 計算した重ね段数
+\int_new:N \l__modernruler_expected_int       % \undernotedata@internal の連番チェック
+
+% 注釈の parbox 部分（3スタイル共通）。
+% 幅は、語句の幅から縦線位置を引いて張り出し分を足した値。
+\cs_new_protected:Npn \__modernruler_undernote_parbox:n #1
+   {
+      \parbox [t]
+         { \dim_eval:n
+              { \undernote@textlen@tempo
+              - \noterulehsize@internal@undernote
+              - \noterulehshift@internal@undernote
+              + \noteoverhang@internal@undernote } }
+         { \skip_set:Nn \baselineskip { .215\zw } #1 }
+   }
+\NewDocumentCommand{\wrap@undernote@par@styleA}{ +m }
+   { { \FramedBox@undernote {solid}  { \__modernruler_undernote_parbox:n {#1} } } }
+\NewDocumentCommand{\wrap@undernote@par@styleB}{ +m }
+   { { \FramedBox@undernote {dashed} { \__modernruler_undernote_parbox:n {#1} } } }
+\NewDocumentCommand{\wrap@undernote@par@styleC}{ +m }
+   { { \NoframeBox@undernote        { \__modernruler_undernote_parbox:n {#1} } } }
+\NewDocumentCommand{\wrap@undernote@styleA}{ +m }{ { \FramedBox@undernote {solid}  {#1} } }
+\NewDocumentCommand{\wrap@undernote@styleB}{ +m }{ { \FramedBox@undernote {dashed} {#1} } }
+\NewDocumentCommand{\wrap@undernote@styleC}{ +m }{ { \NoframeBox@undernote        {#1} } }
+\NewDocumentCommand{\wrap@undernote}{ +m }{{#1}}
+\NewDocumentCommand{\wrap@undernote@par}{ +m }{{\wrap@undernote@styleC{#1}}}
+\__modernruler_apply_noteparstyle:n { \noteparstyle@internal@undernote }
+
+\box_new:N \@undernote@maintext
+\box_new:N \@undernote@subtext
+\newcounter{undernote@id}
+% #1 (star): 注釈本体を parbox に包むかどうか
+% #2 (opt):  注釈を下にずらす「行数」（空指定なら自動段数）
+% #3:        注釈をつける語句
+% #4:        注釈
+\NewDocumentCommand{\undernote}{ s O{} m +m }
+   {
+      \group_begin:
+         \stepcounter{undernote@id}
+         \mode_if_math:TF
+            {
+               \@note@save@conters
+               \zsavepos { unote- \int_use:N \c@undernote@id }
+               \@math@undernote {#2} {#3} { \__modernruler_undernote_body:nn {#1} {#4} }
+            }
+            {
+               \settowidth { \undernote@textlen@tempo } {#3}
+               \mode_leave_vertical:
+               \zsavepos { unote- \int_use:N \c@undernote@id }
+               \@text@undernote {#2} {#3} { \__modernruler_undernote_body:nn {#1} {#4} }
+            }
+      \group_end:
+   }
+\cs_new_protected:Npn \__modernruler_undernote_body:nn #1 #2
+   {
+      \int_compare:nNnTF { \ltjgetparameter { direction } } = { 4 }
+         { \__modernruler_undernote_varwidth:nn {#1} {#2} }
+         { \raisebox { .38\zw } { \__modernruler_undernote_varwidth:nn {#1} {#2} } }
+   }
+\cs_new_protected:Npn \__modernruler_undernote_varwidth:nn #1 #2
+   {
+      \begin{varwidth}[t]{\maxdimen}
+         \IfBooleanTF{#1}{ \wrap@undernote@par{#2} }{ \wrap@undernote{#2} }
+      \end{varwidth}
+   }
+
+% 名称カウンタ
+\def\@note@save@conters{
+   \group_begin:
+      \cs_set:Npn \@elt ##1 {
+         \str_if_eq:nnF { ##1 } { page }
+         { 
+            \int_gset:cn { c@ ##1 } { \int_use:c { c@ ##1 } } 
+         }
+      }
+      \tl_set:Nx \l_tmpa_tl { \cl@@ckpt }
+   \exp_args:NNNV \group_end: \tl_set:Nn \l_tmpa_tl \l_tmpa_tl
+      % グループ外への持ち出し
+  
+  \cs_gset_eq:NN \@note@restore@counters \l_tmpa_tl
+}
+
+% 数式モードの場合への対応。
+% 4 つの math style ごとに、語句の幅を測ってから \@text@undernote へ流す。
+% #1: math style 切替コマンド (\displaystyle / \textstyle / \scriptstyle / \scriptscriptstyle)
+% #2: \undernote の段数引数, #3: 語句, #4: 注釈
+\cs_new_protected:Npn \__modernruler_math_one:Nnnn #1 #2 #3 #4
+   {
+      \settowidth { \undernote@textlen@tempo } { \m@th $ #1 #3 $ }
+      \@note@restore@counters
+      \@text@undernote {#2} { \m@th $ #1 #3 $ } {#4}
+   }
+\cs_set:Npn \@math@undernote #1 #2 #3
+   {
+      \mathchoice
+         { \__modernruler_math_one:Nnnn \displaystyle      {#1} {#2} {#3} }
+         { \__modernruler_math_one:Nnnn \textstyle         {#1} {#2} {#3} }
+         { \__modernruler_math_one:Nnnn \scriptstyle       {#1} {#2} {#3} }
+         { \__modernruler_math_one:Nnnn \scriptscriptstyle {#1} {#2} {#3} }
+   }
+
+% 注釈の内部実装
+\prg_new_conditional:Nnn \__modernruler_if_file_write: { p, T, F, TF }
+  {
+    \legacy_if:nTF { @filesw }
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\cs_new_protected:Npn \@text@undernote #1 #2 #3
+   {
+      \hbox:n
+         {
+            % #1: \undernote の第 2 引数（段数指定）。空なら自動段数を採用
+            \tl_set:Nn \@UNDATA@vsize {#1}
+            \tl_if_empty:cT { @UNDATA@vsize }
+               {
+                  \cs_if_eq:cNTF { @UNDATAS@ \int_use:N \c@undernote@id } \scan_stop:
+                     { \tl_set:Nn \@UNDATA@vsize { 1 } }
+                     { \tl_set_eq:Nc \@UNDATA@vsize { @UNDATAS@ \int_use:N \c@undernote@id } }
+               }
+            \hbox_set:Nn \@undernote@maintext
+               { #2 \mruletv [ height = .8\zw , width = 0pt , color = \notelinecolor@internal@undernote ] }
+            \hbox_set:Nn \@undernote@subtext { \notesize@internal@undernote #3 }
+            \vbox_top:n
+               {
+                  \box_use:N \@undernote@maintext
+                  \group_begin:
+                     \notesize@internal@undernote
+                     \__modernruler_if_file_write:TF
+                        {
+                           \dim_set:Nn \l__modernruler_aux_width_dim
+                              { \box_wd:N \@undernote@subtext + \notesep@internal@undernote }
+                           % .aux に
+                           %   \undernotedata@internal {<id>} {<xpos>} {<ypos>}
+                           %     {<width>} {<height>} {<depth>} {<page>} {<maindepth>}
+                           % を書き出す（全部 sp 値）
+                           \iow_shipout:Nx \@auxout
+                              {
+                                 \token_to_str:N \undernotedata@internal
+                                    { \int_use:N \c@undernote@id }
+                                    { \exp_not:N \zposx { unote- \int_use:N \c@undernote@id } }
+                                    { \exp_not:N \zposy { unote- \int_use:N \c@undernote@id } }
+                                    { \number \l__modernruler_aux_width_dim }
+                                    { \number \box_ht:N \@undernote@subtext }
+                                    { \number \box_dp:N \@undernote@subtext }
+                                    { \int_use:N \c@page }
+                                    { \number \box_dp:N \@undernote@maintext }
+                              }
+                        }
+                        { \iow_term:n { } }
+                  \group_end:
+                  \skip_vertical:n { 1pt }
+                  \hline@undernote@par
+                     % アンダーライン
+                  \hbox:n
+                     {
+                        \notesize@internal@undernote
+                        \skip_horizontal:n { \noterulehshift@internal@undernote }
+                        % ノートの縦幅 (= 1 段分の縦シフト * (段数-1)) + 縦線の最低長さ
+                        \dim_set:Nn \l__modernruler_vline_dim
+                           {
+                              \noteshift@internal@undernote * ( \@UNDATA@vsize - 1 )
+                              + \notepos@internal@undernote
+                           }
+                        \vlines@undernote@par
+                        \box_move_down:nn { 0.38 \zw }
+                           { \hbox_to_zero:n { \box_use:N \@undernote@subtext \hss } }
+                     }
+                  \skip_vertical:n { .3\zw }
+               }
+         }
+   }
+
+\int_new:N \@UNDATA@min
+\int_new:N \@UNDATA@max
+\int_gset:Nn \@UNDATA@max { -10000 }
+\tl_gclear:N \@UNDATA@idlist
+\cs_set_eq:NN \@UNDATA@elt \relax
+\msg_new:nnn { modernruler } { multiple-labels } { There ~ were ~ multiply-defined ~ labels }
+
+\cs_new_protected:Npn \undernotedata@internal #1 #2 #3 #4 #5 #6 #7 #8
+   {
+      \cs_if_exist:cTF { @UNDATA@ #1 }
+         { \msg_warning:nn { modernruler } { multiple-labels } }
+         {
+            \int_set:Nn \l__modernruler_expected_int { \@UNDATA@max + 1 }
+            \int_compare:nNnTF { \l__modernruler_expected_int } = {#1}
+               { \int_gset:Nn \@UNDATA@max { \l__modernruler_expected_int } }
+               {
+                  \int_compare:nNnF { \@UNDATA@max } < { 0 }
+                     {
+                        \tl_gput_right:Nx \@UNDATA@idlist
+                           {
+                              \exp_not:N \@UNDATA@elt
+                              { \int_use:N \@UNDATA@min }
+                              { \int_use:N \@UNDATA@max }
+                           }
+                     }
+                  \int_gset:Nn \@UNDATA@min {#1}
+                  \int_gset:Nn \@UNDATA@max { \@UNDATA@min }
+               }
+         }
+      \cs_gset:cpn { @UNDATA@ #1 } { {#2}{#3}{#4}{#5}{#6}{#7}{#8} }
+   }
+
+\cs_set:Npn \@undernotedata #1#2#3#4#5#6#7#8
+   {
+      \str_if_eq:eeTF 
+         { \cs_if_exist_use:c { @UNDATA@ #1 } } 
+         { {#2}{#3}{#4}{#5}{#6}{#7}{#8} }
+         { }
+         {
+            \legacy_if_set_true:n { @tempswa }
+         }
+   }
+
+\cs_set:Npn \checkundernotedata
+   {
+      \int_compare:nNnF { \@UNDATA@max } < { 0 }
+         {
+            \tl_gput_right:Nx \@UNDATA@idlist
+               {
+                  \exp_not:N \@UNDATA@elt
+                  { \int_use:N \@UNDATA@min }
+                  { \int_use:N \@UNDATA@max }
+               }
+            
+            \group_begin:
+               \cs_set_eq:NN \@UNDATA@elt \@check@undernotedata
+               \@UNDATA@idlist
+            \group_end:
+         }
+   }
+
+\cs_set:Npn \@check@undernotedata #1 #2
+   {
+      %%% RESET
+      \tl_set:Nn \@currpage { -10000 }
+      \int_set:Nn \l__modernruler_line_start_int { 0 }
+      \int_set:Nn \l__modernruler_line_end_int { 0 }
+      \dim_set:Nn \l__modernruler_yrange_min_dim { -1pt }
+      \dim_set:Nn \l__modernruler_yrange_max_dim { -1pt }
+      \tl_clear:N \@linelist
+      \cs_set_eq:NN \@elt \scan_stop:
+      %%%
+
+      \int_set:Nn \l__modernruler_iter_int { #1 - 1 }
+      \int_while_do:nNnn { \l__modernruler_iter_int } < {#2}
+         {
+            \int_incr:N \l__modernruler_iter_int
+            \@check@undernotedata@split \l__modernruler_iter_int
+
+            % \l_tmpa_bool := 「現在のノートが直前と同じ行範囲に入るか」
+            \bool_set_false:N \l_tmpa_bool
+            \int_compare:nNnT { \@currpage } = { \@thispage }
+               {
+                  \dim_compare:nNnF { \@thisy sp } < { \l__modernruler_yrange_min_dim }
+                     {
+                        \dim_compare:nNnF { \@thisy sp } > { \l__modernruler_yrange_max_dim }
+                           { \bool_set_true:N \l_tmpa_bool }
+                     }
+               }
+
+            \bool_if:NTF \l_tmpa_bool
+               {
+                  % 範囲内：行範囲の終端を更新
+                  \int_set_eq:NN \l__modernruler_line_end_int \l__modernruler_iter_int
+               }
+               {
+                  % 範囲外：直前の範囲を書き出してリセット
+                  \int_compare:nNnT { \l__modernruler_line_start_int } > { 0 }
+                     {
+                        \tl_put_right:Nx \@linelist
+                           {
+                              \@elt
+                                 { \int_use:N \l__modernruler_line_start_int }
+                                 { \int_use:N \l__modernruler_line_end_int }
+                           }
+                     }
+                  \int_set_eq:NN \l__modernruler_line_start_int \l__modernruler_iter_int
+                  \int_set_eq:NN \l__modernruler_line_end_int   \l__modernruler_iter_int
+                  \cs_set_eq:NN \@currpage \@thispage
+                  \dim_set:Nn \l__modernruler_yrange_min_dim { \@thisy sp }
+                  \dim_set_eq:NN \l__modernruler_yrange_max_dim \l__modernruler_yrange_min_dim
+                  \dim_sub:Nn \l__modernruler_yrange_min_dim { \c__modernruler_yfuzz_dim }
+                  \dim_add:Nn \l__modernruler_yrange_max_dim { \c__modernruler_yfuzz_dim }
+               }
+         }
+      \tl_put_right:Nx \@linelist
+         {
+            \@elt
+               { \int_use:N \l__modernruler_line_start_int }
+               { \int_use:N \l__modernruler_line_end_int }
+         }
+      \cs_set_eq:NN \@elt \@check@undernotedata@elt
+      \@linelist
+   }
+
+\dim_const:Nn \c__modernruler_yfuzz_dim { 3pt }
+
+% \undernotedata@internal で .aux に書き出したデータ \@UNDATA@<id> を、split@
+% の 7 引数 (+ \@nnil 区切りの第8引数) へ流し込む。
+% 3 段の \exp_after:wN は \cs:w...\cs_end: で組み立てた CS を split@ の手前で
+% 1 段展開する古典イディオム。末尾の "0000000" はデータ不足時のダミー：
+%   -- データが十分なら全部 #8 (\@nnil 直前) に吸われる
+%   -- 不足なら 0 が #1..#7 を埋める
+\cs_new_protected:Npn \@check@undernotedata@split #1
+   {
+      \exp_after:wN \exp_after:wN \exp_after:wN \@check@undernotedata@split@
+      \cs:w @UNDATA@ \int_use:N #1 \cs_end: 0000000 \@nnil
+   }
+\cs_new_protected:Npn \@check@undernotedata@split@ #1 #2 #3 #4 #5 #6 #7 #8 \@nnil
+   {
+      \tl_set:Nn \@thisx      {#1}
+      \tl_set:Nn \@thisy      {#2}
+      \tl_set:Nn \@thiswd     {#3}
+      \tl_set:Nn \@thisht     {#4}
+      \tl_set:Nn \@thisdp     {#5}
+      \tl_set:Nn \@thispage   {#6}
+      \tl_set:Nn \@thismaindp {#7}
+   }
+
+% 行範囲 [#1, #2] 内の各ノートについて、後続ノートとの重なりを
+% \noteshift@internal@undernote 単位で何段下げれば回避できるかを計算し、
+% その段数を \@UNDATAS@<id> に格納する。逆順に i を回し、各 i について
+% j を i+1..#2 で走らせる二重ループ。
+\cs_new_protected:Npn \@check@undernotedata@elt #1 #2
+   {
+      \int_set:Nn \l__modernruler_i_int { #2 + 1 }
+      \int_while_do:nNnn { \l__modernruler_i_int } > {#1}
+         {
+            \int_decr:N \l__modernruler_i_int
+            \@check@undernotedata@split \l__modernruler_i_int
+            % i のノートの右端（横方向の物理的限界位置）
+            \dim_set:Nn \l__modernruler_right_edge_dim
+               { \@thisx sp + \@thiswd sp + \noterulehsize@internal@undernote }
+            \cs_set_eq:NN \@currht \@thisht
+            \int_set:Nn \l__modernruler_level_int { 1 }
+            \int_set_eq:NN \l__modernruler_j_int \l__modernruler_i_int
+            \int_while_do:nNnn { \l__modernruler_j_int } < {#2}
+               {
+                  \int_incr:N \l__modernruler_j_int
+                  \@check@undernotedata@split \l__modernruler_j_int
+                  \dim_compare:nNnT { \@thisx sp } < { \l__modernruler_right_edge_dim }
+                     {
+                        \dim_set_eq:NN \l__modernruler_noteshift_dim
+                           \noteshift@internal@undernote
+                        \dim_set:Nn \l__modernruler_required_drop_dim
+                           {
+                              \@thisdp sp + \@currht sp
+                              + \lineskip
+                              + \@thismaindp sp   % メインテキストの深さも考慮
+                           }
+                        % 段数を比率で計算（重なりがあれば必ず 1 段以上）
+                        \int_set:Nn \l_tmpa_int
+                           {
+                              \fp_eval:n
+                                 {
+                                    floor
+                                       (
+                                          \dim_to_fp:n { \l__modernruler_required_drop_dim }
+                                          / \dim_to_fp:n { \l__modernruler_noteshift_dim }
+                                       )
+                                 }
+                              + 1
+                           }
+                        \int_add:Nn \l_tmpa_int
+                           { \use:c { @UNDATAS@ \int_use:N \l__modernruler_j_int } }
+                        \int_set:Nn \l__modernruler_level_int
+                           { \int_max:nn { \l__modernruler_level_int } { \l_tmpa_int } }
+                     }
+               }
+            \cs_gset:cpx { @UNDATAS@ \int_use:N \l__modernruler_i_int }
+               { \int_use:N \l__modernruler_level_int }
+         }
+   }
+
+\AtEndDocument
+   {
+      \legacy_if:nT { @filesw }
+         {
+            \iow_shipout:Nx \@auxout { \token_to_str:N \checkundernotedata }
+            \cs_set_eq:NN \checkundernotedata     \scan_stop:
+            \cs_set_eq:NN \undernotedata@internal \@undernotedata
+         }
+   }
+%%%
+
+\endinput

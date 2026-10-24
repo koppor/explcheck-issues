@@ -1,0 +1,331 @@
+% lua-widow-control
+% https://github.com/gucci-on-fleek/lua-widow-control
+% SPDX-License-Identifier: MPL-2.0+
+% SPDX-FileCopyrightText: 2022 Max Chernoff
+
+% Formats built after 2015 include \LuaTeX{}Base, so this is the absolute
+% minimum version that we will run under.
+\NeedsTeXFormat{LaTeX2e}[2015/01/01]
+
+% For _really_ old formats
+\providecommand\DeclareRelease[3]{}
+\providecommand\DeclareCurrentRelease[2]{}
+
+\DeclareRelease{}{0000-00-00}{lua-widow-control-2022-02-22.sty}
+\DeclareRelease{v1.1.6}{2022-02-22}{lua-widow-control-2022-02-22.sty}
+\DeclareCurrentRelease{v3.0.1}{2024-03-11} %%version %%dashdate
+
+% If this version of LaTeX doesn't support command hooks, then we load
+% the last v1.1.X version of the package.
+\providecommand\IfFormatAtLeastTF{\@ifl@t@r\fmtversion}
+\IfFormatAtLeastTF{2020/10/01}{}{\input{lua-widow-control-2022-02-22.sty}}
+\IfFormatAtLeastTF{2020/10/01}{}{\endinput}
+
+\ProvidesExplPackage
+    {lua-widow-control}
+    {2024/03/11} %%slashdate
+    {v3.0.1} %%version
+    {Use Lua to remove widows and orphans}
+
+% Message and String Constants
+\str_const:Nn \c__lwc_name_str { lua-widow-control }
+
+\msg_new:nnn
+    { \c__lwc_name_str }
+    { no-luatex }
+    {
+        LuaTeX~ is~ REQUIRED! \\
+        Make~ sure~ to~ compile~ your~ document~ with~ `lualatex'.
+    }
+
+\msg_new:nnn
+    { \c__lwc_name_str }
+    { patch-failed }
+    {
+        Patching~ \c_backslash_str #1~ failed. \\
+        Please~ ensure~ that~ \c_backslash_str #1~ exists.
+    }
+
+\msg_new:nnn
+    { \c__lwc_name_str }
+    { old-format-patch }
+    {
+        Patching~ not~ supported~ with~ old~ LaTeX. \\
+        Please~ use~ a~ LaTeX~ format~ >=~ 2021/06/01.
+    }
+
+\msg_new:nnn
+    { \c__lwc_name_str }
+    { old-command }
+    {
+        \c_backslash_str #1~ has~ been~ REMOVED! \\
+        Please~ use~ \c_backslash_str setuplwc \c_left_brace_str #2
+        \c_right_brace_str\ instead.
+    }
+
+% Don't let the user proceed unless they are using \LuaTeX{}.
+\sys_if_engine_luatex:F {
+    \msg_critical:nn { \c__lwc_name_str } { no-luatex }
+}
+
+% Define (most of) the keys
+\cs_generate_variant:Nn \keys_define:nn { Vn }
+
+\keys_define:Vn { \c__lwc_name_str } {
+    emergencystretch .dim_gset:N       = \g__lwc_emergencystretch_dim,
+    emergencystretch .value_required:n = true,
+    emergencystretch .initial:x        = \dim_max:nn { 3em } { 30pt },
+
+    draftoffset .dim_gset:N       = \g__lwc_draftoffset_dim,
+    draftoffset .value_required:n = true,
+    draftoffset .initial:x        = 1in,
+
+    max-cost .int_gset:N       = \g__lwc_maxcost_int,
+    max-cost .value_required:n = true,
+    max-cost .initial:x        = \c_max_int,
+
+    widowpenalty .code:n = \int_gset:Nn \tex_widowpenalty:D        { #1 }
+                           \int_gset:Nn \tex_displaywidowpenalty:D { #1 },
+    widowpenalty .value_required:n = true,
+    widowpenalty .initial:n        = 1,
+
+    orphanpenalty .code:n = \int_gset:Nn \tex_clubpenalty:D  { #1 }
+                            \int_gset:Nn \@clubpenalty       { #1 },
+    orphanpenalty .value_required:n = true,
+    orphanpenalty .initial:n        = 1,
+
+    brokenpenalty .int_gset:N       = \tex_brokenpenalty:D,
+    brokenpenalty .value_required:n = true,
+    brokenpenalty .initial:n        = 1,
+
+    microtype .bool_gset:N      = \g__lwc_use_microtype_bool,
+    microtype .value_required:n = true,
+    microtype .initial:n        = true,
+    microtype .usage:n          = preamble,
+
+    disablecmds .clist_gset:N     = \g__lwc_disablecmds_cl,
+    disablecmds .value_required:n = false,
+    disablecmds .initial:n        = { \@sect,           % LaTeX default
+                                      \@ssect,          % LaTeX starred
+                                      \M@sect,          % Memoir
+                                      \@mem@old@ssect,  % Memoir Starred
+                                      \ttl@straight@ii, % titlesec normal
+                                      \ttl@top@ii,      % titlesec top
+                                      \ttl@part@ii,     % titlesec part
+                                    },
+    disablecmds .usage:n          = preamble,
+}
+
+% Load the Lua code
+\cs_if_exist:NTF \lua_load_module:n {
+    \lua_load_module:n { lua-widow-control }
+} {
+    \lua_now:n { require "lua-widow-control" }
+}
+
+% Here, we enable font expansion/contraction. It isn't strictly necessary for
+% \lwc/'s functionality; however, it is required for the
+% lengthened paragraphs to not have terrible spacing.
+\hook_gput_code:nnn { begindocument / before } { \c__lwc_name_str } {
+    \bool_if:NT \g__lwc_use_microtype_bool {
+        \@ifpackageloaded { microtype } {} {
+            \RequirePackage[
+                final,
+                activate = { true, nocompatibility }
+            ]
+            { microtype }
+        }
+    }
+}
+
+% Core Function Definitions
+\cs_new_eq:NN \iflwc \__lwc_iflwc:
+
+\prg_new_conditional:Nnn \__lwc_if_enabled: { T, F, TF } {
+    \__lwc_if_enabled:
+        \prg_return_true:
+    \else
+        \prg_return_false:
+    \fi
+}
+
+\prg_new_conditional:Nnn \__lwc_if_lmtx: { T, F, TF } {
+    \int_compare:nNnTF { \tex_luatexversion:D } > { 200 } {
+        \prg_return_true:
+    } {
+        \prg_return_false:
+    }
+}
+
+% Expansion of some parts of the document, such as section headings, is quite
+% undesirable, so we'll disable \lwc/ for certain commands.
+\int_new:N \g__lwc_disable_int
+
+\cs_new:Npn \__lwc_patch_pre: {
+    % We should only reenable \lwc/ at the end if it was already enabled.
+    \__lwc_if_enabled:T {
+        \int_gincr:N \g__lwc_disable_int
+        \__lwc_disable:
+    }
+}
+
+\cs_new:Npn \__lwc_patch_post: {
+    \int_compare:nT { \g__lwc_disable_int > 0 } {
+        \__lwc_enable:
+        \int_gdecr:N \g__lwc_disable_int
+    }
+}
+
+\cs_new:Npn \__lwc_patch_cmd:c #1 {
+    \IfFormatAtLeastTF { 2021/06/01 } {
+        \hook_gput_code:nnn { cmd / #1 / before } { \c__lwc_name_str } {
+            \__lwc_patch_pre:
+        }
+        \hook_gput_code:nnn { cmd / #1 / after } { \c__lwc_name_str } {
+            \__lwc_patch_post:
+        }
+    } {
+        \msg_warning:nn
+                { \c__lwc_name_str }
+                { old-format-patch }
+    }
+}
+
+\cs_new:Npn \__lwc_patch_cmd:N #1 {
+    \__lwc_patch_cmd:c { \cs_to_str:N #1 }
+}
+
+\cs_new:Npn \__lwc_patch_cmd:n #1 {
+    % If the item provided is a single token, we'll assume that it's a \macro.
+    % If it is multiple tokens, we'll assume that it's a `csname`.
+    \tl_if_single:nTF { #1 } {
+        \__lwc_patch_cmd:c { \cs_to_str:N #1 }
+    } {
+        \__lwc_patch_cmd:c { #1 }
+    }
+}
+
+\hook_gput_code:nnn { begindocument / before } { \c__lwc_name_str } {
+    \clist_map_function:NN \g__lwc_disablecmds_cl \__lwc_patch_cmd:n
+}
+
+\__lwc_if_lmtx:T {
+    \int_gset:Nn \normalizelinemode {
+        \numexpression\normalizelinemode bor 2\relax
+    }
+}
+
+%%% Class and package-specifc patches
+
+% KOMA-Script
+\cs_if_exist:NT \AddtoDoHook {
+    \AddtoDoHook { heading / begingroup } { \__lwc_patch_pre:  \use_none:n }
+    \AddtoDoHook { heading / endgroup   } { \__lwc_patch_post: \use_none:n }
+}
+
+% Memoir
+\cs_gset_nopar:Npn \pen@ltyabovepfbreak { 23 } % Issue #32
+
+% Define some final keys
+\keys_define:Vn { \c__lwc_name_str } {
+    enable .choice:,
+    enable / true  .code:n     = \__lwc_enable:,
+    enable / false .code:n     = \__lwc_disable:,
+    enable .initial:n          = true,
+    enable .default:n          = true,
+    enable .value_required:n   = false,
+
+    disable .code:n            = \__lwc_disable:,
+    disable .value_forbidden:n = true,
+
+    debug .choice:,
+    debug / true  .code:n     = \__lwc_debug:n { true  },
+    debug / false .code:n     = \__lwc_debug:n { false },
+    debug .default:n          = true,
+    debug .value_required:n   = false,
+
+    showcolours .choice:,
+    showcolours / true  .code:n     = \__lwc_show_colours:n { true  },
+    showcolours / false .code:n     = \__lwc_show_colours:n { false },
+    showcolours .default:n          = true,
+    showcolours .value_required:n   = false,
+
+    showcosts .choice:,
+    showcosts / true  .code:n     = \__lwc_show_costs:n   { true  },
+    showcosts / false .code:n     = \__lwc_show_costs:n   { false },
+    showcosts .default:n          = true,
+    showcosts .value_required:n   = false,
+
+    draft .meta:n   = {
+        showcolours = { #1 },
+        showcosts   = { #1 },
+    },
+    draft .default:n          = true,
+    draft .value_required:n   = false,
+
+    nobreak .code:n           = \__lwc_nobreak:n { #1 },
+    nobreak .value_required:n = true,
+    nobreak .initial:n        = keep,
+
+    strict .meta:n = { emergencystretch = 0pt,
+                       max-cost         = 5000,
+                       nobreak          = warn,
+                       widowpenalty     = 1,
+                       orphanpenalty    = 1,
+                       brokenpenalty    = 1,
+                     },
+    strict .value_forbidden:n = true,
+
+    default .meta:n = { emergencystretch = 3em,
+                        max-cost         = \c_max_int,
+                        nobreak          = keep,
+                        widowpenalty     = 1,
+                        orphanpenalty    = 1,
+                        brokenpenalty    = 1,
+                      },
+    default .value_forbidden:n = true,
+
+    balanced .meta:n = { emergencystretch = 1em,
+                         max-cost         = 10000,
+                         nobreak          = keep,
+                         widowpenalty     = 500,
+                         orphanpenalty    = 500,
+                         brokenpenalty    = 500,
+                      },
+    balanced .value_forbidden:n = true,
+}
+
+% Add the user interface for the keys
+\IfFormatAtLeastTF { 2022-06-01 } {
+    \ProcessKeyOptions [ \c__lwc_name_str ]
+}{
+    \RequirePackage { l3keys2e }
+    \exp_args:NV \ProcessKeysOptions { \c__lwc_name_str }
+}
+
+\cs_generate_variant:Nn \keys_set:nn { Vn }
+\NewDocumentCommand \lwcsetup {m} {
+    \keys_set:Vn { \c__lwc_name_str }{ #1 }
+}
+
+% Legacy Commands
+\NewDocumentCommand \lwcemergencystretch { } {
+    \msg_error:nnnnn
+        { \c__lwc_name_str }
+        { old-command }
+        { lwcemergencystretch }
+        { emergencystretch=XXXpt }
+}
+
+\NewDocumentCommand \lwcdisablecmd { m } {
+    \msg_error:nnxx
+        { \c__lwc_name_str }
+        { old-command }
+        { lwcdisablecmd }
+        { disablecmds={\c_backslash_str aaa,~ \c_backslash_str bbb} }
+}
+
+\cs_new_eq:NN \lwcenable  \__lwc_enable:
+\cs_new_eq:NN \lwcdisable \__lwc_disable:
+
+\endinput
