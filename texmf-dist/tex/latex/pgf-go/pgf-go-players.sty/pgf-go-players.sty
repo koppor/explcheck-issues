@@ -1,0 +1,600 @@
+\ProvidesFile{pgf-go-players.sty}[2026/10/23 v0.2026.10.23 pgf-go: players]
+\ExplSyntaxOn
+
+\cs_generate_variant:Nn \keys_define:nn {ee, en, ne}
+\cs_generate_variant:Nn \keys_set:nn {ne}
+
+
+\keys_define:nn {pgfgo} {players .code:n = {\keys_set:nn {pgfgo/players} {#1}}}
+
+%NUMEROS EN KANJI (format = kanji Y LAS COORDENADAS DEL BORDE): 1 A 9, 十 (10), 十一 (11), 二十 (20), ...,
+%百 (100), 二百三 (203); 0 ES 〇. NECESITAN UNA FUENTE QUE LOS TENGA.
+\tl_const:Nn \c__pgfgo_kanji_tl {{一}{二}{三}{四}{五}{六}{七}{八}{九}}
+\cs_new:Npn \pgfgo_int_to_kanji:n #1 {
+	\int_compare:nNnTF {#1} = {0} {〇} {
+		\__pgfgo_kanji_place:nn {\int_div_truncate:nn {#1} {100}} {百}
+		\__pgfgo_kanji_place:nn {\int_mod:nn {\int_div_truncate:nn {#1} {10}} {10}} {十}
+		\int_compare:nNnT {\int_mod:nn {#1} {10}} > {0}
+			{\tl_item:Nn \c__pgfgo_kanji_tl {\int_mod:nn {#1} {10}}}
+	}
+}
+%LA CIFRA #1 DE UN LUGAR #2 (百, 十): NADA SI ES 0, SOLO #2 SI ES 1.
+\cs_new:Npn \__pgfgo_kanji_place:nn #1#2 {
+	\int_compare:nNnT {#1} > {1} {\tl_item:Nn \c__pgfgo_kanji_tl {#1}}
+	\int_compare:nNnT {#1} > {0} {#2}
+}
+%CUANTOS KANJI TIENE #1 ESCRITO ASI.
+\cs_new:Npn \pgfgo_kanji_length:n #1 {
+	\int_eval:n {
+		\int_compare:nNnTF {#1} = {0} {1} {
+			\__pgfgo_kanji_place_length:n {\int_div_truncate:nn {#1} {100}}
+			+ \__pgfgo_kanji_place_length:n {\int_mod:nn {\int_div_truncate:nn {#1} {10}} {10}}
+			+ \int_compare:nNnTF {\int_mod:nn {#1} {10}} > {0} {1} {0}
+		}
+	}
+}
+\cs_new:Npn \__pgfgo_kanji_place_length:n #1 {\int_compare:nNnTF {#1} > {1} {2} {\int_compare:nNnTF {#1} > {0} {1} {0}}}
+
+%LA FUNCION DE UN FORMATO DE NUMEROS (arabic, alph, Alph, roman, Roman, kanji).
+\cs_new:Npn \__pgfgo_players_format_cs:n #1 {\str_if_eq:nnTF {#1} {kanji} {pgfgo_int_to_kanji:n} {int_to_ #1 :n}}
+\cs_generate_variant:Nn \__pgfgo_players_format_cs:n {V}
+%EL LARGO DE UN NUMERO #2 CON EL FORMATO #1 PARA ELEGIR EL TAMANO: LOS CARACTERES ALFANUMERICOS DEL TEXTO
+%#3, O CON kanji, DOS POR KANJI (UN KANJI ES TAN ANCHO COMO DOS CIFRAS).
+\regex_const:Nn \c__pgfgo_players_char_regex {[a-zA-Z\d]}
+\cs_new_protected:Npn \pgfgo_players_label_length:NnnN #1#2#3#4 {
+	\cs_if_eq:NNTF #1 \pgfgo_int_to_kanji:n
+		{\int_set:Nn #4 {2 * \pgfgo_kanji_length:n {#2}}}
+		{\regex_count:NnN \c__pgfgo_players_char_regex {#3} #4}
+}
+\cs_generate_variant:Nn \pgfgo_players_label_length:NnnN {NnVN, NVVN}
+
+\def\pgfgosetplayer#1#2{\pgfgoset{players = {#1 = {#2}}}}
+
+
+\def\pgfgocopyplayers#1#2#3{
+	\pgfgocopyplayer{neutral}	{#1}
+	\pgfgocopyplayer{black}		{#2}
+	\pgfgocopyplayer{white}		{#3}
+}
+
+
+
+%LAS VARIABLES DE CADA JUGADOR, COMO {TIPO}{PREFIJO}{NOMBRE}. LA DEL JUGADOR <p> ES <PREFIJO><p>_<NOMBRE>
+%Y LA DEL JUGADOR ACTUAL, <PREFIJO><NOMBRE>. A #1 SE LE AGREGAN LOS TRES ARGUMENTOS DE CADA UNA.
+\cs_new:Npn \__pgfgo_players_fields:n #1 {
+	#1 {dim}	{l_pgfgo_players_}	{stone_radius_dim}
+	#1 {fp}		{l_pgfgo_players_}	{stone_scale_fp}
+
+	#1 {bool}	{l_pgfgo_players_}	{stone_line_bool}
+	#1 {tl}		{l_pgfgo_players_}	{stone_line_color_tl}
+	#1 {dim}	{l_pgfgo_players_}	{stone_line_width_dim}
+	#1 {fp}		{l_pgfgo_players_}	{stone_line_opacity_fp}
+
+	#1 {bool}	{l_pgfgo_players_}	{stone_fill_bool}
+	#1 {tl}		{l_pgfgo_players_}	{stone_fill_color_tl}
+	#1 {fp}		{l_pgfgo_players_}	{stone_fill_opacity_fp}
+
+	#1 {bool}	{l_pgfgo_players_}	{stone_shadow_bool}
+	#1 {fp}		{l_pgfgo_players_}	{stone_shadow_angle_fp}
+	#1 {dim}	{l_pgfgo_players_}	{stone_shadow_offset_dim}
+	#1 {fp}		{l_pgfgo_players_}	{stone_shadow_opacity_fp}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shadow_color_tl}
+	#1 {fp}		{l_pgfgo_players_}	{stone_shadow_scale_fp}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shadow_image_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shadow_image_width_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shadow_image_rotate_tl}
+	#1 {bool}	{l_pgfgo_players_}	{stone_shadow_image_silhouette_bool}
+
+	#1 {bool}	{l_pgfgo_players_}	{stone_shine_bool}
+	#1 {fp}		{l_pgfgo_players_}	{stone_shine_angle_fp}
+	#1 {fp}		{l_pgfgo_players_}	{stone_shine_opacity_fp}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shine_color_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shine_image_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shine_image_width_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_shine_image_rotate_tl}
+	#1 {bool}	{l_pgfgo_players_}	{stone_shine_image_silhouette_bool}
+
+	#1 {seq}	{l_pgfgo_players_}	{stone_image_seq}
+	#1 {tl}		{l_pgfgo_players_}	{stone_image_width_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_image_rotate_tl}
+	#1 {tl}		{l_pgfgo_players_}	{stone_image_opacity_tl}
+
+	#1 {tl}		{l_pgfgo_players_}	{stone_prisoner_tl}
+
+	#1 {tl}		{l_pgfgo_players_}	{move_label_font_tl}
+	#1 {tl}		{l_pgfgo_players_}	{move_label_font_size_tl}
+	#1 {tl}		{l_pgfgo_players_}	{move_label_color_tl}
+	#1 {tl}		{l_pgfgo_players_}	{move_label_opacity_tl}
+	#1 {cs}		{pgfgo_players_}		{move_label_format:n}
+
+	#1 {fp}		{l_pgfgo_players_}	{mark_scale_fp}
+
+	#1 {tl}		{l_pgfgo_players_}	{mark_line_color_tl}
+	#1 {dim}	{l_pgfgo_players_}	{mark_line_width_dim}
+	#1 {tl}		{l_pgfgo_players_}	{mark_line_opacity_tl}
+
+	#1 {tl}		{l_pgfgo_players_}	{mark_fill_color_tl}
+	#1 {bool}	{l_pgfgo_players_}	{mark_fill_bool}
+	#1 {tl}		{l_pgfgo_players_}	{mark_fill_opacity_tl}
+
+	#1 {tl}		{l_pgfgo_players_}	{mark_label_color_tl}
+	#1 {bool}	{l_pgfgo_players_}	{mark_sequence_bool}
+	#1 {int}	{l_pgfgo_}					{mark_sequence_from_int}
+	#1 {cs}		{pgfgo_players_}		{mark_sequence_format:n}
+	#1 {tl}		{l_pgfgo_players_}	{mark_label_font_tl}
+	#1 {tl}		{l_pgfgo_players_}	{mark_label_font_size_tl}
+}
+
+
+%COPIA TODAS LAS VARIABLES DEL JUGADOR #2 EN LAS DEL JUGADOR #1.
+\def\pgfgocopyplayer#1#2{\__pgfgo_players_fields:n {\__pgfgo_players_copy_field:nnnnn {#1} {#2}}}
+\cs_new_protected:Npn \__pgfgo_players_copy_field:nnnnn #1#2#3#4#5 {
+	\use:c {#3_set_eq:cc} {#4 #1 _ #5} {#4 #2 _ #5}
+}
+
+
+
+%LAS VARIABLES DEL JUGADOR ACTUAL (LAS QUE USA EL DIBUJO).
+\dim_new:N 	\l_pgfgo_players_stone_radius_dim
+\fp_new:N 	\l_pgfgo_players_stone_scale_fp
+
+\bool_new:N \l_pgfgo_players_stone_line_bool
+\tl_new:N 	\l_pgfgo_players_stone_line_color_tl
+\dim_new:N 	\l_pgfgo_players_stone_line_width_dim
+\fp_new:N 	\l_pgfgo_players_stone_line_opacity_fp
+
+\bool_new:N \l_pgfgo_players_stone_fill_bool
+\tl_new:N 	\l_pgfgo_players_stone_fill_color_tl
+\fp_new:N 	\l_pgfgo_players_stone_fill_opacity_fp
+
+\bool_new:N	\l_pgfgo_players_stone_shadow_bool
+\fp_new:N		\l_pgfgo_players_stone_shadow_angle_fp
+\dim_new:N	\l_pgfgo_players_stone_shadow_offset_dim
+\fp_new:N		\l_pgfgo_players_stone_shadow_opacity_fp
+\tl_new:N		\l_pgfgo_players_stone_shadow_color_tl
+\fp_new:N		\l_pgfgo_players_stone_shadow_scale_fp
+\tl_new:N		\l_pgfgo_players_stone_shadow_image_tl
+\tl_new:N		\l_pgfgo_players_stone_shadow_image_width_tl
+\tl_new:N		\l_pgfgo_players_stone_shadow_image_rotate_tl
+\bool_new:N	\l_pgfgo_players_stone_shadow_image_silhouette_bool
+
+\bool_new:N	\l_pgfgo_players_stone_shine_bool
+\fp_new:N		\l_pgfgo_players_stone_shine_angle_fp
+\fp_new:N		\l_pgfgo_players_stone_shine_opacity_fp
+\tl_new:N		\l_pgfgo_players_stone_shine_color_tl
+\tl_new:N		\l_pgfgo_players_stone_shine_image_tl
+\tl_new:N		\l_pgfgo_players_stone_shine_image_width_tl
+\tl_new:N		\l_pgfgo_players_stone_shine_image_rotate_tl
+\bool_new:N	\l_pgfgo_players_stone_shine_image_silhouette_bool
+
+\seq_new:N	\l_pgfgo_players_stone_image_seq
+\tl_new:N		\l_pgfgo_players_stone_image_width_tl
+\tl_new:N		\l_pgfgo_players_stone_image_rotate_tl
+\tl_new:N		\l_pgfgo_players_stone_image_opacity_tl
+
+\tl_new:N		\l_pgfgo_players_stone_prisoner_tl
+
+\tl_new:N 	\l_pgfgo_players_move_label_font_tl
+\tl_new:N 	\l_pgfgo_players_move_label_font_size_tl
+\tl_new:N 	\l_pgfgo_players_move_label_color_tl
+\tl_new:N 	\l_pgfgo_players_move_label_opacity_tl
+
+\fp_new:N		\l_pgfgo_players_mark_scale_fp
+
+\tl_new:N 	\l_pgfgo_players_mark_line_color_tl
+\dim_new:N 	\l_pgfgo_players_mark_line_width_dim
+\tl_new:N 	\l_pgfgo_players_mark_line_opacity_tl
+
+\tl_new:N 	\l_pgfgo_players_mark_fill_color_tl
+\bool_new:N \l_pgfgo_players_mark_fill_bool
+\tl_new:N 	\l_pgfgo_players_mark_fill_opacity_tl
+
+\tl_new:N 	\l_pgfgo_players_mark_label_color_tl
+
+\bool_new:N \l_pgfgo_players_mark_sequence_bool
+\int_new:N	\l_pgfgo_mark_sequence_from_int
+\tl_new:N 	\l_pgfgo_players_mark_label_font_tl
+\tl_new:N 	\l_pgfgo_players_mark_label_font_size_tl
+
+
+
+%COPIA LOS VALORES DE UN JUGADOR PARA USARLOS. CADA JUGADOR TIENE SU PROPIA FUNCION DE COPIA
+%(\__pgfgo_players_get_<p>:), ARMADA AL CREARLO CON LOS NOMBRES DE LAS VARIABLES YA RESUELTOS.
+\cs_new_protected:Npn \pgfgo_get_values_from_player:n #1 {\use:c {__pgfgo_players_get_ #1 :}}
+
+%#1: EL JUGADOR. #2,#3,#4: LA VARIABLE (VER \__pgfgo_players_fields:n).
+\cs_new:Npn \__pgfgo_players_get_field:nnnn #1#2#3#4 {
+	\exp_not:c {#2_set_eq:NN} \exp_not:c {#3 #4} \exp_not:c {#3 #1 _ #4}
+}
+
+%EL JUGADOR DE LA PIEDRA, LA JUGADA O LA MARCA ACTUAL: black, white O neutral.
+\cs_new:Npn \__pgfgo_players_current: {
+	\bool_if:NTF \l_pgfgo_players_black_bool {black}
+		{\bool_if:NTF \l_pgfgo_players_white_bool {white} {neutral}}
+}
+
+\cs_new_protected:Npn \pgfgo_get_variables_from_current_player: {
+	\use:c {__pgfgo_players_get_ \__pgfgo_players_current: :}
+}
+\cs_generate_variant:Nn \keys_set_exclude_groups:nnn {enn}
+
+%HACE QUE #1 (black, white O neutral) SEA EL JUGADOR ACTUAL.
+\cs_new_protected:Npn \pgfgo_players_set_current:n #1 {
+	\bool_set_false:N \l_pgfgo_players_black_bool
+	\bool_set_false:N \l_pgfgo_players_white_bool
+	\bool_set_false:N \l_pgfgo_players_neutral_bool
+	\bool_set_true:c {l_pgfgo_players_ #1 _bool}
+}
+
+%LAS CLAVES black, b, white, w, neutral Y n DEL MODULO #1, EN EL GRUPO player-id: CADA UNA LLAMA A #2
+%CON SU JUGADOR.
+\cs_new_protected:Npn \pgfgo_players_define_id_keys:nN #1#2 {
+	\clist_map_inline:nn {{black} {b}, {white} {w}, {neutral} {n}}
+		{\__pgfgo_players_id_keys:nNnn {#1} #2 ##1}
+}
+\cs_new_protected:Npn \__pgfgo_players_id_keys:nNnn #1#2#3#4 {
+	\keys_define:nn {#1} {
+		#3		.code:n		= {#2 {#3}},
+		#3		.groups:n	= {player-id},
+		#4		.code:n		= {#2 {#3}},
+		#4		.groups:n	= {player-id},
+	}
+}
+
+
+
+\keys_define:nn {pgfgo / players} {
+	all .code:n = {
+		\keys_set:nn {pgfgo / players / neutral} 	{#1}
+		\keys_set:nn {pgfgo / players / black} 		{#1}
+		\keys_set:nn {pgfgo / players / white} 		{#1}
+	}
+}
+
+
+
+%LAS OPCIONES DE UNA MARCA QUE NO SON DEL ESTILO DEL JUGADOR (LA FORMA, custom, EL JUGADOR) SOLO VALEN
+%MIENTRAS SE DIBUJA UNA MARCA (\l_pgfgo_players_mark_options_bool, VER pgf-go-marks.sty): EN
+%\pgfgoset{players = ...} CAMBIARIAN LA MARCA DE LOS TRES JUGADORES. #1: EL JUGADOR. #2: LA CLAVE.
+\bool_new:N \l_pgfgo_players_mark_options_bool
+\msg_new:nnn {pgfgo} {player-mark-key}
+	{'#2'~is~not~a~key~of~/pgfgo/players/#1/mark.~Mark~shapes~go~in~the~options~of~a~mark~or~in~/pgfgo/mark.}
+\cs_new_protected:Npn \__pgfgo_players_mark_other:nn #1#2 {
+	\bool_if:NTF \l_pgfgo_players_mark_options_bool
+		{\keys_set:nn {pgfgo / mark} {#2}}
+		{\msg_error:nnnn {pgfgo} {player-mark-key} {#1} {#2}}
+}
+\cs_generate_variant:Nn \__pgfgo_players_mark_other:nn {ne}
+
+\def\pgfgonewplayers#1{\clist_map_function:nN {#1} \__pgfgo_players_new:n}
+
+%LAS CLAVES Y VARIABLES DEL JUGADOR #1 (tests/check_docs.py LEE players/#1 COMO players/<player>).
+%CLAVES: /pgfgo/players/<player>
+\cs_new_protected:Npn \__pgfgo_players_new:n #1 {
+	%SIRVE PARA DETERMINAR SI UNA PIEDRA ES O NO DE ESTE JUGADOR
+	\bool_new:c {l_pgfgo_players_ #1 _bool}
+
+	\keys_define:nn {pgfgo / players}
+		{#1 .code:n = {\keys_set:nn {pgfgo / players / #1} {##1}}}
+
+	\keys_define:nn { pgfgo / players / #1 } {
+		stone                   .code:n = {\keys_set:nn {pgfgo / players / #1 / stone}         {##1}},
+		move                    .code:n = {\keys_set:nn {pgfgo / players / #1 / move}          {##1}},
+		mark                    .code:n = {\keys_set:nn {pgfgo / players / #1 / mark}          {##1}},
+		territory           		.code:n = {\keys_set:nn {pgfgo / players / #1 / territory} 		 {##1}},
+		%EL PERFIL DE JUGADOR (VER pgf-go-profiles.sty).
+		profile									.code:n = {\pgfgo_profile_use_player:nn {#1} {##1}},
+	}
+
+
+
+	%----------------------------------------------------------------------------------------------------
+	%PIEDRA
+	\dim_new:c {l_pgfgo_players_ #1 _stone_radius_dim}
+	\fp_new:c {l_pgfgo_players_ #1 _stone_scale_fp}
+	%EL ESTILO DE SUS PRISIONEROS (VER \__pgfgo_stone_prisoner_style:n EN pgf-go-stones.sty).
+	\tl_new:c {l_pgfgo_players_ #1 _stone_prisoner_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / stone } {
+		prisoner						.tl_set:c = {l_pgfgo_players_ #1 _stone_prisoner_tl},
+		prisoner						.groups:n = { external },
+		line								.code:n = {\keys_set:nn { pgfgo / players / #1 / stone / line } {##1}},
+		line								.default:n = {true},
+		fill 								.code:n = {\keys_set:nn { pgfgo / players / #1 / stone / fill } {##1}},
+		fill								.default:n = {true},
+		radius							.code:n = {\dim_set:cn{l_pgfgo_players_ #1 _stone_radius_dim}{##1}},
+		radius							.initial:n = {5.5pt},
+		scale								.code:n = {\fp_set:cn{l_pgfgo_players_ #1 _stone_scale_fp}{##1}},
+		scale								.initial:n = {1},
+		shadow							.code:n = {\keys_set:nn{ pgfgo / players / #1 / stone / shadow }{##1}},
+		shadow							.default:n = {true},
+		shine								.code:n = {\keys_set:nn{ pgfgo / players / #1 / stone / shine }{##1}},
+		shine								.default:n = {true},
+		image								.code:n = {\keys_set:nn{ pgfgo / players / #1 / stone / image }{##1}},
+		%LAS DEMAS OPCIONES DE \stones Y \moves.
+		mark							.groups:n	= { external },
+		black								.groups:n = { external },
+		b										.groups:n = { external },
+		white								.groups:n = { external },
+		w										.groups:n = { external },
+		neutral							.groups:n = { external },
+		n										.groups:n = { external },
+		forget							.groups:n = { external },
+		label								.groups:n = { external },
+		from								.groups:n = { external },
+		numbers							.groups:n = { external },
+	}
+
+
+	\bool_new:c {l_pgfgo_players_ #1 _stone_line_bool}
+	\bool_set_true:c {l_pgfgo_players_ #1 _stone_line_bool}
+	\tl_new:c 	{l_pgfgo_players_ #1 _stone_line_color_tl}
+	\dim_new:c 	{l_pgfgo_players_ #1 _stone_line_width_dim}
+	\fp_new:c 	{l_pgfgo_players_ #1 _stone_line_opacity_fp}
+
+	\keys_define:nn { pgfgo / players / #1 / stone / line } {
+		true 				.code:n 		= {\bool_set_true:c 	{l_pgfgo_players_ #1 _stone_line_bool}},
+		false 			.code:n 		= {\bool_set_false:c 	{l_pgfgo_players_ #1 _stone_line_bool}},
+		color				.code:n 		= {\tl_set:cn 				{l_pgfgo_players_ #1 _stone_line_color_tl}{##1}},
+		color				.initial:n 	= {black},
+		width				.code:n 		= {\dim_set:cn 				{l_pgfgo_players_ #1 _stone_line_width_dim}{##1}},
+		width				.initial:n	= {0.7pt},
+		opacity			.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_line_opacity_fp}{##1}},
+		opacity			.initial:n	= {1}
+	}
+
+
+
+	\bool_new:c {l_pgfgo_players_ #1 _stone_fill_bool}
+	\bool_set_true:c {l_pgfgo_players_ #1 _stone_fill_bool}
+	\tl_new:c 	{l_pgfgo_players_ #1 _stone_fill_color_tl}
+	\fp_new:c 	{l_pgfgo_players_ #1 _stone_fill_opacity_fp}
+
+	\keys_define:nn { pgfgo / players / #1 / stone / fill } {
+		true 				.code:n 		= {\bool_set_true:c 	{l_pgfgo_players_ #1 _stone_fill_bool}},
+		false 			.code:n 		= {\bool_set_false:c 	{l_pgfgo_players_ #1 _stone_fill_bool}},
+		color				.code:n 		= {\tl_set:cn 				{l_pgfgo_players_ #1 _stone_fill_color_tl}{##1}},
+		color				.initial:n 	= {gray},
+		opacity			.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_fill_opacity_fp}{##1}},
+		opacity			.initial:n	=	{1}
+	}
+
+
+
+	\bool_new:c				{l_pgfgo_players_ #1 _stone_shadow_bool}
+	\fp_new:c					{l_pgfgo_players_ #1 _stone_shadow_angle_fp}
+	\dim_new:c				{l_pgfgo_players_ #1 _stone_shadow_offset_dim}
+	\fp_new:c					{l_pgfgo_players_ #1 _stone_shadow_opacity_fp}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shadow_color_tl}
+	\fp_new:c					{l_pgfgo_players_ #1 _stone_shadow_scale_fp}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shadow_image_tl}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shadow_image_width_tl}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shadow_image_rotate_tl}
+	\bool_new:c				{l_pgfgo_players_ #1 _stone_shadow_image_silhouette_bool}
+
+	%LA SOMBRA, DEBAJO DE LA PIEDRA: SU SILUETA (EL CIRCULO O LA FORMA DE stone/image) O LA IMAGEN image,
+	%CORRIDA offset HACIA angle Y AGRANDADA scale.
+	\keys_define:nn { pgfgo / players / #1 / stone / shadow } {
+		true 				.code:n 		= {\bool_set_true:c 	{l_pgfgo_players_ #1 _stone_shadow_bool}},
+		false 			.code:n 		= {\bool_set_false:c 	{l_pgfgo_players_ #1 _stone_shadow_bool}},
+		angle				.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_shadow_angle_fp}{##1}},
+		angle				.initial:n 	= {0},
+		offset			.code:n 		= {\dim_set:cn 				{l_pgfgo_players_ #1 _stone_shadow_offset_dim}{##1}},
+		offset			.initial:n	=	{1pt},
+		opacity			.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_shadow_opacity_fp}{##1}},
+		opacity			.initial:n	= {0.5},
+		color				.code:n 		= {\tl_set:cn 				{l_pgfgo_players_ #1 _stone_shadow_color_tl}{##1}},
+		color				.initial:n	= {black},
+		scale				.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_shadow_scale_fp}{##1}},
+		scale				.initial:n	= {1},
+		image				.code:n			= {\keys_set:nn { pgfgo / players / #1 / stone / shadow / image } {##1}},
+	}
+
+	%SIN width, EL DIAMETRO DE LA PIEDRA. rotate: UN ANGULO, EL MISMO EN TODAS LAS PIEDRAS. CON silhouette,
+	%SOLO LA FORMA DE LA IMAGEN, DEL COLOR color.
+	\keys_define:nn { pgfgo / players / #1 / stone / shadow / image } {
+		file				.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shadow_image_tl}{##1}},
+		width				.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shadow_image_width_tl}{##1}},
+		rotate			.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shadow_image_rotate_tl}{##1}},
+		silhouette	.bool_set:c	= {l_pgfgo_players_ #1 _stone_shadow_image_silhouette_bool},
+		false				.code:n			= {\tl_clear:c {l_pgfgo_players_ #1 _stone_shadow_image_tl}},
+	}
+
+
+	%EL BRILLO, ENCIMA DE LA PIEDRA (CIRCULO O IMAGEN). NO GIRA CON stone/image/rotate. CON image, UNA IMAGEN
+	%CENTRADA EN LA PIEDRA EN LUGAR DEL BRILLO DIBUJADO.
+	\bool_new:c				{l_pgfgo_players_ #1 _stone_shine_bool}
+	\fp_new:c					{l_pgfgo_players_ #1 _stone_shine_angle_fp}
+	\fp_new:c					{l_pgfgo_players_ #1 _stone_shine_opacity_fp}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shine_color_tl}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shine_image_tl}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shine_image_width_tl}
+	\tl_new:c					{l_pgfgo_players_ #1 _stone_shine_image_rotate_tl}
+	\bool_new:c				{l_pgfgo_players_ #1 _stone_shine_image_silhouette_bool}
+
+	\keys_define:nn { pgfgo / players / #1 / stone / shine } {
+		true 				.code:n 		= {\bool_set_true:c 	{l_pgfgo_players_ #1 _stone_shine_bool}},
+		false 			.code:n			= {\bool_set_false:c 	{l_pgfgo_players_ #1 _stone_shine_bool}},
+		angle				.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_shine_angle_fp}{##1}},
+		angle				.initial:n 	= {0},
+		opacity			.code:n 		= {\fp_set:cn 				{l_pgfgo_players_ #1 _stone_shine_opacity_fp}{##1}},
+		opacity			.initial:n	= {1},
+		color				.code:n 		= {\tl_set:cn 				{l_pgfgo_players_ #1 _stone_shine_color_tl}{##1}},
+		color				.initial:n	= {gray!50!white},
+		image				.code:n			= {\keys_set:nn { pgfgo / players / #1 / stone / shine / image } {##1}},
+	}
+
+	%SIN width, EL DIAMETRO DE LA PIEDRA. rotate: UN ANGULO, EL MISMO EN TODAS LAS PIEDRAS. CON silhouette,
+	%SOLO LA FORMA DE LA IMAGEN, DEL COLOR color.
+	\keys_define:nn { pgfgo / players / #1 / stone / shine / image } {
+		file				.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shine_image_tl}{##1}},
+		width				.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shine_image_width_tl}{##1}},
+		rotate			.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_shine_image_rotate_tl}{##1}},
+		silhouette	.bool_set:c	= {l_pgfgo_players_ #1 _stone_shine_image_silhouette_bool},
+		false				.code:n			= {\tl_clear:c {l_pgfgo_players_ #1 _stone_shine_image_tl}},
+	}
+
+
+	%IMAGEN EN LUGAR DEL CIRCULO. CON VARIOS ARCHIVOS, CADA PUNTO USA SIEMPRE EL MISMO (VER pgf-go-stones.sty).
+	%SIN width, EL DIAMETRO DE LA PIEDRA. rotate: UN ANGULO, random O <MIN>:<MAX> (UN ANGULO POR PUNTO, SIEMPRE EL MISMO).
+	\seq_new:c	{l_pgfgo_players_ #1 _stone_image_seq}
+	\tl_new:c		{l_pgfgo_players_ #1 _stone_image_width_tl}
+	\tl_new:c		{l_pgfgo_players_ #1 _stone_image_rotate_tl}
+	\tl_new:c		{l_pgfgo_players_ #1 _stone_image_opacity_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / stone / image } {
+		file				.code:n			= {\seq_set_from_clist:cn {l_pgfgo_players_ #1 _stone_image_seq}{##1}},
+		width				.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_image_width_tl}{##1}},
+		rotate			.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_image_rotate_tl}{##1}},
+		opacity			.code:n			= {\tl_set:cn {l_pgfgo_players_ #1 _stone_image_opacity_tl}{##1}},
+		opacity			.initial:n	= {1},
+		false				.code:n			= {\seq_clear:c {l_pgfgo_players_ #1 _stone_image_seq}},
+	}
+
+
+	%--------------------------------------------------------------------------------------------
+	%MOVE
+	\keys_define:nn { pgfgo / players / #1 / move } {
+		label 			.code:n = {\keys_set:nn { pgfgo / players / #1 / move / label } {##1}},
+		label				.groups:n = {label},
+		from				.groups:n = {external},
+		black				.groups:n = {external},
+		b						.groups:n = {external},
+		white				.groups:n = {external},
+		w						.groups:n = {external},
+		forget			.groups:n = {external},
+		%NO ES DE UN JUGADOR: VALE PARA TODAS LAS JUGADAS (VER pgfgo/move/numbers).
+		numbers			.code:n = {\keys_set:nn { pgfgo / move } {numbers = ##1}},
+		numbers			.default:n = {true},
+		numbers			.groups:n = {external},
+		%EL ESTILO DE LA PIEDRA Y LA MARCA DE \moves (LOS PONE pgfgo/players/<jugador>/stone).
+		line				.groups:n = {external},
+		fill				.groups:n = {external},
+		radius			.groups:n = {external},
+		scale				.groups:n = {external},
+		shadow			.groups:n = {external},
+		shine				.groups:n = {external},
+		image				.groups:n = {external},
+		prisoner		.groups:n = {external},
+		mark				.groups:n = {external},
+	}
+
+	%font~size VACIO: EL TAMANO SE AJUSTA SOLO SEGUN LA CANTIDAD DE CARACTERES DE LA ETIQUETA.
+	\tl_new:c {l_pgfgo_players_ #1 _move_label_font_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _move_label_font_size_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _move_label_color_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _move_label_opacity_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / move / label } {
+		font								.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _move_label_font_tl}{##1}},
+		font								.initial:n	= {\bfseries},
+		font~size 					.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _move_label_font_size_tl}{##1}},
+		color								.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _move_label_color_tl}{##1}},
+		color								.initial:n	= {black},
+		opacity							.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _move_label_opacity_tl}{##1}},
+		opacity							.initial:n	= {1},
+		forget							.code:n			= {\bool_set_false:N \l_pgfgo_goban_remember_move_label_bool},
+		format							.choices:nn	= {arabic, alph, Alph, roman, Roman, kanji}
+			{\cs_set_eq:cc {pgfgo_players_ #1 _move_label_format:n} {\__pgfgo_players_format_cs:V \l_keys_choice_tl}},
+		format							.initial:n	= {arabic},
+	}
+
+
+
+	%--------------------------------------------------------------------------------------------
+	%MARK
+	\fp_new:c {l_pgfgo_players_ #1 _mark_scale_fp}
+
+	\keys_define:nn { pgfgo / players / #1 / mark } {
+		line		  .code:n = {\keys_set:nn { pgfgo / players / #1 / mark / line } {##1}},
+		fill		  .code:n = {\keys_set:nn { pgfgo / players / #1 / mark / fill } {##1}},
+		fill			.default:n = {true},
+		label		 	.code:n = {\keys_set:nn { pgfgo / players / #1 / mark / label } {##1}},
+		sequence	.code:n = {\keys_set:nn { pgfgo / players / #1 / mark / sequence } {##1}},
+		sequence 	.default:n = {from = 1},
+		sequence	.groups:n = {sequence},
+		%EL TAMANO DE LA MARCA, RESPECTO DEL DE SIEMPRE.
+		scale			.code:n = {\fp_set:cn {l_pgfgo_players_ #1 _mark_scale_fp} {##1}},
+		scale			.initial:n = {1},
+		%EL RESTO (FORMAS, custom, JUGADOR, ...) VA A /pgfgo/mark.
+		unknown		.code:n = {
+			\__pgfgo_players_mark_other:ne {#1}
+				{\l_keys_key_str \tl_if_empty:nF {##1} {= {\exp_not:n {##1}}}}
+		}
+	}
+
+
+	\tl_new:c {l_pgfgo_players_ #1 _mark_line_color_tl}
+	\dim_new:c {l_pgfgo_players_ #1 _mark_line_width_dim}
+	\tl_new:c {l_pgfgo_players_ #1 _mark_line_opacity_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / mark / line } {
+		color			.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _mark_line_color_tl}{##1}},
+		color			.initial:n 	= {black},
+		width			.code:n 		= {\dim_set:cn{l_pgfgo_players_ #1 _mark_line_width_dim}{##1}},
+		width			.initial:n	=	{1pt},
+		opacity		.code:n 		= {\tl_set:cn{l_pgfgo_players_ #1 _mark_line_opacity_tl}{##1}},
+		opacity		.initial:n	=	{1},
+	}
+
+
+	%LAS MARCAS RELLENAS (filled~square, filled~circle, hatched~lines) Y EL COLOR pgfgomarkfill DE LAS
+	%MARCAS PROPIAS. CON false, LAS MARCAS RELLENAS NO SE VEN.
+	\bool_new:c {l_pgfgo_players_ #1 _mark_fill_bool}
+	\bool_set_true:c {l_pgfgo_players_ #1 _mark_fill_bool}
+	\tl_new:c {l_pgfgo_players_ #1 _mark_fill_color_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _mark_fill_opacity_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / mark / fill } {
+		true			.code:n = {\bool_set_true:c {l_pgfgo_players_ #1 _mark_fill_bool}},
+		false			.code:n = {\bool_set_false:c {l_pgfgo_players_ #1 _mark_fill_bool}},
+		color			.code:n = {\tl_set:cn{l_pgfgo_players_ #1 _mark_fill_color_tl}{##1}},
+		color			.initial:n = {gray},
+		opacity		.code:n = {\tl_set:cn{l_pgfgo_players_ #1 _mark_fill_opacity_tl}{##1}},
+		opacity		.initial:n = {1},
+	}
+
+
+	\tl_new:c {l_pgfgo_players_ #1 _mark_label_color_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _mark_label_font_tl}
+	\tl_new:c {l_pgfgo_players_ #1 _mark_label_font_size_tl}
+
+	\keys_define:nn { pgfgo / players / #1 / mark / label } {
+		color			.code:n = {\tl_set:cn{l_pgfgo_players_ #1 _mark_label_color_tl}{##1}},
+		color			.initial:n = {black},
+		font			.code:n		 = {\tl_set:cn{l_pgfgo_players_ #1 _mark_label_font_tl}{##1}},
+		%VACIO: EL TAMANO SE AJUSTA SOLO SEGUN LA CANTIDAD DE CARACTERES.
+		font~size	.code:n		 = {\tl_set:cn{l_pgfgo_players_ #1 _mark_label_font_size_tl}{##1}},
+		format		.choices:nn	= {arabic, alph, Alph, roman, Roman, kanji}
+			{\cs_set_eq:cc {pgfgo_players_ #1 _mark_sequence_format:n} {\__pgfgo_players_format_cs:V \l_keys_choice_tl}},
+		format		.initial:n	= {arabic},
+	}
+
+	\bool_new:c {l_pgfgo_players_ #1 _mark_sequence_bool}
+	\int_new:c {l_pgfgo_ #1 _mark_sequence_from_int}
+	\int_set:cn {l_pgfgo_ #1 _mark_sequence_from_int} {1}
+
+	\keys_define:nn { pgfgo / players / #1 / mark / sequence } {
+		true								.code:n			=	{\bool_set_true:c {l_pgfgo_players_ #1 _mark_sequence_bool}},
+		false								.code:n			=	{\bool_set_false:c {l_pgfgo_players_ #1 _mark_sequence_bool}},
+		%ALIAS DOCUMENTADO DE mark/label/format
+		format							.code:n			= {
+			\bool_set_true:c {l_pgfgo_players_ #1 _mark_sequence_bool}
+			\keys_set:nn { pgfgo / players / #1 / mark / label } {format = ##1}
+		},
+		from								.code:n			= {
+			\bool_set_true:c {l_pgfgo_players_ #1 _mark_sequence_bool}
+			\int_set:cn {l_pgfgo_ #1 _mark_sequence_from_int} {##1}
+			},
+	}
+
+	%LA FUNCION QUE COPIA LAS VARIABLES DEL JUGADOR EN LAS DEL JUGADOR ACTUAL.
+	\cs_new_protected:cpe {__pgfgo_players_get_ #1 :}
+		{\__pgfgo_players_fields:n {\__pgfgo_players_get_field:nnnn {#1}}}
+}
+
+%LOS JUGADORES REALES. TODO SE ASIGNA ACA
+\pgfgonewplayers{neutral, black, white}
+\pgfgocopyplayers{neutral}{black}{white}
+
+\ExplSyntaxOff

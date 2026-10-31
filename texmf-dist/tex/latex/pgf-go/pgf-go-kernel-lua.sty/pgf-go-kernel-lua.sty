@@ -1,0 +1,333 @@
+\ProvidesFile{pgf-go-kernel-lua.sty}[2026/10/23 v0.2026.10.23 pgf-go: Lua compute kernel]
+\ExplSyntaxOn
+
+%KERNEL DE CALCULO EN Lua (kernel = lua). LA INTERFAZ ESTA DESCRIPTA EN pgf-go-kernel.sty.
+%EL CALCULO ESTA EN pgf-go.lua; ACA SOLO SE LE PASAN LAS ENTRADAS.
+\clist_gset:Nn \g_pgfgo_kernel_features_clist {captures, territory, sgf}
+
+%NOMBRE COMPLETO DEL ARCHIVO #2 DEL PAQUETE, EN #1: SE BUSCA JUNTO A pgf-go.sty Y, SI NO ESTA AHI, EN
+%EL PATH DE TeX CON kpse (INSTALADO, \file_full_name:n DEVUELVE EL NOMBRE SIN LA CARPETA Y dofile NO LO
+%ENCUENTRA). PRIMERO COMO tex, LA MISMA BUSQUEDA QUE ENCONTRO pgf-go.sty: COMO lua PUEDE APARECER OTRA
+%COPIA (POR EJ. CON TEXINPUTS).
+\cs_new_protected:Npn \__pgfgo_kernel_lua_find:Nn #1#2 {
+	\tl_clear:N #1
+	\tl_if_empty:NF \c__pgfgo_path_tl {\tl_set:Ne #1 {\file_full_name:n {\c__pgfgo_path_tl / #2}}}
+	\tl_if_empty:NT #1 {
+		\tl_set:Ne #1 {\lua_now:e {
+			tex.sprint(-2,~kpse.find_file("#2",~"tex")~or~kpse.find_file("#2",~"lua")~or~"#2")
+		}}
+	}
+}
+
+\tl_new:N \l__pgfgo_kernel_lua_file_tl
+\__pgfgo_kernel_lua_find:Nn \l__pgfgo_kernel_lua_file_tl {pgf-go.lua}
+\lua_now:e {pgfgo~=~dofile("\lua_escape:e {\l__pgfgo_kernel_lua_file_tl}")}
+
+%LAS TABLAS DE LAS CODIFICACIONES ASIATICAS: Lua LAS CARGA SOLO SI HACEN FALTA.
+\__pgfgo_kernel_lua_find:Nn \l__pgfgo_kernel_lua_file_tl {pgf-go-charsets.lua}
+\lua_now:e {pgfgo.charsets_file~=~"\lua_escape:e {\l__pgfgo_kernel_lua_file_tl}"}
+
+%UN BOOLEANO COMO ARGUMENTO DE Lua.
+\cs_new:Npn \__pgfgo_kernel_lua_bool:N #1 {\bool_if:NTF #1 {true} {false}}
+\cs_new:Npn \__pgfgo_kernel_lua_use_i: {\__pgfgo_kernel_lua_bool:N \l_pgfgo_use_i_bool}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------TABLERO------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%VENTANA PEDIDA CON partial, ANTES DE RECORTARLA AL TABLERO. SON REGISTROS DE TeX PARA QUE SEAN LOCALES.
+\int_new:N \l__pgfgo_kernel_window_from_x_int
+\int_new:N \l__pgfgo_kernel_window_from_y_int
+\int_new:N \l__pgfgo_kernel_window_to_x_int
+\int_new:N \l__pgfgo_kernel_window_to_y_int
+
+\cs_new_protected:Npn \pgfgo_kernel_board_size:n #1 {
+	\lua_now:e {pgfgo.board_size("\lua_escape:e {#1}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_board_window:n #1 {
+	\lua_now:e {pgfgo.board_window("\lua_escape:e {#1}", \__pgfgo_kernel_lua_use_i:)}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_board_init: {
+	\lua_now:e {pgfgo.board_init(\__pgfgo_kernel_lua_bool:N \l_pgfgo_goban_partial_bool)}
+}
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_if_visible:nn #1#2 {T, F, TF} {
+	\bool_if:NT \l_pgfgo_goban_partial_auto_bool {\pgfgo_kernel_extent_add:nn {#1} {#2}}
+	\lua_now:e {pgfgo.if_visible(\int_eval:n {#1}, \int_eval:n {#2})}
+}
+
+\cs_new:Npn \pgfgo_kernel_column_name:n #1 {
+	\lua_now:e {pgfgo.column_name(\int_eval:n {#1}, \__pgfgo_kernel_lua_use_i:)}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_hoshi: {
+	\lua_now:n {pgfgo.hoshi()}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_points_seq \l__pgfgo_kernel_points_clist
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%--------------------------------------COORDENADAS----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%Lua DEJA LAS INTERSECCIONES ACA, SEPARADAS POR COMAS.
+\clist_new:N \l__pgfgo_kernel_points_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_points:n #1 {
+	\lua_now:e {pgfgo.points("\lua_escape:e {#1}", \__pgfgo_kernel_lua_use_i:)}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_points_seq \l__pgfgo_kernel_points_clist
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_moves:n #1 {
+	\lua_now:e {pgfgo.moves("\lua_escape:e {#1}", \__pgfgo_kernel_lua_use_i:)}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_points_seq \l__pgfgo_kernel_points_clist
+}
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_point:n #1 {TF} {
+	\lua_now:e {pgfgo.point("\lua_escape:e {#1}", \__pgfgo_kernel_lua_use_i:)}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_polygon:n #1 {
+	\lua_now:e {pgfgo.polygon("\lua_escape:e {#1}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_points_seq \l__pgfgo_kernel_points_clist
+}
+
+%Lua DEJA CADA CONTORNO ENTRE LLAVES, SEPARADOS POR COMAS.
+\clist_new:N \l__pgfgo_kernel_region_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_region:n #1 {
+	\lua_now:e {pgfgo.region("\lua_escape:e {#1}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_region_seq \l__pgfgo_kernel_region_clist
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------JUGADAS------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cs_new_protected:Npn \pgfgo_kernel_move_reset: {\lua_now:n {pgfgo.move_reset()}}
+
+\cs_new_protected:Npn \pgfgo_kernel_move_set_number:n #1 {
+	\lua_now:e {pgfgo.move_set_number(\int_eval:n {#1})}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_move_set_player:n #1 {
+	\lua_now:e {pgfgo.move_set_player("\lua_escape:e {#1}")}
+}
+
+\cs_new:Npn \pgfgo_kernel_move_number: {\lua_now:n {pgfgo.move_number()}}
+
+\prg_new_conditional:Npnn \pgfgo_kernel_move_if_black: {p, T, F, TF} {
+	\int_compare:nNnTF {\lua_now:n {pgfgo.move_if_black()}} = {1}
+		{\prg_return_true:} {\prg_return_false:}
+}
+
+%Lua DEJA LAS PIEDRAS CAPTURADAS ACA, SEPARADAS POR COMAS.
+\clist_new:N \l__pgfgo_kernel_captured_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_move_play:nn #1#2 {
+	\lua_now:e {pgfgo.move_play("\lua_escape:e {#1}", "\lua_escape:e {#2}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_captured_seq \l__pgfgo_kernel_captured_clist
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------CAPTURAS-----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cs_new_protected:Npn \pgfgo_kernel_board_clear: {\lua_now:n {pgfgo.board_clear()}}
+
+\cs_new_protected:Npn \pgfgo_kernel_board_put:nnn #1#2#3 {
+	\lua_now:e {pgfgo.board_put("\lua_escape:e {#1}", "\lua_escape:e {#2}", "\lua_escape:e {#3}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_board_save:n #1 {
+	\lua_now:e {pgfgo.board_save("\lua_escape:e {#1}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_board_restore:n #1 {
+	\lua_now:e {pgfgo.board_restore("\lua_escape:e {#1}")}
+}
+
+\cs_new:Npn \pgfgo_kernel_prisoners:n #1 {
+	\lua_now:e {pgfgo.prisoners("\lua_escape:e {#1}")}
+}
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_board_if_occupied:nn #1#2 {T, F, TF} {
+	\lua_now:e {pgfgo.board_if_occupied("\lua_escape:e {#1}", "\lua_escape:e {#2}")}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---------------------------------------TERRITORIO----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\clist_new:N \l__pgfgo_kernel_territory_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_territory:n #1 {
+	\lua_now:e {pgfgo.territory("\lua_escape:e {#1}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_territory_seq \l__pgfgo_kernel_territory_clist
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%------------------------------------------SGF--------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\clist_new:N \l__pgfgo_kernel_sgf_black_clist
+\clist_new:N \l__pgfgo_kernel_sgf_white_clist
+\clist_new:N \l__pgfgo_kernel_sgf_moves_clist
+
+%EL NOMBRE DE UN ARCHIVO SGF PARA Lua. \text_expand:n DEJA \& \# \% \$ \{ \} SIN EXPANDIR (\$ COMO
+%\protect \$); pgf-go.lua LES SACA LA BARRA.
+%UN NOMBRE DEFINIDO CON \pgfgo_kernel_sgf_define:nn ES SU ARCHIVO, YA PREPARADO PARA Lua. EL NOMBRE SE
+%BUSCA YA EXPANDIDO: PUEDE LLEGAR EN UNA VARIABLE (\sgfproblem, sgf view).
+\prop_new:N \g__pgfgo_kernel_lua_sgf_names_prop
+\cs_new:Npn \__pgfgo_kernel_lua_file:n #1 {\__pgfgo_kernel_lua_name:e {\text_expand:n {#1}}}
+\cs_new:Npn \__pgfgo_kernel_lua_name:n #1 {
+	\prop_if_in:NnTF \g__pgfgo_kernel_lua_sgf_names_prop {#1}
+		{\prop_item:Nn \g__pgfgo_kernel_lua_sgf_names_prop {#1}}
+		{\lua_escape:n {#1}}
+}
+\cs_generate_variant:Nn \__pgfgo_kernel_lua_name:n {e}
+\cs_new_protected:Npn \pgfgo_kernel_sgf_define:nn #1#2 {
+	\prop_gput:Nee \g__pgfgo_kernel_lua_sgf_names_prop {\text_expand:n {#1}} {\lua_escape:e {\text_expand:n {#2}}}
+}
+\cs_generate_variant:Nn \prop_gput:Nnn {Nee}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_read:n #1 {\pgfgo_kernel_sgf_read:nn {#1} {}}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_read:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_read("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}", \__pgfgo_kernel_lua_use_i:)}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_black_seq \l__pgfgo_kernel_sgf_black_clist
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_white_seq \l__pgfgo_kernel_sgf_white_clist
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_moves_seq \l__pgfgo_kernel_sgf_moves_clist
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_figures_seq \l__pgfgo_kernel_sgf_figures_clist
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_figures_clist
+\clist_new:N \l__pgfgo_kernel_sgf_variations_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_variations:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_variations(\int_eval:n {#1}, "\lua_escape:e {#2}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_variations_seq \l__pgfgo_kernel_sgf_variations_clist
+}
+
+\cs_new:Npn \pgfgo_kernel_sgf_comment:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_comment(\int_eval:n {#1}, #2)}
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_marks_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_marks:n #1 {
+	\lua_now:e {pgfgo.sgf_marks(\int_eval:n {#1})}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_marks_seq \l__pgfgo_kernel_sgf_marks_clist
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_lines_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_lines:n #1 {
+	\lua_now:e {pgfgo.sgf_lines(\int_eval:n {#1})}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_lines_seq \l__pgfgo_kernel_sgf_lines_clist
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_annotations_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_annotations:n #1 {
+	\lua_now:e {pgfgo.sgf_annotations(\int_eval:n {#1})}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_annotations_seq \l__pgfgo_kernel_sgf_annotations_clist
+}
+
+\cs_new:Npn \pgfgo_kernel_sgf_name:n #1 {
+	\lua_now:e {pgfgo.sgf_name(\int_eval:n {#1})}
+}
+
+\cs_new:Npn \pgfgo_kernel_sgf_label:n #1 {
+	\lua_now:e {pgfgo.sgf_label(\int_eval:n {#1})}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_glyphs:n #1 {
+	\lua_now:e {pgfgo.sgf_glyphs("\lua_escape:e {#1}")}
+}
+\cs_new:Npn \pgfgo_kernel_sgf_move_info:nnnn #1#2#3#4 {
+	\lua_now:e {
+		pgfgo.sgf_move_info("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}", \__pgfgo_kernel_lua_use_i:,
+			\int_eval:n {#3},
+			"\lua_escape:e {#4}")
+	}
+}
+\cs_new:Npn \pgfgo_kernel_sgf_info:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_info("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_view:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_view(\int_eval:n {#1}, \int_eval:n {#2})}
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_paths_clist
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_tree:n #1 {
+	\lua_now:e {pgfgo.sgf_tree("\__pgfgo_kernel_lua_file:n {#1}")}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_paths_seq \l__pgfgo_kernel_sgf_paths_clist
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_extent:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_extent("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}", \__pgfgo_kernel_lua_use_i:)}
+}
+
+\clist_new:N \l__pgfgo_kernel_sgf_branches_clist
+\seq_new:N \l_pgfgo_kernel_sgf_branches_seq
+\cs_new_protected:Npn \pgfgo_kernel_sgf_path:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_path("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}", \__pgfgo_kernel_lua_use_i:)}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_sgf_branches:nn #1#2 {
+	\lua_now:e {pgfgo.sgf_branches("\__pgfgo_kernel_lua_file:n {#1}", "\lua_escape:e {#2}", \__pgfgo_kernel_lua_use_i:)}
+	\seq_set_from_clist:NN \l_pgfgo_kernel_sgf_branches_seq \l__pgfgo_kernel_sgf_branches_clist
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---------------------------------SECUENCIAS DE MARCAS------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cs_new_protected:Npn \pgfgo_kernel_sequence_reset:n #1 {
+	\lua_now:e {pgfgo.sequence_reset(\int_eval:n {#1})}
+}
+
+\cs_new:Npn \pgfgo_kernel_sequence_number: {\lua_now:n {pgfgo.sequence_number()}}
+
+\cs_new_protected:Npn \pgfgo_kernel_sequence_step: {\lua_now:n {pgfgo.sequence_step()}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------MEMORIA------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%Lua GUARDA LOS TOKENS DEL GRUPO QUE SIGUE A \lua_now:e.
+\cs_new_protected:Npn \__pgfgo_kernel_lua_push:nn #1#2 {\lua_now:e {pgfgo.remember_push("\lua_escape:e {#1}")} {#2}}
+\cs_generate_variant:Nn \__pgfgo_kernel_lua_push:nn {ne}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_push:nn #1#2 {\__pgfgo_kernel_lua_push:ne {#1} {#2}}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_clear:n #1 {
+	\lua_now:e {pgfgo.remember_clear("\lua_escape:e {#1}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_replay:n #1 {
+	\lua_now:e {pgfgo.remember_replay("\lua_escape:e {#1}")}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_append:nn #1#2 {
+	\lua_now:e {pgfgo.remember_append("\lua_escape:e {#1}", "\lua_escape:e {#2}")}
+}
+
+%Lua DEJA A CONTINUACION \tl_set:Nn #2 {<CODIGO>}.
+\cs_new_protected:Npn \pgfgo_kernel_remember_get:nN #1#2 {
+	\lua_now:e {pgfgo.remember_get("\lua_escape:e {#1}", "\lua_escape:e {\cs_to_str:N #2}")}
+}
+
+\ExplSyntaxOff

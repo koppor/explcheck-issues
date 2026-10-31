@@ -1,0 +1,213 @@
+\ProvidesFile{pgf-go-lines.sty}[2026/10/23 v0.2026.10.23 pgf-go: arrows and lines]
+\ExplSyntaxOn
+
+%FLECHAS Y LINEAS ENTRE DOS INTERSECCIONES: \arrow[<opciones>]{<desde>}{<hasta>} Y \line[...]{...}{...}.
+%SOLO EXISTEN DENTRO DE goban (COMO \mark; \line ES UN COMANDO DE LaTeX). SE DIBUJAN EN LA CAPA DE LAS
+%MARCAS, ENCIMA DE LAS PIEDRAS, RECORTADAS A LA PARTE VISIBLE. EL HALO (DEL COLOR DEL FONDO DEL TABLERO)
+%LAS SEPARA DE LAS PIEDRAS. TAMBIEN LAS USA \sgf (AR Y LN).
+
+%LAS DOS TIENEN EL MISMO ESTILO, CADA UNA EN SU ARBOL: /pgfgo/arrow Y /pgfgo/line. #1: arrow O line.
+%CLAVES: /pgfgo/{arrow, line}/{color, width, opacity, dash, shorten, bend, halo, forget}
+%CLAVES: /pgfgo/{arrow, line}/halo/{true, false, color, width}
+\cs_new_protected:Npn \__pgfgo_lines_new:n #1 {
+	\tl_new:c {l__pgfgo_ #1 _color_tl}
+	\dim_new:c {l__pgfgo_ #1 _width_dim}
+	\tl_new:c {l__pgfgo_ #1 _opacity_tl}
+	\tl_new:c {l__pgfgo_ #1 _dash_tl}
+	\dim_new:c {l__pgfgo_ #1 _shorten_dim}
+	\fp_new:c {l__pgfgo_ #1 _bend_fp}
+	\bool_new:c {l__pgfgo_ #1 _halo_bool}
+	\tl_new:c {l__pgfgo_ #1 _halo_color_tl}
+	\dim_new:c {l__pgfgo_ #1 _halo_width_dim}
+	\keys_define:nn {pgfgo / #1} {
+		color				.tl_set:c		= {l__pgfgo_ #1 _color_tl},
+		color				.initial:n	= {black},
+		width				.dim_set:c	= {l__pgfgo_ #1 _width_dim},
+		width				.initial:n	= {1.2pt},
+		opacity			.tl_set:c		= {l__pgfgo_ #1 _opacity_tl},
+		opacity			.initial:n	= {1},
+		%EL TRAZO: solid, dashed O dotted (EL HALO ES SIEMPRE CONTINUO).
+		dash				.choices:nn	= {solid, dashed, dotted} {\tl_set_eq:cN {l__pgfgo_ #1 _dash_tl} \l_keys_choice_tl},
+		dash				.initial:n	= {solid},
+		%ACORTA LOS DOS EXTREMOS (POR EJEMPLO, PARA NO TAPAR LAS PIEDRAS).
+		shorten			.dim_set:c	= {l__pgfgo_ #1 _shorten_dim},
+		shorten			.initial:n	= {0pt},
+		%UN ARCO: SALE GIRADA bend GRADOS A LA IZQUIERDA (NEGATIVO, A LA DERECHA), COMO bend left DE TikZ.
+		bend				.fp_set:c		= {l__pgfgo_ #1 _bend_fp},
+		bend				.initial:n	= {0},
+		halo				.code:n			= {\keys_set:nn {pgfgo / #1 / halo} {##1}},
+		halo				.default:n	= {true},
+		forget			.code:n			= {\bool_set_false:N \l_pgfgo_goban_remember_mark_bool},
+		forget			.groups:n		= {preset},
+	}
+	\keys_define:nn {pgfgo / #1 / halo} {
+		true				.code:n			= {\bool_set_true:c {l__pgfgo_ #1 _halo_bool}},
+		false				.code:n			= {\bool_set_false:c {l__pgfgo_ #1 _halo_bool}},
+		%SIN color, EL DEL FONDO DEL TABLERO.
+		color				.tl_set:c		= {l__pgfgo_ #1 _halo_color_tl},
+		width				.dim_set:c	= {l__pgfgo_ #1 _halo_width_dim},
+		width				.initial:n	= {0.8pt},
+	}
+	\bool_set_true:c {l__pgfgo_ #1 _halo_bool}
+}
+\__pgfgo_lines_new:n {arrow}
+\__pgfgo_lines_new:n {line}
+
+%LA PUNTA DE LAS FLECHAS (UNA PUNTA DE arrows.meta) Y EN QUE EXTREMOS VA: end O both.
+\tl_new:N \l__pgfgo_arrow_tip_tl
+\bool_new:N \l__pgfgo_arrow_both_bool
+\keys_define:nn {pgfgo / arrow} {
+	tip					.tl_set:N		= \l__pgfgo_arrow_tip_tl,
+	tip					.initial:n	= {Stealth},
+	tips				.choices:nn	= {end, both}
+		{\bool_set:Nn \l__pgfgo_arrow_both_bool {\str_if_eq_p:Vn \l_keys_choice_tl {both}}},
+	tips				.initial:n	= {end},
+}
+\cs_generate_variant:Nn \str_case:nn {vn}
+
+\keys_define:nn {pgfgo} {
+	arrow				.code:n			= {\keys_set:nn {pgfgo / arrow} {#1}},
+	line				.code:n			= {\keys_set:nn {pgfgo / line} {#1}},
+}
+
+%LA RECTA DE (#1,#2) A (#3,#4) O, CON bend, LA CURVA: COMO EN TikZ, LOS PUNTOS DE CONTROL ESTAN A 0.3915
+%DE LA DISTANCIA, EN LAS DIRECCIONES DE SALIDA Y DE LLEGADA (GIRADAS bend Y -bend).
+\fp_new:N \l__pgfgo_lines_bend_fp
+\cs_new_protected:Npn \__pgfgo_lines_path:nnnn #1#2#3#4 {
+	\pgfpathmoveto {\pgfpointxy{#1}{#2}}
+	\fp_compare:nNnTF {\l__pgfgo_lines_bend_fp} = {0}
+		{\pgfpathlineto {\pgfpointxy{#3}{#4}}}
+		{
+			\pgfpathcurveto
+				{\pgfpointxy
+					{\fp_eval:n {#1 + 0.3915 * ((#3 - #1) * cosd(\l__pgfgo_lines_bend_fp) - (#4 - #2) * sind(\l__pgfgo_lines_bend_fp))}}
+					{\fp_eval:n {#2 + 0.3915 * ((#3 - #1) * sind(\l__pgfgo_lines_bend_fp) + (#4 - #2) * cosd(\l__pgfgo_lines_bend_fp))}}}
+				{\pgfpointxy
+					{\fp_eval:n {#3 - 0.3915 * ((#3 - #1) * cosd(\l__pgfgo_lines_bend_fp) + (#4 - #2) * sind(\l__pgfgo_lines_bend_fp))}}
+					{\fp_eval:n {#4 - 0.3915 * ((#4 - #2) * cosd(\l__pgfgo_lines_bend_fp) - (#3 - #1) * sind(\l__pgfgo_lines_bend_fp))}}}
+				{\pgfpointxy{#3}{#4}}
+		}
+}
+
+%LA PUNTA DE arrows.meta CRECE CON EL GROSOR DE LA LINEA (SOBRE TODO A LO LARGO): EL HALO DE UNA FLECHA NO
+%PUEDE SER LA MISMA FLECHA MAS GRUESA. ES LA FLECHA DIBUJADA 32 VECES, CORRIDA EL ANCHO DEL HALO EN CADA
+%DIRECCION: ASI RODEA IGUAL A CUALQUIER PUNTA. LOS COSENOS Y SENOS DE LAS 32 DIRECCIONES SE CALCULAN UNA
+%SOLA VEZ, COMO LOS CALCULA \pgfpointpolar ({<COSENO>}{<SENO>} EN CADA ELEMENTO).
+\seq_new:N \g__pgfgo_lines_halo_seq
+\int_step_inline:nnn {0} {31} {
+	\pgfmathparse {#1 * 11.25}
+	\tl_set_eq:NN \l_tmpa_tl \pgfmathresult
+	\use:c {pgfmathcos@} {\l_tmpa_tl}
+	\tl_set_eq:NN \l_tmpb_tl \pgfmathresult
+	\use:c {pgfmathsin@} {\l_tmpa_tl}
+	\seq_gput_right:Ne \g__pgfgo_lines_halo_seq {{\l_tmpb_tl} {\pgfmathresult}}
+}
+
+%EL HALO DE UNA FLECHA (#1: arrow) DE (#2,#3) A (#4,#5), CON EL GROSOR DE LA FLECHA YA FIJADO. CADA COPIA
+%SOLO CAMBIA LA TRANSFORMACION, QUE ES LOCAL: ALCANZA UN GRUPO DE TEX (SIN ABRIR UN AMBITO EN EL PDF).
+\dim_new:N \l__pgfgo_lines_halo_dim
+\cs_new_protected:Npn \__pgfgo_lines_arrow_halo:nnnnn #1#2#3#4#5 {
+	\pgfmathsetlength \l__pgfgo_lines_halo_dim {\dim_use:c {l__pgfgo_ #1 _halo_width_dim}}
+	\seq_map_inline:Nn \g__pgfgo_lines_halo_seq {
+		\group_begin:
+			\pgftransformshift {\__pgfgo_lines_halo_shift:nn ##1}
+			\__pgfgo_lines_path:nnnn {#2} {#3} {#4} {#5}
+			\pgfusepath{stroke}
+		\group_end:
+	}
+}
+%UN PUNTO DE PGF: EL ANCHO DEL HALO EN LA DIRECCION DE COSENO #1 Y SENO #2.
+\cs_new_protected:Npn \__pgfgo_lines_halo_shift:nn #1#2 {
+	\dim_gset:cn {pgf@x} {#1 \l__pgfgo_lines_halo_dim}
+	\dim_gset:cn {pgf@y} {#2 \l__pgfgo_lines_halo_dim}
+}
+
+%DIBUJA UNA FLECHA O UNA LINEA (#1: arrow O line) CON LAS OPCIONES #2, DE (#3,#4) A (#5,#6). CON
+%partial = auto, LOS EXTREMOS SON PARTE DE LO DIBUJADO.
+\cs_new_protected:Npn \pgfgo_line_parsed:nnnnnn #1#2#3#4#5#6 {
+	\bool_lazy_and:nnF {\int_compare_p:nNn {#3} = {#5}} {\int_compare_p:nNn {#4} = {#6}} {
+		\bool_if:NT \l_pgfgo_goban_partial_auto_bool {
+			\pgfgo_kernel_extent_add:nn {#3} {#4}
+			\pgfgo_kernel_extent_add:nn {#5} {#6}
+		}
+		\group_begin:
+			\keys_set_exclude_groups:nnn {pgfgo / #1} {preset} {#2}
+			\fp_set_eq:Nc \l__pgfgo_lines_bend_fp {l__pgfgo_ #1 _bend_fp}
+			\pgfonlayer{pgfgo_layer_mark}
+			\pgfscope
+				\pgfgo_goban_clip:n {
+					\pgfpathrectanglecorners
+						{\pgfpointxy{\int_use:N \l_pgfgo_goban_from_x_int - 0.5}{\int_use:N \l_pgfgo_goban_from_y_int - 0.5}}
+						{\pgfpointxy{\int_use:N \l_pgfgo_goban_to_x_int + 0.5}{\int_use:N \l_pgfgo_goban_to_y_int + 0.5}}
+				}
+				\pgfsetroundcap
+				\pgfsetroundjoin
+				\str_if_eq:nnT {#1} {arrow} {
+					\pgfsetarrowsend{\tl_use:N \l__pgfgo_arrow_tip_tl}
+					\bool_if:NT \l__pgfgo_arrow_both_bool {\pgfsetarrowsstart{\tl_use:N \l__pgfgo_arrow_tip_tl}}
+				}
+				\dim_compare:nNnF {\dim_use:c {l__pgfgo_ #1 _shorten_dim}} = {0pt} {
+					\pgfsetshortenstart{\dim_use:c {l__pgfgo_ #1 _shorten_dim}}
+					\pgfsetshortenend{\dim_use:c {l__pgfgo_ #1 _shorten_dim}}
+				}
+				\bool_if:cT {l__pgfgo_ #1 _halo_bool} {
+					\tl_if_empty:cTF {l__pgfgo_ #1 _halo_color_tl}
+						{\tl_set_eq:NN \l__pgfgo_lines_halo_tl \l_pgfgo_goban_border_fill_color_tl}
+						{\tl_set_eq:Nc \l__pgfgo_lines_halo_tl {l__pgfgo_ #1 _halo_color_tl}}
+					\pgfscope
+						\pgfsetstrokecolor {\l__pgfgo_lines_halo_tl}
+						\pgfsetfillcolor {\l__pgfgo_lines_halo_tl}
+						\str_if_eq:nnTF {#1} {arrow} {
+							\pgfsetlinewidth {\dim_use:c {l__pgfgo_ #1 _width_dim}}
+							\__pgfgo_lines_arrow_halo:nnnnn {#1} {#3} {#4} {#5} {#6}
+						}{
+							\pgfsetlinewidth {\dim_eval:n {\dim_use:c {l__pgfgo_ #1 _width_dim} + \dim_use:c {l__pgfgo_ #1 _halo_width_dim} * 2}}
+							\__pgfgo_lines_path:nnnn {#3} {#4} {#5} {#6}
+							\pgfusepath{stroke}
+						}
+					\endpgfscope
+				}
+				\pgfsetlinewidth {\dim_use:c {l__pgfgo_ #1 _width_dim}}
+				\pgfsetstrokecolor {\tl_use:c {l__pgfgo_ #1 _color_tl}}
+				\pgfsetfillcolor {\tl_use:c {l__pgfgo_ #1 _color_tl}}
+				\pgfsetstrokeopacity {\tl_use:c {l__pgfgo_ #1 _opacity_tl}}
+				\pgfsetfillopacity {\tl_use:c {l__pgfgo_ #1 _opacity_tl}}
+				\str_case:vn {l__pgfgo_ #1 _dash_tl} {
+					{dashed}	{\pgfsetdash {{3\pgflinewidth} {2\pgflinewidth}} {0pt}}
+					{dotted}	{\pgfsetdash {{0pt} {2\pgflinewidth}} {0pt}}
+				}
+				\__pgfgo_lines_path:nnnn {#3} {#4} {#5} {#6}
+				\pgfusepath{stroke}
+			\endpgfscope
+			\endpgfonlayer
+		\group_end:
+	}
+}
+
+%#1: arrow O line, #2: OPCIONES, #3 Y #4: LAS DOS INTERSECCIONES.
+\tl_new:N \l__pgfgo_lines_from_tl
+\tl_new:N \l__pgfgo_lines_halo_tl
+\cs_new_protected:Npn \pgfgo_line:nnnn #1#2#3#4 {
+	\group_begin:
+		\keys_set_groups:nnn {pgfgo / #1} {preset} {#2}
+		\pgfgo_kernel_point:nTF {#3} {
+			\tl_set_eq:NN \l__pgfgo_lines_from_tl \l_pgfgo_kernel_point_tl
+			\pgfgo_kernel_point:nTF {#4}
+				{\__pgfgo_lines_draw:nnVV {#1} {#2} \l__pgfgo_lines_from_tl \l_pgfgo_kernel_point_tl}
+				{\msg_warning:nnn {pgfgo} {unknown-coordinate} {#4}}
+		} {\msg_warning:nnn {pgfgo} {unknown-coordinate} {#3}}
+	\group_end:
+}
+%#3 Y #4: {x}{y} DE CADA EXTREMO. SI HAY QUE RECORDARLA, TAMBIEN VA A LA MEMORIA.
+\cs_new_protected:Npn \__pgfgo_lines_draw:nnnn #1#2#3#4 {
+	\pgfgo_remember:Nnn \l_pgfgo_goban_remember_mark_bool {#1}
+		{\exp_not:N \pgfgo_line_parsed:nnnnnn {#1} {\exp_not:n {#2}} #3 #4}
+	\pgfgo_line_parsed:nnnnnn {#1} {#2} #3 #4
+}
+\cs_generate_variant:Nn \__pgfgo_lines_draw:nnnn {nnVV}
+
+%\arrow Y \line SE ACTIVAN SOLO DENTRO DE goban (VER pgf-go-goban.sty).
+\NewDocumentCommand{\__pgfgo_arrow_command}{O{}mm}{\pgfgo_line:nnnn {arrow} {#1} {#2} {#3}}
+\NewDocumentCommand{\__pgfgo_line_command}{O{}mm}{\pgfgo_line:nnnn {line} {#1} {#2} {#3}}
+
+\ExplSyntaxOff

@@ -1,0 +1,205 @@
+\ProvidesFile{pgf-go-images.sty}[2026/10/23 v0.2026.10.23 pgf-go: images]
+\ExplSyntaxOn
+
+%IMAGENES (PNG, JPG O PDF) DE LAS PIEDRAS, EL FONDO, LA CUADRICULA, LOS HOSHI Y LAS MARCAS.
+%CON pdfTeX Y LuaTeX (SALIDA PDF) CADA ARCHIVO, CON CADA TAMANO, SE GUARDA UNA SOLA VEZ EN UN Form
+%XObject QUE SE REUSA EN TODOS LOS DIBUJOS. LA SOMBRA DE UNA IMAGEN USA ESE MISMO Form COMO MASCARA
+%(CANAL ALFA): TIENE LA FORMA DE LA IMAGEN. CON OTROS MOTORES LA IMAGEN SE INCLUYE CADA VEZ Y LA
+%SOMBRA NO SE DIBUJA.
+
+%"ARCHIVO|OPCIONES" -> {Form}{ANCHO}{ALTO}{ARCHIVO}{OPCIONES}. Form VACIO SI NO HAY Form XObject.
+\prop_new:N \g__pgfgo_image_prop
+%LOS Form CUYA MASCARA YA ESTA EN LOS RECURSOS (ExtGState).
+\prop_new:N \g__pgfgo_image_mask_prop
+\box_new:N \l__pgfgo_image_box
+\tl_new:N \l__pgfgo_image_key_tl
+\tl_new:N \l__pgfgo_image_tl
+\tl_new:N \l__pgfgo_image_file_tl
+\tl_new:N \l__pgfgo_image_options_tl
+
+%LA ULTIMA IMAGEN CARGADA.
+\tl_new:N \l_pgfgo_image_form_tl
+\dim_new:N \l_pgfgo_image_width_dim
+\dim_new:N \l_pgfgo_image_height_dim
+
+\msg_new:nnn {pgfgo} {image-shadow}
+	{The~shadow~or~the~silhouette~of~an~image~needs~pdfTeX~or~LuaTeX~with~PDF~output.~It~is~not~drawn.}
+\bool_new:N \g__pgfgo_image_shadow_warned_bool
+
+%SEGUN EL MOTOR: \__pgfgo_image_save: GUARDA \l__pgfgo_image_box EN UN Form (O DEJA VACIO
+%\l_pgfgo_image_form_tl) Y \__pgfgo_image_put: PONE LA ULTIMA IMAGEN CARGADA.
+\cs_new_protected:Npn \__pgfgo_image_define_none: {
+	\cs_new_protected:Npn \__pgfgo_image_save: {\tl_clear:N \l_pgfgo_image_form_tl}
+	\cs_new_protected:Npn \__pgfgo_image_put: {
+		\use:e {
+			\exp_not:N \includegraphics [\exp_not:V \l__pgfgo_image_options_tl]
+				{\exp_not:V \l__pgfgo_image_file_tl}
+		}
+	}
+}
+\sys_if_output_pdf:TF
+	{
+		\sys_if_engine_luatex:TF
+			{
+				\cs_new_protected:Npn \__pgfgo_image_save: {
+					\tex_immediate:D \saveboxresource
+						attr {/Group~<<~/S~/Transparency~/CS~/DeviceRGB~>>} \l__pgfgo_image_box
+					\tl_set:Ne \l_pgfgo_image_form_tl {\int_use:N \lastsavedboxresourceindex}
+				}
+				\cs_new_protected:Npn \__pgfgo_image_put: {\useboxresource \l_pgfgo_image_form_tl \scan_stop:}
+			}
+			{
+				\sys_if_engine_pdftex:TF
+					{
+						\cs_new_protected:Npn \__pgfgo_image_save: {
+							\tex_immediate:D \pdfxform
+								attr {/Group~<<~/S~/Transparency~/CS~/DeviceRGB~>>} \l__pgfgo_image_box
+							\tl_set:Ne \l_pgfgo_image_form_tl {\int_use:N \pdflastxform}
+						}
+						\cs_new_protected:Npn \__pgfgo_image_put: {\pdfrefxform \l_pgfgo_image_form_tl \scan_stop:}
+					}
+					{\__pgfgo_image_define_none:}
+			}
+	}
+	{\__pgfgo_image_define_none:}
+
+\cs_new_protected:Npn \__pgfgo_image_set:nnnnn #1#2#3#4#5 {
+	\tl_set:Nn \l_pgfgo_image_form_tl {#1}
+	\dim_set:Nn \l_pgfgo_image_width_dim {#2}
+	\dim_set:Nn \l_pgfgo_image_height_dim {#3}
+	\tl_set:Nn \l__pgfgo_image_file_tl {#4}
+	\tl_set:Nn \l__pgfgo_image_options_tl {#5}
+}
+
+%EL TAMANO DE LA IMAGEN QUE QUEDO EN \l__pgfgo_image_box.
+\cs_new_protected:Npn \__pgfgo_image_box_size: {
+	\dim_set:Nn \l_pgfgo_image_width_dim {\box_wd:N \l__pgfgo_image_box}
+	\dim_set:Nn \l_pgfgo_image_height_dim {\box_ht:N \l__pgfgo_image_box + \box_dp:N \l__pgfgo_image_box}
+}
+
+%LAS IMAGENES DE LOS PERFILES (pgfgo-board.jpg, ...) ESTAN EN LA CARPETA DE pgf-go.sty (POR EJ.
+%\usepackage{../../latex/pgf-go}). UN ARCHIVO QUE NO SE ENCUENTRA (NI EN LA CARPETA DEL DOCUMENTO NI EN EL
+%PATH DE TEX) SE BUSCA AHI; SI TAMPOCO ESTA, QUEDA COMO ESTA (\includegraphics LO BUSCA EN \graphicspath).
+%INSTALADO, \c__pgfgo_path_tl ESTA VACIO Y LAS IMAGENES SE ENCUENTRAN EN EL PATH DE TEX. EN ESA CARPETA SE
+%PRUEBA EL NOMBRE TAL CUAL Y CON LAS EXTENSIONES DE \c__pgfgo_image_extensions_clist (COMO HACE
+%\includegraphics CON UN NOMBRE SIN EXTENSION).
+\tl_const:Ne \c__pgfgo_image_dir_tl {\tl_if_empty:NF \c__pgfgo_path_tl {\c__pgfgo_path_tl /}}
+\clist_const:Nn \c__pgfgo_image_extensions_clist {{}, .pdf, .png, .jpg, .jpeg}
+\tl_new:N \l__pgfgo_image_path_tl
+\cs_new_protected:Npn \__pgfgo_image_locate:n #1 {
+	\tl_set:Nn \l__pgfgo_image_path_tl {#1}
+	\tl_if_empty:NF \c__pgfgo_image_dir_tl {
+		\file_if_exist:nF {#1} {
+			\clist_map_inline:Nn \c__pgfgo_image_extensions_clist {
+				\file_if_exist:nT {\c__pgfgo_image_dir_tl #1 ##1} {
+					\tl_set:Ne \l__pgfgo_image_path_tl {\exp_not:V \c__pgfgo_image_dir_tl \exp_not:n {#1 ##1}}
+					\clist_map_break:
+				}
+			}
+		}
+	}
+}
+
+%CARGA LA IMAGEN #1 CON LAS OPCIONES #2 DE \includegraphics (width, height). LA PRIMERA VEZ CREA EL Form.
+\cs_new_protected:Npn \pgfgo_image_load:nn #1#2 {
+	\tl_set:Ne \l__pgfgo_image_key_tl {\tl_to_str:n {#1} | \tl_to_str:n {#2}}
+	\prop_get:NVNTF \g__pgfgo_image_prop \l__pgfgo_image_key_tl \l__pgfgo_image_tl
+		{\exp_after:wN \__pgfgo_image_set:nnnnn \l__pgfgo_image_tl}
+		{
+			\__pgfgo_image_locate:n {#1}
+			\hbox_set:Nn \l__pgfgo_image_box {\includegraphics [#2] {\l__pgfgo_image_path_tl}}
+			\__pgfgo_image_box_size:
+			\__pgfgo_image_save:
+			\prop_gput:NVe \g__pgfgo_image_prop \l__pgfgo_image_key_tl {
+				{\l_pgfgo_image_form_tl}
+				{\dim_use:N \l_pgfgo_image_width_dim} {\dim_use:N \l_pgfgo_image_height_dim}
+				{\exp_not:V \l__pgfgo_image_path_tl} {\exp_not:n {#2}}
+			}
+			\tl_set_eq:NN \l__pgfgo_image_file_tl \l__pgfgo_image_path_tl
+			\tl_set:Nn \l__pgfgo_image_options_tl {#2}
+		}
+}
+\cs_generate_variant:Nn \pgfgo_image_load:nn {ne, Ve, ee}
+\cs_generate_variant:Nn \prop_gput:Nnn {NVe}
+\cs_generate_variant:Nn \prop_get:NnNTF {NV}
+\cs_generate_variant:Nn \str_case:nn {V}
+
+%EL TAMANO NATURAL DE LA IMAGEN #1, SIN CREAR UN Form.
+\prop_new:N \g__pgfgo_image_natural_prop
+\cs_new_protected:Npn \pgfgo_image_measure:n #1 {
+	\tl_set:Ne \l__pgfgo_image_key_tl {\tl_to_str:n {#1}}
+	\prop_get:NVNTF \g__pgfgo_image_natural_prop \l__pgfgo_image_key_tl \l__pgfgo_image_tl
+		{\exp_after:wN \__pgfgo_image_natural:nn \l__pgfgo_image_tl}
+		{
+			\__pgfgo_image_locate:n {#1}
+			\hbox_set:Nn \l__pgfgo_image_box {\includegraphics [draft] {\l__pgfgo_image_path_tl}}
+			\__pgfgo_image_box_size:
+			\prop_gput:NVe \g__pgfgo_image_natural_prop \l__pgfgo_image_key_tl
+				{{\dim_use:N \l_pgfgo_image_width_dim} {\dim_use:N \l_pgfgo_image_height_dim}}
+		}
+}
+\cs_generate_variant:Nn \pgfgo_image_measure:n {V}
+\cs_new_protected:Npn \__pgfgo_image_natural:nn #1#2 {
+	\dim_set:Nn \l_pgfgo_image_width_dim {#1}
+	\dim_set:Nn \l_pgfgo_image_height_dim {#2}
+}
+
+%CON VARIOS ARCHIVOS, CUAL (1 A #3) VA EN EL LUGAR (#1,#2): UN PSEUDOAZAR QUE SOLO DEPENDE DEL LUGAR
+%(SIEMPRE EL MISMO, EN CUALQUIER MOTOR) Y QUE NO ES EL DE LOS GIROS: EL ARCHIVO Y EL GIRO NO VAN JUNTOS.
+\cs_new:Npn \pgfgo_image_pick:nnn #1#2#3 {
+	\fp_eval:n {
+		floor((sin((#1) * 39.3468 + (#2) * 11.135) * 24634.6345
+			- floor(sin((#1) * 39.3468 + (#2) * 11.135) * 24634.6345)) * (#3)) + 1
+	}
+}
+
+%LA ULTIMA IMAGEN CARGADA, EN UNA CAJA.
+\cs_new_protected:Npn \pgfgo_image_use: {\hbox:n {\__pgfgo_image_put:}}
+
+%DIBUJA LA ULTIMA IMAGEN CARGADA, CENTRADA EN #1 (UN PUNTO DE PGF). \pgftext AGRANDA EL TAMANO DEL
+%CAMINO ACTUAL (GLOBAL), Y EL PROXIMO \pgfusepath LO SUMA A LA CAJA DEL DIBUJO: UNA IMAGEN RECORTADA
+%(LAS BALDOSAS DEL FONDO) LA AGRANDARIA. \pgfinterruptpath LO GUARDA Y LO DEVUELVE.
+\cs_new_protected:Npn \pgfgo_image_draw:n #1 {
+	\pgfinterruptpath
+		\pgftext [at = {#1}] {\pgfgo_image_use:}
+	\endpgfinterruptpath
+}
+\cs_new_protected:Npn \pgfgo_image_draw: {\pgfgo_image_draw:n {\pgfpointorigin}}
+
+%LA SOMBRA DE LA ULTIMA IMAGEN CARGADA, CENTRADA EN EL ORIGEN: UN RECTANGULO DEL COLOR DE RELLENO
+%ACTUAL, RECORTADO POR EL CANAL ALFA DE LA IMAGEN. EL DESPLAZAMIENTO Y LA OPACIDAD LOS PONE QUIEN LLAMA.
+\cs_new_protected:Npn \pgfgo_image_shadow: {
+	\tl_if_empty:NTF \l_pgfgo_image_form_tl
+		{
+			\bool_if:NF \g__pgfgo_image_shadow_warned_bool {
+				\msg_warning:nn {pgfgo} {image-shadow}
+				\bool_gset_true:N \g__pgfgo_image_shadow_warned_bool
+			}
+		}
+		{
+			\prop_if_in:NVF \g__pgfgo_image_mask_prop \l_pgfgo_image_form_tl {
+				\cs_if_exist_use:c {pgf@sys@pdf@check@resources}
+				\use:e {
+					\exp_not:c {pgfutil@addpdfresource@extgs} {
+						/pgfgoalpha \l_pgfgo_image_form_tl \c_space_tl
+						<< /SMask \c_space_tl << /S \c_space_tl /Alpha \c_space_tl
+							/G \c_space_tl \l_pgfgo_image_form_tl \c_space_tl 0 \c_space_tl R >> >>
+					}
+				}
+				\prop_gput:NVn \g__pgfgo_image_mask_prop \l_pgfgo_image_form_tl {}
+			}
+			\pgfscope
+				%LA MASCARA QUEDA CON SU ESQUINA INFERIOR IZQUIERDA EN EL ORIGEN DEL SISTEMA DE COORDENADAS
+				%DEL MOMENTO EN QUE SE ACTIVA.
+				\pgftransformshift {\pgfpoint {-0.5\l_pgfgo_image_width_dim} {-0.5\l_pgfgo_image_height_dim}}
+				\pgflowlevelsynccm
+				\use:e {\exp_not:c {pgfsysprotocol@literal} {/pgfgoalpha \l_pgfgo_image_form_tl \c_space_tl gs}}
+				\pgfpathrectangle {\pgfpointorigin} {\pgfpoint {\l_pgfgo_image_width_dim} {\l_pgfgo_image_height_dim}}
+				\pgfusepath {fill}
+			\endpgfscope
+		}
+}
+\cs_generate_variant:Nn \prop_if_in:NnF {NV}
+\cs_generate_variant:Nn \prop_gput:Nnn {NVn}
+
+\ExplSyntaxOff

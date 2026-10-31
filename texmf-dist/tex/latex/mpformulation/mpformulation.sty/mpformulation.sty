@@ -1,0 +1,1319 @@
+% mpformulation - Version 2.0
+%
+% Formerly the constraints package (versions 1.0 to 1.12)
+%
+% Copyright (c) 2025-2026 FYP
+% Report bugs and comments to mpformulation.sty@gmail.com
+%
+% This work may be distributed and/or modified under the conditions of the LaTeX Project Public License, either version 1.3 of this license or (at your option) any later version.
+% The latest version of this license is in http://www.latex-project.org/lppl.txt and version 1.3 or later is part of all distributions of LaTeX version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% The Current Maintainer of this work is FYP.
+% This work consists of the files mpformulation.sty, mpformulation-doc.tex,
+% mpformulation-doc.pdf, the mpformulation_example*.tex files and README.md.
+
+\NeedsTeXFormat{LaTeX2e}[2021/06/01]
+\ProvidesPackage{mpformulation}[2026/09/28 v2.0 Formulations of mathematical programs]
+
+\RequirePackage{keyval}
+\RequirePackage{amsmath}
+
+\makeatletter
+
+\newlength{\constraintSep}
+\setlength{\constraintSep}{0.5\baselineskip}
+
+\newlength{\constraintEqspace}
+\if@twocolumn
+  \setlength{\constraintEqspace}{1em}
+\else
+  \setlength{\constraintEqspace}{2em}
+\fi
+
+\newlength{\constraintLeftmargin}
+\setlength{\constraintLeftmargin}{6em}
+
+\newlength{\constraintTopsep}
+\setlength{\constraintTopsep}{0pt}
+
+\newlength{\constraintBottomsep}
+\setlength{\constraintBottomsep}{0pt}
+
+% Punctuation: after the expression, at the end of each constraint (after
+% the quantifier), and at the end of the last constraint
+\newcommand{\constraintExprSuffix}{}
+\newcommand{\constraintQuantSuffix}{}
+\newcommand{\constraintLastSuffix}{.}
+\newif\ifLastConstraint\LastConstraintfalse
+
+% Minimum horizontal gap between expression and quantifier used to decide
+% whether the quantifier fits on one line
+\newlength{\constraintQuantGap}
+\setlength{\constraintQuantGap}{1em}
+\let\constraintRHSgap\constraintQuantGap
+
+% Largest automatic column of left-aligned quantifiers (quant_align=left),
+% evaluated when used
+\newcommand{\constraintQuantColMax}{0.6\linewidth}
+
+% Smallest indent allowed when a line is too wide for the full indent
+\newlength{\constraintMinIndent}
+\setlength{\constraintMinIndent}{0pt}
+
+% Extra indent of expression continuation lines (after a \\ in the expression)
+\newlength{\constraintExprContIndent}
+\setlength{\constraintExprContIndent}{2em}
+\let\constraintLHScontIndent\constraintExprContIndent
+
+% Quantifier break mode:
+%   auto   : \\ in the quantifier is an optional break; a quantifier without \\ that does
+%            not fit is broken automatically at its top-level commas
+%   manual : \\ is an optional break; no automatic break
+%   always : every \\ is honored; no automatic break
+\def\@constraint@breakmode{auto}
+
+% Expression break mode:
+%   auto   : \\ in the expression is an optional break, used only when the expression does
+%            not fit on one line
+%   always : every \\ in the expression is honored
+\def\@constraint@lhsbreakmode{auto}
+
+% Layout of a constraint, tried in order until one fits:
+%   (a) one line; the indent may shrink down to min_indent
+%   (b) expression on one line, quantifier broken (at its \\ or at its commas)
+%   (c) expression alone on a line, quantifier right-aligned on the line(s) below
+%   (d) expression broken at its \\, quantifier on the last expression line or below
+% The equation number is always on the last line.
+\ExplSyntaxOn
+\seq_new:N \l__mpformulation_pieces_seq
+\seq_new:N \l__mpformulation_items_seq
+\seq_new:N \l__mpformulation_lines_seq
+\seq_new:N \l__mpformulation_lhs_seq
+\seq_new:N \l__mpformulation_rhs_seq
+\tl_new:N \l__mpformulation_item_tl
+\tl_new:N \l__mpformulation_line_tl
+\tl_new:N \l__mpformulation_cand_tl
+\tl_new:N \l__mpformulation_lhs_tl
+\tl_new:N \l__mpformulation_rhs_tl
+\tl_new:N \l__mpformulation_last_tl
+\tl_new:N \l__mpformulation_rows_tl
+\tl_new:N \l__mpformulation_suffix_tl
+\int_new:N \l__mpformulation_depth_int
+\int_new:N \l__mpformulation_index_int
+\bool_new:N \l__mpformulation_open_bool
+\bool_new:N \l__mpformulation_done_bool
+\bool_new:N \l__mpformulation_force_rhs_bool
+\bool_new:N \l__mpformulation_force_lhs_bool
+\box_new:N \l__mpformulation_tmp_box
+\box_new:N \l__mpformulation_num_box
+\box_new:N \l__mpformulation_left_box
+\box_new:N \l__mpformulation_right_box
+\dim_new:N \l__mpformulation_width_dim
+\dim_new:N \l__mpformulation_lhs_dim
+\dim_new:N \l__mpformulation_rhs_dim
+\dim_new:N \l__mpformulation_lines_dim
+\dim_new:N \l__mpformulation_num_dim
+\dim_new:N \l__mpformulation_avail_dim
+\dim_new:N \l__mpformulation_indent_dim
+\dim_new:N \l__mpformulation_need_dim
+\dim_new:N \l__mpformulation_head_dim
+\dim_new:N \l__mpformulation_relw_dim
+\dim_new:N \l__mpformulation_col_dim
+\dim_new:N \g__mpformulation_relw_dim
+\box_new:N \l__mpformulation_head_box
+\seq_new:N \l__mpformulation_obj_seq
+\seq_new:N \l__mpformulation_tmp_seq
+\tl_new:N \l__mpformulation_lhsraw_tl
+\tl_new:N \l__mpformulation_lhssuffix_tl
+\tl_new:N \l__mpformulation_relleft_tl
+\tl_new:N \l__mpformulation_relright_tl
+\tl_new:N \l__mpformulation_numbering_tl
+\tl_new:N \l__mpformulation_modellabel_tl
+\tl_new:N \l__mpformulation_namelabel_tl
+\int_new:N \g__mpformulation_env_int
+\int_new:N \l__mpformulation_env_int
+\bool_new:N \l__mpformulation_aligned_bool
+\bool_new:N \l__mpformulation_relfound_bool
+\bool_new:N \l__mpformulation_relalign_bool
+\bool_new:N \g__mpformulation_stinline_bool
+\bool_new:N \g__mpformulation_stinline_pending_bool
+\bool_new:N \g__mpformulation_modelnum_pending_bool
+\bool_new:N \g__mpformulation_keeplast_bool
+\cs_generate_variant:Nn \seq_set_split:Nnn { NnV }
+% Measuring pass of an environment: the body is typeset once in a discarded
+% box, without numbers, labels or global flags, to find the common column of
+% left-aligned quantifiers and the relation-alignment width
+\bool_new:N \l__mpformulation_measure_bool
+\cs_new_protected:Npn \__mpformulation_body_end: { \prg_do_nothing: }
+\tl_new:N \l__mpformulation_quantalign_tl
+\tl_new:N \l__mpformulation_quantcol_tl
+\dim_new:N \l__mpformulation_qcol_dim
+\dim_new:N \g__mpformulation_qcol_dim
+\dim_new:N \l__mpformulation_lastind_dim
+\dim_new:N \l__mpformulation_qcolcur_dim
+\dim_new:N \l__mpformulation_qpos_dim
+\bool_new:N \l__mpformulation_samerow_bool
+\tl_new:N \l__mpformulation_quantoverflow_tl
+\dim_new:N \l__mpformulation_lastend_dim
+\box_new:N \l__mpformulation_lastexpr_box
+\cs_new_protected:Npn \constraints@setqcol #1#2
+  { \cs_gset:cpn { constraints@qcol@ #1 } {#2} }
+
+% Equation number of a line or of the objective: per labelled line
+% (numbering=line or sub), or once for the whole model (numbering=model)
+\cs_new_protected:Npn \__mpformulation_number:n #1
+  {
+    \bool_if:NTF \l__mpformulation_measure_bool
+      { \hbox_set:Nn \l__mpformulation_num_box { } }
+      { \__mpformulation_number_real:n {#1} }
+    \dim_set:Nn \l__mpformulation_num_dim { \box_wd:N \l__mpformulation_num_box }
+  }
+\cs_new_protected:Npn \__mpformulation_number_real:n #1
+  {
+    \str_if_eq:VnTF \l__mpformulation_numbering_tl { model }
+      {
+        \bool_if:NTF \g__mpformulation_modelnum_pending_bool
+          {
+            \hbox_set:Nn \l__mpformulation_num_box
+              { \hspace { \constraintEqspace } ( \theequation ) }
+            \bool_gset_false:N \g__mpformulation_modelnum_pending_bool
+          }
+          { \hbox_set:Nn \l__mpformulation_num_box { } }
+      }
+      {
+        \tl_if_blank:nTF {#1}
+          { \hbox_set:Nn \l__mpformulation_num_box { } }
+          {
+            \refstepcounter { equation }
+            \hbox_set:Nn \l__mpformulation_num_box
+              { \hspace { \constraintEqspace } ( \theequation ) }
+          }
+      }
+    \dim_set:Nn \l__mpformulation_num_dim { \box_wd:N \l__mpformulation_num_box }
+  }
+
+% Relation alignment: split an expression at its first top-level relation symbol,
+% or at & if given. Sets \l__mpformulation_relleft_tl, \l__mpformulation_relright_tl
+% and \l__mpformulation_relfound_bool.
+\cs_new_protected:Npn \__mpformulation_rel_add:Nn #1#2
+  {
+    \tl_if_single_token:nTF {#2}
+      { \tl_put_right:Nn #1 {#2} }
+      { \tl_put_right:Nn #1 { {#2} } }
+  }
+\cs_new_protected:Npn \__mpformulation_rel_split:n #1
+  {
+    \tl_clear:N \l__mpformulation_relleft_tl
+    \tl_clear:N \l__mpformulation_relright_tl
+    \bool_set_false:N \l__mpformulation_relfound_bool
+    \tl_if_in:nnTF {#1} { & }
+      {
+        \seq_set_split:Nnn \l__mpformulation_tmp_seq { & } {#1}
+        \seq_pop_left:NN \l__mpformulation_tmp_seq \l__mpformulation_relleft_tl
+        \tl_set:Nx \l__mpformulation_relright_tl
+          { \seq_use:Nn \l__mpformulation_tmp_seq { } }
+        \bool_set_true:N \l__mpformulation_relfound_bool
+      }
+      {
+        \tl_map_inline:nn {#1}
+          {
+            \bool_if:NTF \l__mpformulation_relfound_bool
+              { \__mpformulation_rel_add:Nn \l__mpformulation_relright_tl {##1} }
+              {
+                \str_case:nnTF {##1}
+                  {
+                    { = } { } { < } { } { > } { }
+                    { \le } { } { \leq } { } { \leqslant } { }
+                    { \ge } { } { \geq } { } { \geqslant } { }
+                    { \ne } { } { \neq } { } { \in } { } { \notin } { }
+                    { \subset } { } { \subseteq } { } { \equiv } { }
+                    { \approx } { } { \sim } { }
+                  }
+                  {
+                    \bool_set_true:N \l__mpformulation_relfound_bool
+                    \tl_put_right:Nn \l__mpformulation_relright_tl {##1}
+                  }
+                  { \__mpformulation_rel_add:Nn \l__mpformulation_relleft_tl {##1} }
+              }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__mpformulation_rel_split:n { V }
+\cs_new_protected:Npn \constraints@setrelw #1#2
+  { \cs_gset:cpn { constraints@relw@ #1 } {#2} }
+
+% With st_inline, the expression column is moved right if needed so that
+% "subject to" fits before the first constraint
+\cs_new_protected:Npn \__mpformulation_st_column:
+  {
+    \bool_if:NT \g__mpformulation_stinline_bool
+      {
+        \hbox_set:Nn \l__mpformulation_tmp_box
+          { \textrm { \constraintSubjecttoText } }
+        \dim_set:Nn \l__mpformulation_col_dim
+          {
+            \constraintSubjecttoIndent + \box_wd:N \l__mpformulation_tmp_box
+            + \constraintSenseSep
+          }
+        \dim_compare:nNnT \l__mpformulation_col_dim > \constraintLeftmargin
+          { \skip_set:Nn \constraintLeftmargin { \l__mpformulation_col_dim } }
+      }
+  }
+
+\prg_generate_conditional_variant:Nnn \tl_if_head_eq_meaning:nN { V } { p }
+
+% Width of text-style / display-style math
+\cs_new_protected:Npn \__mpformulation_wd:n #1
+  {
+    \hbox_set:Nn \l__mpformulation_tmp_box { $ #1 $ }
+    \dim_set:Nn \l__mpformulation_width_dim { \box_wd:N \l__mpformulation_tmp_box }
+  }
+\cs_new_protected:Npn \__mpformulation_wd_display:n #1
+  {
+    \hbox_set:Nn \l__mpformulation_tmp_box { $ \displaystyle #1 $ }
+    \dim_set:Nn \l__mpformulation_width_dim { \box_wd:N \l__mpformulation_tmp_box }
+  }
+\cs_generate_variant:Nn \__mpformulation_wd:n { V }
+\cs_generate_variant:Nn \__mpformulation_wd_display:n { V }
+
+% Indent for a line whose content (without indent) is #1 wide:
+% the full indent if possible, otherwise as much as fits, but >= min_indent
+\cs_new_protected:Npn \__mpformulation_set_indent:n #1
+  {
+    \dim_set:Nn \l__mpformulation_indent_dim
+      {
+        \dim_max:nn { \constraintMinIndent }
+          { \dim_min:nn { \constraintLeftmargin } { \linewidth - (#1) } }
+      }
+  }
+
+% Net number of opening delimiters in a piece (brace groups are skipped)
+\cs_new_protected:Npn \__mpformulation_depth_add:n #1
+  {
+    \tl_map_inline:nn {#1}
+      {
+        \str_case:nn {##1}
+          {
+            { ( }       { \int_incr:N \l__mpformulation_depth_int }
+            { [ }       { \int_incr:N \l__mpformulation_depth_int }
+            { \{ }      { \int_incr:N \l__mpformulation_depth_int }
+            { \langle } { \int_incr:N \l__mpformulation_depth_int }
+            { ) }       { \int_decr:N \l__mpformulation_depth_int }
+            { ] }       { \int_decr:N \l__mpformulation_depth_int }
+            { \} }      { \int_decr:N \l__mpformulation_depth_int }
+            { \rangle } { \int_decr:N \l__mpformulation_depth_int }
+          }
+      }
+  }
+
+% Remove leading spaces and spacing commands from a line start
+\cs_new_protected:Npn \__mpformulation_strip_head:N #1
+  {
+    \tl_trim_spaces:N #1
+    \bool_lazy_any:nT
+      {
+        { \tl_if_head_eq_meaning_p:VN #1 \, }
+        { \tl_if_head_eq_meaning_p:VN #1 \; }
+        { \tl_if_head_eq_meaning_p:VN #1 \: }
+        { \tl_if_head_eq_meaning_p:VN #1 \  }
+        { \tl_if_head_eq_meaning_p:VN #1 \quad }
+        { \tl_if_head_eq_meaning_p:VN #1 \qquad }
+      }
+      {
+        \tl_set:Nx #1 { \tl_tail:N #1 }
+        \__mpformulation_strip_head:N #1
+      }
+  }
+
+% Automatic quantifier lines: split <quantifier> #1 at top-level commas and fill lines of
+% width <= #3 greedily; <suffix> #2 ends the last line.
+% Result in \l__mpformulation_lines_seq.
+\cs_new_protected:Npn \__mpformulation_auto_lines:nnn #1#2#3
+  {
+    % Split at commas, then merge pieces while delimiters are open
+    \seq_set_split_keep_spaces:Nnn \l__mpformulation_pieces_seq { , } {#1}
+    \seq_clear:N \l__mpformulation_items_seq
+    \int_zero:N \l__mpformulation_depth_int
+    \bool_set_false:N \l__mpformulation_open_bool
+    \seq_map_inline:Nn \l__mpformulation_pieces_seq
+      {
+        \bool_if:NTF \l__mpformulation_open_bool
+          { \tl_put_right:Nn \l__mpformulation_item_tl { , ##1 } }
+          { \tl_set:Nn \l__mpformulation_item_tl {##1} }
+        \__mpformulation_depth_add:n {##1}
+        \int_compare:nNnTF \l__mpformulation_depth_int > 0
+          { \bool_set_true:N \l__mpformulation_open_bool }
+          {
+            \bool_set_false:N \l__mpformulation_open_bool
+            \seq_put_right:NV \l__mpformulation_items_seq \l__mpformulation_item_tl
+          }
+      }
+    \bool_if:NT \l__mpformulation_open_bool
+      { \seq_put_right:NV \l__mpformulation_items_seq \l__mpformulation_item_tl }
+    % Fill lines greedily
+    \seq_clear:N \l__mpformulation_lines_seq
+    \seq_pop_left:NN \l__mpformulation_items_seq \l__mpformulation_line_tl
+    \seq_map_inline:Nn \l__mpformulation_items_seq
+      {
+        \tl_set_eq:NN \l__mpformulation_cand_tl \l__mpformulation_line_tl
+        \tl_put_right:Nn \l__mpformulation_cand_tl { , ##1 }
+        \__mpformulation_wd:n { \l__mpformulation_cand_tl #2 }
+        \dim_compare:nNnTF \l__mpformulation_width_dim > {#3}
+          {
+            \tl_put_right:Nn \l__mpformulation_line_tl { , }
+            \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_line_tl
+            \tl_set:Nn \l__mpformulation_line_tl {##1}
+            \__mpformulation_strip_head:N \l__mpformulation_line_tl
+          }
+          { \tl_set_eq:NN \l__mpformulation_line_tl \l__mpformulation_cand_tl }
+      }
+    \tl_put_right:Nn \l__mpformulation_line_tl {#2}
+    \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_line_tl
+  }
+
+% Quantifier lines for a target width #2 (<quantifier> #1): the user's \\ if any,
+% otherwise automatic (mode auto) or one line. Sets \l__mpformulation_lines_seq
+% and \l__mpformulation_lines_dim (widest line).
+\cs_new_protected:Npn \__mpformulation_rhs_lines:nn #1#2
+  {
+    \int_compare:nNnTF { \seq_count:N \l__mpformulation_rhs_seq } > 1
+      { \seq_set_eq:NN \l__mpformulation_lines_seq \l__mpformulation_rhs_seq }
+      {
+        \str_if_eq:eeTF { \@constraint@breakmode } { auto }
+          { \__mpformulation_auto_lines:nVn {#1} \l__mpformulation_suffix_tl {#2} }
+          {
+            \seq_clear:N \l__mpformulation_lines_seq
+            \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_rhs_tl
+          }
+      }
+    \dim_zero:N \l__mpformulation_lines_dim
+    \seq_map_inline:Nn \l__mpformulation_lines_seq
+      {
+        \__mpformulation_wd:n {##1}
+        \dim_set:Nn \l__mpformulation_lines_dim
+          { \dim_max:nn \l__mpformulation_lines_dim \l__mpformulation_width_dim }
+      }
+  }
+\cs_generate_variant:Nn \__mpformulation_auto_lines:nnn { nV }
+
+% Right box from \l__mpformulation_lines_seq, number on the last line
+\cs_new_protected:Npn \__mpformulation_right_from_lines:
+  {
+    \int_compare:nNnTF { \seq_count:N \l__mpformulation_lines_seq } = 1
+      {
+        \hbox_set:Nn \l__mpformulation_right_box
+          {
+            $ \seq_item:Nn \l__mpformulation_lines_seq { 1 } $
+            \box_use:N \l__mpformulation_num_box
+          }
+      }
+      {
+        \tl_clear:N \l__mpformulation_rows_tl
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_lines_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \int_compare:nNnTF \l__mpformulation_index_int
+              = { \seq_count:N \l__mpformulation_lines_seq }
+              {
+                \tl_put_right:Nn \l__mpformulation_rows_tl
+                  { ##1 & \mbox { \box_use:N \l__mpformulation_num_box } }
+              }
+              { \tl_put_right:Nn \l__mpformulation_rows_tl { ##1 & \\ } }
+          }
+        \hbox_set:Nn \l__mpformulation_right_box
+          {
+            $
+            \begin{array}[t]{@{}r@{}l@{}}
+              \l__mpformulation_rows_tl
+            \end{array}
+            $
+          }
+      }
+  }
+
+% Output one line: indent #1, content of the left and right boxes
+\cs_new_protected:Npn \__mpformulation_row:n #1
+  {
+    \par
+    \noindent
+    \bool_lazy_and:nnT
+      { \g__mpformulation_stinline_pending_bool }
+      { ! \l__mpformulation_measure_bool }
+      {
+        \rlap
+          {
+            \hspace* { \constraintSubjecttoIndent }
+            \textrm { \constraintSubjecttoText }
+          }
+        \bool_gset_false:N \g__mpformulation_stinline_pending_bool
+      }
+    \hspace* { \dim_eval:n {#1} }
+    \box_use:N \l__mpformulation_left_box
+    \hspace* { \fill }
+    \box_use:N \l__mpformulation_right_box
+    \par
+  }
+\cs_new_protected:Npn \__mpformulation_row_break:
+  {
+    \nobreak
+    \skip_zero:N \parskip
+  }
+
+% Quantifier right-aligned on the line(s) below the expression
+\cs_new_protected:Npn \__mpformulation_rhs_below:n #1
+  {
+    \dim_set:Nn \l__mpformulation_avail_dim
+      { \linewidth - \l__mpformulation_num_dim - \constraintLeftmargin }
+    \bool_if:nTF
+      {
+        \l__mpformulation_force_rhs_bool
+        || \dim_compare_p:nNn \l__mpformulation_rhs_dim > \l__mpformulation_avail_dim
+      }
+      { \__mpformulation_rhs_lines:nn {#1} { \l__mpformulation_avail_dim } }
+      {
+        \seq_clear:N \l__mpformulation_lines_seq
+        \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_rhs_tl
+      }
+    \__mpformulation_row_break:
+    \hbox_set:Nn \l__mpformulation_left_box { }
+    \__mpformulation_right_from_lines:
+    \__mpformulation_row:n { 0pt }
+  }
+
+% Left-aligned quantifiers (quant_align=left): the quantifiers of an
+% environment start at a common column (after the widest expression, from
+% the previous run, at most quant_col_max, or quant_col if given) and wrap
+% at their \\ or commas, left-aligned. An expression that reaches the column
+% has its quantifier on the next line, at the column.
+\cs_new_protected:Npn \__mpformulation_line_left:n #1
+  {
+    % Expression: one line, or broken at its \\ if too wide
+    \bool_if:nTF
+      {
+        \int_compare_p:nNn { \seq_count:N \l__mpformulation_lhs_seq } > 1
+        && (
+          \l__mpformulation_force_lhs_bool
+          || \dim_compare_p:nNn
+            { \constraintMinIndent + \l__mpformulation_lhs_dim } > \linewidth
+        )
+      }
+      {
+        \dim_zero:N \l__mpformulation_need_dim
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_lhs_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \__mpformulation_wd_display:n {##1}
+            \int_compare:nNnF \l__mpformulation_index_int = 1
+              { \dim_add:Nn \l__mpformulation_width_dim { \constraintExprContIndent } }
+            \dim_set:Nn \l__mpformulation_need_dim
+              { \dim_max:nn \l__mpformulation_need_dim \l__mpformulation_width_dim }
+          }
+        \__mpformulation_set_indent:n { \l__mpformulation_need_dim }
+        \seq_pop_right:NN \l__mpformulation_lhs_seq \l__mpformulation_last_tl
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_lhs_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \int_compare:nNnF \l__mpformulation_index_int = 1
+              { \__mpformulation_row_break: }
+            \hbox_set:Nn \l__mpformulation_left_box { $ \displaystyle ##1 $ }
+            \__mpformulation_row:n
+              {
+                \l__mpformulation_indent_dim
+                + \int_compare:nNnTF \l__mpformulation_index_int = 1
+                  { 0pt } { \constraintExprContIndent }
+              }
+          }
+        \__mpformulation_row_break:
+        \hbox_set:Nn \l__mpformulation_lastexpr_box
+          { $ \displaystyle \l__mpformulation_last_tl $ }
+        \dim_set:Nn \l__mpformulation_lastind_dim
+          { \l__mpformulation_indent_dim + \constraintExprContIndent }
+      }
+      {
+        \__mpformulation_set_indent:n { \l__mpformulation_lhs_dim }
+        \box_set_eq:NN \l__mpformulation_lastexpr_box \l__mpformulation_left_box
+        \dim_set_eq:NN \l__mpformulation_lastind_dim \l__mpformulation_indent_dim
+      }
+    \dim_set:Nn \l__mpformulation_lastend_dim
+      { \l__mpformulation_lastind_dim + \box_wd:N \l__mpformulation_lastexpr_box }
+    % Column of this constraint; record the environment column
+    \dim_gset:Nn \g__mpformulation_qcol_dim
+      {
+        \dim_max:nn \g__mpformulation_qcol_dim
+          {
+            \dim_min:nn
+              { \l__mpformulation_lastend_dim + \constraintQuantGap }
+              { \constraintQuantColMax }
+          }
+      }
+    \tl_if_blank:VTF \l__mpformulation_quantcol_tl
+      {
+        \dim_compare:nNnTF \l__mpformulation_qcol_dim > \c_zero_dim
+          { \dim_set_eq:NN \l__mpformulation_qcolcur_dim \l__mpformulation_qcol_dim }
+          {
+            \dim_set:Nn \l__mpformulation_qcolcur_dim
+              { \l__mpformulation_lastend_dim + \constraintQuantGap }
+          }
+      }
+      { \dim_set:Nn \l__mpformulation_qcolcur_dim { \l__mpformulation_quantcol_tl } }
+    % Quantifier position: at the column, on the expression line if the
+    % expression ends before it, otherwise on the next line
+    \dim_set_eq:NN \l__mpformulation_qpos_dim \l__mpformulation_qcolcur_dim
+    \bool_set:Nn \l__mpformulation_samerow_bool
+      {
+        ! \dim_compare_p:nNn
+          { \l__mpformulation_lastend_dim + \constraintQuantGap }
+          > { \l__mpformulation_qcolcur_dim + 1sp }
+      }
+    \dim_set:Nn \l__mpformulation_avail_dim
+      { \linewidth - \l__mpformulation_qpos_dim - \l__mpformulation_num_dim }
+    % A quantifier too wide for the room after the column: with
+    % quant_overflow=below it goes unbroken on the next line, starting under
+    % the expression (indented by expr_cont_indent); it is wrapped only if it
+    % does not fit there either. With quant_overflow=wrap it is wrapped at
+    % the column.
+    \bool_lazy_all:nT
+      {
+        { \str_if_eq_p:Vn \l__mpformulation_quantoverflow_tl { below } }
+        { ! \l__mpformulation_force_rhs_bool }
+        { \dim_compare_p:nNn \l__mpformulation_rhs_dim > \l__mpformulation_avail_dim }
+      }
+      {
+        \bool_set_false:N \l__mpformulation_samerow_bool
+        \dim_set:Nn \l__mpformulation_qpos_dim
+          { \l__mpformulation_indent_dim + \constraintExprContIndent }
+        \dim_set:Nn \l__mpformulation_avail_dim
+          { \linewidth - \l__mpformulation_qpos_dim - \l__mpformulation_num_dim }
+      }
+    \bool_if:nTF
+      {
+        ! \l__mpformulation_force_rhs_bool
+        && ! \dim_compare_p:nNn \l__mpformulation_rhs_dim > \l__mpformulation_avail_dim
+      }
+      {
+        \seq_clear:N \l__mpformulation_lines_seq
+        \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_rhs_tl
+      }
+      { \__mpformulation_rhs_lines:nn {#1} { \l__mpformulation_avail_dim } }
+    \seq_pop_left:NN \l__mpformulation_lines_seq \l__mpformulation_line_tl
+    \bool_if:NTF \l__mpformulation_samerow_bool
+      {
+        \hbox_set:Nn \l__mpformulation_left_box
+          {
+            \box_use:N \l__mpformulation_lastexpr_box
+            \skip_horizontal:n
+              { \l__mpformulation_qpos_dim - \l__mpformulation_lastend_dim }
+            $ \l__mpformulation_line_tl $
+          }
+      }
+      {
+        % Expression alone, quantifier on the next line
+        \box_set_eq:NN \l__mpformulation_left_box \l__mpformulation_lastexpr_box
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \__mpformulation_row:n { \l__mpformulation_lastind_dim }
+        \__mpformulation_row_break:
+        \hbox_set:Nn \l__mpformulation_left_box { $ \l__mpformulation_line_tl $ }
+        \dim_set_eq:NN \l__mpformulation_lastind_dim \l__mpformulation_qpos_dim
+      }
+    \seq_if_empty:NTF \l__mpformulation_lines_seq
+      { \hbox_set:Nn \l__mpformulation_right_box { \box_use:N \l__mpformulation_num_box } }
+      { \hbox_set:Nn \l__mpformulation_right_box { } }
+    \__mpformulation_row:n { \l__mpformulation_lastind_dim }
+    % Remaining quantifier lines, number on the last one
+    \int_zero:N \l__mpformulation_index_int
+    \seq_map_inline:Nn \l__mpformulation_lines_seq
+      {
+        \int_incr:N \l__mpformulation_index_int
+        \__mpformulation_row_break:
+        \hbox_set:Nn \l__mpformulation_left_box { $ ##1 $ }
+        \int_compare:nNnTF \l__mpformulation_index_int
+          = { \seq_count:N \l__mpformulation_lines_seq }
+          { \hbox_set:Nn \l__mpformulation_right_box { \box_use:N \l__mpformulation_num_box } }
+          { \hbox_set:Nn \l__mpformulation_right_box { } }
+        \__mpformulation_row:n { \l__mpformulation_qpos_dim }
+      }
+  }
+
+% \@constraint@line{<label>}{<expression>}{<quantifier>}{<quantifier suffix>}
+\cs_new_protected:Npn \@constraint@line #1#2#3#4
+  {
+    \bool_if:NF \l__mpformulation_measure_bool { \@constraint@autost }
+    \par
+    % Keep the last constraint with the previous one (keep_last)
+    \bool_if:NT \g__mpformulation_keeplast_bool
+      { \tl_if_eq:nnT {#4} { \constraintLastSuffix } { \addpenalty \@M } }
+    \group_begin:
+    % "subject to" on this line: the expression keeps its column
+    \bool_if:NT \g__mpformulation_stinline_pending_bool
+      { \skip_set:Nn \constraintMinIndent { \constraintLeftmargin } }
+    \__mpformulation_number:n {#1}
+    % Without quantifier, the quantifier suffix ends the expression (e.g. "x \geq 1." at the end)
+    \tl_if_blank:nTF {#3}
+      {
+        \tl_set:Nn \l__mpformulation_lhssuffix_tl {#4}
+        \tl_clear:N \l__mpformulation_suffix_tl
+      }
+      {
+        \tl_set:Nn \l__mpformulation_lhssuffix_tl { \constraintExprSuffix }
+        \tl_set:Nn \l__mpformulation_suffix_tl {#4}
+      }
+    % Relation alignment (expression without \\ only)
+    \tl_set:Nn \l__mpformulation_lhsraw_tl {#2}
+    \bool_set_false:N \l__mpformulation_aligned_bool
+    \bool_if:NT \l__mpformulation_relalign_bool
+      {
+        \tl_if_in:NnF \l__mpformulation_lhsraw_tl { \\ }
+          {
+            \__mpformulation_rel_split:V \l__mpformulation_lhsraw_tl
+            \bool_set_eq:NN \l__mpformulation_aligned_bool
+              \l__mpformulation_relfound_bool
+          }
+      }
+    \tl_remove_all:Nn \l__mpformulation_lhsraw_tl { & }
+    % Expression parts (split at \\), expression suffix on the last part
+    \seq_set_split:NnV \l__mpformulation_lhs_seq { \\ } \l__mpformulation_lhsraw_tl
+    \seq_pop_right:NN \l__mpformulation_lhs_seq \l__mpformulation_last_tl
+    \tl_put_right:NV \l__mpformulation_last_tl \l__mpformulation_lhssuffix_tl
+    \seq_put_right:NV \l__mpformulation_lhs_seq \l__mpformulation_last_tl
+    \tl_set:Nx \l__mpformulation_lhs_tl { \seq_use:Nn \l__mpformulation_lhs_seq { } }
+    \bool_if:NTF \l__mpformulation_aligned_bool
+      {
+        % Part before the relation right-aligned in a column as wide as the
+        % widest one of the environment (stored in the .aux file)
+        \__mpformulation_wd_display:V \l__mpformulation_relleft_tl
+        \dim_gset:Nn \g__mpformulation_relw_dim
+          { \dim_max:nn \g__mpformulation_relw_dim \l__mpformulation_width_dim }
+        \dim_set:Nn \l__mpformulation_width_dim
+          { \dim_max:nn \l__mpformulation_relw_dim \l__mpformulation_width_dim }
+        \hbox_set:Nn \l__mpformulation_left_box
+          {
+            \hbox_to_wd:nn \l__mpformulation_width_dim
+              { \hfil $ \displaystyle \l__mpformulation_relleft_tl $ }
+            $ \displaystyle {} \l__mpformulation_relright_tl \l__mpformulation_lhssuffix_tl $
+          }
+      }
+      {
+        \hbox_set:Nn \l__mpformulation_left_box
+          { $ \displaystyle \l__mpformulation_lhs_tl $ }
+      }
+    \dim_set:Nn \l__mpformulation_lhs_dim { \box_wd:N \l__mpformulation_left_box }
+    % Quantifier parts (split at \\), quantifier suffix on the last part
+    \seq_set_split:Nnn \l__mpformulation_rhs_seq { \\ } {#3}
+    \seq_pop_right:NN \l__mpformulation_rhs_seq \l__mpformulation_last_tl
+    \tl_put_right:NV \l__mpformulation_last_tl \l__mpformulation_suffix_tl
+    \seq_put_right:NV \l__mpformulation_rhs_seq \l__mpformulation_last_tl
+    \tl_set:Nx \l__mpformulation_rhs_tl
+      { \seq_use:Nn \l__mpformulation_rhs_seq { \exp_not:n { \  } } }
+    \__mpformulation_wd:V \l__mpformulation_rhs_tl
+    \dim_set_eq:NN \l__mpformulation_rhs_dim \l__mpformulation_width_dim
+    % Forced breaks
+    \bool_set:Nn \l__mpformulation_force_rhs_bool
+      {
+        \str_if_eq_p:ee { \@constraint@breakmode } { always }
+        && \int_compare_p:nNn { \seq_count:N \l__mpformulation_rhs_seq } > 1
+      }
+    \bool_set:Nn \l__mpformulation_force_lhs_bool
+      {
+        \str_if_eq_p:ee { \@constraint@lhsbreakmode } { always }
+        && \int_compare_p:nNn { \seq_count:N \l__mpformulation_lhs_seq } > 1
+      }
+    \bool_set_false:N \l__mpformulation_done_bool
+    % Left-aligned quantifiers
+    \str_if_eq:VnT \l__mpformulation_quantalign_tl { left }
+      {
+        \__mpformulation_line_left:n {#3}
+        \bool_set_true:N \l__mpformulation_done_bool
+      }
+    % (a) One line
+    \bool_if:nT
+      {
+        ! \l__mpformulation_done_bool
+        && ! \l__mpformulation_force_rhs_bool && ! \l__mpformulation_force_lhs_bool
+        && \dim_compare_p:nNn
+          {
+            \linewidth - \l__mpformulation_lhs_dim - \constraintQuantGap
+            - \l__mpformulation_rhs_dim - \l__mpformulation_num_dim
+          }
+          > { \constraintMinIndent - 1sp }
+      }
+      {
+        \__mpformulation_set_indent:n
+          {
+            \l__mpformulation_lhs_dim + \constraintQuantGap
+            + \l__mpformulation_rhs_dim + \l__mpformulation_num_dim
+          }
+        \seq_clear:N \l__mpformulation_lines_seq
+        \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_rhs_tl
+        \__mpformulation_right_from_lines:
+        \__mpformulation_row:n { \l__mpformulation_indent_dim }
+        \bool_set_true:N \l__mpformulation_done_bool
+      }
+    % (b) expression on one line, quantifier broken
+    \bool_if:nT { ! \l__mpformulation_done_bool && ! \l__mpformulation_force_lhs_bool }
+      {
+        \dim_set:Nn \l__mpformulation_avail_dim
+          {
+            \linewidth - \constraintMinIndent - \l__mpformulation_lhs_dim
+            - \constraintQuantGap - \l__mpformulation_num_dim
+          }
+        \__mpformulation_rhs_lines:nn {#3} { \l__mpformulation_avail_dim }
+        \bool_if:nT
+          {
+            \int_compare_p:nNn { \seq_count:N \l__mpformulation_lines_seq } > 1
+            && ! \dim_compare_p:nNn
+              \l__mpformulation_lines_dim > \l__mpformulation_avail_dim
+          }
+          {
+            \__mpformulation_set_indent:n
+              {
+                \l__mpformulation_lhs_dim + \constraintQuantGap
+                + \l__mpformulation_lines_dim + \l__mpformulation_num_dim
+              }
+            \__mpformulation_right_from_lines:
+            \__mpformulation_row:n { \l__mpformulation_indent_dim }
+            \bool_set_true:N \l__mpformulation_done_bool
+          }
+      }
+    % (c) expression alone on a line, quantifier below
+    \bool_if:nT
+      {
+        ! \l__mpformulation_done_bool && ! \l__mpformulation_force_lhs_bool
+        && \dim_compare_p:nNn
+          { \linewidth - \l__mpformulation_lhs_dim }
+          > { \constraintMinIndent - 1sp }
+      }
+      {
+        \__mpformulation_set_indent:n { \l__mpformulation_lhs_dim }
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \__mpformulation_row:n { \l__mpformulation_indent_dim }
+        \__mpformulation_rhs_below:n {#3}
+        \bool_set_true:N \l__mpformulation_done_bool
+      }
+    % (d) expression broken at its \\
+    \bool_if:nT
+      {
+        ! \l__mpformulation_done_bool
+        && \int_compare_p:nNn { \seq_count:N \l__mpformulation_lhs_seq } > 1
+      }
+      {
+        % Indent such that every expression line fits
+        \dim_zero:N \l__mpformulation_need_dim
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_lhs_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \__mpformulation_wd_display:n {##1}
+            \int_compare:nNnF \l__mpformulation_index_int = 1
+              {
+                \dim_add:Nn \l__mpformulation_width_dim
+                  { \constraintExprContIndent }
+              }
+            \dim_set:Nn \l__mpformulation_need_dim
+              { \dim_max:nn \l__mpformulation_need_dim \l__mpformulation_width_dim }
+          }
+        \__mpformulation_set_indent:n { \l__mpformulation_need_dim }
+        % All expression lines but the last
+        \seq_pop_right:NN \l__mpformulation_lhs_seq \l__mpformulation_last_tl
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_lhs_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \int_compare:nNnF \l__mpformulation_index_int = 1
+              { \__mpformulation_row_break: }
+            \hbox_set:Nn \l__mpformulation_left_box { $ \displaystyle ##1 $ }
+            \__mpformulation_row:n
+              {
+                \l__mpformulation_indent_dim
+                + \int_compare:nNnTF \l__mpformulation_index_int = 1
+                  { 0pt } { \constraintExprContIndent }
+              }
+          }
+        % Last expression line, with the quantifier if it fits
+        \__mpformulation_row_break:
+        \hbox_set:Nn \l__mpformulation_left_box
+          { $ \displaystyle \l__mpformulation_last_tl $ }
+        \dim_set:Nn \l__mpformulation_avail_dim
+          {
+            \linewidth - \l__mpformulation_indent_dim - \constraintExprContIndent
+            - \box_wd:N \l__mpformulation_left_box
+            - \constraintQuantGap - \l__mpformulation_num_dim
+          }
+        \bool_if:nTF
+          {
+            ! \l__mpformulation_force_rhs_bool
+            && ! \dim_compare_p:nNn
+              \l__mpformulation_rhs_dim > \l__mpformulation_avail_dim
+          }
+          {
+            \seq_clear:N \l__mpformulation_lines_seq
+            \seq_put_right:NV \l__mpformulation_lines_seq \l__mpformulation_rhs_tl
+            \dim_set_eq:NN \l__mpformulation_lines_dim \l__mpformulation_rhs_dim
+          }
+          { \__mpformulation_rhs_lines:nn {#3} { \l__mpformulation_avail_dim } }
+        \dim_compare:nNnTF \l__mpformulation_lines_dim > \l__mpformulation_avail_dim
+          {
+            \hbox_set:Nn \l__mpformulation_right_box { }
+            \__mpformulation_row:n
+              { \l__mpformulation_indent_dim + \constraintExprContIndent }
+            \__mpformulation_rhs_below:n {#3}
+          }
+          {
+            \__mpformulation_right_from_lines:
+            \__mpformulation_row:n
+              { \l__mpformulation_indent_dim + \constraintExprContIndent }
+          }
+        \bool_set_true:N \l__mpformulation_done_bool
+      }
+    % Fallback: expression too wide and not breakable; it overflows
+    \bool_if:NF \l__mpformulation_done_bool
+      {
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \__mpformulation_row:n { \constraintMinIndent }
+        \__mpformulation_rhs_below:n {#3}
+      }
+    \bool_if:NF \l__mpformulation_measure_bool
+      { \tl_if_blank:nF {#1} { \label {#1} } }
+    \group_end:
+    \par
+    \vspace { \constraintSep }
+  }
+\ExplSyntaxOff
+
+% Inside the environment, a \constraint directly followed by
+% \end (spaces and blank lines ignored) is the last one (last_auto=true)
+\newif\ifconstraint@lastauto
+\constraint@lastautotrue
+\newif\if@constraint@inenv
+\@constraint@inenvfalse
+
+\ExplSyntaxOn
+\cs_new_protected:Npn \__mpformulation_peek_last:nnn #1#2#3
+  {
+    \peek_meaning_ignore_spaces:NTF \par
+      { \__mpformulation_gobble_par:nnnN {#1} {#2} {#3} }
+      {
+        \peek_meaning:NTF \__mpformulation_body_end:
+          { \@constraint@line {#1} {#2} {#3} { \constraintLastSuffix } }
+          {
+            \peek_meaning:NTF \end
+              { \@constraint@line {#1} {#2} {#3} { \constraintLastSuffix } }
+              { \@constraint@line {#1} {#2} {#3} { \constraintQuantSuffix } }
+          }
+      }
+  }
+\cs_new_protected:Npn \__mpformulation_gobble_par:nnnN #1#2#3#4
+  { \__mpformulation_peek_last:nnn {#1} {#2} {#3} }
+\cs_new_protected:Npn \@constraint@auto #1#2#3
+  {
+    \bool_lazy_and:nnTF
+      { \legacy_if_p:n { @constraint@inenv } }
+      { \legacy_if_p:n { constraint@lastauto } }
+      { \__mpformulation_peek_last:nnn {#1} {#2} {#3} }
+      { \@constraint@line {#1} {#2} {#3} { \constraintQuantSuffix } }
+  }
+\ExplSyntaxOff
+
+\newcommand{\constraint}[3][]{%
+  \@constraint@auto{#1}{#2}{#3}%
+}
+
+\newcommand{\lastconstraint}[3][]{%
+  \@constraint@line{#1}{#2}{#3}{\constraintLastSuffix}%
+}
+
+% Alias for backward compatibility
+\let\constraintlast\lastconstraint
+
+% Objective function and "subject to" line, left-aligned with the constraints expression
+\newlength{\constraintNameSep}
+\setlength{\constraintNameSep}{1em}
+
+\newlength{\constraintSenseSep}
+\setlength{\constraintSenseSep}{1em}
+
+% Stored as a macro so that it is evaluated when \subjectto is used
+% (default: the current paragraph indentation)
+\newcommand{\constraintSubjecttoIndent}{\parindent}
+
+\newcommand{\constraintNameFormat}[1]{(#1)}
+
+% "subject to" inserted automatically before the first constraint that
+% follows an \objective, unless \subjectto was written (st_auto=true)
+\newif\ifconstraint@stauto
+\constraint@stautotrue
+\newif\if@constraint@stpending
+\@constraint@stpendingfalse
+\newcommand{\@constraint@autost}{%
+  \if@constraint@stpending
+    \ifconstraint@stauto
+      \subjectto
+    \fi
+    \global\@constraint@stpendingfalse
+  \fi
+}
+\newcommand{\constraintSubjecttoText}{subject to}
+
+\def\@constraint@objbreakmode{auto}
+
+\ExplSyntaxOn
+% \objective[<label>]{<model name>}{<sense>}{<expression>}
+% \\ in <expression> is an optional break (obj_break=auto) or always honored
+% (obj_break=always); continuation lines start under the expression
+\cs_new_protected:Npn \__mpformulation_objective:nnnn #1#2#3#4
+  {
+    \par
+    \legacy_if:nT { constraint@stauto } { \__mpformulation_st_column: }
+    \group_begin:
+    \__mpformulation_number:n {#1}
+    % Label of the model name (name_label)
+    \bool_lazy_all:nT
+      {
+        { ! \l__mpformulation_measure_bool }
+        { ! \tl_if_blank_p:V \l__mpformulation_namelabel_tl }
+        { ! \tl_if_blank_p:n {#2} }
+      }
+      {
+        \group_begin:
+        \protected@edef \@currentlabel { \constraintNameFormat {#2} }
+        \exp_args:NV \label \l__mpformulation_namelabel_tl
+        \group_end:
+      }
+    % Model name and sense
+    \hbox_set:Nn \l__mpformulation_head_box
+      {
+        \tl_if_blank:nF {#2}
+          {
+            \textrm { \constraintNameFormat {#2} }
+            \hspace { \constraintNameSep }
+          }
+        \textrm {#3}
+        \hspace { \constraintSenseSep }
+      }
+    \dim_set:Nn \l__mpformulation_head_dim { \box_wd:N \l__mpformulation_head_box }
+    % Expression parts (split at \\)
+    \seq_set_split:Nnn \l__mpformulation_obj_seq { \\ } {#4}
+    \tl_set:Nx \l__mpformulation_lhs_tl { \seq_use:Nn \l__mpformulation_obj_seq { } }
+    \__mpformulation_wd_display:V \l__mpformulation_lhs_tl
+    \dim_set_eq:NN \l__mpformulation_lhs_dim \l__mpformulation_width_dim
+    \bool_set:Nn \l__mpformulation_force_lhs_bool
+      {
+        \str_if_eq_p:ee { \@constraint@objbreakmode } { always }
+        && \int_compare_p:nNn { \seq_count:N \l__mpformulation_obj_seq } > 1
+      }
+    \bool_if:nTF
+      {
+        ! \l__mpformulation_force_lhs_bool
+        && (
+          \int_compare_p:nNn { \seq_count:N \l__mpformulation_obj_seq } = 1
+          || \dim_compare_p:nNn
+            {
+              \linewidth - \l__mpformulation_head_dim - \l__mpformulation_lhs_dim
+              - \l__mpformulation_num_dim
+            }
+            > { \constraintMinIndent - 1sp }
+        )
+      }
+      {
+        % One line
+        \__mpformulation_set_indent:n
+          {
+            \l__mpformulation_head_dim + \l__mpformulation_lhs_dim
+            + \l__mpformulation_num_dim
+          }
+        \hbox_set:Nn \l__mpformulation_left_box
+          {
+            \box_use:N \l__mpformulation_head_box
+            $ \displaystyle \l__mpformulation_lhs_tl $
+          }
+        \hbox_set:Nn \l__mpformulation_right_box
+          { \box_use:N \l__mpformulation_num_box }
+        \__mpformulation_row:n { \l__mpformulation_indent_dim }
+      }
+      {
+        % Broken at each \\, number on the last line
+        \dim_zero:N \l__mpformulation_need_dim
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_obj_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \__mpformulation_wd_display:n {##1}
+            \int_compare:nNnT \l__mpformulation_index_int
+              = { \seq_count:N \l__mpformulation_obj_seq }
+              { \dim_add:Nn \l__mpformulation_width_dim { \l__mpformulation_num_dim } }
+            \dim_set:Nn \l__mpformulation_need_dim
+              { \dim_max:nn \l__mpformulation_need_dim \l__mpformulation_width_dim }
+          }
+        \__mpformulation_set_indent:n
+          { \l__mpformulation_head_dim + \l__mpformulation_need_dim }
+        \seq_pop_right:NN \l__mpformulation_obj_seq \l__mpformulation_last_tl
+        \hbox_set:Nn \l__mpformulation_right_box { }
+        \int_zero:N \l__mpformulation_index_int
+        \seq_map_inline:Nn \l__mpformulation_obj_seq
+          {
+            \int_incr:N \l__mpformulation_index_int
+            \int_compare:nNnTF \l__mpformulation_index_int = 1
+              {
+                \hbox_set:Nn \l__mpformulation_left_box
+                  {
+                    \box_use:N \l__mpformulation_head_box
+                    $ \displaystyle ##1 $
+                  }
+              }
+              {
+                \__mpformulation_row_break:
+                \hbox_set:Nn \l__mpformulation_left_box
+                  {
+                    \skip_horizontal:n { \l__mpformulation_head_dim }
+                    $ \displaystyle ##1 $
+                  }
+              }
+            \__mpformulation_row:n { \l__mpformulation_indent_dim }
+          }
+        \__mpformulation_row_break:
+        \hbox_set:Nn \l__mpformulation_left_box
+          {
+            \skip_horizontal:n { \l__mpformulation_head_dim }
+            $ \displaystyle \l__mpformulation_last_tl $
+          }
+        \hbox_set:Nn \l__mpformulation_right_box
+          { \box_use:N \l__mpformulation_num_box }
+        \__mpformulation_row:n { \l__mpformulation_indent_dim }
+      }
+    \bool_if:NF \l__mpformulation_measure_bool
+      { \tl_if_blank:nF {#1} { \label {#1} } }
+    \group_end:
+    % No page break between the objective and what follows
+    \par
+    \nobreak
+    \vspace { \constraintSep }
+    \bool_if:NF \l__mpformulation_measure_bool
+      { \legacy_if_gset_true:n { @constraint@stpending } }
+  }
+\NewDocumentCommand \objective { O{} m m m }
+  { \__mpformulation_objective:nnnn {#1} {#2} {#3} {#4} }
+
+% \subjectto (st_indent measured from the left edge of the text block)
+\NewDocumentCommand \subjectto { }
+  {
+    \bool_if:NF \l__mpformulation_measure_bool
+      { \legacy_if_gset_false:n { @constraint@stpending } }
+    \bool_if:NTF \g__mpformulation_stinline_bool
+      {
+        % Typeset on the line of the next constraint
+        \__mpformulation_st_column:
+        \bool_if:NF \l__mpformulation_measure_bool
+          { \bool_gset_true:N \g__mpformulation_stinline_pending_bool }
+      }
+      {
+        \par
+        \noindent
+        \hspace* { \constraintSubjecttoIndent }
+        \textrm { \constraintSubjecttoText }
+        \par
+        \nobreak
+        \vspace { \constraintSep }
+      }
+  }
+\ExplSyntaxOff
+
+\define@key{constraints}{rowsep}{\setlength{\constraintSep}{#1}}
+\define@key{constraints}{numsep}{\setlength{\constraintEqspace}{#1}}
+\define@key{constraints}{indent}{\setlength{\constraintLeftmargin}{#1}}
+% The former macro names are kept in sync for documents that read them
+\define@key{constraints}{expr_suffix}{%
+  \gdef\constraintExprSuffix{#1}\gdef\constraintLHSsuffix{#1}}
+\define@key{constraints}{quant_suffix}{%
+  \gdef\constraintQuantSuffix{#1}\gdef\constraintRHSsuffix{#1}}
+\define@key{constraints}{last_suffix}{%
+  \gdef\constraintLastSuffix{#1}\gdef\constraintRHSlastsuffix{#1}}
+\define@key{constraints}{topsep}{\setlength{\constraintTopsep}{#1}}
+\define@key{constraints}{bottomsep}{\setlength{\constraintBottomsep}{#1}}
+\define@key{constraints}{name_sep}{\setlength{\constraintNameSep}{#1}}
+\define@key{constraints}{sense_sep}{\setlength{\constraintSenseSep}{#1}}
+\define@key{constraints}{st_indent}{\gdef\constraintSubjecttoIndent{#1}}
+\define@key{constraints}{st_text}{\gdef\constraintSubjecttoText{#1}}
+\define@key{constraints}{last_auto}[true]{%
+  \def\@constraint@tmp{#1}\def\@constraint@false{false}%
+  \ifx\@constraint@tmp\@constraint@false
+    \global\constraint@lastautofalse
+  \else
+    \global\constraint@lastautotrue
+  \fi
+}
+\define@key{constraints}{st_auto}[true]{%
+  \def\@constraint@tmp{#1}\def\@constraint@false{false}%
+  \ifx\@constraint@tmp\@constraint@false
+    \global\constraint@stautofalse
+  \else
+    \global\constraint@stautotrue
+  \fi
+}
+\define@key{constraints}{quant_gap}{\setlength{\constraintQuantGap}{#1}}
+\define@key{constraints}{quant_break}{\gdef\@constraint@breakmode{#1}}
+\define@key{constraints}{expr_break}{\gdef\@constraint@lhsbreakmode{#1}}
+\define@key{constraints}{min_indent}{\setlength{\constraintMinIndent}{#1}}
+\define@key{constraints}{expr_cont_indent}{\setlength{\constraintExprContIndent}{#1}}
+\define@key{constraints}{obj_break}{\gdef\@constraint@objbreakmode{#1}}
+\ExplSyntaxOn
+\define@key { constraints } { quant_align }
+  { \tl_set:Nn \l__mpformulation_quantalign_tl {#1} }
+\define@key { constraints } { quant_overflow }
+  { \tl_set:Nn \l__mpformulation_quantoverflow_tl {#1} }
+\define@key { constraints } { quant_col }
+  { \tl_set:Nn \l__mpformulation_quantcol_tl {#1} }
+\define@key { constraints } { quant_col_max }
+  { \cs_gset:Npn \constraintQuantColMax {#1} }
+\define@key { constraints } { numbering }
+  { \tl_set:Nn \l__mpformulation_numbering_tl {#1} }
+\define@key { constraints } { label }
+  { \tl_set:Nn \l__mpformulation_modellabel_tl {#1} }
+\define@key { constraints } { name_label }
+  { \tl_set:Nn \l__mpformulation_namelabel_tl {#1} }
+\define@key { constraints } { rel_align } [ true ]
+  {
+    \str_if_eq:nnTF {#1} { false }
+      { \bool_set_false:N \l__mpformulation_relalign_bool }
+      { \bool_set_true:N \l__mpformulation_relalign_bool }
+  }
+\define@key { constraints } { st_inline } [ true ]
+  {
+    \str_if_eq:nnTF {#1} { false }
+      { \bool_gset_false:N \g__mpformulation_stinline_bool }
+      { \bool_gset_true:N \g__mpformulation_stinline_bool }
+  }
+\define@key { constraints } { keep_last } [ true ]
+  {
+    \str_if_eq:nnTF {#1} { false }
+      { \bool_gset_false:N \g__mpformulation_keeplast_bool }
+      { \bool_gset_true:N \g__mpformulation_keeplast_bool }
+  }
+\ExplSyntaxOff
+
+% Aliases for backward compatibility (v1.0 / v1.1 key names)
+\define@key{constraints}{sep}{\setkeys{constraints}{rowsep={#1}}}
+\define@key{constraints}{eqspace}{\setkeys{constraints}{numsep={#1}}}
+\define@key{constraints}{leftmargin}{\setkeys{constraints}{indent={#1}}}
+\define@key{constraints}{suffix_left}{\setkeys{constraints}{expr_suffix={#1}}}
+\define@key{constraints}{suffix}{\setkeys{constraints}{expr_suffix={#1}}}
+\define@key{constraints}{suffix_right}{\setkeys{constraints}{quant_suffix={#1}}}
+\define@key{constraints}{suffix_right_last}{\setkeys{constraints}{last_suffix={#1}}}
+% Aliases for backward compatibility (v1.2 to v1.8 key names)
+\define@key{constraints}{lhs_suffix}{\setkeys{constraints}{expr_suffix={#1}}}
+\define@key{constraints}{rhs_suffix}{\setkeys{constraints}{quant_suffix={#1}}}
+\define@key{constraints}{rhs_gap}{\setkeys{constraints}{quant_gap={#1}}}
+\define@key{constraints}{rhs_break}{\setkeys{constraints}{quant_break={#1}}}
+\define@key{constraints}{lhs_break}{\setkeys{constraints}{expr_break={#1}}}
+\define@key{constraints}{lhs_cont_indent}{\setkeys{constraints}{expr_cont_indent={#1}}}
+\define@key{constraints}{subjectto_indent}{\setkeys{constraints}{st_indent={#1}}}
+\define@key{constraints}{subjectto_text}{\setkeys{constraints}{st_text={#1}}}
+
+\ExplSyntaxOn
+\cs_new_protected:Npn \__mpformulation_model_label:
+  {
+    \tl_if_blank:VF \l__mpformulation_modellabel_tl
+      { \exp_args:NV \label \l__mpformulation_modellabel_tl }
+  }
+\cs_new_protected:Npn \__mpformulation_env_begin:nn #1#2
+  {
+    \@constraint@inenvtrue
+    \tl_clear:N \l__mpformulation_modellabel_tl
+    \tl_clear:N \l__mpformulation_namelabel_tl
+    \setkeys { constraints } {#1}
+    % Measuring pass (only when a common column is needed)
+    \dim_zero:N \l__mpformulation_relw_dim
+    \dim_zero:N \l__mpformulation_qcol_dim
+    \bool_if:nT
+      {
+        \l__mpformulation_relalign_bool
+        || \str_if_eq_p:Vn \l__mpformulation_quantalign_tl { left }
+      }
+      {
+        \dim_gzero:N \g__mpformulation_relw_dim
+        \dim_gzero:N \g__mpformulation_qcol_dim
+        \group_begin:
+          \bool_set_true:N \l__mpformulation_measure_bool
+          \vbox_set:Nn \l__mpformulation_tmp_box { #2 \__mpformulation_body_end: }
+        \group_end:
+        \dim_set_eq:NN \l__mpformulation_relw_dim \g__mpformulation_relw_dim
+        \dim_set_eq:NN \l__mpformulation_qcol_dim \g__mpformulation_qcol_dim
+      }
+    \vspace { \constraintTopsep }
+    % Model numbering
+    \str_case:VnF \l__mpformulation_numbering_tl
+      {
+        { sub } { \subequations \__mpformulation_model_label: }
+        { model }
+          {
+            \refstepcounter { equation }
+            \bool_gset_true:N \g__mpformulation_modelnum_pending_bool
+            \__mpformulation_model_label:
+          }
+      }
+      {
+        \tl_if_blank:VF \l__mpformulation_modellabel_tl
+          {
+            \PackageWarning { mpformulation }
+              { Option~label~needs~numbering=sub~or~numbering=model }
+          }
+      }
+    #2 \__mpformulation_body_end:
+  }
+\cs_new_protected:Npn \__mpformulation_env_end:
+  {
+    \par
+    \str_if_eq:VnT \l__mpformulation_numbering_tl { sub } { \endsubequations }
+    \bool_gset_false:N \g__mpformulation_modelnum_pending_bool
+    \bool_gset_false:N \g__mpformulation_stinline_pending_bool
+    \vspace { \constraintBottomsep }
+  }
+% The model environment, and its former name
+\NewDocumentEnvironment { mpformulation } { O{} +b }
+  { \__mpformulation_env_begin:nn {#1} {#2} }
+  { \__mpformulation_env_end: }
+\NewDocumentEnvironment { constraints } { O{} +b }
+  { \__mpformulation_env_begin:nn {#1} {#2} }
+  { \__mpformulation_env_end: }
+\ExplSyntaxOff
+
+\newcommand{\mpsetup}[1]{%
+  \setkeys{constraints}{#1}%
+}
+\let\constraintsetup\mpsetup
+
+\constraintsetup{
+  rowsep=0.5\baselineskip,
+  numsep=2em,
+  indent=6em,
+  expr_suffix={},
+  quant_suffix={},
+  last_suffix={.},
+  topsep=0pt,
+  bottomsep=0pt,
+  name_sep=1em,
+  sense_sep=1em,
+  st_indent=\parindent,
+  st_text={subject to},
+  st_auto=true,
+  last_auto=true,
+  quant_gap=1em,
+  quant_break=auto,
+  expr_break=auto,
+  min_indent=0pt,
+  expr_cont_indent=2em,
+  obj_break=auto,
+  numbering=line,
+  rel_align=false,
+  st_inline=false,
+  keep_last=true,
+  quant_align=right,
+  quant_overflow=below,
+  quant_col_max=0.6\linewidth
+}
+
+\makeatother

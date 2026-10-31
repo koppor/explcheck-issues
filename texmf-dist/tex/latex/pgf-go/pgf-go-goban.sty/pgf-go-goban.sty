@@ -1,0 +1,1642 @@
+\ProvidesFile{pgf-go-goban.sty}[2026/10/23 v0.2026.10.23 pgf-go: goban]
+\ExplSyntaxOn
+
+	%EL TAMANO, LA PARTE VISIBLE (\l_pgfgo_goban_from_x_int, ...) Y \l_pgfgo_goban_partial_bool
+	%ESTAN DECLARADOS EN pgf-go-kernel.sty.
+
+	%GRID
+	\bool_new:N\l_pgfgo_goban_grid_bool
+	\bool_set_true:N\l_pgfgo_goban_grid_bool
+	\dim_new:N\l_pgfgo_goban_grid_line_width_dim
+	\dim_new:N\l_pgfgo_goban_grid_x_sep_dim
+	\dim_new:N\l_pgfgo_goban_grid_y_sep_dim
+
+	%BORDER
+	\bool_new:N\l_pgfgo_goban_border_bool
+	\bool_new:N\l_pgfgo_goban_border_line_bool
+	\bool_new:N\l_pgfgo_goban_border_fill_bool
+	\bool_set_true:N\l_pgfgo_goban_border_bool
+	\bool_set_true:N\l_pgfgo_goban_border_line_bool
+	\bool_set_true:N\l_pgfgo_goban_border_fill_bool
+
+	\dim_new:N\l_pgfgo_goban_border_sep_dim
+	\dim_new:N\l_pgfgo_goban_border_line_width_dim
+	\dim_new:N\l_pgfgo_goban_border_rounded_corners_dim
+	\dim_new:N\l_pgfgo_goban_border_inner_rounded_corners_dim
+
+	%LABEL
+	\tl_new:N\l_pgfgo_goban_labels_color_tl
+	\tl_set:Nn\l_pgfgo_goban_labels_color_tl{black}
+	\dim_new:N\l_pgfgo_goban_labels_sep_dim
+	\dim_set:Nn\l_pgfgo_goban_labels_sep_dim{0.5em}
+	\bool_new:N\l_pgfgo_goban_labels_pos_north_bool
+	\bool_new:N\l_pgfgo_goban_labels_pos_east_bool
+	\bool_new:N\l_pgfgo_goban_labels_pos_south_bool
+	\bool_new:N\l_pgfgo_goban_labels_pos_west_bool
+	\tl_new:N \l_pgfgo_goban_label_font_tl
+	%ESTILO DE LAS COORDENADAS: letters, numbers O kanji EN CADA EJE, Y EN QUE SENTIDO SE CUENTAN.
+	\tl_new:N \l_pgfgo_goban_label_columns_tl
+	\tl_new:N \l_pgfgo_goban_label_rows_tl
+	\tl_new:N \l_pgfgo_goban_label_columns_direction_tl
+	\tl_new:N \l_pgfgo_goban_label_rows_direction_tl
+
+	%LAYERS
+	\pgfdeclarelayer{pgfgo_layer_goban_border}
+	\pgfdeclarelayer{pgfgo_layer_goban_grid}
+	\pgfdeclarelayer{pgfgo_layer_goban_labels}
+	\pgfdeclarelayer{pgfgo_layer_territory}
+	\pgfdeclarelayer{pgfgo_layer_mark_shadow}
+	\pgfdeclarelayer{pgfgo_layer_stone}
+	\pgfdeclarelayer{pgfgo_layer_stone_mark}
+	\pgfdeclarelayer{pgfgo_layer_mark}
+
+	%EN UNA VISTA (\pgfgoview) LAS CLAVES DE LA MEMORIA NO HACEN NADA: LAS OPCIONES DEL goban CON NOMBRE SE
+	%VUELVEN A USAR, Y NO TIENEN QUE BORRAR NI CAMBIAR NINGUNA MEMORIA.
+	\tl_new:N \l_pgfgo_goban_view_tl
+	\cs_new_protected:Npn \__pgfgo_goban_memory_key:n #1 {\tl_if_empty:NT \l_pgfgo_goban_view_tl {#1}}
+
+	\keys_define:nn {pgfgo / goban}{
+		%GUARDA TODO LO QUE DIBUJA ESTE goban CON ESE NOMBRE, PARA resume Y \pgfgoview.
+		name							.code:n			= {\__pgfgo_goban_memory_key:n {\tl_set:Nn \l_pgfgo_goban_name_tl {#1}}},
+
+		%EMPIEZA CON EL goban QUE SE LLAMA ASI COMO QUEDO AL TERMINAR: resume = {<nombre>, numbers, marks, territory}.
+		resume						.code:n			= {\__pgfgo_goban_memory_key:n {\__pgfgo_goban_resume_key:n {#1}}},
+		resume						.value_required:n = true,
+
+		%LAS PIEDRAS CAPTURADAS DESAPARECEN (remove) O QUEDAN COMO PRISIONEROS (fade). SOLO CON kernel = lua.
+		captures					.choices:nn = {true, remove, fade, false} {
+																			\str_if_eq:VnTF \l_keys_choice_tl {false}
+																				{\bool_set_false:N \l_pgfgo_goban_captures_bool}
+																				{
+																					\pgfgo_kernel_if_feature:nTF {captures} {
+																						\bool_set_true:N \l_pgfgo_goban_captures_bool
+																						\bool_set:Nn \l_pgfgo_goban_captures_fade_bool
+																							{\str_if_eq_p:Vn \l_keys_choice_tl {fade}}
+																					}{
+																						\pgfgo_kernel_require:n {captures}
+																					}
+																				}
+																			},
+		captures					.default:n	= {remove},
+
+		%CON captures: LAS MARCAS SOBRE UNA PIEDRA CAPTURADA QUEDAN (keep) O SE VAN CON ELLA (remove).
+		captured~marks		.choice:,
+		captured~marks/keep		.code:n	= {\bool_set_false:N \l_pgfgo_goban_captured_marks_bool},
+		captured~marks/remove	.code:n	= {\bool_set_true:N \l_pgfgo_goban_captured_marks_bool},
+		captured~marks		.initial:n	= {keep},
+
+		%"N at M": UNA JUGADA NUMERADA EN UN PUNTO DONDE YA HUBO OTRA NO SE DIBUJA (VER pgf-go-stones.sty).
+		notes							.bool_set:N	= \l_pgfgo_goban_notes_bool,
+		notes							.default:n	= {true},
+
+		grid							.code:n 		= {\keys_set:nx{pgfgo / goban / grid}		{#1}},
+		grid							.default:n	= {true},
+
+		hoshi							.code:n 		= {\keys_set:nn{pgfgo / goban / hoshi}		{#1}},
+		hoshi							.default:n	= {true},
+
+		background						.code:n 		= {\keys_set:nx{pgfgo / goban / background} {#1}},
+		background						.default:n	= {true},
+
+		label							.code:n 		= {\keys_set:nn{pgfgo / goban / label} {#1}},
+		label							.default:n	= {true},
+
+		%LAS ESQUINAS (partial = B2:D4, {B2, D4} O {B2 to D4}), auto (LO QUE SE DIBUJA, CON partial margin
+		%LINEAS MAS; VER \__pgfgo_goban_end:) O false.
+		partial						.code:n 		= {
+																			\bool_set_false:N \l_pgfgo_goban_partial_auto_bool
+																			\str_case:nnF {#1} {
+																				{false}	{\bool_set_false:N \l_pgfgo_goban_partial_bool}
+																				{auto}	{
+																									\bool_set_false:N \l_pgfgo_goban_partial_bool
+																									\bool_set_true:N \l_pgfgo_goban_partial_auto_bool
+																								}
+																			}{
+																				\bool_set_true:N \l_pgfgo_goban_partial_bool
+																				\__pgfgo_goban_partial_corners:n {#1}
+																			}
+																		},
+		partial~margin		.int_set:N	= \l_pgfgo_goban_partial_margin_int,
+		partial~margin		.initial:n	= {1},
+
+		scale							.tl_set:N		= \l_pgfgo_goban_scale_tl,
+		scale							.initial:n	= {1},
+
+		size							.code:n			= {\pgfgo_kernel_board_size:n{#1} \bool_set_true:N \l__pgfgo_goban_size_bool},
+
+		%EL TAMANO DE LA PARTIDA DE UN ARCHIVO SGF (SZ). SOLO CON kernel = lua.
+		sgf~size					.code:n			= {
+																			\pgfgo_kernel_if_feature:nTF {sgf} {
+																				\pgfgo_sgf_with_name:nn {#1} {\pgfgo_kernel_sgf_read:n {#1}}
+																				\int_set_eq:NN \l_pgfgo_goban_size_x_int \l_pgfgo_kernel_sgf_size_x_int
+																				\int_set_eq:NN \l_pgfgo_goban_size_y_int \l_pgfgo_kernel_sgf_size_y_int
+																				\bool_set_true:N \l__pgfgo_goban_size_bool
+																			}{
+																				\pgfgo_kernel_require:n {sgf}
+																			}
+																		},
+
+		%LA VISTA DE UN ARCHIVO SGF (VW): EL TAMANO DE LA PARTIDA Y, SI HAY VISTA, ESA PARTE DEL TABLERO. LA
+		%VISTA ES LA DE LA JUGADA sgf~view~move (LAS DOS CLAVES SE PUEDEN DAR EN CUALQUIER ORDEN).
+		sgf~view					.code:n			= {
+																			\tl_set:Nn \l__pgfgo_goban_sgf_view_file_tl {#1}
+																			\__pgfgo_goban_sgf_view:
+																		},
+		sgf~view~move			.code:n			= {
+																			\int_set:Nn \l_pgfgo_goban_sgf_view_from_int {#1}
+																			\int_set:Nn \l_pgfgo_goban_sgf_view_to_int {#1}
+																			\tl_if_empty:NF \l__pgfgo_goban_sgf_view_file_tl {\__pgfgo_goban_sgf_view:}
+																		},
+
+		use~i					.bool_set:N = \l_pgfgo_use_i_bool,
+
+		use~i					.default:n	= {true},
+		use~i					.initial:n	= {false},
+
+
+		%UNA CLAVE DE /pgfgo (stone, players, mark, notes, ...) VALE SOLO PARA ESTE goban; SI NO, ES EL TAMANO.
+		unknown						.code:n			= {
+																			\keys_if_exist:nVTF {pgfgo} \l_keys_key_str
+																				{
+																					\use:e {
+																						\exp_not:N \keys_set:nn {pgfgo}
+																							{\l_keys_key_str \tl_if_empty:nF {#1} {= {\exp_not:n {#1}}}}
+																					}
+																				}
+																				{\pgfgo_kernel_board_size:V\l_keys_key_str \bool_set_true:N \l__pgfgo_goban_size_bool}
+																		},
+		}
+	\prg_generate_conditional_variant:Nnn \keys_if_exist:nn {nV} {TF}
+
+	\cs_generate_variant:Nn \pgfgo_kernel_board_size:n {V, e}
+	\cs_generate_variant:Nn \prop_item:Nn {NV}
+
+	\keys_define:nn {pgfgo / goban / grid}{
+		false							.code:n			= {\bool_set_false:N \l_pgfgo_goban_grid_bool},
+		true							.code:n			= {\bool_set_true:N \l_pgfgo_goban_grid_bool},
+
+		line							.code:n			= {\keys_set:nn {pgfgo / goban / grid / line} {#1}},
+		line							.default:n	= {true},
+
+		x~sep							.dim_set:N	= \l_pgfgo_goban_grid_x_sep_dim,
+
+		y~sep							.dim_set:N	= \l_pgfgo_goban_grid_y_sep_dim,
+
+		sep								.code:n			= {\keys_set:nn{pgfgo / goban / grid}{x~sep = #1, y~sep = #1}},
+		sep								.initial:n	= {1.25em},
+
+		image							.code:n			= {\keys_set:nn {pgfgo / goban / grid / image} {#1}},
+	}
+
+	%UNA IMAGEN EN LUGAR DE LAS LINEAS. stretch: ESTIRADA DE A1 A LA ESQUINA OPUESTA DEL TABLERO COMPLETO;
+	%tile: EN UNA MALLA DE tiles (<COLUMNAS>x<FILAS>) SOBRE ESA MISMA AREA, ESTIRADA AL TAMANO DE CADA
+	%CELDA. SIN tiles, UNA EN CADA CASILLA DE LA CUADRICULA. rotate: COMO EN stone/image, REDONDEADO AL
+	%CUARTO DE VUELTA (CADA BALDOSA EL SUYO); GIRADA, LA IMAGEN OCUPA EL MISMO LUGAR. file: UNO O VARIOS
+	%ARCHIVOS; CON VARIOS, CADA BALDOSA USA UNO, ELEGIDO POR SU LUGAR EN LA MALLA (stretch: EL PRIMERO).
+	\seq_new:N \l_pgfgo_goban_grid_image_seq
+	\tl_new:N \l_pgfgo_goban_grid_image_fit_tl
+	\tl_new:N \l_pgfgo_goban_grid_image_tiles_tl
+	\tl_new:N \l_pgfgo_goban_grid_image_rotate_tl
+	\keys_define:nn {pgfgo / goban / grid / image}{
+		file							.code:n			= {\seq_set_from_clist:Nn \l_pgfgo_goban_grid_image_seq {#1}},
+		fit								.choices:nn	= {stretch, tile}
+			{\tl_set_eq:NN \l_pgfgo_goban_grid_image_fit_tl \l_keys_choice_tl},
+		fit								.initial:n	= {stretch},
+		tiles							.tl_set:N		= \l_pgfgo_goban_grid_image_tiles_tl,
+		rotate						.tl_set:N		= \l_pgfgo_goban_grid_image_rotate_tl,
+		false							.code:n			= {\seq_clear:N \l_pgfgo_goban_grid_image_seq},
+	}
+
+	%PUNTOS DE ESTRELLA. SIN color NI opacity, LOS DE LA CUADRICULA. at ELIGE LOS PUNTOS (VACIO: LOS DE SIEMPRE).
+	\bool_new:N \l_pgfgo_goban_hoshi_bool
+	\dim_new:N \l_pgfgo_goban_hoshi_radius_dim
+	\tl_new:N \l_pgfgo_goban_hoshi_color_tl
+	\tl_new:N \l_pgfgo_goban_hoshi_opacity_tl
+	\tl_new:N \l_pgfgo_goban_hoshi_at_tl
+	\keys_define:nn {pgfgo / goban / hoshi}{
+		true							.code:n			= {\bool_set_true:N \l_pgfgo_goban_hoshi_bool},
+		false							.code:n			= {\bool_set_false:N \l_pgfgo_goban_hoshi_bool},
+		radius						.dim_set:N	= \l_pgfgo_goban_hoshi_radius_dim,
+		radius						.initial:n	= {1.5pt},
+		color							.tl_set:N		= \l_pgfgo_goban_hoshi_color_tl,
+		opacity						.tl_set:N		= \l_pgfgo_goban_hoshi_opacity_tl,
+		at								.tl_set:N		= \l_pgfgo_goban_hoshi_at_tl,
+		image							.code:n			= {\keys_set:nn {pgfgo / goban / hoshi / image} {#1}},
+	}
+	%UNA IMAGEN EN CADA PUNTO EN LUGAR DEL CIRCULO. SIN width, DE ANCHO 2 radius. rotate: COMO EN
+	%stone/image (UN ANGULO, random O <MIN>:<MAX>, SIEMPRE EL MISMO EN CADA PUNTO).
+	\tl_new:N \l_pgfgo_goban_hoshi_image_tl
+	\tl_new:N \l_pgfgo_goban_hoshi_image_width_tl
+	\tl_new:N \l_pgfgo_goban_hoshi_image_rotate_tl
+	\keys_define:nn {pgfgo / goban / hoshi / image}{
+		file							.tl_set:N		= \l_pgfgo_goban_hoshi_image_tl,
+		width							.tl_set:N		= \l_pgfgo_goban_hoshi_image_width_tl,
+		rotate						.tl_set:N		= \l_pgfgo_goban_hoshi_image_rotate_tl,
+		false							.code:n			= {\tl_clear:N \l_pgfgo_goban_hoshi_image_tl},
+	}
+	\bool_set_true:N \l_pgfgo_goban_hoshi_bool
+
+	%false: SIN LAS LINEAS (LOS HOSHI Y LA IMAGEN DE LA CUADRICULA QUEDAN).
+	\bool_new:N \l_pgfgo_goban_grid_line_bool
+	\bool_set_true:N \l_pgfgo_goban_grid_line_bool
+	\keys_define:nn {pgfgo / goban / grid / line} {
+		true				.code:n			= {\bool_set_true:N \l_pgfgo_goban_grid_line_bool},
+		false				.code:n			= {\bool_set_false:N \l_pgfgo_goban_grid_line_bool},
+
+		color				.tl_set:N		= \l_pgfgo_goban_grid_color_tl,
+		color				.initial:n	= {black},
+
+		opacity			.tl_set:N = \l_pgfgo_goban_grid_opacity_tl,
+		opacity			.initial:n	= {1},
+
+		width				.dim_set:N	= \l_pgfgo_goban_grid_line_width_dim,
+		width				.initial:n	= {0.55pt}
+	}
+
+	\keys_define:nn {pgfgo / goban / background}{
+		false										.code:n = {\bool_set_false:N \l_pgfgo_goban_border_bool},
+		true										.code:n = {\bool_set_true:N \l_pgfgo_goban_border_bool},
+
+		sep											.dim_set:N 	= \l_pgfgo_goban_border_sep_dim,
+		sep											.initial:n	= {0.825em},
+
+		line										.code:n 	= {\keys_set:nn {pgfgo / goban / background / line} {#1}},
+		line										.default:n	= {true},
+
+		fill										.code:n 	= {\keys_set:nn {pgfgo / goban / background / fill} {#1}},
+		fill										.default:n	= {true},
+
+		rounded~corners					.code:n 	= {\keys_set:nn {pgfgo / goban / background / rounded~corners} {#1}},
+
+		shadow				.code:n =	{\keys_set:nn {pgfgo / goban / background / shadow} {#1}},
+		shadow				.default:n = {true}
+	}
+
+	\keys_define:nn {pgfgo / goban / background / rounded~corners } {
+		inner				.dim_set:N = \l_pgfgo_goban_border_inner_rounded_corners_dim,
+		inner				.initial:n = {0pt},
+		outer				.dim_set:N = \l_pgfgo_goban_border_rounded_corners_dim,
+		outer				.initial:n = {0pt},
+		unknown			.code:n		 = {
+			\dim_set:Nn\l_pgfgo_goban_border_rounded_corners_dim  			{\l_keys_key_str} \dim_set:Nn\l_pgfgo_goban_border_inner_rounded_corners_dim  {\l_keys_key_str}
+			},
+	}
+
+	\bool_new:N \l_pgfgo_goban_background_shadow_bool
+	\fp_new:N \l_pgfgo_goban_background_shadow_angle_fp
+	\dim_new:N \l_pgfgo_goban_background_shadow_offset_dim
+	\fp_new:N \l_pgfgo_goban_background_shadow_opacity_fp
+	\tl_new:N \l_pgfgo_goban_background_shadow_color_tl
+
+	\keys_define:nn {pgfgo / goban / background / shadow} {
+		true		.bool_set:N = \l_pgfgo_goban_background_shadow_bool,
+		true		.default:n = {true},
+
+		false		.bool_set:N = \l_pgfgo_goban_background_shadow_bool,
+		false		.default:n = {false},
+
+		angle		.fp_set:N = \l_pgfgo_goban_background_shadow_angle_fp,
+		angle		.initial:n = {-45},
+
+		offset 	.dim_set:N = \l_pgfgo_goban_background_shadow_offset_dim,
+		offset	.initial:n = {1.5pt},
+
+		opacity .fp_set:N = \l_pgfgo_goban_background_shadow_opacity_fp,
+		opacity	.initial:n = {0.5},
+
+		color 	.tl_set:N = \l_pgfgo_goban_background_shadow_color_tl,
+		color		.initial:n = {black},
+	}
+
+\keys_define:nn {pgfgo / goban / background / line}{
+	color				.tl_set:N = \l_pgfgo_goban_border_color_tl,
+	color				.initial:n	= {black},
+
+	opacity			.tl_set:N = \l_pgfgo_goban_border_opacity_tl,
+	opacity			.initial:n	= {1},
+
+	width				.dim_set:N = \l_pgfgo_goban_border_line_width_dim,
+	width				.initial:n = {0.75pt},
+
+	false				.code:n = {\bool_set_false:N\l_pgfgo_goban_border_line_bool},
+	true				.code:n = {\bool_set_true:N\l_pgfgo_goban_border_line_bool},
+}
+
+\keys_define:nn {pgfgo / goban / background / fill}{
+	color				.tl_set:N		= \l_pgfgo_goban_border_fill_color_tl,
+	color				.initial:n	= {white},
+
+	opacity			.tl_set:N 	= \l_pgfgo_goban_border_fill_opacity_tl,
+	opacity			.initial:n	= {1},
+
+	false				.code:n = {\bool_set_false:N\l_pgfgo_goban_border_fill_bool},
+	true				.code:n = {\bool_set_true:N\l_pgfgo_goban_border_fill_bool},
+
+	image				.code:n = {\keys_set:nn {pgfgo / goban / background / fill / image} {#1}},
+}
+
+%IMAGEN DE FONDO, SOBRE EL COLOR. SE UBICA SEGUN EL TABLERO COMPLETO (CON partial SE VE LA PARTE QUE
+%CORRESPONDE). stretch: OCUPA TODO EL FONDO; cover: MANTIENE LA PROPORCION Y CUBRE EL FONDO, CENTRADA;
+%tile: BALDOSAS DE ANCHO width (SIN width, EL NATURAL) DESDE LA ESQUINA O EL BORDE anchor (O EL CENTRO).
+%rotate Y VARIOS ARCHIVOS EN file: COMO EN grid/image (stretch Y cover: EL PRIMERO; tile SIN tiles: EL
+%TAMANO DE LAS BALDOSAS ES EL DEL PRIMERO).
+\seq_new:N \l_pgfgo_goban_background_image_seq
+\tl_new:N \l_pgfgo_goban_background_image_fit_tl
+\tl_new:N \l_pgfgo_goban_background_image_width_tl
+\tl_new:N \l_pgfgo_goban_background_image_anchor_tl
+\tl_new:N \l_pgfgo_goban_background_image_tiles_tl
+\tl_new:N \l_pgfgo_goban_background_image_rotate_tl
+\keys_define:nn {pgfgo / goban / background / fill / image}{
+	file				.code:n			= {\seq_set_from_clist:Nn \l_pgfgo_goban_background_image_seq {#1}},
+	fit					.choices:nn	= {stretch, cover, tile}
+		{\tl_set_eq:NN \l_pgfgo_goban_background_image_fit_tl \l_keys_choice_tl},
+	fit					.initial:n	= {cover},
+	width				.tl_set:N		= \l_pgfgo_goban_background_image_width_tl,
+	anchor			.choices:nn	= {south~west, south, south~east, west, center, east, north~west, north, north~east}
+		{\tl_set_eq:NN \l_pgfgo_goban_background_image_anchor_tl \l_keys_choice_tl},
+	anchor			.initial:n	= {south~west},
+	tiles				.tl_set:N		= \l_pgfgo_goban_background_image_tiles_tl,
+	rotate			.tl_set:N		= \l_pgfgo_goban_background_image_rotate_tl,
+	false				.code:n			= {\seq_clear:N \l_pgfgo_goban_background_image_seq},
+}
+
+	\keys_define:nn {pgfgo / goban / label} {
+		false				.code:n 		= {\keys_set:nn {pgfgo / goban / label / at} {none}},
+		%LETRAS ABAJO Y NUMEROS A LA IZQUIERDA: "A1" SE LEE DESDE LA ESQUINA INFERIOR IZQUIERDA.
+		true				.code:n 		= {\keys_set:nn {pgfgo / goban / label / at} {none, south, west}},
+
+		color				.tl_set:N 	= \l_pgfgo_goban_labels_color_tl,
+
+		sep					.dim_set:N 	= \l_pgfgo_goban_labels_sep_dim,
+
+		font				.tl_set:N 	= \l_pgfgo_goban_label_font_tl,
+		font				.initial:n	= {\sffamily},
+
+		%VACIO: TAMANO DEL TEXTO ACTUAL.
+		font~size		.tl_set:N 	= \l_pgfgo_goban_label_font_size_tl,
+
+		at					.code:n 		= {\keys_set:nx{pgfgo / goban / label / at} {#1}},
+
+		columns			.choices:nn	= {letters, numbers, kanji}
+			{\tl_set_eq:NN \l_pgfgo_goban_label_columns_tl \l_keys_choice_tl},
+		columns			.initial:n	= {letters},
+		rows				.choices:nn	= {letters, numbers, kanji}
+			{\tl_set_eq:NN \l_pgfgo_goban_label_rows_tl \l_keys_choice_tl},
+		rows				.initial:n	= {numbers},
+		columns~direction	.choices:nn	= {left~to~right, right~to~left}
+			{\tl_set_eq:NN \l_pgfgo_goban_label_columns_direction_tl \l_keys_choice_tl},
+		columns~direction	.initial:n	= {left~to~right},
+		rows~direction		.choices:nn	= {bottom~to~top, top~to~bottom}
+			{\tl_set_eq:NN \l_pgfgo_goban_label_rows_direction_tl \l_keys_choice_tl},
+		rows~direction		.initial:n	= {bottom~to~top},
+
+		%ESTILOS COMPLETOS. japanese: NUMEROS DESDE LA DERECHA ARRIBA Y KANJI DESDE ARRIBA AL COSTADO.
+		%chinese: IGUAL, PERO LOS NUMEROS DESDE LA IZQUIERDA.
+		style				.choice:,
+		style / western		.code:n	= {\keys_set:nn {pgfgo / goban / label}
+			{columns = letters, rows = numbers, columns~direction = left~to~right, rows~direction = bottom~to~top}},
+		style / japanese	.code:n	= {\keys_set:nn {pgfgo / goban / label}
+			{columns = numbers, rows = kanji, columns~direction = right~to~left, rows~direction = top~to~bottom}},
+		style / chinese		.code:n	= {\keys_set:nn {pgfgo / goban / label}
+			{columns = numbers, rows = kanji, columns~direction = left~to~right, rows~direction = top~to~bottom}},
+	}
+
+	%EL TEXTO DE LA COORDENADA DE LA COLUMNA O LA FILA #1.
+	\cs_new:Npn \__pgfgo_goban_column_label:n #1 {
+		\__pgfgo_goban_label_text:Vn \l_pgfgo_goban_label_columns_tl {
+			\str_if_eq:VnTF \l_pgfgo_goban_label_columns_direction_tl {right~to~left}
+				{\l_pgfgo_goban_size_x_int - (#1) + 1} {#1}
+		}
+	}
+	\cs_new:Npn \__pgfgo_goban_row_label:n #1 {
+		\__pgfgo_goban_label_text:Vn \l_pgfgo_goban_label_rows_tl {
+			\str_if_eq:VnTF \l_pgfgo_goban_label_rows_direction_tl {top~to~bottom}
+				{\l_pgfgo_goban_size_y_int - (#1) + 1} {#1}
+		}
+	}
+	\cs_new:Npn \__pgfgo_goban_label_text:nn #1#2 {
+		\str_case:nn {#1} {
+			{letters}	{\pgfgo_kernel_column_name:n {#2}}
+			{numbers}	{\int_eval:n {#2}}
+			{kanji}		{\pgfgo_int_to_kanji:n {#2}}
+		}
+	}
+	\cs_generate_variant:Nn \__pgfgo_goban_label_text:nn {V}
+
+
+	%FUENTE DE LAS COORDENADAS DEL BORDE.
+	\cs_new_protected:Nn \__pgfgo_goban_label_font: {
+		\tl_if_empty:NF \l_pgfgo_goban_label_font_size_tl {
+			\fontsize{\l_pgfgo_goban_label_font_size_tl}{\l_pgfgo_goban_label_font_size_tl}\selectfont
+		}
+		\l_pgfgo_goban_label_font_tl
+	}
+
+	\keys_define:nn {pgfgo / goban / label / at} {
+		all					.code:n = {
+			\bool_set_true:N\l_pgfgo_goban_labels_pos_north_bool
+			\bool_set_true:N\l_pgfgo_goban_labels_pos_east_bool
+			\bool_set_true:N\l_pgfgo_goban_labels_pos_south_bool
+			\bool_set_true:N\l_pgfgo_goban_labels_pos_west_bool
+													},
+
+		none					.code:n = {
+			\bool_set_false:N\l_pgfgo_goban_labels_pos_north_bool
+			\bool_set_false:N\l_pgfgo_goban_labels_pos_east_bool
+			\bool_set_false:N\l_pgfgo_goban_labels_pos_south_bool
+			\bool_set_false:N\l_pgfgo_goban_labels_pos_west_bool
+		},
+
+		north				.bool_set:N = \l_pgfgo_goban_labels_pos_north_bool,
+		north				.default:n = {true},
+
+		east				.bool_set:N = \l_pgfgo_goban_labels_pos_east_bool,
+		east				.default:n = {true},
+
+		south				.bool_set:N = \l_pgfgo_goban_labels_pos_south_bool,
+		south				.default:n = {true},
+
+		west				.bool_set:N = \l_pgfgo_goban_labels_pos_west_bool,
+		west				.default:n = {true},
+
+		above				.bool_set:N = \l_pgfgo_goban_labels_pos_north_bool,
+		above				.default:n = {true},
+
+		right				.bool_set:N = \l_pgfgo_goban_labels_pos_east_bool,
+		right				.default:n = {true},
+
+		below				.bool_set:N = \l_pgfgo_goban_labels_pos_south_bool,
+		below				.default:n = {true},
+
+		left				.bool_set:N = \l_pgfgo_goban_labels_pos_west_bool,
+		left				.default:n = {true},
+	}
+
+	%LAS ESQUINAS #1: <ESQUINA>:<ESQUINA>, <ESQUINA>, <ESQUINA> O <ESQUINA> to <ESQUINA>. EL VALOR SE PASA A
+	%CADENA: EL : PUEDE LLEGAR ACTIVO (babel francais).
+	\msg_new:nnn {pgfgo} {partial-corners}
+		{'#1'~is~not~a~part~of~the~board.~Write~two~corners,~as~in~'partial~=~B2:D4'.}
+	\str_new:N \l__pgfgo_goban_partial_str
+	\seq_new:N \l__pgfgo_goban_partial_seq
+	\cs_new_protected:Npn \__pgfgo_goban_partial_corners:n #1 {
+		\str_set:Nn \l__pgfgo_goban_partial_str {#1}
+		\str_if_in:NnTF \l__pgfgo_goban_partial_str {:}
+			{\seq_set_split:NVV \l__pgfgo_goban_partial_seq \c_colon_str \l__pgfgo_goban_partial_str}
+			{\seq_set_split:NnV \l__pgfgo_goban_partial_seq {,} \l__pgfgo_goban_partial_str}
+		\int_compare:nNnTF {\seq_count:N \l__pgfgo_goban_partial_seq} = {2}
+			{
+				\pgfgo_kernel_board_window:e {
+					\seq_item:Nn \l__pgfgo_goban_partial_seq {1} \c_space_tl to \c_space_tl
+					\seq_item:Nn \l__pgfgo_goban_partial_seq {2}
+				}
+			}
+			{
+				\str_if_in:NnTF \l__pgfgo_goban_partial_str {to}
+					{\pgfgo_kernel_board_window:V \l__pgfgo_goban_partial_str}
+					{\msg_error:nnV {pgfgo} {partial-corners} \l__pgfgo_goban_partial_str}
+			}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_board_window:n {V, e}
+	\cs_generate_variant:Nn \msg_error:nnn {nnV}
+	\cs_generate_variant:Nn \seq_set_split:Nnn {NnV}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------goban-----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+	%EL CONTORNO DEL FONDO DE LA PARTE VISIBLE (#1 Y #2: EL TAMANO COMPLETO). LAS ESQUINAS DEL TABLERO
+	%COMPLETO VAN CON rounded corners/outer Y LAS DEMAS CON inner.
+	\cs_new_protected:Npn \__pgfgo_goban_background_path:nn #1#2 {
+		\pgfpathmoveto {\__pgfgo_goban_background_point:NnNn \l_pgfgo_goban_from_x_int {-} \l_pgfgo_goban_from_y_int {-}}
+		\__pgfgo_goban_background_corner:NnnNnn \l_pgfgo_goban_to_x_int {#1} {} \l_pgfgo_goban_from_y_int {1} {-}
+		\__pgfgo_goban_background_corner:NnnNnn \l_pgfgo_goban_to_x_int {#1} {} \l_pgfgo_goban_to_y_int {#2} {}
+		\__pgfgo_goban_background_corner:NnnNnn \l_pgfgo_goban_from_x_int {1} {-} \l_pgfgo_goban_to_y_int {#2} {}
+		\__pgfgo_goban_background_arc:NnNn \l_pgfgo_goban_from_x_int {1} \l_pgfgo_goban_from_y_int {1}
+		\pgfpathclose
+	}
+
+	%LA ESQUINA DEL FONDO EN LA INTERSECCION (#1,#3), CORRIDA border sep HACIA AFUERA (#2 Y #4: - O NADA).
+	\cs_new_protected:Npn \__pgfgo_goban_background_point:NnNn #1#2#3#4 {
+		\pgfpointadd
+			{\pgfpointxy{#1}{#3}}
+			{\pgfpoint{#2\l_pgfgo_goban_border_sep_dim}{#4\l_pgfgo_goban_border_sep_dim}}
+	}
+
+	%EL REDONDEO DE LA PROXIMA ESQUINA, EN LA INTERSECCION (#1,#3): outer SI ES UNA ESQUINA DEL TABLERO
+	%COMPLETO (#1 = #2 Y #3 = #4), SI NO inner.
+	\cs_new_protected:Npn \__pgfgo_goban_background_arc:NnNn #1#2#3#4 {
+		\bool_lazy_and:nnTF {\int_compare_p:nNn {#1} = {#2}} {\int_compare_p:nNn {#3} = {#4}}
+			{\__pgfgo_goban_background_arc:N \l_pgfgo_goban_border_rounded_corners_dim}
+			{\__pgfgo_goban_background_arc:N \l_pgfgo_goban_border_inner_rounded_corners_dim}
+	}
+	\cs_new_protected:Npn \__pgfgo_goban_background_arc:N #1 {
+		\pgfsetcornersarced {\pgfpoint{#1}{#1}}
+	}
+
+	%UNA ESQUINA: (#1,#4), CON EL BORDE DEL TABLERO COMPLETO EN #2 Y #5 Y LOS SIGNOS EN #3 Y #6.
+	\cs_new_protected:Npn \__pgfgo_goban_background_corner:NnnNnn #1#2#3#4#5#6 {
+		\__pgfgo_goban_background_arc:NnNn #1 {#2} #4 {#5}
+		\pgfpathlineto {\__pgfgo_goban_background_point:NnNn #1 {#3} #4 {#6}}
+	}
+
+	%HAY IMAGEN DE FONDO (Y EL FONDO SE RELLENA).
+	\prg_new_conditional:Npnn \pgfgo_goban_if_background_image: {T, F, TF} {
+		\bool_lazy_all:nTF {
+			{\l_pgfgo_goban_border_bool}
+			{\l_pgfgo_goban_border_fill_bool}
+			{! \seq_if_empty_p:N \l_pgfgo_goban_background_image_seq}
+		} {\prg_return_true:} {\prg_return_false:}
+	}
+
+	%DIBUJA LA IMAGEN DE FONDO DEL TABLERO COMPLETO (EL RECORTE LO HACE QUIEN LLAMA). LAS MARCAS LA
+	%VUELVEN A DIBUJAR DEBAJO DE ELLAS, EN LUGAR DEL COLOR DEL FONDO.
+	\dim_new:N \l__pgfgo_goban_image_x_dim
+	\dim_new:N \l__pgfgo_goban_image_y_dim
+	\dim_new:N \l__pgfgo_goban_image_w_dim
+	\dim_new:N \l__pgfgo_goban_image_h_dim
+	\fp_new:N \l__pgfgo_goban_image_fp
+	\cs_new_protected:Npn \pgfgo_goban_background_image: {
+		\__pgfgo_goban_image_files:N \l_pgfgo_goban_background_image_seq
+		%ESQUINA INFERIOR IZQUIERDA Y TAMANO DEL FONDO DEL TABLERO COMPLETO.
+		\dim_set:Nn \l__pgfgo_goban_image_x_dim {\l_pgfgo_goban_grid_x_sep_dim - \l_pgfgo_goban_border_sep_dim}
+		\dim_set:Nn \l__pgfgo_goban_image_y_dim {\l_pgfgo_goban_grid_y_sep_dim - \l_pgfgo_goban_border_sep_dim}
+		\dim_set:Nn \l__pgfgo_goban_image_w_dim
+			{\l_pgfgo_goban_grid_x_sep_dim * (\l_pgfgo_goban_size_x_int - 1) + 2 \l_pgfgo_goban_border_sep_dim}
+		\dim_set:Nn \l__pgfgo_goban_image_h_dim
+			{\l_pgfgo_goban_grid_y_sep_dim * (\l_pgfgo_goban_size_y_int - 1) + 2 \l_pgfgo_goban_border_sep_dim}
+		\str_case:Vn \l_pgfgo_goban_background_image_fit_tl {
+			{stretch} {
+				\__pgfgo_goban_image_fill:NNnnnnn
+					\l__pgfgo_goban_image_file_tl \l_pgfgo_goban_background_image_rotate_tl
+					{\l__pgfgo_goban_image_w_dim} {\l__pgfgo_goban_image_h_dim}
+					{\__pgfgo_goban_background_image_center:} {1} {1}
+			}
+			%CON UN CUARTO DE VUELTA, EL ANCHO DE LA IMAGEN CUBRE EL ALTO DEL FONDO Y AL REVES.
+			{cover} {
+				\pgfgo_image_measure:V \l__pgfgo_goban_image_file_tl
+				\__pgfgo_goban_quarter:Nnn \l_pgfgo_goban_background_image_rotate_tl {1} {1}
+				\int_if_odd:nT {\l__pgfgo_goban_quarter_int} {
+					\dim_set_eq:NN \l__pgfgo_goban_cell_w_dim \l_pgfgo_image_width_dim
+					\dim_set_eq:NN \l_pgfgo_image_width_dim \l_pgfgo_image_height_dim
+					\dim_set_eq:NN \l_pgfgo_image_height_dim \l__pgfgo_goban_cell_w_dim
+				}
+				\fp_set:Nn \l__pgfgo_goban_image_fp {
+					max(\dim_to_fp:n {\l__pgfgo_goban_image_w_dim} / \dim_to_fp:n {\l_pgfgo_image_width_dim},
+						\dim_to_fp:n {\l__pgfgo_goban_image_h_dim} / \dim_to_fp:n {\l_pgfgo_image_height_dim})
+				}
+				\pgfgo_image_load:Ve \l__pgfgo_goban_image_file_tl {
+					width = \fp_to_dim:n {ceil(\l__pgfgo_goban_image_fp *
+						\int_if_odd:nTF {\l__pgfgo_goban_quarter_int}
+							{\l_pgfgo_image_height_dim} {\l_pgfgo_image_width_dim}, 2)}
+				}
+				\__pgfgo_goban_image_turn:n {\__pgfgo_goban_background_image_center:}
+			}
+			{tile} {
+				\tl_if_empty:NTF \l_pgfgo_goban_background_image_tiles_tl
+					{\__pgfgo_goban_background_image_tile:}
+					{
+						\__pgfgo_goban_tiles:VNN \l_pgfgo_goban_background_image_tiles_tl
+							\l__pgfgo_goban_tiles_x_int \l__pgfgo_goban_tiles_y_int
+						\pgfgo_image_load:Ve \l__pgfgo_goban_image_file_tl {
+							width = \fp_to_dim:n {\l__pgfgo_goban_image_w_dim / \l__pgfgo_goban_tiles_x_int},
+							height = \fp_to_dim:n {\l__pgfgo_goban_image_h_dim / \l__pgfgo_goban_tiles_y_int}
+						}
+						\__pgfgo_goban_mesh:NNnnnn
+							\l__pgfgo_goban_image_file_tl \l_pgfgo_goban_background_image_rotate_tl
+							{\l__pgfgo_goban_image_x_dim} {\l__pgfgo_goban_image_y_dim}
+							{\l__pgfgo_goban_tiles_x_int} {\l__pgfgo_goban_tiles_y_int}
+					}
+			}
+		}
+	}
+
+	%LA IMAGEN DE FONDO DEBAJO DE UNA MARCA EN EL PUNTO (#1,#2): CON BALDOSAS, SOLO LAS QUE TOCAN SU CASILLA.
+	\tl_new:N \l__pgfgo_goban_image_point_x_tl
+	\tl_new:N \l__pgfgo_goban_image_point_y_tl
+	\cs_new_protected:Npn \pgfgo_goban_background_image:nn #1#2 {
+		\group_begin:
+		\tl_set:Nn \l__pgfgo_goban_image_point_x_tl {#1}
+		\tl_set:Nn \l__pgfgo_goban_image_point_y_tl {#2}
+		\pgfgo_goban_background_image:
+		\group_end:
+	}
+	\cs_generate_variant:Nn \pgfgo_goban_background_image:nn {VV}
+
+	%EL CENTRO DEL FONDO DEL TABLERO COMPLETO (UN PUNTO DE PGF).
+	\cs_new:Npn \__pgfgo_goban_background_image_center: {
+		\pgfpoint
+			{\l__pgfgo_goban_image_x_dim + 0.5 \l__pgfgo_goban_image_w_dim}
+			{\l__pgfgo_goban_image_y_dim + 0.5 \l__pgfgo_goban_image_h_dim}
+	}
+
+	%EL GIRO DE LAS IMAGENES DE LA CUADRICULA Y DEL FONDO: EL ANGULO DE #1 (rotate) EN LA CELDA (#2,#3),
+	%REDONDEADO AL CUARTO DE VUELTA, EN \l__pgfgo_goban_quarter_int (0 A 3; SIN rotate, 0).
+	\int_new:N \l__pgfgo_goban_quarter_int
+	\cs_new_protected:Npn \__pgfgo_goban_quarter:Nnn #1#2#3 {
+		\tl_if_blank:VTF #1
+			{\int_zero:N \l__pgfgo_goban_quarter_int}
+			{
+				\pgfgo_image_angle:Nnn #1 {#2} {#3}
+				\int_set:Nn \l__pgfgo_goban_quarter_int {\fp_eval:n {round(\l_pgfgo_image_angle_fp / 90)}}
+				\int_set:Nn \l__pgfgo_goban_quarter_int
+					{\l__pgfgo_goban_quarter_int - 4 * \int_div_truncate:nn {\l__pgfgo_goban_quarter_int} {4}}
+				\int_compare:nNnT {\l__pgfgo_goban_quarter_int} < {0} {\int_add:Nn \l__pgfgo_goban_quarter_int {4}}
+			}
+	}
+	%DIBUJA LA ULTIMA IMAGEN CARGADA, CENTRADA EN #1 Y GIRADA \l__pgfgo_goban_quarter_int CUARTOS DE VUELTA.
+	\cs_new_protected:Npn \__pgfgo_goban_image_turn:n #1 {
+		\int_compare:nNnTF {\l__pgfgo_goban_quarter_int} = {0}
+			{\pgfgo_image_draw:n {#1}}
+			{
+				\pgfscope
+					\pgftransformshift {#1}
+					\pgftransformrotate {\int_eval:n {90 * \l__pgfgo_goban_quarter_int}}
+					\pgfgo_image_draw:
+				\endpgfscope
+			}
+	}
+	%DIBUJA LA IMAGEN #1, GIRADA SEGUN #2 (rotate) EN LA CELDA (#6,#7), EN EL RECTANGULO DE #3 x #4 CENTRADO
+	%EN #5: CON UN CUARTO DE VUELTA, SE CARGA CON EL ANCHO Y EL ALTO CAMBIADOS.
+	\cs_new_protected:Npn \__pgfgo_goban_image_fill:NNnnnnn #1#2#3#4#5#6#7 {
+		\__pgfgo_goban_quarter:Nnn #2 {#6} {#7}
+		\int_if_odd:nTF {\l__pgfgo_goban_quarter_int}
+			{\pgfgo_image_load:Ve #1 {width = \dim_eval:n {#4}, height = \dim_eval:n {#3}}}
+			{\pgfgo_image_load:Ve #1 {width = \dim_eval:n {#3}, height = \dim_eval:n {#4}}}
+		\__pgfgo_goban_image_turn:n {#5}
+	}
+	%UNA BALDOSA: SIN rotate Y CON UN SOLO ARCHIVO, LA ULTIMA IMAGEN CARGADA, SIN VOLVER A CARGARLA. CON
+	%VARIOS, EL QUE TOCA A LA CELDA (#6,#7), CON EL TAMANO DE LA BALDOSA.
+	\cs_new_protected:Npn \__pgfgo_goban_image_cell:NNnnnnn #1#2#3#4#5#6#7 {
+		\bool_lazy_and:nnTF
+			{\tl_if_blank_p:V #2}
+			{\int_compare_p:nNn {\seq_count:N \l__pgfgo_goban_image_seq} < {2}}
+			{\pgfgo_image_draw:n {#5}}
+			{
+				\__pgfgo_goban_image_pick:nn {#6} {#7}
+				\__pgfgo_goban_image_fill:NNnnnnn #1 #2 {#3} {#4} {#5} {#6} {#7}
+			}
+	}
+	\cs_generate_variant:Nn \tl_if_blank_p:n {V}
+
+	%LOS ARCHIVOS DE LA IMAGEN QUE SE DIBUJA (#1, UNA seq) Y EL PRIMERO, EN \l__pgfgo_goban_image_file_tl.
+	\seq_new:N \l__pgfgo_goban_image_seq
+	\tl_new:N \l__pgfgo_goban_image_file_tl
+	\cs_new_protected:Npn \__pgfgo_goban_image_files:N #1 {
+		\seq_set_eq:NN \l__pgfgo_goban_image_seq #1
+		\tl_set:Ne \l__pgfgo_goban_image_file_tl {\seq_item:Nn #1 {1}}
+	}
+	%EL ARCHIVO DE LA BALDOSA (#1,#2), SIEMPRE EL MISMO EN CADA LUGAR DE LA MALLA (COMO EN LAS PIEDRAS).
+	\fp_new:N \l__pgfgo_goban_pick_fp
+	\cs_new_protected:Npn \__pgfgo_goban_image_pick:nn #1#2 {
+		\tl_set:Ne \l__pgfgo_goban_image_file_tl {
+			\seq_item:Nn \l__pgfgo_goban_image_seq
+				{\pgfgo_image_pick:nnn {#1} {#2} {\seq_count:N \l__pgfgo_goban_image_seq}}
+		}
+	}
+	%EL TAMANO DE LAS BALDOSAS (EL DE LA IMAGEN SIN GIRAR).
+	\dim_new:N \l__pgfgo_goban_cell_w_dim
+	\dim_new:N \l__pgfgo_goban_cell_h_dim
+
+	%SOLO LAS BALDOSAS QUE TOCAN EL FONDO DE LA PARTE VISIBLE. LAS BALDOSAS SE ALINEAN CON LA ESQUINA anchor
+	%O EL BORDE anchor DEL FONDO DEL TABLERO COMPLETO (CENTRADAS EN EL BORDE); CON center, EN EL CENTRO.
+	\dim_new:N \l__pgfgo_goban_tile_x_dim
+	\dim_new:N \l__pgfgo_goban_tile_y_dim
+	\cs_new_protected:Npn \__pgfgo_goban_background_image_tile: {
+		\tl_if_empty:NTF \l_pgfgo_goban_background_image_width_tl
+			{\pgfgo_image_load:Ve \l__pgfgo_goban_image_file_tl {}}
+			{
+				\pgfgo_image_load:Ve \l__pgfgo_goban_image_file_tl
+					{width = \dim_eval:n {\l_pgfgo_goban_background_image_width_tl}}
+			}
+		\dim_set_eq:NN \l__pgfgo_goban_cell_w_dim \l_pgfgo_image_width_dim
+		\dim_set_eq:NN \l__pgfgo_goban_cell_h_dim \l_pgfgo_image_height_dim
+		%LA ESQUINA INFERIOR IZQUIERDA DE UNA BALDOSA, DESDE LA DEL FONDO COMPLETO: CONTRA EL BORDE QUE
+		%NOMBRA anchor O, EN LA OTRA DIRECCION, CENTRADA.
+		\__pgfgo_goban_tile_start:Nnnnn \l__pgfgo_goban_tile_x_dim
+			{west} {east} {\l__pgfgo_goban_image_w_dim} {\l__pgfgo_goban_cell_w_dim}
+		\__pgfgo_goban_tile_start:Nnnnn \l__pgfgo_goban_tile_y_dim
+			{south} {north} {\l__pgfgo_goban_image_h_dim} {\l__pgfgo_goban_cell_h_dim}
+		\tl_if_empty:NTF \l__pgfgo_goban_image_point_x_tl
+			{
+				\int_set:Nn \l__pgfgo_goban_tile_x_first_int {\__pgfgo_goban_tile_first:nnnn {\l_pgfgo_goban_from_x_int} {\l_pgfgo_goban_grid_x_sep_dim} {\l__pgfgo_goban_cell_w_dim} {\l__pgfgo_goban_tile_x_dim}}
+				\int_set:Nn \l__pgfgo_goban_tile_x_last_int {\__pgfgo_goban_tile_last:nnnn {\l_pgfgo_goban_to_x_int} {\l_pgfgo_goban_grid_x_sep_dim} {\l__pgfgo_goban_cell_w_dim} {\l__pgfgo_goban_tile_x_dim}}
+				\int_set:Nn \l__pgfgo_goban_tile_y_first_int {\__pgfgo_goban_tile_first:nnnn {\l_pgfgo_goban_from_y_int} {\l_pgfgo_goban_grid_y_sep_dim} {\l__pgfgo_goban_cell_h_dim} {\l__pgfgo_goban_tile_y_dim}}
+				\int_set:Nn \l__pgfgo_goban_tile_y_last_int {\__pgfgo_goban_tile_last:nnnn {\l_pgfgo_goban_to_y_int} {\l_pgfgo_goban_grid_y_sep_dim} {\l__pgfgo_goban_cell_h_dim} {\l__pgfgo_goban_tile_y_dim}}
+			}
+			{
+				\__pgfgo_goban_tile_point:NNVnnn \l__pgfgo_goban_tile_x_first_int \l__pgfgo_goban_tile_x_last_int
+					\l__pgfgo_goban_image_point_x_tl {\l_pgfgo_goban_grid_x_sep_dim} {\l__pgfgo_goban_cell_w_dim} {\l__pgfgo_goban_tile_x_dim}
+				\__pgfgo_goban_tile_point:NNVnnn \l__pgfgo_goban_tile_y_first_int \l__pgfgo_goban_tile_y_last_int
+					\l__pgfgo_goban_image_point_y_tl {\l_pgfgo_goban_grid_y_sep_dim} {\l__pgfgo_goban_cell_h_dim} {\l__pgfgo_goban_tile_y_dim}
+			}
+		\int_step_inline:nnn {\l__pgfgo_goban_tile_x_first_int} {\l__pgfgo_goban_tile_x_last_int}
+			{
+				\int_step_inline:nnn {\l__pgfgo_goban_tile_y_first_int} {\l__pgfgo_goban_tile_y_last_int}
+					{
+						\__pgfgo_goban_image_cell:NNnnnnn
+							\l__pgfgo_goban_image_file_tl \l_pgfgo_goban_background_image_rotate_tl
+							{\l__pgfgo_goban_cell_w_dim} {\l__pgfgo_goban_cell_h_dim}
+							{
+								\pgfpoint
+									{\l__pgfgo_goban_image_x_dim + \l__pgfgo_goban_tile_x_dim + \fp_to_dim:n {(##1 + 0.5) * \l__pgfgo_goban_cell_w_dim}}
+									{\l__pgfgo_goban_image_y_dim + \l__pgfgo_goban_tile_y_dim + \fp_to_dim:n {(####1 + 0.5) * \l__pgfgo_goban_cell_h_dim}}
+							}
+							{##1} {####1}
+					}
+			}
+	}
+	%LA MALLA tiles = <COLUMNAS>x<FILAS> (O UN SOLO NUMERO PARA LAS DOS) EN #2 Y #3.
+	\seq_new:N \l__pgfgo_goban_tiles_seq
+	\msg_new:nnn {pgfgo} {image-tiles}
+		{Image~tiles~must~be~'<columns>x<rows>'~or~a~number~(not~'#1').~One~tile~is~used.}
+	\cs_new_protected:Npn \__pgfgo_goban_tiles:nNN #1#2#3 {
+		\seq_set_split:Nnn \l__pgfgo_goban_tiles_seq {x} {#1}
+		\int_set:Nn #2 {\seq_item:Nn \l__pgfgo_goban_tiles_seq {1}}
+		\int_set:Nn #3 {\seq_item:Nn \l__pgfgo_goban_tiles_seq {-1}}
+		\bool_lazy_or:nnT {\int_compare_p:nNn {#2} < {1}} {\int_compare_p:nNn {#3} < {1}} {
+			\msg_warning:nnn {pgfgo} {image-tiles} {#1}
+			\int_set:Nn #2 {1}
+			\int_set:Nn #3 {1}
+		}
+	}
+	\cs_generate_variant:Nn \__pgfgo_goban_tiles:nNN {V}
+	\int_new:N \l__pgfgo_goban_tiles_x_int
+	\int_new:N \l__pgfgo_goban_tiles_y_int
+
+	%DIBUJA LA ULTIMA IMAGEN CARGADA (#1, GIRADA SEGUN #2) EN CADA CELDA DE UNA MALLA DE #5 x #6 QUE
+	%EMPIEZA EN (#3,#4) (PUNTOS DE PGF EN dim) Y CUYAS CELDAS MIDEN LO QUE LA IMAGEN.
+	%DEBAJO DE UNA MARCA (SOLO EN EL FONDO), SOLO LAS CELDAS QUE TOCAN SU CASILLA.
+	\cs_new_protected:Npn \__pgfgo_goban_mesh:NNnnnn #1#2#3#4#5#6 {
+		\dim_set_eq:NN \l__pgfgo_goban_cell_w_dim \l_pgfgo_image_width_dim
+		\dim_set_eq:NN \l__pgfgo_goban_cell_h_dim \l_pgfgo_image_height_dim
+		\int_zero:N \l__pgfgo_goban_tile_x_first_int
+		\int_set:Nn \l__pgfgo_goban_tile_x_last_int {#5 - 1}
+		\int_zero:N \l__pgfgo_goban_tile_y_first_int
+		\int_set:Nn \l__pgfgo_goban_tile_y_last_int {#6 - 1}
+		\tl_if_empty:NF \l__pgfgo_goban_image_point_x_tl {
+			\__pgfgo_goban_tile_point:NNVnnn \l__pgfgo_goban_tile_x_first_int \l__pgfgo_goban_tile_x_last_int
+				\l__pgfgo_goban_image_point_x_tl {\l_pgfgo_goban_grid_x_sep_dim} {\l__pgfgo_goban_cell_w_dim} {0pt}
+			\__pgfgo_goban_tile_point:NNVnnn \l__pgfgo_goban_tile_y_first_int \l__pgfgo_goban_tile_y_last_int
+				\l__pgfgo_goban_image_point_y_tl {\l_pgfgo_goban_grid_y_sep_dim} {\l__pgfgo_goban_cell_h_dim} {0pt}
+			\int_set:Nn \l__pgfgo_goban_tile_x_first_int {\int_max:nn {\l__pgfgo_goban_tile_x_first_int} {0}}
+			\int_set:Nn \l__pgfgo_goban_tile_x_last_int {\int_min:nn {\l__pgfgo_goban_tile_x_last_int} {#5 - 1}}
+			\int_set:Nn \l__pgfgo_goban_tile_y_first_int {\int_max:nn {\l__pgfgo_goban_tile_y_first_int} {0}}
+			\int_set:Nn \l__pgfgo_goban_tile_y_last_int {\int_min:nn {\l__pgfgo_goban_tile_y_last_int} {#6 - 1}}
+		}
+		\int_step_inline:nnn {\l__pgfgo_goban_tile_x_first_int} {\l__pgfgo_goban_tile_x_last_int} {
+			\int_step_inline:nnn {\l__pgfgo_goban_tile_y_first_int} {\l__pgfgo_goban_tile_y_last_int} {
+				\__pgfgo_goban_image_cell:NNnnnnn #1 #2
+					{\l__pgfgo_goban_cell_w_dim} {\l__pgfgo_goban_cell_h_dim}
+					{
+						\pgfpoint
+							{#3 + \fp_to_dim:n {(##1 + 0.5) * \l__pgfgo_goban_cell_w_dim}}
+							{#4 + \fp_to_dim:n {(####1 + 0.5) * \l__pgfgo_goban_cell_h_dim}}
+					}
+					{##1} {####1}
+			}
+		}
+	}
+
+	%#1: DONDE EMPIEZA LA BALDOSA ALINEADA EN UNA DIRECCION: 0 SI anchor NOMBRA EL BORDE #2, EL TAMANO DEL
+	%FONDO #4 SI NOMBRA EL BORDE #3 Y, SI NO NOMBRA NINGUNO, CENTRADA (#5: TAMANO DE LA BALDOSA).
+	\cs_new_protected:Npn \__pgfgo_goban_tile_start:Nnnnn #1#2#3#4#5 {
+		\tl_if_in:NnTF \l_pgfgo_goban_background_image_anchor_tl {#2}
+			{\dim_zero:N #1}
+			{
+				\tl_if_in:NnTF \l_pgfgo_goban_background_image_anchor_tl {#3}
+					{\dim_set:Nn #1 {#4}}
+					{\dim_set:Nn #1 {0.5 #4 - 0.5 #5}}
+			}
+	}
+	%LA PRIMERA Y LA ULTIMA BALDOSA QUE TOCAN LA PARTE VISIBLE, CONTANDO DESDE 0 EN LA BALDOSA ALINEADA.
+	%#1: PRIMERA (O ULTIMA) LINEA VISIBLE, #2: SEPARACION DE LAS LINEAS, #3: TAMANO DE LA BALDOSA, #4: DONDE
+	%EMPIEZA LA BALDOSA ALINEADA, DESDE LA ESQUINA DEL FONDO COMPLETO.
+	\cs_new:Npn \__pgfgo_goban_tile_first:nnnn #1#2#3#4 {
+		\fp_eval:n {floor((((#1) - 1) * \dim_to_fp:n {#2} - \dim_to_fp:n {#4}) / \dim_to_fp:n {#3})}
+	}
+	\cs_new:Npn \__pgfgo_goban_tile_last:nnnn #1#2#3#4 {
+		\fp_eval:n {
+			ceil((((#1) - 1) * \dim_to_fp:n {#2} + 2 * \dim_to_fp:n {\l_pgfgo_goban_border_sep_dim}
+				- \dim_to_fp:n {#4}) / \dim_to_fp:n {#3}) - 1
+		}
+	}
+	%LO MISMO DEBAJO DE UNA MARCA EN LA LINEA #3: LAS BALDOSAS (#1 A #2) QUE TOCAN SU CASILLA O SU CIRCULO, SI
+	%ES MAS GRANDE. #4 A #6 COMO #2 A #4 ARRIBA.
+	\int_new:N \l__pgfgo_goban_tile_x_first_int
+	\int_new:N \l__pgfgo_goban_tile_x_last_int
+	\int_new:N \l__pgfgo_goban_tile_y_first_int
+	\int_new:N \l__pgfgo_goban_tile_y_last_int
+	\fp_new:N \l__pgfgo_goban_tile_center_fp
+	\fp_new:N \l__pgfgo_goban_tile_half_fp
+	\cs_new_protected:Npn \__pgfgo_goban_tile_point:NNnnnn #1#2#3#4#5#6 {
+		\fp_set:Nn \l__pgfgo_goban_tile_center_fp
+			{((#3) - 1) * \dim_to_fp:n {#4} + \dim_to_fp:n {\l_pgfgo_goban_border_sep_dim} - \dim_to_fp:n {#6}}
+		\fp_set:Nn \l__pgfgo_goban_tile_half_fp
+			{max(0.5 * \dim_to_fp:n {#4}, \dim_to_fp:n {\l_pgfgo_players_stone_radius_dim})}
+		\int_set:Nn #1 {\fp_eval:n
+			{floor((\l__pgfgo_goban_tile_center_fp - \l__pgfgo_goban_tile_half_fp) / \dim_to_fp:n {#5})}}
+		\int_set:Nn #2 {\fp_eval:n
+			{ceil((\l__pgfgo_goban_tile_center_fp + \l__pgfgo_goban_tile_half_fp) / \dim_to_fp:n {#5}) - 1}}
+	}
+	\cs_generate_variant:Nn \__pgfgo_goban_tile_point:NNnnnn {NNV}
+
+	%CAPAS. EL \pgfonlayer DE PGF METE LO QUE YA TENIA LA CAPA DENTRO DE LA CAJA NUEVA: CON MILES DE MARCAS
+	%(\territory{auto} EN UN TABLERO GRANDE) EL ANIDAMIENTO DESBORDA LA PILA DE LuaTeX AL ARMAR LA PAGINA,
+	%SIN NINGUN MENSAJE. EN EL goban, CADA \pgfonlayer VA EN SU CAJA, AL LADO DE LAS ANTERIORES; LO DEMAS ES
+	%COMO EN PGF. \__pgfgo_goban_layer_close: CIERRA LA CAJA DE LA CAPA (NADA SI YA SE ESTABA EN ELLA).
+	\cs_new_protected:Npn \__pgfgo_goban_onlayer:n #1 {
+		\pgfutil@ifundefined {pgf@layerbox@#1} {
+			\pgferror {Sorry,~the~requested~layer~'#1'~could~not~be~found.~Maybe~you~misspelled~it?}
+			\cs_set_eq:NN \__pgfgo_goban_layer_close: \prg_do_nothing:
+			\bgroup
+			\begingroup
+		}{
+			\begingroup
+			\tl_set:Nn \pgf@temp {#1}
+			\tl_if_eq:NNTF \pgf@temp \pgfonlayer@name
+				{
+					\cs_set_eq:NN \__pgfgo_goban_layer_close: \prg_do_nothing:
+					\cs_set:Npn \pgf@temp {\bgroup \begingroup}
+				}{
+					\cs_set_eq:NN \pgfonlayer@name \pgf@temp
+					\pgfonlayer@assert@is@active
+					\cs_set_eq:NN \__pgfgo_goban_layer_close: \egroup
+					\cs_set:Npn \pgf@temp {
+						\tex_global:D \tex_setbox:D \cs:w pgf@layerbox@#1 \cs_end: = \tex_hbox:D to 0pt \bgroup
+							\tex_unhbox:D \cs:w pgf@layerbox@#1 \cs_end:
+							\tex_hbox:D to 0pt \bgroup
+								\begingroup
+					}
+				}
+			\pgfsetlinewidth {0.4pt}
+			\pgf@temp
+		}
+	}
+	\cs_new_protected:Npn \__pgfgo_goban_endlayer: {
+				\endgroup
+				\hss
+			\egroup
+		\__pgfgo_goban_layer_close:
+		\endgroup
+	}
+	\cs_new_eq:NN \__pgfgo_goban_layer_close: \prg_do_nothing:
+
+	%EL SISTEMA DE COORDENADAS go DE TikZ: (go cs:B3) ES LA INTERSECCION B3 DEL goban (UNA SOLA, COMO EN
+	%\arrow Y \line; PUEDE ESTAR FUERA DEL TABLERO, COMO C0). SI NO SE ENTIENDE, UN AVISO Y EL ORIGEN.
+	\msg_new:nnn {pgfgo} {go-coordinate}
+		{Coordinate~'#1'~in~(go~cs:#1)~was~not~recognized:~it~is~the~origin~(0,0).}
+	\tikzdeclarecoordinatesystem {go} {\__pgfgo_goban_cs:n {#1}}
+	\cs_new_protected:Npn \__pgfgo_goban_cs:n #1 {
+		\pgfgo_kernel_point:eTF {\tl_trim_spaces:n {#1}}
+			{\exp_after:wN \pgfpointxy \l_pgfgo_kernel_point_tl}
+			{
+				\msg_warning:nne {pgfgo} {go-coordinate} {\tl_trim_spaces:n {#1}}
+				\pgfpointorigin
+			}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_point:nTF {e}
+
+	%EMPIEZA EL DIBUJO. #1 Y #2 SON EL TAMANO COMPLETO; LA PARTE VISIBLE YA LA CALCULO \pgfgo_kernel_board_init:.
+	%CON partial = auto, EL TABLERO SE DIBUJA AL CERRAR, CUANDO YA SE SABE QUE PARTE SE USO (SUS CAPAS VAN
+	%DEBAJO IGUAL). EL ENTORNO TERMINA CON \__pgfgo_goban_end:.
+	\cs_new_protected:Npn \__pgfgo_goban_begin:nn #1#2 {
+		\group_begin:
+		\cs_set_eq:cN {pgfonlayer} \__pgfgo_goban_onlayer:n
+		\cs_set_eq:cN {endpgfonlayer} \__pgfgo_goban_endlayer:
+		\pgfsetlayers{
+			pgfgo_layer_goban_border,
+			pgfgo_layer_goban_grid,
+			pgfgo_layer_goban_labels,
+			pgfgo_layer_territory,
+			pgfgo_layer_mark_shadow,
+			pgfgo_layer_stone,
+			pgfgo_layer_stone_mark,
+			pgfgo_layer_mark,
+			main
+		}
+		\dim_set:Nn \l__pgfgo_goban_view_raise_dim {\l_pgfgo_goban_view_raise_tl}
+		\tikzpicture
+		\pgfsetxvec{\pgfpoint{ \l_pgfgo_goban_grid_x_sep_dim}{0}}
+		\pgfsetyvec{\pgfpoint{0}{ \l_pgfgo_goban_grid_y_sep_dim}}
+		\pgftransformscale{\l_pgfgo_goban_scale_tl}
+		\bool_if:NTF \l_pgfgo_goban_partial_auto_bool
+			{\pgfgo_kernel_extent_clear:}
+			{\__pgfgo_goban_board:nn {#1} {#2}}
+
+		\tl_if_empty:NF \l__pgfgo_goban_resume_memory_tl {\use:e {\__pgfgo_goban_resume_code:}}
+		\tl_if_empty:NF \l_pgfgo_goban_view_tl {\pgfgo_kernel_remember_replay:V \l_pgfgo_goban_view_tl}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_remember_replay:n {V}
+	\cs_generate_variant:Nn \__pgfgo_goban_begin:nn {VV}
+
+	%EL TABLERO: FONDO, CUADRICULA Y COORDENADAS, CADA UNO EN SU CAPA.
+	\cs_new_protected:Npn \__pgfgo_goban_board:nn #1#2 {
+		\pgfonlayer{pgfgo_layer_goban_border}
+		\bool_if:NT \l_pgfgo_goban_border_bool {\__pgfgo_goban_background:nn {#1} {#2}}
+		\endpgfonlayer
+
+		\pgfonlayer{pgfgo_layer_goban_grid}
+		\pgfscope
+		\bool_if:NT \l_pgfgo_goban_partial_bool {
+			\pgfpathrectanglecorners
+				{\pgfpointxy{\int_use:N\l_pgfgo_goban_from_x_int-0.5}{\int_use:N\l_pgfgo_goban_from_y_int-0.5}}
+				{\pgfpointxy{\int_use:N\l_pgfgo_goban_to_x_int+0.5}{\int_use:N\l_pgfgo_goban_to_y_int+0.5}}
+			\pgfusepath{clip}
+		}
+		\bool_if:NT \l_pgfgo_goban_grid_bool {
+			\seq_if_empty:NTF \l_pgfgo_goban_grid_image_seq
+				{\bool_if:NT \l_pgfgo_goban_grid_line_bool {\__pgfgo_goban_grid_lines:nn {#1} {#2}}}
+				{\__pgfgo_goban_grid_image:nn {#1} {#2}}
+			\bool_if:NT \l_pgfgo_goban_hoshi_bool {\__pgfgo_goban_hoshi:}
+		}
+		\endpgfscope
+		\endpgfonlayer
+
+		\pgfonlayer{pgfgo_layer_goban_labels}
+		\pgfscope
+		\pgfsetcolor{\l_pgfgo_goban_labels_color_tl}
+		\__pgfgo_goban_labels:
+		\endpgfscope
+		\endpgfonlayer
+	}
+	\cs_generate_variant:Nn \__pgfgo_goban_board:nn {VV}
+
+	%EL FONDO (#1 Y #2: EL TAMANO COMPLETO), CON SU SOMBRA, SU IMAGEN Y SU BORDE.
+	\cs_new_protected:Npn \__pgfgo_goban_background:nn #1#2 {
+		\pgfscope
+			\pgfsetlinewidth{\l_pgfgo_goban_border_line_width_dim}
+			\pgfsetstrokecolor{\l_pgfgo_goban_border_color_tl}
+			\pgfsetstrokeopacity{\l_pgfgo_goban_border_opacity_tl}
+			\pgfsetfillcolor{\l_pgfgo_goban_border_fill_color_tl}
+			\pgfsetfillopacity{\l_pgfgo_goban_border_fill_opacity_tl}
+			\bool_if:NT \l_pgfgo_goban_background_shadow_bool {
+				\pgfscope
+					\pgftransformshift{
+						\pgfpointpolar
+							{\fp_to_decimal:N\l_pgfgo_goban_background_shadow_angle_fp}
+							{\l_pgfgo_goban_background_shadow_offset_dim}}
+					\__pgfgo_goban_background_path:nn {#1} {#2}
+					\pgfsetfillcolor{\l_pgfgo_goban_background_shadow_color_tl}
+					\pgfsetfillopacity{\fp_to_decimal:N\l_pgfgo_goban_background_shadow_opacity_fp}
+					\pgfusepath{fill}
+				\endpgfscope
+			}
+			\pgfgo_goban_if_background_image:TF {
+				\pgfscope
+					\__pgfgo_goban_background_path:nn {#1} {#2}
+					\pgfusepath{fill, clip}
+					\pgfgo_goban_background_image:
+				\endpgfscope
+				\bool_if:NT \l_pgfgo_goban_border_line_bool {
+					\__pgfgo_goban_background_path:nn {#1} {#2}
+					\pgfusepath{stroke}
+				}
+			}{
+				\__pgfgo_goban_background_path:nn {#1} {#2}
+				\pgfusepath{\bool_if:NT\l_pgfgo_goban_border_line_bool{stroke}, \bool_if:NT\l_pgfgo_goban_border_fill_bool{fill}}
+			}
+		\endpgfscope
+	}
+
+	%LAS LINEAS DE LA CUADRICULA DEL TABLERO COMPLETO (#1 x #2); EL RECORTE LO HACE QUIEN LLAMA.
+	\cs_new_protected:Npn \__pgfgo_goban_grid_lines:nn #1#2 {
+		\pgfscope
+		\pgfsetstrokecolor{\l_pgfgo_goban_grid_color_tl}
+		\pgfsetstrokeopacity{\l_pgfgo_goban_grid_opacity_tl}
+		\pgfsetlinewidth{\l_pgfgo_goban_grid_line_width_dim}
+		\pgfsetroundcap
+		\pgfpathgrid[step = \pgfpointxy{1}{1}] {\pgfpointxy{1}{1}}{\pgfpointxy{#1}{#2}}
+		\pgfusepath{stroke}
+		\endpgfscope
+	}
+
+	%LA IMAGEN EN LUGAR DE LAS LINEAS (#1 x #2: EL TAMANO COMPLETO).
+	\cs_new_protected:Npn \__pgfgo_goban_grid_image:nn #1#2 {
+		\bool_lazy_and:nnT {\int_compare_p:nNn {#1} > {1}} {\int_compare_p:nNn {#2} > {1}} {
+			\__pgfgo_goban_image_files:N \l_pgfgo_goban_grid_image_seq
+			\pgfscope
+			\pgfsetfillopacity{\l_pgfgo_goban_grid_opacity_tl}
+			\str_if_eq:VnTF \l_pgfgo_goban_grid_image_fit_tl {tile} {
+				\tl_if_empty:NTF \l_pgfgo_goban_grid_image_tiles_tl
+					{
+						\int_set:Nn \l__pgfgo_goban_tiles_x_int {#1 - 1}
+						\int_set:Nn \l__pgfgo_goban_tiles_y_int {#2 - 1}
+					}
+					{
+						\__pgfgo_goban_tiles:VNN \l_pgfgo_goban_grid_image_tiles_tl
+							\l__pgfgo_goban_tiles_x_int \l__pgfgo_goban_tiles_y_int
+					}
+				\pgfgo_image_load:Ve \l__pgfgo_goban_image_file_tl {
+					width = \fp_to_dim:n {\l_pgfgo_goban_grid_x_sep_dim * (#1 - 1) / \l__pgfgo_goban_tiles_x_int},
+					height = \fp_to_dim:n {\l_pgfgo_goban_grid_y_sep_dim * (#2 - 1) / \l__pgfgo_goban_tiles_y_int}
+				}
+				\__pgfgo_goban_mesh:NNnnnn \l__pgfgo_goban_image_file_tl \l_pgfgo_goban_grid_image_rotate_tl
+					{\l_pgfgo_goban_grid_x_sep_dim} {\l_pgfgo_goban_grid_y_sep_dim}
+					{\l__pgfgo_goban_tiles_x_int} {\l__pgfgo_goban_tiles_y_int}
+			}{
+				\__pgfgo_goban_image_fill:NNnnnnn \l__pgfgo_goban_image_file_tl \l_pgfgo_goban_grid_image_rotate_tl
+					{\l_pgfgo_goban_grid_x_sep_dim * (#1 - 1)} {\l_pgfgo_goban_grid_y_sep_dim * (#2 - 1)}
+					{\pgfpointxy {\fp_eval:n {(#1 + 1) / 2}} {\fp_eval:n {(#2 + 1) / 2}}} {1} {1}
+			}
+			\endpgfscope
+		}
+	}
+
+	%PUNTOS DE ESTRELLA, SOLO LOS DE LA PARTE VISIBLE: CIRCULOS (TODOS EN UN SOLO CAMINO) O LA IMAGEN.
+	\cs_new_protected:Npn \__pgfgo_goban_hoshi: {
+		\tl_if_empty:NTF \l_pgfgo_goban_hoshi_at_tl
+			{\pgfgo_kernel_hoshi:}
+			{\pgfgo_kernel_points:V \l_pgfgo_goban_hoshi_at_tl}
+		\pgfscope
+		\pgfsetfillopacity{\tl_if_empty:NTF \l_pgfgo_goban_hoshi_opacity_tl
+			{\l_pgfgo_goban_grid_opacity_tl} {\l_pgfgo_goban_hoshi_opacity_tl}}
+		\tl_if_empty:NTF \l_pgfgo_goban_hoshi_image_tl {
+			\pgfsetfillcolor{\tl_if_empty:NTF \l_pgfgo_goban_hoshi_color_tl
+				{\l_pgfgo_goban_grid_color_tl} {\l_pgfgo_goban_hoshi_color_tl}}
+			\seq_map_inline:Nn \l_pgfgo_kernel_points_seq {
+				\__pgfgo_goban_if_visible:nnT ##1
+					{\pgfpathcircle {\pgfpointxy ##1} {\l_pgfgo_goban_hoshi_radius_dim}}
+			}
+			\pgfusepath{fill}
+		}{
+			\pgfgo_image_load:Ve \l_pgfgo_goban_hoshi_image_tl {
+				width = \tl_if_empty:NTF \l_pgfgo_goban_hoshi_image_width_tl
+					{\dim_eval:n {2 \l_pgfgo_goban_hoshi_radius_dim}}
+					{\dim_eval:n {\l_pgfgo_goban_hoshi_image_width_tl}}
+			}
+			\seq_map_inline:Nn \l_pgfgo_kernel_points_seq
+				{\__pgfgo_goban_if_visible:nnT ##1 {\__pgfgo_goban_hoshi_image:nn ##1}}
+		}
+		\endpgfscope
+	}
+	\cs_new_protected:Npn \__pgfgo_goban_hoshi_image:nn #1#2 {
+		\tl_if_blank:VTF \l_pgfgo_goban_hoshi_image_rotate_tl
+			{\pgfgo_image_draw:n {\pgfpointxy {#1} {#2}}}
+			{
+				\pgfgo_image_angle:Nnn \l_pgfgo_goban_hoshi_image_rotate_tl {#1} {#2}
+				\pgfscope
+					\pgftransformshift {\pgfpointxy {#1} {#2}}
+					\pgftransformrotate {\fp_use:N \l_pgfgo_image_angle_fp}
+					\pgfgo_image_draw:
+				\endpgfscope
+			}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_points:n {V}
+
+	%LA INTERSECCION (#1,#2) ESTA EN LA PARTE VISIBLE.
+	\prg_new_conditional:Npnn \__pgfgo_goban_if_visible:nn #1#2 {T} {
+		\bool_lazy_and:nnTF
+			{\int_compare_p:n {\l_pgfgo_goban_from_x_int <= #1 <= \l_pgfgo_goban_to_x_int}}
+			{\int_compare_p:n {\l_pgfgo_goban_from_y_int <= #2 <= \l_pgfgo_goban_to_y_int}}
+			{\prg_return_true:} {\prg_return_false:}
+	}
+
+	%LAS COORDENADAS EN LOS LADOS ELEGIDOS, SOLO LAS DE LA PARTE VISIBLE. LA DISTANCIA AL TABLERO SE
+	%CALCULA UNA VEZ POR LADO. LOS KANJI DE LAS FILAS (UNO, DOS O TRES) SE ALINEAN DEL LADO DEL TABLERO,
+	%PARA NO PISARLO.
+	\cs_new_protected:Npn \__pgfgo_goban_labels: {
+		\bool_if:NT \l_pgfgo_goban_labels_pos_north_bool {
+			\__pgfgo_goban_label_offset:nn {0}
+				{\l_pgfgo_goban_labels_sep_dim + \l_pgfgo_players_stone_radius_dim + 0.5em}
+			\int_step_inline:nnn {\l_pgfgo_goban_from_x_int} {\l_pgfgo_goban_to_x_int} {
+				\__pgfgo_goban_label:nnnn {} {##1} {\l_pgfgo_goban_to_y_int}
+					{\__pgfgo_goban_column_label:n {##1}}
+			}
+		}
+		\bool_if:NT \l_pgfgo_goban_labels_pos_east_bool {
+			\str_if_eq:VnTF \l_pgfgo_goban_label_rows_tl {kanji} {
+				\__pgfgo_goban_label_offset:nn
+					{\l_pgfgo_goban_labels_sep_dim+\l_pgfgo_players_stone_radius_dim} {0}
+				\__pgfgo_goban_row_labels:nN {left,} \l_pgfgo_goban_to_x_int
+			}{
+				\__pgfgo_goban_label_offset:nn
+					{\l_pgfgo_goban_labels_sep_dim+\l_pgfgo_players_stone_radius_dim+0.5em} {0}
+				\__pgfgo_goban_row_labels:nN {} \l_pgfgo_goban_to_x_int
+			}
+		}
+		\bool_if:NT \l_pgfgo_goban_labels_pos_south_bool {
+			\__pgfgo_goban_label_offset:nn {0}
+				{-\l_pgfgo_goban_labels_sep_dim-\l_pgfgo_players_stone_radius_dim-0.5em}
+			\int_step_inline:nnn {\l_pgfgo_goban_from_x_int} {\l_pgfgo_goban_to_x_int} {
+				\__pgfgo_goban_label:nnnn {} {##1} {\l_pgfgo_goban_from_y_int}
+					{\__pgfgo_goban_column_label:n {##1}}
+			}
+		}
+		\bool_if:NT \l_pgfgo_goban_labels_pos_west_bool {
+			\str_if_eq:VnTF \l_pgfgo_goban_label_rows_tl {kanji} {
+				\__pgfgo_goban_label_offset:nn
+					{-\l_pgfgo_goban_labels_sep_dim-\l_pgfgo_players_stone_radius_dim} {0}
+				\__pgfgo_goban_row_labels:nN {right,} \l_pgfgo_goban_from_x_int
+			}{
+				\__pgfgo_goban_label_offset:nn
+					{-\l_pgfgo_goban_labels_sep_dim-\l_pgfgo_players_stone_radius_dim-0.5em} {0}
+				\__pgfgo_goban_row_labels:nN {} \l_pgfgo_goban_from_x_int
+			}
+		}
+	}
+
+	%LA DISTANCIA DE UNA COORDENADA A SU INTERSECCION, CALCULADA COMO LA CALCULA \pgfpoint.
+	\dim_new:N \l__pgfgo_goban_label_x_dim
+	\dim_new:N \l__pgfgo_goban_label_y_dim
+	\cs_new_protected:Npn \__pgfgo_goban_label_offset:nn #1#2 {
+		\pgfmathsetlength \l__pgfgo_goban_label_x_dim {#1}
+		\pgfmathsetlength \l__pgfgo_goban_label_y_dim {#2}
+	}
+
+	%LAS COORDENADAS DE LAS FILAS VISIBLES AL LADO DE LA COLUMNA #2 (#1: OPCIONES DE \pgftext).
+	\cs_new_protected:Npn \__pgfgo_goban_row_labels:nN #1#2 {
+		\int_step_inline:nnn {\l_pgfgo_goban_from_y_int} {\l_pgfgo_goban_to_y_int}
+			{\__pgfgo_goban_label:nnnn {#1} {#2} {##1} {\__pgfgo_goban_row_label:n {##1}}}
+	}
+
+	%EL TEXTO #4 JUNTO A LA INTERSECCION (#2,#3), CORRIDO LA DISTANCIA DE \__pgfgo_goban_label_offset:nn.
+	%#1: OPCIONES DE \pgftext (VACIAS O TERMINADAS EN COMA).
+	\cs_new_protected:Npn \__pgfgo_goban_label:nnnn #1#2#3#4 {
+		\pgftext[#1 at = \pgfpointadd
+			{\pgfpointxy{#2}{#3}}
+			{\pgfqpoint{\l__pgfgo_goban_label_x_dim}{\l__pgfgo_goban_label_y_dim}}
+		]{{\__pgfgo_goban_label_font: #4}}
+	}
+
+	%LA VISTA DE LAS JUGADAS \l_pgfgo_goban_sgf_view_from_int A \l_pgfgo_goban_sgf_view_to_int (LAS DOS 0
+	%SI NO SE DICE OTRA COSA) DE LA LINEA \l_pgfgo_goban_sgf_view_variation_tl (\sgfdiagrams Y \sgfanimation
+	%LAS FIJAN). SI UNA VISTA ANTERIOR DEL MISMO goban LIMITO EL TABLERO Y ESTA NO, SE VUELVE A VER TODO.
+	\tl_new:N \l__pgfgo_goban_sgf_view_file_tl
+	\int_new:N \l_pgfgo_goban_sgf_view_from_int
+	\int_new:N \l_pgfgo_goban_sgf_view_to_int
+	\tl_new:N \l_pgfgo_goban_sgf_view_variation_tl
+	\bool_new:N \l__pgfgo_goban_sgf_view_bool
+	\cs_new_protected:Npn \__pgfgo_goban_sgf_view: {
+		\pgfgo_kernel_if_feature:nTF {sgf} {
+			\pgfgo_sgf_with_name:Vn \l__pgfgo_goban_sgf_view_file_tl {
+				\exp_args:NVV \pgfgo_kernel_sgf_read:nn
+					\l__pgfgo_goban_sgf_view_file_tl \l_pgfgo_goban_sgf_view_variation_tl
+			}
+			\int_set_eq:NN \l_pgfgo_goban_size_x_int \l_pgfgo_kernel_sgf_size_x_int
+			\int_set_eq:NN \l_pgfgo_goban_size_y_int \l_pgfgo_kernel_sgf_size_y_int
+			\bool_set_true:N \l__pgfgo_goban_size_bool
+			\pgfgo_kernel_sgf_view:nn {\l_pgfgo_goban_sgf_view_from_int} {\l_pgfgo_goban_sgf_view_to_int}
+			\tl_if_empty:NTF \l_pgfgo_kernel_sgf_view_tl {
+				\bool_if:NT \l__pgfgo_goban_sgf_view_bool {
+					\bool_set_false:N \l_pgfgo_goban_partial_bool
+					\bool_set_false:N \l__pgfgo_goban_sgf_view_bool
+				}
+			}{
+				\bool_set_true:N \l_pgfgo_goban_partial_bool
+				\bool_set_false:N \l_pgfgo_goban_partial_auto_bool
+				\bool_set_true:N \l__pgfgo_goban_sgf_view_bool
+				\exp_after:wN \__pgfgo_goban_sgf_view:nnnn \l_pgfgo_kernel_sgf_view_tl
+			}
+		}{
+			\pgfgo_kernel_require:n {sgf}
+		}
+	}
+
+	\cs_new_protected:Npn \__pgfgo_goban_sgf_view:nnnn #1#2#3#4 {
+		\pgfgo_kernel_board_window:e
+			{\pgfgo_kernel_column_name:n {#1} #2 ~ to ~ \pgfgo_kernel_column_name:n {#3} #4}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_board_window:n {e}
+	%PARA LAS ANIMACIONES POR CAPAS (VER pgf-go-sgf.sty): \l_pgfgo_goban_layers_clist ELIGE LAS CAPAS QUE
+	%SE DIBUJAN (VACIA: TODAS), Y \l_pgfgo_goban_bbox_tl FIJA EL TAMANO ({minx}{miny}{maxx}{maxy}). AL
+	%TERMINAR, EL TAMANO DEL ULTIMO goban QUEDA EN \g_pgfgo_goban_bbox_tl.
+	\clist_new:N \l_pgfgo_goban_layers_clist
+	\clist_const:Nn \c__pgfgo_goban_layers_clist {
+		pgfgo_layer_goban_border, pgfgo_layer_goban_grid, pgfgo_layer_goban_labels, pgfgo_layer_territory,
+		pgfgo_layer_mark_shadow, pgfgo_layer_stone, pgfgo_layer_stone_mark, pgfgo_layer_mark
+	}
+	\tl_new:N \l_pgfgo_goban_bbox_tl
+	\tl_new:N \g_pgfgo_goban_bbox_tl
+
+	\cs_new_protected:Npn \__pgfgo_goban_set_bbox:nnnn #1#2#3#4 {
+		\dim_gset:cn {pgf@picminx} {#1}
+		\dim_gset:cn {pgf@picminy} {#2}
+		\dim_gset:cn {pgf@picmaxx} {#3}
+		\dim_gset:cn {pgf@picmaxy} {#4}
+	}
+
+	%RECORTA AL CAMINO QUE ARMA #1 SIN CAMBIAR EL TAMANO DEL DIBUJO (CON partial = auto, MIENTRAS SE DIBUJA EL
+	%CUERPO, LA PARTE VISIBLE ES TODO EL TABLERO).
+	\cs_new_protected:Npn \pgfgo_goban_clip:n #1 {
+		\tl_set:Ne \l_tmpa_tl {
+			{\dim_use:c {pgf@picminx}} {\dim_use:c {pgf@picminy}}
+			{\dim_use:c {pgf@picmaxx}} {\dim_use:c {pgf@picmaxy}}
+		}
+		#1
+		\pgfusepath{clip}
+		\exp_after:wN \__pgfgo_goban_set_bbox:nnnn \l_tmpa_tl
+	}
+
+	\cs_new_protected:Npn \__pgfgo_goban_end: {
+		\bool_if:NT \l_pgfgo_goban_captures_bool {\pgfgo_captures_end:}
+		\pgfgo_territory_finish:
+		%partial = auto: LA PARTE VISIBLE ES LO QUE SE DIBUJO (EL TERRITORIO COMO REGION SE SUMO AL PEDIRLO), Y
+		%RECIEN AHORA SE DIBUJA EL TABLERO.
+		\bool_if:NT \l_pgfgo_goban_partial_auto_bool {
+			\pgfgo_kernel_extent_window:n {\l_pgfgo_goban_partial_margin_int}
+			\__pgfgo_goban_board:VV \l_pgfgo_goban_size_x_int \l_pgfgo_goban_size_y_int
+		}
+		\pgfgo_territory_end:
+		\tl_if_empty:NF \l_pgfgo_goban_bbox_tl
+			{\exp_after:wN \__pgfgo_goban_set_bbox:nnnn \l_pgfgo_goban_bbox_tl}
+		%UNA VISTA QUEDA CON SU CENTRO A raise SOBRE LA LINEA DE BASE DEL TEXTO.
+		\tl_if_empty:NF \l_pgfgo_goban_view_tl {
+			\pgfsetbaseline {
+				\dim_eval:n {(\dim_use:c {pgf@picminy} + \dim_use:c {pgf@picmaxy}) / 2 - \l__pgfgo_goban_view_raise_dim}
+			}
+		}
+		\tl_gset:Ne \g_pgfgo_goban_bbox_tl {
+			{\dim_use:c {pgf@picminx}} {\dim_use:c {pgf@picminy}}
+			{\dim_use:c {pgf@picmaxx}} {\dim_use:c {pgf@picmaxy}}
+		}
+		%PGF NO VACIA LAS CAPAS QUE NO DIBUJA: LO QUE TIENEN PASARIA AL PROXIMO DIBUJO.
+		\clist_if_empty:NF \l_pgfgo_goban_layers_clist {
+			\tl_set:ce {pgf@layerlist} {\clist_use:Nn \l_pgfgo_goban_layers_clist {,}}
+			\clist_map_inline:Nn \c__pgfgo_goban_layers_clist {
+				\clist_if_in:NnF \l_pgfgo_goban_layers_clist {##1}
+					{\box_gclear:c {pgf@layerbox@##1}}
+			}
+		}
+		\endtikzpicture
+		\group_end:
+	}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%------------------------------------------LATEX------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+	\NewDocumentEnvironment{goban}{O{}}{
+		%\mark Y \marks SOLO EXISTEN DENTRO DEL TABLERO (AFUERA SON LAS PRIMITIVAS DE TEX).
+		\cs_set_eq:NN \mark \__pgfgo_marks_command
+		\cs_set_eq:NN \marks \__pgfgo_marks_command
+		\cs_set_eq:NN \arrow \__pgfgo_arrow_command
+		\cs_set_eq:NN \line \__pgfgo_line_command
+		\cs_set_eq:NN \sgf \__pgfgo_sgf_command
+		%CADA TABLERO EMPIEZA EN LA JUGADA 1 CON NEGRAS (resume VUELVE A JUGAR LAS DEL OTRO goban).
+		\pgfgo_kernel_move_reset:
+		\pgfgo_notes_begin:
+		\pgfgo_points_begin:
+		\pgfgo_territory_begin:
+		%CADA goban EMPIEZA CON EL TABLERO DEL KERNEL VACIO (Y SIN PRISIONEROS).
+		\pgfgo_kernel_if_feature:nT {captures} {\pgfgo_kernel_board_clear:}
+		\bool_set_false:N \l__pgfgo_goban_size_bool
+		\keys_set:nn {pgfgo / goban} {#1}
+		\tl_if_empty:NF \l_pgfgo_goban_resume_tl {\__pgfgo_goban_resume:}
+		\pgfgo_kernel_board_init:
+		\tl_if_empty:NF \l_pgfgo_goban_name_tl {\__pgfgo_goban_name:n {#1}}
+		\bool_if:NT \l_pgfgo_goban_captures_bool {\pgfgo_captures_begin:}
+
+		\__pgfgo_goban_begin:VV \l_pgfgo_goban_size_x_int \l_pgfgo_goban_size_y_int
+		}{
+			\__pgfgo_goban_end:
+			%AL .aux Y A export (pgf-go-store.sty).
+			\pgfgo_store_end:
+		}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%------------------------------------------VISTAS-----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+	%LAS OPCIONES DE CADA goban CON NOMBRE Y, SI LAS USO, SUS CAPTURAS (resume LAS SIGUE USANDO). SU
+	%MEMORIA EMPIEZA VACIA O, CON resume, CON EL CODIGO QUE VUELVE A DIBUJAR LO QUE TRAE.
+	\prop_new:N \g__pgfgo_goban_names_prop
+	\prop_new:N \g__pgfgo_goban_names_captures_prop
+	\prop_new:N \g__pgfgo_goban_names_style_prop
+	%EL TAMANO DE CADA goban CON NOMBRE: resume LO USA SI EL goban NO DA EL SUYO (size, sgf size, sgf view).
+	\prop_new:N \g__pgfgo_goban_names_size_prop
+	\bool_new:N \l__pgfgo_goban_size_bool
+	\cs_new_protected:Npn \__pgfgo_goban_name:n #1 {
+		\pgfgo_kernel_remember_clear:V \l_pgfgo_goban_name_tl
+		\tl_if_empty:NF \l__pgfgo_goban_resume_memory_tl
+			{\pgfgo_kernel_remember_push:Vn \l_pgfgo_goban_name_tl {\__pgfgo_goban_resume_code:}}
+		\prop_gput:NVn \g__pgfgo_goban_names_prop \l_pgfgo_goban_name_tl {#1}
+		\pgfgo_style_save:N \l__pgfgo_view_style_tl
+		\prop_gput:NVV \g__pgfgo_goban_names_style_prop \l_pgfgo_goban_name_tl \l__pgfgo_view_style_tl
+		\prop_gput:NVe \g__pgfgo_goban_names_size_prop \l_pgfgo_goban_name_tl
+			{\int_use:N \l_pgfgo_goban_size_x_int x \int_use:N \l_pgfgo_goban_size_y_int}
+		\prop_gput:NVe \g__pgfgo_goban_names_captures_prop \l_pgfgo_goban_name_tl {
+			\bool_if:NT \l_pgfgo_goban_captures_bool
+				{captures = \bool_if:NTF \l_pgfgo_goban_captures_fade_bool {fade} {remove}}
+		}
+	}
+	\cs_generate_variant:Nn \pgfgo_kernel_remember_clear:n {V}
+	\cs_generate_variant:Nn \pgfgo_kernel_remember_append:nn {VV}
+
+	%EL ESTILO DE UN goban CON NOMBRE (PERFILES, \pgfgoset, Y SUS OPCIONES): EL CODIGO QUE VUELVE AL ESTILO
+	%INICIAL Y PONE LAS VARIABLES DEL ESTILO (\g_pgfgo_style_vars_seq, VER pgf-go.sty) QUE CAMBIARON, Y LAS
+	%FUNCIONES DEL ESTILO (FORMATO DE LOS NUMEROS Y DE LAS SECUENCIAS, FORMA DE LA MARCA) POR SU NOMBRE. ES
+	%TEXTO: VA TAMBIEN AL .aux Y A LOS ARCHIVOS DE export (pgf-go-store.sty).
+	\tl_new:N \l__pgfgo_view_style_tl
+	\cs_new:Npn \__pgfgo_style_player_functions:n #1
+		{pgfgo_players_ #1 _move_label_format:n, pgfgo_players_ #1 _mark_sequence_format:n,}
+	\clist_const:Ne \c__pgfgo_style_functions_clist {
+		\clist_map_function:nN {neutral, black, white} \__pgfgo_style_player_functions:n
+		pgfgo_mark_current:
+	}
+	%LOS NOMBRES QUE PUEDEN TENER ESAS FUNCIONES. pgf-go-marks.sty AGREGA LAS FORMAS DE LAS MARCAS (TAMBIEN
+	%LAS DE \pgfgodefinemark).
+	\seq_new:N \g_pgfgo_style_functions_seq
+	\seq_gset_from_clist:Nn \g_pgfgo_style_functions_seq {
+		int_to_arabic:n, int_to_alph:n, int_to_Alph:n, int_to_roman:n, int_to_Roman:n, pgfgo_int_to_kanji:n
+	}
+	%SI UNA FUNCION NO ES NINGUNA DE ESAS, SE COPIA CON OTRO NOMBRE (SOLO SIRVE EN ESTE DOCUMENTO).
+	\int_new:N \g__pgfgo_style_int
+	\tl_new:N \l__pgfgo_view_style_functions_tl
+	\tl_new:N \l__pgfgo_view_style_function_tl
+	\cs_new_protected:Npn \pgfgo_style_save:N #1 {
+		\tl_clear:N \l__pgfgo_view_style_functions_tl
+		\clist_map_inline:Nn \c__pgfgo_style_functions_clist {
+			\tl_clear:N \l__pgfgo_view_style_function_tl
+			\seq_map_inline:Nn \g_pgfgo_style_functions_seq {
+				\cs_if_eq:ccT {##1} {####1} {
+					\tl_set:Nn \l__pgfgo_view_style_function_tl {####1}
+					\seq_map_break:
+				}
+			}
+			\tl_if_empty:NT \l__pgfgo_view_style_function_tl {
+				\int_gincr:N \g__pgfgo_style_int
+				\tl_set:Ne \l__pgfgo_view_style_function_tl {pgfgo~style~\int_use:N \g__pgfgo_style_int ~ ##1}
+				\cs_gset_eq:cc {\l__pgfgo_view_style_function_tl} {##1}
+			}
+			\tl_put_right:Ne \l__pgfgo_view_style_functions_tl
+				{\exp_not:N \pgfgo_style_function:nn {##1} {\l__pgfgo_view_style_function_tl}}
+		}
+		\tl_set:Ne #1 {
+			\exp_not:N \pgfgo_style_initial:
+			\seq_map_function:NN \g_pgfgo_style_vars_seq \__pgfgo_style_changed:n
+			\exp_not:V \l__pgfgo_view_style_functions_tl
+		}
+	}
+	\msg_new:nnn {pgfgo} {style-function}
+		{Unknown~style~function~'#1'~(a~mark~defined~with~\iow_char:N\\pgfgodefinemark~in~another~document?).}
+	\cs_new_protected:Npn \pgfgo_style_function:nn #1#2 {
+		\cs_if_exist:cTF {#2} {\cs_set_eq:cc {#1} {#2}} {\msg_warning:nnn {pgfgo} {style-function} {#2}}
+	}
+
+	%EL ESTILO INICIAL (AL TERMINAR DE CARGAR pgf-go.sty): EL VALOR DE CADA VARIABLE, PARA SABER CUALES
+	%CAMBIARON, Y EL CODIGO QUE LAS VUELVE A PONER TODAS.
+	\tl_new:N \g__pgfgo_style_initial_tl
+	\cs_new_protected:Npn \pgfgo_style_save_initial: {
+		\seq_map_inline:Nn \g_pgfgo_style_vars_seq {\__pgfgo_style_save_initial:nN ##1}
+	}
+	\cs_new_protected:Npn \__pgfgo_style_save_initial:nN #1#2 {
+		\str_new:c {g__pgfgo_style_initial_ \cs_to_str:N #2 _str}
+		\str_gset:ce {g__pgfgo_style_initial_ \cs_to_str:N #2 _str} {\__pgfgo_style_value:nN {#1} #2}
+		\tl_gput_right:Ne \g__pgfgo_style_initial_tl {\__pgfgo_style_value:nN {#1} #2}
+	}
+	\cs_generate_variant:Nn \str_gset:Nn {ce}
+	\cs_new_protected:Npn \pgfgo_style_initial: {\tl_use:N \g__pgfgo_style_initial_tl}
+	\cs_new:Npn \__pgfgo_style_changed:n #1 {\__pgfgo_style_changed:nN #1}
+	\cs_new:Npn \__pgfgo_style_changed:nN #1#2 {
+		\str_if_eq:eeF {\__pgfgo_style_value:nN {#1} #2} {\str_use:c {g__pgfgo_style_initial_ \cs_to_str:N #2 _str}}
+			{\__pgfgo_style_value:nN {#1} #2}
+	}
+
+	%EL CODIGO QUE VUELVE A PONER EL VALOR DE LA VARIABLE #2, DE TIPO #1. PARA UNA EXPANSION e.
+	\cs_new:Npn \__pgfgo_style_value:n #1 {\__pgfgo_style_value:nN #1}
+	\cs_new:Npn \__pgfgo_style_value:nN #1#2 {
+		\str_case:nnF {#1} {
+			{bool}	{\exp_not:N \bool_set_eq:NN \exp_not:N #2 \bool_if:NTF #2 {\exp_not:N \c_true_bool} {\exp_not:N \c_false_bool}}
+			{int}		{\exp_not:N \int_set:Nn \exp_not:N #2 {\int_use:N #2}}
+			{dim}		{\exp_not:N \dim_set:Nn \exp_not:N #2 {\dim_use:N #2}}
+			{skip}	{\exp_not:N \skip_set:Nn \exp_not:N #2 {\skip_use:N #2}}
+			{fp}		{\exp_not:N \fp_set:Nn \exp_not:N #2 {\fp_to_tl:N #2}}
+			{str}		{\exp_not:N \str_set:Nn \exp_not:N #2 {\exp_not:V #2}}
+			{seq}		{\exp_not:N \seq_clear:N \exp_not:N #2 \seq_map_tokens:Nn #2 {\__pgfgo_style_item:Nn #2}}
+			{prop}	{\exp_not:N \prop_clear:N \exp_not:N #2 \prop_map_tokens:Nn #2 {\__pgfgo_style_pair:Nnn #2}}
+		}{
+			\exp_not:N \tl_set:Nn \exp_not:N #2 {\exp_not:V #2}
+		}
+	}
+	\cs_new:Npn \__pgfgo_style_item:Nn #1#2 {\exp_not:N \seq_put_right:Nn \exp_not:N #1 {\exp_not:n {#2}}}
+	\cs_new:Npn \__pgfgo_style_pair:Nnn #1#2#3
+		{\exp_not:N \prop_put:Nnn \exp_not:N #1 {\exp_not:n {#2}} {\exp_not:n {#3}}}
+	\cs_generate_variant:Nn \pgfgo_kernel_remember_push:nn {Vn}
+
+	%resume = {<nombre>, numbers, marks, territory}: EL NOMBRE Y QUE MAS TRAE, ADEMAS DE LAS PIEDRAS.
+	\tl_new:N \l_pgfgo_goban_resume_tl
+	\clist_new:N \l__pgfgo_goban_resume_clist
+	\bool_new:N \l__pgfgo_goban_resume_marks_bool
+	\bool_new:N \l__pgfgo_goban_resume_numbers_bool
+	\bool_new:N \l__pgfgo_goban_resume_territory_bool
+	\keys_define:nn {pgfgo / goban / resume} {
+		marks							.bool_set:N	= \l__pgfgo_goban_resume_marks_bool,
+		marks							.default:n	= {true},
+		numbers						.bool_set:N	= \l__pgfgo_goban_resume_numbers_bool,
+		numbers						.default:n	= {true},
+		territory					.bool_set:N	= \l__pgfgo_goban_resume_territory_bool,
+		territory					.default:n	= {true},
+	}
+	\cs_new_protected:Npn \__pgfgo_goban_resume_key:n #1 {
+		\clist_set:Nn \l__pgfgo_goban_resume_clist {#1}
+		\clist_pop:NN \l__pgfgo_goban_resume_clist \l_pgfgo_goban_resume_tl
+		\bool_set_false:N \l__pgfgo_goban_resume_marks_bool
+		\bool_set_false:N \l__pgfgo_goban_resume_numbers_bool
+		\bool_set_false:N \l__pgfgo_goban_resume_territory_bool
+		\keys_set:nV {pgfgo / goban / resume} \l__pgfgo_goban_resume_clist
+	}
+
+	%LO QUE TRAE resume SE COPIA A UNA MEMORIA NUEVA ANTES DE QUE name VACIE LA SUYA (name Y resume PUEDEN
+	%SER EL MISMO goban), Y NO CAMBIA AUNQUE OTRO goban VUELVA A USAR ESE NOMBRE.
+	\tl_new:N \l__pgfgo_goban_resume_memory_tl
+	\tl_new:N \l__pgfgo_goban_resume_captures_tl
+	\int_new:N \g__pgfgo_goban_resume_int
+	\cs_new_protected:Npn \__pgfgo_goban_resume: {
+		\prop_get:NVNTF \g__pgfgo_goban_names_captures_prop \l_pgfgo_goban_resume_tl \l__pgfgo_goban_resume_captures_tl {
+			\int_gincr:N \g__pgfgo_goban_resume_int
+			\tl_set:Ne \l__pgfgo_goban_resume_memory_tl {pgfgo/resume/\int_use:N \g__pgfgo_goban_resume_int}
+			\pgfgo_kernel_remember_clear:V \l__pgfgo_goban_resume_memory_tl
+			\pgfgo_kernel_remember_append:VV \l__pgfgo_goban_resume_memory_tl \l_pgfgo_goban_resume_tl
+			\bool_if:NF \l_pgfgo_goban_captures_bool
+				{\keys_set:nV {pgfgo / goban} \l__pgfgo_goban_resume_captures_tl}
+			\bool_if:NF \l__pgfgo_goban_size_bool {
+				\pgfgo_kernel_board_size:e {\prop_item:NV \g__pgfgo_goban_names_size_prop \l_pgfgo_goban_resume_tl}
+			}
+		}{
+			\msg_error:nnV {pgfgo} {unknown-view} \l_pgfgo_goban_resume_tl
+		}
+	}
+	%EL CODIGO QUE DIBUJA LO QUE TRAE resume. PARA UNA EXPANSION e.
+	\cs_new:Npn \__pgfgo_goban_resume_code: {
+		\exp_not:N \pgfgo_remember_resume:NNNn
+			\__pgfgo_goban_resume_bool:N \l__pgfgo_goban_resume_marks_bool
+			\__pgfgo_goban_resume_bool:N \l__pgfgo_goban_resume_territory_bool
+			\__pgfgo_goban_resume_bool:N \l__pgfgo_goban_resume_numbers_bool
+			{\exp_not:V \l__pgfgo_goban_resume_memory_tl}
+	}
+	\cs_new:Npn \__pgfgo_goban_resume_bool:N #1 {\bool_if:NTF #1 {\exp_not:N \c_true_bool} {\exp_not:N \c_false_bool}}
+
+	%/pgfgo/view: QUE SE DEJA DE DIBUJAR (marks, arrows, lines, numbers, territory = false), SI SE DIBUJA LO OLVIDADO
+	%(forgotten), A QUE ALTURA (raise) Y LAS OPCIONES DE goban DE LAS VISTAS, QUE VAN DESPUES DE LAS DEL
+	%goban CON NOMBRE.
+	\bool_new:N \l__pgfgo_view_marks_bool
+	\bool_new:N \l__pgfgo_view_arrows_bool
+	\bool_new:N \l__pgfgo_view_lines_bool
+	\bool_new:N \l__pgfgo_view_numbers_bool
+	\bool_new:N \l__pgfgo_view_territory_bool
+	\bool_new:N \l__pgfgo_view_forgotten_bool
+	\tl_new:N \l_pgfgo_goban_view_raise_tl
+	\dim_new:N \l__pgfgo_goban_view_raise_dim
+	\tl_new:N \l__pgfgo_view_goban_tl
+	\tl_new:N \l__pgfgo_view_profile_tl
+	\keys_define:nn {pgfgo / view} {
+		marks							.bool_set:N	= \l__pgfgo_view_marks_bool,
+		marks							.default:n	= {true},
+		marks							.initial:n	= {true},
+		arrows						.bool_set:N	= \l__pgfgo_view_arrows_bool,
+		arrows						.default:n	= {true},
+		arrows						.initial:n	= {true},
+		lines							.bool_set:N	= \l__pgfgo_view_lines_bool,
+		lines							.default:n	= {true},
+		lines							.initial:n	= {true},
+		numbers						.bool_set:N	= \l__pgfgo_view_numbers_bool,
+		numbers						.default:n	= {true},
+		numbers						.initial:n	= {true},
+		territory					.bool_set:N	= \l__pgfgo_view_territory_bool,
+		territory					.default:n	= {true},
+		territory					.initial:n	= {true},
+		forgotten					.bool_set:N	= \l__pgfgo_view_forgotten_bool,
+		forgotten					.default:n	= {true},
+		forgotten					.initial:n	= {false},
+		raise							.tl_set:N		= \l_pgfgo_goban_view_raise_tl,
+		raise							.initial:n	= {0.5ex},
+		%EL PERFIL DE LAS VISTAS (false: EL ESTILO DEL ORIGINAL). VA ANTES DE LAS DEMAS OPCIONES DE LA VISTA.
+		profile						.code:n			= {
+																			\str_if_eq:nnTF {#1} {false}
+																				{\tl_clear:N \l__pgfgo_view_profile_tl}
+																				{\tl_set:Nn \l__pgfgo_view_profile_tl {#1}}
+																		},
+		unknown						.code:n			= {
+																			\tl_put_right:Ne \l__pgfgo_view_goban_tl
+																				{, \l_keys_key_str \tl_if_empty:nF {#1} {= {\exp_not:n {#1}}}}
+																		},
+	}
+	\keys_set:nn {pgfgo / view} {scale = 0.8}
+
+	%LA PARTE DEL TABLERO DE LA VISTA: UN PUNTO (B3) O UN RECTANGULO, COMO EN partial.
+	\str_new:N \l__pgfgo_view_range_str
+	\cs_new_protected:Npn \__pgfgo_view_range:n #1 {
+		\str_set:Nn \l__pgfgo_view_range_str {#1}
+		\str_if_in:NnF \l__pgfgo_view_range_str {:} {
+			\str_if_in:NnF \l__pgfgo_view_range_str {,} {
+				\str_if_in:NnF \l__pgfgo_view_range_str {to} {
+					\str_set:Ne \l__pgfgo_view_range_str
+						{\l__pgfgo_view_range_str \c_colon_str \l__pgfgo_view_range_str}
+				}
+			}
+		}
+	}
+
+	%LO QUE GUARDA EL ULTIMO goban (PUNTOS, TERRITORIO, NOTAS, TAMANO Y, CON CAPTURAS, EL TABLERO DEL
+	%KERNEL): UNA VISTA NO LO CAMBIA, PARA QUE \pgfgoscore, \pgfgonotes, ... SIGAN HABLANDO DE ESE goban.
+	\prop_new:N \l__pgfgo_view_points_prop
+	\prop_new:N \l__pgfgo_view_territory_prop
+	\seq_new:N \l__pgfgo_view_notes_seq
+	\tl_new:N \l__pgfgo_view_bbox_tl
+	\cs_new_protected:Npn \__pgfgo_view_save: {
+		\prop_set_eq:NN \l__pgfgo_view_points_prop \g_pgfgo_points_prop
+		\prop_set_eq:NN \l__pgfgo_view_territory_prop \g_pgfgo_territory_prop
+		\seq_set_eq:NN \l__pgfgo_view_notes_seq \g_pgfgo_move_notes_seq
+		\tl_set_eq:NN \l__pgfgo_view_bbox_tl \g_pgfgo_goban_bbox_tl
+		\pgfgo_kernel_if_feature:nT {captures} {\pgfgo_kernel_board_save:n {pgfgo-view}}
+	}
+	\cs_new_protected:Npn \__pgfgo_view_restore: {
+		\prop_gset_eq:NN \g_pgfgo_points_prop \l__pgfgo_view_points_prop
+		\prop_gset_eq:NN \g_pgfgo_territory_prop \l__pgfgo_view_territory_prop
+		\seq_gset_eq:NN \g_pgfgo_move_notes_seq \l__pgfgo_view_notes_seq
+		\tl_gset_eq:NN \g_pgfgo_goban_bbox_tl \l__pgfgo_view_bbox_tl
+		\pgfgo_kernel_if_feature:nT {captures} {\pgfgo_kernel_board_restore:n {pgfgo-view}}
+	}
+
+	\msg_new:nnn {pgfgo} {unknown-view} {There~is~no~goban~with~name~=~'#1'.}
+	\msg_new:nnn {pgfgo} {unknown-view-later}
+		{There~is~no~goban~with~name~=~'#1'~(if~it~comes~later,~compile~again).}
+
+	%LO QUE USA UNA VISTA DEL goban #1: SUS OPCIONES, SU ESTILO, SU MEMORIA, SU TAMANO Y SUS CAPTURAS. UN goban
+	%YA DIBUJADO O IMPORTADO; SI NO, EL DEL .aux (UNO QUE VIENE DESPUES, VER pgf-go-store.sty).
+	\tl_new:N \l__pgfgo_view_memory_tl
+	\tl_new:N \l__pgfgo_view_size_tl
+	\tl_new:N \l__pgfgo_view_captures_tl
+	\prg_new_protected_conditional:Npnn \__pgfgo_view_find:n #1 {TF} {
+		\prop_get:NnNTF \g__pgfgo_goban_names_prop {#1} \l__pgfgo_view_options_tl {
+			\prop_get:NnN \g__pgfgo_goban_names_style_prop {#1} \l__pgfgo_view_style_tl
+			\prop_get:NnN \g__pgfgo_goban_names_size_prop {#1} \l__pgfgo_view_size_tl
+			\prop_get:NnN \g__pgfgo_goban_names_captures_prop {#1} \l__pgfgo_view_captures_tl
+			\tl_set:Nn \l__pgfgo_view_memory_tl {#1}
+			\prg_return_true:
+		}{
+			\pgfgo_store_find:nTF {#1} {\prg_return_true:} {\prg_return_false:}
+		}
+	}
+	%PARA pgf-go-store.sty: #1 OPCIONES, #2 ESTILO, #3 NOMBRE DE LA MEMORIA, #4 TAMANO, #5 CAPTURAS.
+	\cs_new_protected:Npn \pgfgo_view_set:nnnnn #1#2#3#4#5 {
+		\tl_set:Nn \l__pgfgo_view_options_tl {#1}
+		\tl_set:Nn \l__pgfgo_view_style_tl {#2}
+		\tl_set:Nn \l__pgfgo_view_memory_tl {#3}
+		\tl_set:Nn \l__pgfgo_view_size_tl {#4}
+		\tl_set:Nn \l__pgfgo_view_captures_tl {#5}
+	}
+
+	%LO QUE GUARDA UN goban CON NOMBRE (MENOS SU MEMORIA): {TAMANO}{CAPTURAS}{OPCIONES}{ESTILO}, EN #2.
+	\cs_new_protected:Npn \pgfgo_goban_name_get:nN #1#2 {
+		\tl_set:Ne #2 {
+			{\prop_item:Nn \g__pgfgo_goban_names_size_prop {#1}}
+			{\prop_item:Nn \g__pgfgo_goban_names_captures_prop {#1}}
+			{\prop_item:Nn \g__pgfgo_goban_names_prop {#1}}
+			{\prop_item:Nn \g__pgfgo_goban_names_style_prop {#1}}
+		}
+	}
+	%UN goban IMPORTADO (\pgfgoimport): QUEDA COMO SI SE HUBIERA DIBUJADO CON EL NOMBRE #1 (PARA resume Y
+	%\pgfgoview). #2 TAMANO, #3 CAPTURAS, #4 OPCIONES, #5 ESTILO, #6 EL CODIGO DE SU MEMORIA.
+	\cs_new_protected:Npn \pgfgo_goban_name_set:nnnnnn #1#2#3#4#5#6 {
+		\pgfgo_kernel_remember_clear:n {#1}
+		\pgfgo_kernel_remember_push:nn {#1} {\exp_not:n {#6}}
+		\prop_gput:Nnn \g__pgfgo_goban_names_size_prop {#1} {#2}
+		\prop_gput:Nnn \g__pgfgo_goban_names_captures_prop {#1} {#3}
+		\prop_gput:Nnn \g__pgfgo_goban_names_prop {#1} {#4}
+		\prop_gput:Nnn \g__pgfgo_goban_names_style_prop {#1} {#5}
+	}
+
+	%\pgfgoview[OPCIONES]{NOMBRE}{PARTE}: EL goban CON ESE NOMBRE COMO QUEDO AL TERMINAR (CON LAS CAPTURAS),
+	%SOLO EN ESA PARTE, PARA USAR EN EL TEXTO. SI TODAVIA NO HAY UN goban CON ESE NOMBRE: ?? Y UN AVISO.
+	\cs_new_protected:Npn \pgfgo_view:nnn #1#2#3 {
+		\__pgfgo_view_find:nTF {#2} {
+			\group_begin:
+				%EL ESTILO DEL goban CON NOMBRE; \pgfgoset{view} Y LAS OPCIONES DE LA VISTA VAN ENCIMA.
+				\tl_use:N \l__pgfgo_view_style_tl
+				\keys_set:nn {pgfgo / view} {#1}
+				\bool_set:Nn \l_pgfgo_remember_hide_mark_bool {! \l__pgfgo_view_marks_bool}
+				\bool_set:Nn \l_pgfgo_remember_hide_arrow_bool {! \l__pgfgo_view_arrows_bool}
+				\bool_set:Nn \l_pgfgo_remember_hide_line_bool {! \l__pgfgo_view_lines_bool}
+				\bool_set:Nn \l_pgfgo_remember_hide_numbers_bool {! \l__pgfgo_view_numbers_bool}
+				\bool_set:Nn \l_pgfgo_remember_hide_territory_bool {! \l__pgfgo_view_territory_bool}
+				\bool_set:Nn \l_pgfgo_remember_hide_forgotten_bool {! \l__pgfgo_view_forgotten_bool}
+				\tl_set_eq:NN \l_pgfgo_goban_view_tl \l__pgfgo_view_memory_tl
+				\tl_clear:N \l_pgfgo_goban_name_tl
+				\tl_clear:N \l_pgfgo_goban_resume_tl
+				\__pgfgo_view_range:n {#3}
+				\__pgfgo_view_save:
+				%EL TAMANO Y LAS CAPTURAS PUEDEN VENIR DE resume (QUE EN LA VISTA NO HACE NADA).
+				\use:e {
+					\exp_not:N \begin {goban} [
+						\exp_not:V \l__pgfgo_view_options_tl,
+						size = {\l__pgfgo_view_size_tl},
+						\exp_not:V \l__pgfgo_view_captures_tl
+						\tl_if_empty:NF \l__pgfgo_view_profile_tl
+							{, profile = {\exp_not:V \l__pgfgo_view_profile_tl}}
+						\exp_not:V \l__pgfgo_view_goban_tl,
+						partial = {\l__pgfgo_view_range_str}
+					]
+				}
+				\end{goban}
+				\__pgfgo_view_restore:
+			\group_end:
+		}{
+			\msg_warning:nnn {pgfgo} {unknown-view-later} {#2}
+			\textbf{??}
+		}
+	}
+	\tl_new:N \l__pgfgo_view_options_tl
+	\NewDocumentCommand \pgfgoview {O{} m m} {\pgfgo_view:nnn {#1} {#2} {#3}}
+
+\ExplSyntaxOff

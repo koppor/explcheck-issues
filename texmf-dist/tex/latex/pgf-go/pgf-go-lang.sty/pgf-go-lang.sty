@@ -1,0 +1,473 @@
+\ProvidesFile{pgf-go-lang.sty}[2026/10/23 v0.2026.10.23 pgf-go: languages]
+%IDIOMAS
+\ExplSyntaxOn
+
+%LOS TEXTOS QUE ESCRIBE EL PAQUETE (EPIGRAFES, ANOTACIONES, RESULTADO) SALEN DE UN DICCIONARIO POR IDIOMA,
+%\g__pgfgo_lang_<idioma>_prop. LAS CLAVES QUE LOS USAN TIENEN COMO VALOR INICIAL \pgfgo_text:n {<texto>},
+%QUE SE RESUELVE RECIEN AL ESCRIBIRLO: ASI SIGUE A \selectlanguage Y CADA TEXTO SE PUEDE PISAR CON SU CLAVE,
+%ANTES O DESPUES DE lang. UN TEXTO QUE FALTA EN UN IDIOMA SE TOMA DEL INGLES.
+%\g__pgfgo_lang_alias_prop: NOMBRE (DE babel, DE polyglossia O EL CODIGO MISMO) -> CODIGO DEL IDIOMA.
+\prop_new:N \g__pgfgo_lang_alias_prop
+%lang: auto (EL IDIOMA DE babel O polyglossia, \languagename) O EL CODIGO DE UN IDIOMA.
+\tl_new:N \l__pgfgo_lang_lang_tl
+\tl_set:Nn \l__pgfgo_lang_lang_tl {auto}
+
+%AGREGA LOS TEXTOS #2 (texto = traduccion, ...) AL IDIOMA #1 (LO CREA SI NO EXISTE).
+\cs_new_protected:Npn \pgfgo_lang_define:nn #1#2 {
+	\prop_if_exist:cF {g__pgfgo_lang_ #1 _prop} {\prop_new:c {g__pgfgo_lang_ #1 _prop}}
+	\prop_gput:Nnn \g__pgfgo_lang_alias_prop {#1} {#1}
+	\prop_gput_from_keyval:cn {g__pgfgo_lang_ #1 _prop} {#2}
+}
+%LOS NOMBRES #2 (LISTA) SON OTROS NOMBRES DEL IDIOMA #1.
+\cs_new_protected:Npn \pgfgo_lang_alias:nn #1#2 {
+	\clist_map_inline:nn {#2} {\prop_gput:Nnn \g__pgfgo_lang_alias_prop {##1} {#1}}
+}
+\NewDocumentCommand \pgfgodefinelanguage {mm} {\pgfgo_lang_define:nn {#1} {#2}}
+\NewDocumentCommand \pgfgolanguagealias {mm} {\pgfgo_lang_alias:nn {#2} {#1}}
+
+%EL CODIGO DEL IDIOMA DE NOMBRE #1, O SI NO SE CONOCE, EL DE LO QUE ESTA ANTES DEL PRIMER GUION
+%(spanish-mexico, es-AR). VACIO SI TAMPOCO SE CONOCE. EXPANDIBLE.
+\cs_new:Npn \__pgfgo_lang_code:n #1 {
+	\prop_if_in:NnTF \g__pgfgo_lang_alias_prop {#1}
+		{\prop_item:Nn \g__pgfgo_lang_alias_prop {#1}}
+		{\__pgfgo_lang_code_base:w #1 - \q_stop}
+}
+\cs_new:Npn \__pgfgo_lang_code_base:w #1 - #2 \q_stop {
+	\prop_if_in:NnT \g__pgfgo_lang_alias_prop {#1}
+		{\prop_item:Nn \g__pgfgo_lang_alias_prop {#1}}
+}
+\cs_generate_variant:Nn \__pgfgo_lang_code:n {e}
+
+%EL IDIOMA ACTUAL. CON lang = auto, EL DE \languagename (QUE LaTeX DEFINE COMO english SIN babel NI
+%polyglossia); SI NO SE CONOCE, en. EXPANDIBLE.
+\cs_new:Npn \__pgfgo_lang_language: {
+	\str_if_eq:VnTF \l__pgfgo_lang_lang_tl {auto}
+		{
+			\cs_if_exist:NTF \languagename
+				{\exp_args:Ne \__pgfgo_lang_or_en:n {\__pgfgo_lang_code:e {\languagename}}}
+				{en}
+		}
+		{\tl_use:N \l__pgfgo_lang_lang_tl}
+}
+\cs_new:Npn \__pgfgo_lang_or_en:n #1 {\tl_if_empty:nTF {#1} {en} {#1}}
+
+%EL TEXTO #1 EN EL IDIOMA ACTUAL. EXPANDIBLE.
+\cs_new:Npn \pgfgo_text:n #1 {
+	\exp_args:Ne \__pgfgo_text:nn {\__pgfgo_lang_language:} {#1}
+}
+\cs_new:Npn \__pgfgo_text:nn #1#2 {
+	\prop_if_in:cnTF {g__pgfgo_lang_ #1 _prop} {#2}
+		{\prop_item:cn {g__pgfgo_lang_ #1 _prop} {#2}}
+		{\prop_item:Nn \g__pgfgo_lang_en_prop {#2}}
+}
+\NewExpandableDocumentCommand \pgfgotext {m} {\pgfgo_text:n {#1}}
+
+\msg_new:nnn {pgfgo} {unknown-language}
+	{Unknown~language~'#1'~for~pgf-go:~using~English.~Define~it~with~\iow_char:N\\pgfgodefinelanguage~
+	or~give~it~another~name~with~\iow_char:N\\pgfgolanguagealias.}
+
+\cs_new_protected:Npn \pgfgo_lang_set:n #1 {
+	\str_if_eq:nnTF {#1} {auto}
+		{\tl_set:Nn \l__pgfgo_lang_lang_tl {auto}}
+		{
+			\tl_set:Ne \l__pgfgo_lang_lang_tl {\__pgfgo_lang_code:n {#1}}
+			\tl_if_empty:NT \l__pgfgo_lang_lang_tl {
+				\msg_warning:nnn {pgfgo} {unknown-language} {#1}
+				\tl_set:Nn \l__pgfgo_lang_lang_tl {en}
+			}
+		}
+}
+\keys_define:nn {pgfgo} {
+	lang		.code:n			= {\pgfgo_lang_set:n {#1}},
+}
+%CON lang = auto, AVISA SI EL IDIOMA DEL DOCUMENTO NO SE CONOCE.
+\AddToHook {begindocument / end} {
+	\bool_lazy_and:nnT
+		{\str_if_eq_p:Vn \l__pgfgo_lang_lang_tl {auto}}
+		{\cs_if_exist_p:N \languagename}
+		{
+			\tl_if_blank:eT {\__pgfgo_lang_code:e {\languagename}}
+				{\msg_warning:nne {pgfgo} {unknown-language} {\languagename}}
+		}
+}
+
+%------------------------------------------DICCIONARIOS-----------------------------------------%
+%TEXTOS: LAS ANOTACIONES DE /pgfgo/sgf annotations (tesuji ... unclear); diagram, variation, problem, correct, wrong (LO QUE DICE verdict DE UNA SOLUCION), variation at (DONDE \pgfgovariationmove ES EL NUMERO DE LA JUGADA), black to play,
+%white to play (EPIGRAFES DE \sgfdiagrams Y \sgfproblem); at Y pass (LAS NOTAS "3 at 1" Y "5: pass"); result, black, white Y LAS
+%FORMAS DEL RESULTADO (RE), DONDE \pgfgowinner ES EL NOMBRE DEL GANADOR Y \pgfgopoints LA DIFERENCIA.
+%LAS TRADUCCIONES A ja, zh Y ko NECESITAN UNA FUENTE CON ESOS CARACTERES.
+
+\pgfgo_lang_define:nn {en} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Very~good~tesuji,
+	bad~move							= Bad~move,
+	very~bad~move					= Very~bad~move,
+	doubtful							= Doubtful~move,
+	interesting						= Interesting~move,
+	good~for~black				= Good~for~Black,
+	very~good~for~black		= Very~good~for~Black,
+	good~for~white				= Good~for~White,
+	very~good~for~white		= Very~good~for~White,
+	even									= Even~position,
+	unclear								= Unclear~position,
+	diagram								= Diagram,
+	variation							= Variation,
+	problem								= Problem,
+	correct								= correct,
+	wrong									= wrong,
+	variation~at						= variation~at~\pgfgovariationmove{},
+	black~to~play					= Black~to~play,
+	white~to~play					= White~to~play,
+	at										= at,
+	pass										= pass,
+	result								= Result,
+	black									= Black,
+	white									= White,
+	win										= \pgfgowinner{}~wins,
+	win~by~points					= \pgfgowinner{}~wins~by~\pgfgopoints{}~points,
+	win~by~resignation		= \pgfgowinner{}~wins~by~resignation,
+	win~on~time						= \pgfgowinner{}~wins~on~time,
+	win~by~forfeit				= \pgfgowinner{}~wins~by~forfeit,
+	draw									= Draw~(jigo),
+	void									= No~result,
+	unknown~result				= Unknown~result,
+}
+
+\pgfgo_lang_define:nn {es} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Muy~buen~tesuji,
+	bad~move							= Mala~jugada,
+	very~bad~move					= Muy~mala~jugada,
+	doubtful							= Jugada~dudosa,
+	interesting						= Jugada~interesante,
+	good~for~black				= Bueno~para~Negras,
+	very~good~for~black		= Muy~bueno~para~Negras,
+	good~for~white				= Bueno~para~Blancas,
+	very~good~for~white		= Muy~bueno~para~Blancas,
+	even									= Posición~pareja,
+	unclear								= Posición~incierta,
+	diagram								= Diagrama,
+	variation							= Variante,
+	problem								= Problema,
+	correct								= correcta,
+	wrong									= incorrecta,
+	variation~at						= variante~en~\pgfgovariationmove{},
+	black~to~play					= Juegan~Negras,
+	white~to~play					= Juegan~Blancas,
+	at										= en,
+	pass										= pasa,
+	result								= Resultado,
+	black									= Negras,
+	white									= Blancas,
+	win										= Ganan~\pgfgowinner,
+	win~by~points					= Ganan~\pgfgowinner{}~por~\pgfgopoints{}~puntos,
+	win~by~resignation		= Ganan~\pgfgowinner{}~por~abandono,
+	win~on~time						= Ganan~\pgfgowinner{}~por~tiempo,
+	win~by~forfeit				= Ganan~\pgfgowinner{}~por~incomparecencia,
+	draw									= Empate~(jigo),
+	void									= Sin~resultado,
+	unknown~result				= Resultado~desconocido,
+}
+
+\pgfgo_lang_define:nn {fr} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Très~bon~tesuji,
+	bad~move							= Mauvais~coup,
+	very~bad~move					= Très~mauvais~coup,
+	doubtful							= Coup~douteux,
+	interesting						= Coup~intéressant,
+	good~for~black				= Bon~pour~Noir,
+	very~good~for~black		= Très~bon~pour~Noir,
+	good~for~white				= Bon~pour~Blanc,
+	very~good~for~white		= Très~bon~pour~Blanc,
+	even									= Position~équilibrée,
+	unclear								= Position~incertaine,
+	diagram								= Diagramme,
+	variation							= Variante,
+	problem								= Problème,
+	correct								= correcte,
+	wrong									= fausse,
+	variation~at						= variante~au~coup~\pgfgovariationmove{},
+	black~to~play					= Noir~joue,
+	white~to~play					= Blanc~joue,
+	at										= en,
+	pass										= passe,
+	result								= Résultat,
+	black									= Noir,
+	white									= Blanc,
+	win										= \pgfgowinner{}~gagne,
+	win~by~points					= \pgfgowinner{}~gagne~de~\pgfgopoints{}~points,
+	win~by~resignation		= \pgfgowinner{}~gagne~par~abandon,
+	win~on~time						= \pgfgowinner{}~gagne~au~temps,
+	win~by~forfeit				= \pgfgowinner{}~gagne~par~forfait,
+	draw									= Partie~nulle~(jigo),
+	void									= Sans~résultat,
+	unknown~result				= Résultat~inconnu,
+}
+
+\pgfgo_lang_define:nn {de} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Sehr~gutes~Tesuji,
+	bad~move							= Schlechter~Zug,
+	very~bad~move					= Sehr~schlechter~Zug,
+	doubtful							= Zweifelhafter~Zug,
+	interesting						= Interessanter~Zug,
+	good~for~black				= Gut~für~Schwarz,
+	very~good~for~black		= Sehr~gut~für~Schwarz,
+	good~for~white				= Gut~für~Weiß,
+	very~good~for~white		= Sehr~gut~für~Weiß,
+	even									= Ausgeglichene~Stellung,
+	unclear								= Unklare~Stellung,
+	diagram								= Diagramm,
+	variation							= Variante,
+	problem								= Problem,
+	correct								= richtig,
+	wrong									= falsch,
+	variation~at						= Variante~zu~Zug~\pgfgovariationmove{},
+	black~to~play					= Schwarz~am~Zug,
+	white~to~play					= Weiß~am~Zug,
+	at										= auf,
+	pass										= passt,
+	result								= Ergebnis,
+	black									= Schwarz,
+	white									= Weiß,
+	win										= \pgfgowinner{}~gewinnt,
+	win~by~points					= \pgfgowinner{}~gewinnt~mit~\pgfgopoints{}~Punkten,
+	win~by~resignation		= \pgfgowinner{}~gewinnt~durch~Aufgabe,
+	win~on~time						= \pgfgowinner{}~gewinnt~durch~Zeitüberschreitung,
+	win~by~forfeit				= \pgfgowinner{}~gewinnt~kampflos,
+	draw									= Unentschieden~(Jigo),
+	void									= Kein~Ergebnis,
+	unknown~result				= Ergebnis~unbekannt,
+}
+
+\pgfgo_lang_define:nn {pt} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Tesuji~muito~bom,
+	bad~move							= Jogada~ruim,
+	very~bad~move					= Jogada~muito~ruim,
+	doubtful							= Jogada~duvidosa,
+	interesting						= Jogada~interessante,
+	good~for~black				= Bom~para~as~Pretas,
+	very~good~for~black		= Muito~bom~para~as~Pretas,
+	good~for~white				= Bom~para~as~Brancas,
+	very~good~for~white		= Muito~bom~para~as~Brancas,
+	even									= Posição~equilibrada,
+	unclear								= Posição~incerta,
+	diagram								= Diagrama,
+	variation							= Variação,
+	problem								= Problema,
+	correct								= correta,
+	wrong									= errada,
+	variation~at						= variante~no~lance~\pgfgovariationmove{},
+	black~to~play					= Pretas~jogam,
+	white~to~play					= Brancas~jogam,
+	at										= em,
+	pass										= passa,
+	result								= Resultado,
+	black									= Pretas,
+	white									= Brancas,
+	win										= \pgfgowinner{}~vencem,
+	win~by~points					= \pgfgowinner{}~vencem~por~\pgfgopoints{}~pontos,
+	win~by~resignation		= \pgfgowinner{}~vencem~por~desistência,
+	win~on~time						= \pgfgowinner{}~vencem~por~tempo,
+	win~by~forfeit				= \pgfgowinner{}~vencem~por~W.O.,
+	draw									= Empate~(jigo),
+	void									= Sem~resultado,
+	unknown~result				= Resultado~desconhecido,
+}
+
+\pgfgo_lang_define:nn {it} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Ottimo~tesuji,
+	bad~move							= Mossa~cattiva,
+	very~bad~move					= Mossa~pessima,
+	doubtful							= Mossa~dubbia,
+	interesting						= Mossa~interessante,
+	good~for~black				= Buono~per~il~Nero,
+	very~good~for~black		= Ottimo~per~il~Nero,
+	good~for~white				= Buono~per~il~Bianco,
+	very~good~for~white		= Ottimo~per~il~Bianco,
+	even									= Posizione~equilibrata,
+	unclear								= Posizione~incerta,
+	diagram								= Diagramma,
+	variation							= Variante,
+	problem								= Problema,
+	correct								= corretta,
+	wrong									= sbagliata,
+	variation~at						= variante~alla~mossa~\pgfgovariationmove{},
+	black~to~play					= Muove~il~Nero,
+	white~to~play					= Muove~il~Bianco,
+	at										= in,
+	pass										= passa,
+	result								= Risultato,
+	black									= Nero,
+	white									= Bianco,
+	win										= Vince~\pgfgowinner,
+	win~by~points					= Vince~\pgfgowinner{}~di~\pgfgopoints{}~punti,
+	win~by~resignation		= Vince~\pgfgowinner{}~per~abbandono,
+	win~on~time						= Vince~\pgfgowinner{}~per~tempo,
+	win~by~forfeit				= Vince~\pgfgowinner{}~a~tavolino,
+	draw									= Patta~(jigo),
+	void									= Nessun~risultato,
+	unknown~result				= Risultato~sconosciuto,
+}
+
+\pgfgo_lang_define:nn {eo} {
+	tesuji								= Tesuji,
+	very~good~tesuji			= Tre~bona~tesuji,
+	bad~move							= Malbona~movo,
+	very~bad~move					= Tre~malbona~movo,
+	doubtful							= Dubinda~movo,
+	interesting						= Interesa~movo,
+	good~for~black				= Bone~por~Nigro,
+	very~good~for~black		= Tre~bone~por~Nigro,
+	good~for~white				= Bone~por~Blanko,
+	very~good~for~white		= Tre~bone~por~Blanko,
+	even									= Egala~pozicio,
+	unclear								= Neklara~pozicio,
+	diagram								= Diagramo,
+	variation							= Varianto,
+	problem								= Problemo,
+	correct								= ĝusta,
+	wrong									= malĝusta,
+	variation~at						= varianto~ĉe~movo~\pgfgovariationmove{},
+	black~to~play					= Nigro~ludas,
+	white~to~play					= Blanko~ludas,
+	at										= ĉe,
+	pass										= pasas,
+	result								= Rezulto,
+	black									= Nigro,
+	white									= Blanko,
+	win										= \pgfgowinner{}~venkas,
+	win~by~points					= \pgfgowinner{}~venkas~per~\pgfgopoints{}~poentoj,
+	win~by~resignation		= \pgfgowinner{}~venkas~per~rezigno,
+	win~on~time						= \pgfgowinner{}~venkas~pro~tempo,
+	win~by~forfeit				= \pgfgowinner{}~venkas~senbatale,
+	draw									= Remizo~(jigo),
+	void									= Sen~rezulto,
+	unknown~result				= Nekonata~rezulto,
+}
+
+\pgfgo_lang_define:nn {ja} {
+	tesuji								= 手筋,
+	very~good~tesuji			= 妙手,
+	bad~move							= 悪手,
+	very~bad~move					= 大悪手,
+	doubtful							= 疑問手,
+	interesting						= 面白い手,
+	good~for~black				= 黒良し,
+	very~good~for~black		= 黒優勢,
+	good~for~white				= 白良し,
+	very~good~for~white		= 白優勢,
+	even									= 互角,
+	unclear								= 形勢不明,
+	diagram								= 図,
+	variation							= 変化,
+	problem								= 問題,
+	correct								= 正解,
+	wrong									= 失敗,
+	variation~at						= \pgfgovariationmove{}手目の変化,
+	black~to~play					= 黒番,
+	white~to~play					= 白番,
+	at										= {=},
+	pass										= パス,
+	result								= 結果,
+	black									= 黒,
+	white									= 白,
+	win										= \pgfgowinner 勝ち,
+	win~by~points					= \pgfgowinner \pgfgopoints 目勝ち,
+	win~by~resignation		= \pgfgowinner 中押し勝ち,
+	win~on~time						= \pgfgowinner 時間切れ勝ち,
+	win~by~forfeit				= \pgfgowinner 不戦勝,
+	draw									= 持碁,
+	void									= 無勝負,
+	unknown~result				= 結果不明,
+}
+
+\pgfgo_lang_define:nn {zh} {
+	tesuji								= 手筋,
+	very~good~tesuji			= 妙手,
+	bad~move							= 恶手,
+	very~bad~move					= 大恶手,
+	doubtful							= 疑问手,
+	interesting						= 有趣的一手,
+	good~for~black				= 黑好,
+	very~good~for~black		= 黑优势,
+	good~for~white				= 白好,
+	very~good~for~white		= 白优势,
+	even									= 均势,
+	unclear								= 形势不明,
+	diagram								= 图,
+	variation							= 变化,
+	problem								= 问题,
+	correct								= 正解,
+	wrong									= 失败,
+	variation~at						= 第\pgfgovariationmove{}手的变化,
+	black~to~play					= 黑先,
+	white~to~play					= 白先,
+	at										= {=},
+	pass										= 停一手,
+	result								= 结果,
+	black									= 黑,
+	white									= 白,
+	win										= \pgfgowinner 胜,
+	win~by~points					= \pgfgowinner 胜 \pgfgopoints 目,
+	win~by~resignation		= \pgfgowinner 中盘胜,
+	win~on~time						= \pgfgowinner 超时胜,
+	win~by~forfeit				= \pgfgowinner 不战胜,
+	draw									= 和棋,
+	void									= 无胜负,
+	unknown~result				= 结果不明,
+}
+
+\pgfgo_lang_define:nn {ko} {
+	tesuji								= 맥점,
+	very~good~tesuji			= 묘수,
+	bad~move							= 악수,
+	very~bad~move					= 대악수,
+	doubtful							= 의문수,
+	interesting						= 흥미로운~수,
+	good~for~black				= 흑~좋음,
+	very~good~for~black		= 흑~우세,
+	good~for~white				= 백~좋음,
+	very~good~for~white		= 백~우세,
+	even									= 호각,
+	unclear								= 형세~불명,
+	diagram								= 그림,
+	variation							= 변화,
+	problem								= 문제,
+	correct								= 정답,
+	wrong									= 실패,
+	variation~at						= \pgfgovariationmove{}수의~변화,
+	black~to~play					= 흑선,
+	white~to~play					= 백선,
+	at										= {=},
+	pass										= 패스,
+	result								= 결과,
+	black									= 흑,
+	white									= 백,
+	win										= \pgfgowinner{}~승,
+	win~by~points					= \pgfgowinner{}~\pgfgopoints 집~승,
+	win~by~resignation		= \pgfgowinner{}~불계승,
+	win~on~time						= \pgfgowinner{}~시간승,
+	win~by~forfeit				= \pgfgowinner{}~기권승,
+	draw									= 무승부,
+	void									= 무효,
+	unknown~result				= 결과~불명,
+}
+
+%NOMBRES DE babel Y polyglossia.
+\pgfgo_lang_alias:nn {en} {english, american, british, USenglish, UKenglish, canadian, australian, newzealand}
+\pgfgo_lang_alias:nn {es} {spanish, castilian, spanishmx}
+\pgfgo_lang_alias:nn {fr} {french, francais, frenchb, acadian, canadien}
+\pgfgo_lang_alias:nn {de} {german, ngerman, germanb, austrian, naustrian, swissgerman, nswissgerman}
+\pgfgo_lang_alias:nn {pt} {portuguese, portuges, brazil, brazilian}
+\pgfgo_lang_alias:nn {it} {italian}
+\pgfgo_lang_alias:nn {eo} {esperanto}
+\pgfgo_lang_alias:nn {ja} {japanese}
+\pgfgo_lang_alias:nn {zh} {chinese}
+\pgfgo_lang_alias:nn {ko} {korean}
+
+%LA OPCION DEL PAQUETE (\usepackage[lang = ..]{pgf-go}), YA CON LOS DICCIONARIOS.
+\tl_if_empty:NF \g__pgfgo_lang_option_tl {\exp_args:NV \pgfgo_lang_set:n \g__pgfgo_lang_option_tl}

@@ -1,0 +1,124 @@
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\ProvidesPackage{pgf-go}[2026/10/23 v0.2026.10.23 Go diagrams with PGF]
+
+\RequirePackage{tikz}
+\usetikzlibrary{patterns, arrows.meta}
+\RequirePackage{xparse}
+
+\definecolor{pgfgo}{RGB}{220,179,92}
+
+\ExplSyntaxOn
+
+\cs_new_protected:Npn \pgfgo_set:n #1 {\keys_set:nn {pgfgo} {#1}}
+\cs_generate_variant:Nn \pgfgo_set:n {e}
+\let\pgfgoset\pgfgo_set:n
+
+\NewDocumentCommand{\pgfgosetallplayers}{m}{\keys_set:nn {pgfgo / players}{all = {#1}}}
+
+%LOS MODULOS SE BUSCAN EN LA MISMA CARPETA QUE pgf-go.sty (POR EJ. \usepackage{../../latex/pgf-go}).
+%SI NO ESTAN AHI, SE BUSCAN EN EL PATH DE TEX.
+\tl_const:Ne \c__pgfgo_path_tl {\CurrentFilePath}
+
+\cs_new_protected:Npn \__pgfgo_load_module:n #1 {
+	\tl_if_empty:NTF \c__pgfgo_path_tl
+		{\file_input:n {#1 .sty}}
+		{
+			\file_if_exist:nTF {\c__pgfgo_path_tl / #1 .sty}
+				{\file_input:n {\c__pgfgo_path_tl / #1 .sty}}
+				{\file_input:n {#1 .sty}}
+		}
+	\ExplSyntaxOn
+}
+\cs_generate_variant:Nn \__pgfgo_load_module:n {e}
+
+%EJECUTA #2 SI EL MODULO #1 NO ESTA NI JUNTO A pgf-go.sty NI EN EL PATH DE TEX.
+\cs_new_protected:Npn \__pgfgo_module_if_exist:nF #1#2 {
+	\file_if_exist:nF {#1 .sty} {
+		\tl_if_empty:NTF \c__pgfgo_path_tl
+			{#2}
+			{\file_if_exist:nF {\c__pgfgo_path_tl / #1 .sty} {#2}}
+	}
+}
+
+%KERNEL DE CALCULO: \usepackage[kernel = expl3 | lua]{pgf-go}. VER pgf-go-kernel.sty.
+%POR DEFECTO, lua CON LuaLaTeX Y expl3 CON LOS DEMAS MOTORES.
+\tl_new:N \g_pgfgo_kernel_tl
+%IDIOMA DE LOS TEXTOS: \usepackage[lang = es]{pgf-go}. VER pgf-go-lang.sty.
+\tl_new:N \g__pgfgo_lang_option_tl
+\keys_define:nn {pgfgo / package} {
+	kernel		.choices:nn = {expl3, lua} {\tl_gset_eq:NN \g_pgfgo_kernel_tl \l_keys_choice_tl},
+	lang			.tl_gset:N	= \g__pgfgo_lang_option_tl,
+}
+\sys_if_engine_luatex:TF
+	{\tl_gset:Nn \g_pgfgo_kernel_tl {lua}}
+	{\tl_gset:Nn \g_pgfgo_kernel_tl {expl3}}
+\IfFormatAtLeastTF {2022-06-01}
+	{\ProcessKeyOptions [pgfgo / package]}
+	{\RequirePackage{l3keys2e}\ProcessKeysOptions{pgfgo / package}}
+
+%VARIANTE QUE USAN LOS MODULOS (LOS l3kernel RECIENTES YA LA TIENEN).
+\prg_generate_conditional_variant:Nnn \regex_match:nn {nV} {T, F, TF}
+
+%LAS VARIABLES DEL ESTILO: LAS LOCALES (l_pgfgo..., l__pgfgo...) QUE CREAN LOS MODULOS DE ESTILO, SALVO LAS
+%DE LAS VISTAS Y DE resume. UN goban CON NOMBRE GUARDA SUS VALORES, Y \pgfgoview LOS VUELVE A PONER (VER
+%\pgfgo_style_save: EN pgf-go-goban.sty). MIENTRAS SE CARGAN ESOS MODULOS, \tl_new:N, \bool_new:N, ...
+%TAMBIEN ANOTAN LA VARIABLE.
+\seq_new:N \g_pgfgo_style_vars_seq
+\bool_new:N \g__pgfgo_style_register_bool
+\clist_const:Nn \c__pgfgo_style_types_clist {tl, str, clist, seq, prop, bool, int, dim, skip, fp}
+\clist_const:Nn \c__pgfgo_style_modules_clist
+	{pgf-go-images, pgf-go-players, pgf-go-stones, pgf-go-goban, pgf-go-marks, pgf-go-lines, pgf-go-territory}
+\cs_new_protected:Npn \__pgfgo_style_register:nN #1#2 {
+	\bool_if:NT \g__pgfgo_style_register_bool {
+		\exp_args:Ne \__pgfgo_style_register:nnN {\cs_to_str:N #2} {#1} #2
+	}
+}
+\cs_new_protected:Npn \__pgfgo_style_register:nnN #1#2#3 {
+	\bool_lazy_or:nnT
+		{\str_if_eq_p:ee {\str_range:nnn {#1} {1} {7}} {l_pgfgo}}
+		{\str_if_eq_p:ee {\str_range:nnn {#1} {1} {8}} {l__pgfgo}}
+		{
+			\str_if_in:nnF {#1} {view} {
+				\str_if_in:nnF {#1} {resume} {\seq_gput_right:Nn \g_pgfgo_style_vars_seq {{#2} #3}}
+			}
+		}
+}
+\clist_map_inline:Nn \c__pgfgo_style_types_clist {
+	\cs_new_eq:cc {__pgfgo_style_ #1 _new:N} {#1_new:N}
+	\cs_new_protected:cpn {__pgfgo_style_ #1 _register:N} ##1 {
+		\use:c {__pgfgo_style_ #1 _new:N} ##1
+		\__pgfgo_style_register:nN {#1} ##1
+	}
+}
+\clist_map_inline:Nn \c__pgfgo_style_types_clist {\cs_gset_eq:cc {#1_new:N} {__pgfgo_style_ #1 _register:N}}
+
+\clist_map_inline:nn {
+	pgf-go-kernel, pgf-go-lang, pgf-go-remember, pgf-go-images, pgf-go-profiles, pgf-go-players, pgf-go-stones,
+	pgf-go-goban, pgf-go-marks, pgf-go-lines, pgf-go-territory, pgf-go-layout, pgf-go-sgf,
+	pgf-go-store
+} {
+	\clist_if_in:NnTF \c__pgfgo_style_modules_clist {#1}
+		{\bool_gset_true:N \g__pgfgo_style_register_bool}
+		{\bool_gset_false:N \g__pgfgo_style_register_bool}
+	\__pgfgo_load_module:n {#1}
+}
+\bool_gset_false:N \g__pgfgo_style_register_bool
+\clist_map_inline:Nn \c__pgfgo_style_types_clist {\cs_gset_eq:cc {#1_new:N} {__pgfgo_style_ #1 _new:N}}
+
+\keys_define:nn {pgfgo}{
+	goban				.code:n			= {\keys_set:nn {pgfgo / goban} {#1}},
+	view				.code:n			= {\keys_set:nn {pgfgo / view} {#1}},
+	stone				.code:n			= {\keys_set:nn {pgfgo / players} {all = {stone = {#1}}}},
+	move				.code:n			= {\keys_set:nn {pgfgo / players} {all = {move = {#1}}}},
+	mark				.code:n			= {\keys_set:nn {pgfgo / mark} {#1}},
+	territory		.code:n			= {\keys_set:nn {pgfgo / territory} {#1}},
+	players			.code:n			= {\keys_set:nn {pgfgo / players} {#1}},
+}
+
+%EL ESTILO INICIAL: EL PERFIL default, QUE ES TAMBIEN A LO QUE VUELVE profile ANTES DE PONER UN PERFIL.
+\pgfgo_set:e {goban = {size = 9}}
+\pgfgo_profile_use_profile:n {default}
+\pgfgo_profile_save_reset:
+\pgfgo_style_save_initial:
+
+\ExplSyntaxOff

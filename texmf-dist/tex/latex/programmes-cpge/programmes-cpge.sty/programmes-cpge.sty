@@ -1,0 +1,714 @@
+%% programmes-cpge.sty
+%% Les programmes officiels de physique-chimie des classes préparatoires
+%% scientifiques (MPSI, PCSI, MP, PC, PSI), à citer, parcourir et composer.
+%%
+%% Copyright (C) 2026 Antonin Marchand
+%%
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c of this license or (at
+%% your option) any later version. The latest version of this license is in
+%% https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Antonin Marchand.
+%%
+%% Les textes des programmes, dans les fichiers programmes-cpge-*.tex, sont
+%% ceux publiés par le ministère de l'Enseignement supérieur ; voir la
+%% documentation, section « Les textes et leur licence ».
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{programmes-cpge}{2026-10-21}{0.2}
+  {Programmes officiels de physique-chimie des CPGE}
+
+\RequirePackage{amsmath}
+% \leqslant, \geqslant : amssymb sous pdfLaTeX ; unicode-math les fournit déjà, et
+% amssymb chargé après lui redéfinirait ses symboles.
+\IfPackageLoadedF { unicode-math } { \RequirePackage{amssymb} }
+\RequirePackage{array}
+\RequirePackage{booktabs}
+\RequirePackage{longtable}
+\RequirePackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+% ------------------------------------------------------------------------
+% Messages
+
+\msg_new:nnn { programmes-cpge } { cle-inconnue }
+  { La~clé~« #1 »~ne~désigne~rien~dans~les~programmes~chargés. }
+\msg_new:nnn { programmes-cpge } { filiere-inconnue }
+  { Aucun~fichier~programmes-cpge-#1.tex~:~la~filière~« #1 »~est~inconnue. }
+\msg_new:nnn { programmes-cpge } { parent-inconnu }
+  { « #1 »~déclare~pour~parent~« #2 »,~qui~n'est~pas~déclaré~avant~lui. }
+\msg_new:nnn { programmes-cpge } { option-inconnue }
+  { Option~« #1 »~inconnue~pour~\iow_char:N\\#2. }
+
+% ------------------------------------------------------------------------
+% Stockage : une liste de propriétés par clé, la suite de ses enfants
+
+\seq_new:N \g_cpge_filieres_seq
+\tl_new:N \l__cpge_filiere_tl
+\tl_new:N \l__cpge_courante_tl
+\tl_new:N \l__cpge_tmp_tl
+\seq_new:N \l__cpge_lignes_seq
+\int_new:N \l__cpge_rang_int
+
+\cs_new_protected:Npn \__cpge_creer:nn #1#2
+  {
+    \prop_gclear_new:c { g__cpge_ #1 _prop }
+    \seq_gclear_new:c { g__cpge_ #1 _enfants_seq }
+    \prop_gput:cnn { g__cpge_ #1 _prop } { genre } {#2}
+    \prop_gput:cnn { g__cpge_ #1 _prop } { cle } {#1}
+  }
+
+\prg_new_conditional:Npnn \cpge_si_existe:n #1 { p , T , F , TF }
+  {
+    \prop_if_exist:cTF { g__cpge_ #1 _prop }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+\cs_new:Npn \cpge_champ:nn #1#2
+  {
+    \prop_if_exist:cTF { g__cpge_ #1 _prop }
+      { \prop_item:cn { g__cpge_ #1 _prop } {#2} }
+      { \msg_expandable_error:nnn { programmes-cpge } { cle-inconnue } {#1} }
+  }
+\cs_generate_variant:Nn \cpge_champ:nn { V , e }
+
+\prg_new_conditional:Npnn \cpge_si_vide:nn #1#2 { p , T , F , TF }
+  {
+    \tl_if_blank:eTF { \cpge_champ:nn {#1} {#2} }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+% Le format des fichiers de données ---------------------------------------
+
+\NewDocumentCommand \cpgefiliere { m +m }
+  {
+    \__cpge_creer:nn {#1} { filiere }
+    \prop_gset_from_keyval:cn { g__cpge_ #1 _prop } {#2}
+    \prop_gput:cnn { g__cpge_ #1 _prop } { cle } {#1}
+    \prop_gput:cnn { g__cpge_ #1 _prop } { genre } { filiere }
+    \prop_gput:cnn { g__cpge_ #1 _prop } { filiere } {#1}
+    \seq_if_in:NnF \g_cpge_filieres_seq {#1}
+      { \seq_gput_right:Nn \g_cpge_filieres_seq {#1} }
+    \tl_set:Nn \l__cpge_filiere_tl {#1}
+  }
+\NewDocumentCommand \cpgerubrique { m +m } { \__cpge_noeud:nnn {#1} { rubrique } {#2} }
+\NewDocumentCommand \cpgeligne { m +m } { \__cpge_noeud:nnn {#1} { ligne } {#2} }
+
+\cs_new_protected:Npn \__cpge_noeud:nnn #1#2#3
+  {
+    \__cpge_creer:nn {#1} {#2}
+    \prop_gset_from_keyval:cn { g__cpge_ #1 _prop } {#3}
+    \prop_gput:cnn { g__cpge_ #1 _prop } { cle } {#1}
+    \prop_gput:cnn { g__cpge_ #1 _prop } { genre } {#2}
+    \prop_gput:cnV { g__cpge_ #1 _prop } { filiere } \l__cpge_filiere_tl
+    \tl_set:Ne \l__cpge_tmp_tl { \prop_item:cn { g__cpge_ #1 _prop } { parent } }
+    \seq_if_exist:cTF { g__cpge_ \l__cpge_tmp_tl _enfants_seq }
+      { \seq_gput_right:cn { g__cpge_ \l__cpge_tmp_tl _enfants_seq } {#1} }
+      { \msg_error:nnnV { programmes-cpge } { parent-inconnu } {#1} \l__cpge_tmp_tl }
+  }
+\cs_generate_variant:Nn \msg_error:nnnn { nnnV }
+
+% Charger une filière ------------------------------------------------------
+
+\cs_new_protected:Npn \cpge_charger:n #1
+  {
+    \clist_map_inline:nn {#1}
+      {
+        \seq_if_in:NnF \g_cpge_filieres_seq {##1}
+          {
+            \file_if_exist:nTF { programmes-cpge- \str_lowercase:n {##1} .tex }
+              {
+                \group_begin:
+                  \ExplSyntaxOff
+                  \file_input:n { programmes-cpge- \str_lowercase:n {##1} .tex }
+                \group_end:
+              }
+              { \msg_error:nnn { programmes-cpge } { filiere-inconnue } {##1} }
+          }
+      }
+  }
+\NewDocumentCommand \cpgecharger { m } { \cpge_charger:n {#1} }
+
+% ------------------------------------------------------------------------
+% Lire
+
+\NewExpandableDocumentCommand \cpgechamp { m m } { \cpge_champ:nn {#1} {#2} }
+\NewExpandableDocumentCommand \cpgetitre { m } { \cpge_champ:nn {#1} { titre } }
+\NewExpandableDocumentCommand \cpgenumero { m } { \cpge_champ:nn {#1} { numero } }
+\NewExpandableDocumentCommand \cpgegenre { m } { \cpge_champ:nn {#1} { genre } }
+\NewExpandableDocumentCommand \cpgefiliereDe { m } { \cpge_champ:nn {#1} { filiere } }
+\NewExpandableDocumentCommand \cpgeparent { m } { \cpge_champ:nn {#1} { parent } }
+\NewExpandableDocumentCommand \cpgesiexiste { m +m +m }
+  { \cpge_si_existe:nTF {#1} {#2} {#3} }
+\NewExpandableDocumentCommand \cpgesivide { m m +m +m }
+  { \cpge_si_vide:nnTF {#1} {#2} {#3} {#4} }
+\NewExpandableDocumentCommand \cpgesiligne { m +m +m }
+  { \str_if_eq:eeTF { \cpge_champ:nn {#1} { genre } } { ligne } {#2} {#3} }
+% \cpgeitem{…}\cpgeitem{…} : deux lexèmes par item, les espaces ne comptent pas
+\NewExpandableDocumentCommand \cpgenombre { m m }
+  { \int_eval:n { \tl_count:e { \cpge_champ:nn {#1} {#2} } / 2 } }
+% L'ancêtre d'une clé au niveau voulu (1 : le thème) ; la clé elle-même si elle
+% est à ce niveau, rien si elle n'en a pas.
+\cs_new:Npn \cpge_ancetre:nn #1#2
+  {
+    \str_case_e:nnF { \cpge_champ:nn {#1} { genre } }
+      {
+        { filiere } { }
+        { ligne } { \cpge_ancetre:en { \cpge_champ:nn {#1} { parent } } {#2} }
+      }
+      {
+        \int_compare:nNnTF { \cpge_champ:nn {#1} { niveau } } > {#2}
+          { \cpge_ancetre:en { \cpge_champ:nn {#1} { parent } } {#2} }
+          {
+            \int_compare:nNnT { \cpge_champ:nn {#1} { niveau } } = {#2} {#1}
+          }
+      }
+  }
+\cs_generate_variant:Nn \cpge_ancetre:nn { e }
+\NewExpandableDocumentCommand \cpgeancetre { m m } { \cpge_ancetre:nn {#1} {#2} }
+\NewExpandableDocumentCommand \cpgenombreenfants { m }
+  { \seq_count:c { g__cpge_ #1 _enfants_seq } }
+
+\NewExpandableDocumentCommand \cpgeintitule { m }
+  {
+    \cpge_champ:nn {#1} { numero }
+    \cpge_si_vide:nnF {#1} { titre } { \c_space_tl \cpge_champ:nn {#1} { titre } }
+  }
+
+% ------------------------------------------------------------------------
+% Parcourir
+
+\cs_new_protected:Npn \__cpge_lignes:n #1
+  {
+    \str_if_eq:eeTF { \cpge_champ:nn {#1} { genre } } { ligne }
+      { \seq_put_right:Nn \l__cpge_lignes_seq {#1} }
+      {
+        \seq_map_inline:cn { g__cpge_ #1 _enfants_seq }
+          { \__cpge_lignes:n {##1} }
+      }
+  }
+\cs_new_protected:Npn \cpge_lignes:Nn #1#2
+  {
+    \seq_clear:N \l__cpge_lignes_seq
+    \clist_map_inline:nn {#2}
+      {
+        \cpge_si_existe:nTF {##1}
+          { \__cpge_lignes:n {##1} }
+          { \msg_error:nnn { programmes-cpge } { cle-inconnue } {##1} }
+      }
+    \seq_set_eq:NN #1 \l__cpge_lignes_seq
+  }
+
+\NewDocumentCommand \cpgepourchaque { m +m }
+  {
+    \cpge_si_existe:nTF {#1}
+      { \seq_map_inline:cn { g__cpge_ #1 _enfants_seq } {#2} }
+      { \msg_error:nnn { programmes-cpge } { cle-inconnue } {#1} }
+  }
+\NewDocumentCommand \cpgepourchaqueligne { m +m }
+  {
+    \group_begin:
+      \seq_clear_new:c { l__cpge_parcours_ \int_use:N \l__cpge_rang_int _seq }
+      \cpge_lignes:cn { l__cpge_parcours_ \int_use:N \l__cpge_rang_int _seq } {#1}
+      \int_incr:N \l__cpge_rang_int
+      \seq_map_inline:cn
+        { l__cpge_parcours_ \int_eval:n { \l__cpge_rang_int - 1 } _seq } {#2}
+    \group_end:
+  }
+\cs_generate_variant:Nn \cpge_lignes:Nn { c }
+
+% Les rangées d'un tableau fait main : le modèle reçoit la clé en #1, une fois par
+% ligne du programme. Les rangées sont assemblées d'abord, puis rendues d'un bloc,
+% si bien que les & et \\ du modèle arrivent dans l'alignement comme s'ils étaient
+% écrits à la main.
+\tl_new:N \l__cpge_rangees_tl
+\cs_new_protected:Npn \cpge_rangees:nn #1#2
+  {
+    \cs_set:Npn \__cpge_modele:n ##1 {#2}
+    \cpge_lignes:Nn \l__cpge_lignes_seq {#1}
+    \tl_clear:N \l__cpge_rangees_tl
+    \seq_map_inline:Nn \l__cpge_lignes_seq
+      { \tl_put_right:No \l__cpge_rangees_tl { \__cpge_modele:n {##1} } }
+    \tl_use:N \l__cpge_rangees_tl
+  }
+\NewDocumentCommand \cpgenombrelignes { m }
+  {
+    \cpge_lignes:Nn \l__cpge_lignes_seq {#1}
+    \seq_count:N \l__cpge_lignes_seq
+  }
+\NewDocumentCommand \cpgerangees { m +m } { \cpge_rangees:nn {#1} {#2} }
+
+% ------------------------------------------------------------------------
+% Les macros des données, toutes redéfinissables
+
+\newcommand \cpgeformatcitation [2] { \textbf{#1}~«~#2~» }
+\NewDocumentCommand \cpgecite { m }
+  { \cpgeformatcitation { \cpgenumero {#1} } { \cpgetitre {#1} } }
+\NewDocumentCommand \cpgecettepartie { }
+  {
+    \tl_if_empty:NTF \l__cpge_courante_tl
+      { cette~partie }
+      { \exp_args:NV \cpgecite \l__cpge_courante_tl }
+  }
+\newcommand \cpgenotion [1] { \textbf{#1} }
+\newcommand \cpgerenvoi [1] { }
+\newcommand \cpgevec [1] { \overrightarrow{#1} }
+\newcommand \cpgegrad { \cpgevec{\operatorname{grad}} }
+\newcommand \cpgerot { \cpgevec{\operatorname{rot}} }
+\newcommand \cpgediv { \operatorname{div} }
+\newcommand \cpgedd { \mathop{}\!\mathrm{d} }
+\newcommand \cpgeii { \mathrm{i} }
+\newcommand \cpgejj { \mathrm{j} }
+\newcommand \cpgeRe { \operatorname{Re} }
+
+% Chaque item d'un champ passe par \cpgeitem, dont la forme dépend du contexte.
+% Les paragraphes se séparent, sans \par après le dernier : une cellule p{…}
+% de tableau ajouterait sinon une ligne vide sous son contenu.
+\bool_new:N \l__cpge_premier_bool
+\bool_set_true:N \l__cpge_premier_bool
+\cs_new_protected:Npn \__cpge_forme_paragraphes:n #1
+  {
+    \bool_if:NF \l__cpge_premier_bool { \par }
+    \bool_set_false:N \l__cpge_premier_bool
+    #1
+  }
+\cs_new_protected:Npn \__cpge_forme_liste:n #1 { \item #1 }
+\tl_new:N \l__cpge_separateur_tl
+\tl_set:Nn \l__cpge_separateur_tl { ~ }
+\cs_new_protected:Npn \__cpge_forme_ligne:n #1
+  {
+    \bool_if:NF \l__cpge_premier_bool { \tl_use:N \l__cpge_separateur_tl }
+    \bool_set_false:N \l__cpge_premier_bool
+    #1
+  }
+\cs_new_protected:Npn \__cpge_format:n #1 {#1}
+\cs_new_protected:Npn \cpgeitem #1 { \__cpge_forme:n { \__cpge_format:n {#1} } }
+\cs_new_eq:NN \__cpge_forme:n \__cpge_forme_paragraphes:n
+
+% ------------------------------------------------------------------------
+% Composer un champ
+
+\tl_new:N \l__cpge_forme_tl
+\cs_generate_variant:Nn \msg_error:nnnn { nnVn }
+\keys_define:nn { programmes-cpge / afficher }
+  {
+    forme .choices:nn = { paragraphes , liste , enumeration , ligne }
+      { \tl_set_eq:NN \l__cpge_forme_tl \l_keys_choice_tl } ,
+    forme .initial:n = paragraphes ,
+    separateur .tl_set:N = \l__cpge_separateur_tl ,
+    format .code:n = { \cs_set_protected:Npn \__cpge_format:n ##1 { #1 {##1} } } ,
+    unknown .code:n =
+      { \msg_error:nnVn { programmes-cpge } { option-inconnue } \l_keys_key_str { cpgeafficher } } ,
+  }
+
+\cs_new_protected:Npn \cpge_afficher:nnn #1#2#3
+  {
+    \group_begin:
+      \keys_set:nn { programmes-cpge / afficher } {#1}
+      \tl_set:Ne \l__cpge_courante_tl {#2}
+      \tl_set:Ne \l__cpge_tmp_tl { \cpge_champ:nn {#2} {#3} }
+      \tl_if_blank:VF \l__cpge_tmp_tl
+        {
+          \str_case:Vn \l__cpge_forme_tl
+            {
+              { paragraphes }
+                {
+                  \cs_set_eq:NN \__cpge_forme:n \__cpge_forme_paragraphes:n
+                  \bool_set_true:N \l__cpge_premier_bool
+                  \tl_use:N \l__cpge_tmp_tl
+                }
+              { liste }
+                {
+                  \cs_set_eq:NN \__cpge_forme:n \__cpge_forme_liste:n
+                  \begin{itemize} \tl_use:N \l__cpge_tmp_tl \end{itemize}
+                }
+              { enumeration }
+                {
+                  \cs_set_eq:NN \__cpge_forme:n \__cpge_forme_liste:n
+                  \begin{enumerate} \tl_use:N \l__cpge_tmp_tl \end{enumerate}
+                }
+              { ligne }
+                {
+                  \cs_set_eq:NN \__cpge_forme:n \__cpge_forme_ligne:n
+                  \bool_set_true:N \l__cpge_premier_bool
+                  \tl_use:N \l__cpge_tmp_tl
+                }
+            }
+        }
+    \group_end:
+  }
+\NewDocumentCommand \cpgeafficher { O{} m m } { \cpge_afficher:nnn {#1} {#2} {#3} }
+\NewDocumentCommand \cpgechapeau { O{} m } { \cpge_afficher:nnn {#1} {#2} { chapeau } }
+
+% Les trois familles de capacités, en paragraphes ou en liste
+\newcommand \cpgeformatexperimentale [1] { \textbf{#1} }
+\newcommand \cpgeformatnumerique [1] { \textit{Capacité~numérique~:}~#1 }
+
+\keys_define:nn { programmes-cpge / capacites }
+  {
+    experimentales .bool_set:N = \l__cpge_exp_bool ,
+    experimentales .initial:n = true ,
+    numeriques .bool_set:N = \l__cpge_num_bool ,
+    numeriques .initial:n = true ,
+    exigibles .bool_set:N = \l__cpge_sf_bool ,
+    exigibles .initial:n = true ,
+    forme .tl_set:N = \l__cpge_forme_cap_tl ,
+    forme .initial:n = paragraphes ,
+  }
+
+\cs_new_protected:Npn \cpge_capacites:nn #1#2
+  {
+    \group_begin:
+      \keys_set:nn { programmes-cpge / capacites } {#1}
+      \tl_if_eq:NnTF \l__cpge_forme_cap_tl { liste }
+        {
+          \cpge_si_vide:nnTF {#2} { capacites }
+            { \cpge_si_vide:nnTF {#2} { experimentales } { \cpge_si_vide:nnF {#2} { numeriques } { \__cpge_liste_capacites:n {#2} } } { \__cpge_liste_capacites:n {#2} } }
+            { \__cpge_liste_capacites:n {#2} }
+        }
+        { \__cpge_trois_familles:nn { paragraphes } {#2} }
+    \group_end:
+  }
+\cs_new_protected:Npn \__cpge_liste_capacites:n #1
+  { \begin{itemize} \__cpge_trois_familles:nn { liste } {#1} \end{itemize} }
+\cs_new_protected:Npn \__cpge_trois_familles:nn #1#2
+  {
+    \cs_set_eq:Nc \__cpge_forme:n { __cpge_forme_ #1 :n }
+    \bool_set_true:N \l__cpge_premier_bool
+    \tl_set:Ne \l__cpge_courante_tl {#2}
+    \bool_if:NT \l__cpge_sf_bool
+      { \cpge_champ:nn {#2} { capacites } }
+    \bool_if:NT \l__cpge_exp_bool
+      {
+        \cs_set_protected:Npn \__cpge_format:n ##1 { \cpgeformatexperimentale {##1} }
+        \cpge_champ:nn {#2} { experimentales }
+      }
+    \bool_if:NT \l__cpge_num_bool
+      {
+        \cs_set_protected:Npn \__cpge_format:n ##1 { \cpgeformatnumerique {##1} }
+        \cpge_champ:nn {#2} { numeriques }
+      }
+  }
+\NewDocumentCommand \cpgecapacites { O{} m } { \cpge_capacites:nn {#1} {#2} }
+
+% ------------------------------------------------------------------------
+% Tableaux
+
+\keys_define:nn { programmes-cpge / tableau }
+  {
+    largeur .fp_set:N = \l__cpge_largeur_fp ,
+    largeur .initial:n = 0.38 ,
+    entete .bool_set:N = \l__cpge_entete_bool ,
+    entete .initial:n = true ,
+    titres .bool_set:N = \l__cpge_titres_bool ,
+    titres .initial:n = true ,
+    numeros .bool_set:N = \l__cpge_numeros_bool ,
+    numeros .initial:n = false ,
+    long .bool_set:N = \l__cpge_long_bool ,
+    long .initial:n = true ,
+    titre~contenus .tl_set:N = \l__cpge_titre_contenus_tl ,
+    titre~contenus .initial:n = Notions~et~contenus ,
+    titre~capacites .tl_set:N = \l__cpge_titre_capacites_tl ,
+    titre~capacites .initial:n = Capacités~exigibles ,
+    experimentales .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { experimentales = #1 , } ,
+    numeriques .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { numeriques = #1 , } ,
+    exigibles .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { exigibles = #1 , } ,
+    unknown .code:n =
+      { \msg_error:nnVn { programmes-cpge } { option-inconnue } \l_keys_key_str { cpgetableau } } ,
+  }
+\tl_new:N \l__cpge_opt_cap_tl
+\tl_new:N \l__cpge_corps_tl
+\dim_new:N \l__cpge_gauche_dim
+\dim_new:N \l__cpge_droite_dim
+
+\newcommand \cpgeformattitretableau [1] { \textbf{\cpgeintitule{#1}} }
+\newcommand \cpgeformatnumeroligne [1] { {\footnotesize\textsf{#1}}\par }
+
+\cs_new_protected:Npn \cpge_cellule_contenu:n #1
+  {
+    \bool_if:NT \l__cpge_numeros_bool { \cpgeformatnumeroligne { \cpge_champ:nn {#1} { cle } } }
+    \cpge_afficher:nnn { } {#1} { contenu }
+  }
+\cs_new_protected:Npn \cpge_cellule_capacites:n #1
+  { \cpge_capacites:nn { \tl_use:N \l__cpge_opt_cap_tl } {#1} }
+\cs_generate_variant:Nn \cpge_capacites:nn { e }
+\cs_set_protected:Npn \cpge_cellule_capacites:n #1
+  { \cpge_capacites:en { \tl_use:N \l__cpge_opt_cap_tl } {#1} }
+
+\cs_new_protected:Npn \__cpge_rangees:n #1
+  {
+    \str_if_eq:eeTF { \cpge_champ:nn {#1} { genre } } { ligne }
+      {
+        \tl_put_right:Nn \l__cpge_corps_tl
+          {
+            \cpge_cellule_contenu:n {#1} & \cpge_cellule_capacites:n {#1} \tabularnewline
+            \midrule
+          }
+      }
+      {
+        \bool_if:NT \l__cpge_titres_bool
+          {
+            \str_if_eq:eeF { \cpge_champ:nn {#1} { genre } } { filiere }
+              {
+                \tl_put_right:Nn \l__cpge_corps_tl
+                  {
+                    \multicolumn{2}{@{}p{\linewidth}@{}}{\cpgeformattitretableau {#1}}
+                    \tabularnewline \midrule
+                  }
+              }
+          }
+        \seq_map_inline:cn { g__cpge_ #1 _enfants_seq } { \__cpge_rangees:n {##1} }
+      }
+  }
+
+\cs_new_protected:Npn \cpge_tableau:nn #1#2
+  {
+    \group_begin:
+      \tl_clear:N \l__cpge_opt_cap_tl
+      \keys_set:nn { programmes-cpge / tableau } {#1}
+      \tl_clear:N \l__cpge_corps_tl
+      \clist_map_inline:nn {#2}
+        {
+          \cpge_si_existe:nTF {##1}
+            { \__cpge_rangees:n {##1} }
+            { \msg_error:nnn { programmes-cpge } { cle-inconnue } {##1} }
+        }
+      \dim_set:Nn \l__cpge_gauche_dim
+        { \fp_to_dim:n { \l__cpge_largeur_fp * \linewidth } - 2\tabcolsep }
+      \dim_set:Nn \l__cpge_droite_dim
+        { \fp_to_dim:n { (1 - \l__cpge_largeur_fp) * \linewidth } - 2\tabcolsep }
+      \bool_if:NTF \l__cpge_long_bool
+        { \__cpge_tableau_long: }
+        { \__cpge_tableau_court: }
+    \group_end:
+  }
+\cs_new_protected:Npn \__cpge_preambule:
+  {
+    @{} >{\raggedright\arraybackslash}p{\l__cpge_gauche_dim}
+    @{\hspace{2\tabcolsep}} >{\raggedright\arraybackslash}p{\l__cpge_droite_dim} @{}
+  }
+\cs_new:Npn \__cpge_entete:
+  {
+    \bool_if:NT \l__cpge_entete_bool
+      {
+        \toprule
+        \textit{\l__cpge_titre_contenus_tl} & \textit{\l__cpge_titre_capacites_tl} \tabularnewline
+        \midrule
+      }
+  }
+\cs_new_protected:Npx \__cpge_tableau_long:
+  {
+    \exp_not:N \begin{longtable} { \exp_not:o { \__cpge_preambule: } }
+      \exp_not:N \__cpge_entete: \exp_not:N \endhead
+      \exp_not:N \tl_use:N \exp_not:N \l__cpge_corps_tl
+    \exp_not:N \end{longtable}
+  }
+\cs_new_protected:Npx \__cpge_tableau_court:
+  {
+    \exp_not:N \par \exp_not:N \noindent
+    \exp_not:N \begin{tabular} { \exp_not:o { \__cpge_preambule: } }
+      \exp_not:N \__cpge_entete:
+      \exp_not:N \tl_use:N \exp_not:N \l__cpge_corps_tl
+    \exp_not:N \end{tabular} \exp_not:N \par
+  }
+\NewDocumentCommand \cpgetableau { O{} m } { \cpge_tableau:nn {#1} {#2} }
+
+% ------------------------------------------------------------------------
+% Boîtes
+
+\tcbset
+  {
+    cpge~boite/.style =
+      {
+        enhanced , breakable , colback = white , colframe = black!60 ,
+        colbacktitle = black!8 , coltitle = black , fonttitle = \bfseries ,
+        boxrule = 0.4pt , arc = 1mm , left = 2mm , right = 2mm ,
+      } ,
+  }
+
+\keys_define:nn { programmes-cpge / boite }
+  {
+    lignes .bool_set:N = \l__cpge_boite_lignes_bool ,
+    lignes .initial:n = false ,
+    chapeau .bool_set:N = \l__cpge_boite_chapeau_bool ,
+    chapeau .initial:n = true ,
+    titre .tl_set:N = \l__cpge_boite_titre_tl ,
+    tcolorbox .tl_set:N = \l__cpge_boite_options_tl ,
+    experimentales .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { experimentales = #1 , } ,
+    numeriques .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { numeriques = #1 , } ,
+    exigibles .code:n = \tl_put_right:Nn \l__cpge_opt_cap_tl { exigibles = #1 , } ,
+    unknown .code:n =
+      { \msg_error:nnVn { programmes-cpge } { option-inconnue } \l_keys_key_str { cpgeboite } } ,
+  }
+
+\newcommand \cpgeformattitreboite [1]
+  {
+    \cpgesiligne {#1}
+      { \cpgefiliereDe{#1}~\cpgenumero{#1} }
+      { \cpgeintitule{#1} }
+  }
+
+\cs_new_protected:Npn \cpge_boite:nn #1#2
+  {
+    \group_begin:
+      \tl_clear:N \l__cpge_opt_cap_tl
+      \tl_clear:N \l__cpge_boite_titre_tl
+      \tl_clear:N \l__cpge_boite_options_tl
+      \keys_set:nn { programmes-cpge / boite } {#1}
+      \tl_if_empty:NT \l__cpge_boite_titre_tl
+        { \tl_set:Nn \l__cpge_boite_titre_tl { \cpgeformattitreboite {#2} } }
+      \tl_set:Ne \l__cpge_tmp_tl
+        { cpge~boite , title = { \exp_not:V \l__cpge_boite_titre_tl } , \exp_not:V \l__cpge_boite_options_tl }
+      \use:e { \exp_not:N \tcolorbox [ \exp_not:V \l__cpge_tmp_tl ] }
+        \str_if_eq:eeTF { \cpge_champ:nn {#2} { genre } } { ligne }
+          { \__cpge_boite_ligne:n {#2} }
+          { \__cpge_boite_rubrique:n {#2} }
+      \endtcolorbox
+    \group_end:
+  }
+\cs_new_protected:Npn \__cpge_boite_ligne:n #1
+  {
+    \cpge_afficher:nnn { } {#1} { contenu }
+    \tcblower
+    \cpge_capacites:en { forme = liste , \tl_use:N \l__cpge_opt_cap_tl } {#1}
+  }
+\cs_new_protected:Npn \__cpge_boite_rubrique:n #1
+  {
+    \bool_if:NT \l__cpge_boite_chapeau_bool { \cpge_afficher:nnn { } {#1} { chapeau } }
+    \bool_if:NT \l__cpge_boite_lignes_bool
+      {
+        \cpge_lignes:Nn \l__cpge_lignes_seq {#1}
+        \seq_map_inline:Nn \l__cpge_lignes_seq
+          {
+            \par\medskip
+            \cpge_afficher:nnn { forme = ligne } {##1} { contenu }
+            \cpge_capacites:en { forme = liste , \tl_use:N \l__cpge_opt_cap_tl } {##1}
+          }
+      }
+  }
+\NewDocumentCommand \cpgeboite { O{} m } { \cpge_boite:nn {#1} {#2} }
+
+% ------------------------------------------------------------------------
+% Un programme entier : chaque rubrique en titre, son chapeau, puis ses lignes,
+% celles qui se suivent formant un seul tableau
+
+\clist_const:Nn \c__cpge_titres_clist
+  { part , chapter , section , subsection , subsubsection , paragraph , subparagraph }
+\int_new:N \l__cpge_niveau_int
+\tl_new:N \l__cpge_opt_tableau_tl
+\clist_new:N \l__cpge_programme_clist
+\cs_new_protected:Npn \__cpge_vers_tableau:n #1
+  { \tl_put_right:Nn \l__cpge_opt_tableau_tl { #1 , } }
+\keys_define:nn { programmes-cpge / programme }
+  {
+    niveau .choices:nn =
+      { part , chapter , section , subsection , subsubsection , paragraph }
+      { \int_set_eq:NN \l__cpge_niveau_int \l_keys_choice_int } ,
+    niveau .initial:n = section ,
+    sommaire .bool_set:N = \l__cpge_sommaire_bool ,
+    sommaire .initial:n = true ,
+    chapeaux .bool_set:N = \l__cpge_chapeaux_bool ,
+    chapeaux .initial:n = true ,
+    largeur .code:n = \__cpge_vers_tableau:n { largeur = {#1} } ,
+    entete .code:n = \__cpge_vers_tableau:n { entete = #1 } ,
+    entete .default:n = true ,
+    numeros .code:n = \__cpge_vers_tableau:n { numeros = #1 } ,
+    numeros .default:n = true ,
+    exigibles .code:n = \__cpge_vers_tableau:n { exigibles = #1 } ,
+    exigibles .default:n = true ,
+    experimentales .code:n = \__cpge_vers_tableau:n { experimentales = #1 } ,
+    experimentales .default:n = true ,
+    numeriques .code:n = \__cpge_vers_tableau:n { numeriques = #1 } ,
+    numeriques .default:n = true ,
+    long .code:n = \__cpge_vers_tableau:n { long = #1 } ,
+    long .default:n = true ,
+    titre~contenus .code:n = \__cpge_vers_tableau:n { titre~contenus = {#1} } ,
+    titre~capacites .code:n = \__cpge_vers_tableau:n { titre~capacites = {#1} } ,
+    unknown .code:n =
+      { \msg_error:nnVn { programmes-cpge } { option-inconnue } \l_keys_key_str { cpgeprogramme } } ,
+  }
+
+\cs_generate_variant:Nn \cpge_tableau:nn { VV , Vn }
+% #1 : la profondeur de la rubrique sous la clé donnée (1 pour elle-même)
+\cs_new_protected:Npn \__cpge_programme_titre:nn #1#2
+  {
+    \tl_set:Ne \l__cpge_tmp_tl
+      {
+        \clist_item:Nn \c__cpge_titres_clist
+          { \int_min:nn { \l__cpge_niveau_int + #1 - 1 } { 7 } }
+      }
+    \use:c { \l__cpge_tmp_tl } * { \cpgeintitule {#2} }
+    \bool_if:NT \l__cpge_sommaire_bool
+      {
+        \use:e
+          {
+            \exp_not:N \addcontentsline { toc } { \l__cpge_tmp_tl }
+              { \exp_not:n { \cpgeintitule {#2} } }
+          }
+      }
+  }
+\cs_new_protected:Npn \__cpge_programme_vider:
+  {
+    \clist_if_empty:NF \l__cpge_programme_clist
+      {
+        \cpge_tableau:VV \l__cpge_opt_tableau_tl \l__cpge_programme_clist
+        \clist_clear:N \l__cpge_programme_clist
+      }
+  }
+\cs_new_protected:Npn \__cpge_programme_enfants:nn #1#2
+  {
+    \group_begin:
+      \clist_clear:N \l__cpge_programme_clist
+      \seq_map_inline:cn { g__cpge_ #2 _enfants_seq }
+        {
+          \str_if_eq:eeTF { \cpge_champ:nn {##1} { genre } } { ligne }
+            { \clist_put_right:Nn \l__cpge_programme_clist {##1} }
+            {
+              \__cpge_programme_vider:
+              \__cpge_programme_rubrique:nn {#1} {##1}
+            }
+        }
+      \__cpge_programme_vider:
+    \group_end:
+  }
+\cs_new_protected:Npn \__cpge_programme_rubrique:nn #1#2
+  {
+    \__cpge_programme_titre:nn {#1} {#2}
+    \bool_if:NT \l__cpge_chapeaux_bool
+      { \cpge_afficher:nnn { } {#2} { chapeau } \par }
+    \__cpge_programme_enfants:nn { #1 + 1 } {#2}
+  }
+\cs_new_protected:Npn \cpge_programme:nn #1#2
+  {
+    \group_begin:
+      \tl_set:Nn \l__cpge_opt_tableau_tl { titres = false , }
+      \keys_set:nn { programmes-cpge / programme } {#1}
+      \cpge_si_existe:nTF {#2}
+        {
+          \str_case_e:nnF { \cpge_champ:nn {#2} { genre } }
+            {
+              { filiere } { \__cpge_programme_enfants:nn { 1 } {#2} }
+              { ligne } { \cpge_tableau:Vn \l__cpge_opt_tableau_tl {#2} }
+            }
+            { \__cpge_programme_rubrique:nn { 1 } {#2} }
+        }
+        { \msg_error:nnn { programmes-cpge } { cle-inconnue } {#2} }
+    \group_end:
+  }
+\NewDocumentCommand \cpgeprogramme { O{} m } { \cpge_programme:nn {#1} {#2} }
+
+% ------------------------------------------------------------------------
+% Options du paquet : les filières à charger
+
+\clist_new:N \g__cpge_options_clist
+\keys_define:nn { programmes-cpge / paquet }
+  {
+    toutes .code:n = \clist_gput_right:Nn \g__cpge_options_clist { MPSI , PCSI , MP , PC , PSI } ,
+    unknown .code:n = \clist_gput_right:NV \g__cpge_options_clist \l_keys_key_str ,
+  }
+\ProcessKeyOptions [ programmes-cpge / paquet ]
+\clist_if_empty:NT \g__cpge_options_clist
+  { \clist_gset:Nn \g__cpge_options_clist { MPSI , PCSI , MP , PC , PSI } }
+\cs_generate_variant:Nn \cpge_charger:n { V }
+\cpge_charger:V \g__cpge_options_clist

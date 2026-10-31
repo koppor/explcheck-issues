@@ -1,0 +1,504 @@
+\ProvidesFile{pgf-go-coordinate-parser.sty}[2026/10/23 v0.2026.10.23 pgf-go: coordinate parser]
+\ExplSyntaxOn
+
+%PARTE DEL KERNEL expl3 (LO CARGA pgf-go-kernel-expl3.sty). EL RESTO DEL PAQUETE USA \pgfgo_kernel_points:n.
+%
+%SINTAXIS. L ES UNA LETRA MAYUSCULA Y N UN NUMERO DE UNA O DOS CIFRAS. LOS RANGOS INCLUYEN LOS DOS
+%EXTREMOS Y SE RECORREN DEL PRIMERO AL SEGUNDO.
+%TRAMOS (SE ENCADENAN: TIENEN UN PRIMER Y UN ULTIMO PUNTO):
+%	LN				UNA INTERSECCION (C3).
+%	L:L N O L N:N	UN TRAMO DE FILA O DE COLUMNA (A:C 3, C 1:3).
+%	LN:LN			UN RECTANGULO, DE LA PRIMERA ESQUINA A LA SEGUNDA (A1:C3). SIN ORDEN, SALVO QUE SEA UNA LINEA.
+%OPERADORES ENTRE TRAMOS (DEL ULTIMO PUNTO DE UNO AL PRIMERO DEL SIGUIENTE):
+%	-|				PRIMERO HORIZONTAL Y DESPUES VERTICAL.
+%	|-				PRIMERO VERTICAL Y DESPUES HORIZONTAL.
+%	--				LINEA EN CUALQUIER DIRECCION: UNA PIEDRA POR FILA (O POR COLUMNA, SI AVANZA MAS DE LO QUE
+%					SUBE), LA MAS CERCANA A LA RECTA ENTRE LOS DOS EXTREMOS.
+%	-|-				ESA LINEA, Y EN CADA ESCALON LA ESQUINA DE -| (PRIMERO HORIZONTAL): UNA ESCALERA.
+%	|-|				LO MISMO CON LA ESQUINA DE |- (PRIMERO VERTICAL).
+%	r				EL CONTORNO DEL RECTANGULO. SIN ORDEN.
+%SOLOS (NI SE ENCADENAN NI TIENEN ORDEN):
+%	*				TODA LA PARTE VISIBLE DEL TABLERO.
+%	L O N			UNA COLUMNA O UNA FILA DE LA PARTE VISIBLE (C, 3).
+%	L:L O N:N		VARIAS COLUMNAS O FILAS DE LA PARTE VISIBLE (A:C, 3:5).
+%	L:L N:N			UN RECTANGULO (A:B 1:2).
+%CORCHETES: L[...], [...]N Y [...][...] SE REPARTEN EN SU LUGAR (A[1, 3:4] ES A1, A3:4). LAS COMAS SEPARAN
+%ELEMENTOS QUE SE SUMAN. LOS ; SEPARAN GRUPOS QUE SE SUMAN Y SE RESTAN ALTERNADAMENTE: EN A1:E5; C3, 1; C1
+%SE SUMA EL RECTANGULO, SE RESTAN C3 Y LA FILA 1 Y SE SUMA C1.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%RESULTADO: CONJUNTO ORDENADO DE INTERSECCIONES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%CADA INTERSECCION {x}{y} OCUPA LA CASILLA \__pgfgo_coordinate_slot_<i>: Y \__pgfgo_coordinate_seen_{x}{y}:
+%GUARDA SU NUMERO i. ASI AGREGAR Y QUITAR NO RECORRE LO QUE YA ESTA. EN LAS JUGADAS (moves) CADA PUNTO
+%OCUPA UNA CASILLA NUEVA, AUNQUE SE REPITA. TODO ES LOCAL AL GRUPO DE \__pgfgo_coordinate_run:nNN, ASI QUE
+%NO HACE FALTA BORRARLO.
+\int_new:N \l__pgfgo_coordinate_count_int
+\bool_new:N \l__pgfgo_coordinate_subtract_bool
+\bool_new:N \l__pgfgo_coordinate_moves_bool
+\tl_new:N \l__pgfgo_coordinate_items_tl
+%skip: EL PROXIMO PUNTO NO SE PONE (EL QUE COMPARTEN DOS TRAMOS DE UNA CADENA).
+\bool_new:N \l__pgfgo_coordinate_skip_bool
+%ordered: SI EL ELEMENTO TIENE UN ORDEN FIJO; all ordered: SI LO TIENEN TODOS LOS QUE SUMAN.
+\bool_new:N \l__pgfgo_coordinate_ordered_bool
+\bool_new:N \l__pgfgo_coordinate_all_ordered_bool
+
+%AGREGA (O QUITA, EN UN GRUPO QUE RESTA) LA INTERSECCION (#1,#2).
+\cs_new_protected:Npn \__pgfgo_coordinate_put:nn #1#2 {
+	\bool_if:NTF \l__pgfgo_coordinate_skip_bool
+		{\bool_set_false:N \l__pgfgo_coordinate_skip_bool}
+		{
+			\bool_if:NTF \l__pgfgo_coordinate_subtract_bool
+				{\__pgfgo_coordinate_remove:e}
+				{\__pgfgo_coordinate_add:e}
+			{{\int_eval:n {#1}}{\int_eval:n {#2}}}
+		}
+}
+\cs_new_protected:Npn \__pgfgo_coordinate_add:n #1 {
+	\bool_if:NTF \l__pgfgo_coordinate_moves_bool
+		{\__pgfgo_coordinate_new:n {#1}}
+		{\cs_if_exist:cF {__pgfgo_coordinate_seen_ \tl_to_str:n {#1} :} {\__pgfgo_coordinate_new:n {#1}}}
+}
+\cs_new_protected:Npn \__pgfgo_coordinate_new:n #1 {
+	\int_incr:N \l__pgfgo_coordinate_count_int
+	\cs_set:cpe {__pgfgo_coordinate_seen_ \tl_to_str:n {#1} :} {\int_use:N \l__pgfgo_coordinate_count_int}
+	\cs_set:cpn {__pgfgo_coordinate_slot_ \int_use:N \l__pgfgo_coordinate_count_int :} {#1}
+}
+\cs_new_protected:Npn \__pgfgo_coordinate_remove:n #1 {
+	\cs_if_exist:cT {__pgfgo_coordinate_seen_ \tl_to_str:n {#1} :} {
+		\cs_set:cpn {__pgfgo_coordinate_slot_ \use:c {__pgfgo_coordinate_seen_ \tl_to_str:n {#1} :} :} {}
+		\cs_set_eq:cN {__pgfgo_coordinate_seen_ \tl_to_str:n {#1} :} \scan_stop:
+	}
+}
+\cs_generate_variant:Nn \__pgfgo_coordinate_add:n {e}
+\cs_generate_variant:Nn \__pgfgo_coordinate_remove:n {e}
+
+%LA CASILLA #1 COMO ITEM DE UNA clist (VACIO SI SE QUITO).
+\cs_new:Npn \__pgfgo_coordinate_slot:n #1 {\exp_not:v {__pgfgo_coordinate_slot_ #1 :} ,}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%GENERADORES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%NUMERO DE LA COLUMNA DE LA LETRA #1. SIN use i, I Y J SON LA 9.
+\cs_new:Npn \__pgfgo_coordinate_column:n #1 {
+	\int_eval:n {`#1 - `A + 1 \bool_if:NF \l_pgfgo_use_i_bool {\int_compare:nNnT {`#1} > {`I} {- 1}}}
+}
+\cs_generate_variant:Nn \__pgfgo_coordinate_column:n {e}
+
+%PASO PARA IR DE #1 A #2 (1 SI SON IGUALES).
+\cs_new:Npn \__pgfgo_coordinate_step:nn #1#2 {\int_compare:nNnTF {#1} > {#2} {-1} {1}}
+
+\int_new:N \l__pgfgo_coordinate_a_int
+\int_new:N \l__pgfgo_coordinate_b_int
+%COLUMNAS DE LAS LETRAS #1 Y #2.
+\cs_new_protected:Npn \__pgfgo_coordinate_columns:nn #1#2 {
+	\int_set:Nn \l__pgfgo_coordinate_a_int {\__pgfgo_coordinate_column:n {#1}}
+	\int_set:Nn \l__pgfgo_coordinate_b_int {\__pgfgo_coordinate_column:n {#2}}
+}
+
+%RECTANGULO DE ESQUINAS (#1,#2) Y (#3,#4), COLUMNA POR COLUMNA DESDE #1 Y CADA COLUMNA DESDE #2: EMPIEZA EN
+%LA PRIMERA ESQUINA Y TERMINA EN LA SEGUNDA.
+\cs_new_protected:Npn \__pgfgo_coordinate_rectangle:nnnn #1#2#3#4 {
+	\int_step_inline:nnnn {#1} {\__pgfgo_coordinate_step:nn {#1} {#3}} {#3} {
+		\int_step_inline:nnnn {#2} {\__pgfgo_coordinate_step:nn {#2} {#4}} {#4}
+			{\__pgfgo_coordinate_put:nn {##1} {####1}}
+	}
+}
+%UN TRAMO: EL RECTANGULO, QUE NO TIENE ORDEN SALVO QUE SEA UNA LINEA (O UN PUNTO).
+\cs_new_protected:Npn \__pgfgo_coordinate_piece:nnnn #1#2#3#4 {
+	\__pgfgo_coordinate_rectangle:nnnn {#1} {#2} {#3} {#4}
+	\bool_lazy_or:nnF {\int_compare_p:nNn {#1} = {#3}} {\int_compare_p:nNn {#2} = {#4}}
+		{\bool_set_false:N \l__pgfgo_coordinate_ordered_bool}
+}
+
+%LO QUE VA SOLO. RECIBEN LOS GRUPOS DE SU EXPRESION REGULAR.
+%*
+\cs_new_protected:Npn \__pgfgo_coordinate_all: {
+	\__pgfgo_coordinate_rectangle:nnnn
+		{\l_pgfgo_goban_from_x_int} {\l_pgfgo_goban_from_y_int} {\l_pgfgo_goban_to_x_int} {\l_pgfgo_goban_to_y_int}
+	\bool_set_false:N \l__pgfgo_coordinate_ordered_bool
+}
+%C
+\cs_new_protected:Npn \__pgfgo_coordinate_L:n #1 {
+	\__pgfgo_coordinate_LL:nn {#1} {#1}
+}
+%3
+\cs_new_protected:Npn \__pgfgo_coordinate_N:n #1 {
+	\__pgfgo_coordinate_NN:nn {#1} {#1}
+}
+%A:C
+\cs_new_protected:Npn \__pgfgo_coordinate_LL:nn #1#2 {
+	\__pgfgo_coordinate_columns:nn {#1} {#2}
+	\__pgfgo_coordinate_rectangle:nnnn {\l__pgfgo_coordinate_a_int} {\l_pgfgo_goban_from_y_int}
+		{\l__pgfgo_coordinate_b_int} {\l_pgfgo_goban_to_y_int}
+	\bool_set_false:N \l__pgfgo_coordinate_ordered_bool
+}
+%3:5
+\cs_new_protected:Npn \__pgfgo_coordinate_NN:nn #1#2 {
+	\__pgfgo_coordinate_rectangle:nnnn {\l_pgfgo_goban_from_x_int} {#1} {\l_pgfgo_goban_to_x_int} {#2}
+	\bool_set_false:N \l__pgfgo_coordinate_ordered_bool
+}
+%A:B 1:2
+\cs_new_protected:Npn \__pgfgo_coordinate_LLNN:nnnn #1#2#3#4 {
+	\__pgfgo_coordinate_columns:nn {#1} {#2}
+	\__pgfgo_coordinate_piece:nnnn {\l__pgfgo_coordinate_a_int} {#3} {\l__pgfgo_coordinate_b_int} {#4}
+}
+
+%LOS OPERADORES, DE (#1,#2) A (#3,#4), CON LOS DOS EXTREMOS.
+%A1 -| C3
+\cs_new_protected:Npn \__pgfgo_coordinate_jota:nnnn #1#2#3#4 {
+	\int_step_inline:nnnn {#1} {\__pgfgo_coordinate_step:nn {#1} {#3}} {#3} {\__pgfgo_coordinate_put:nn {##1} {#2}}
+	\int_step_inline:nnnn {#2 + \__pgfgo_coordinate_step:nn {#2} {#4}} {\__pgfgo_coordinate_step:nn {#2} {#4}} {#4}
+		{\__pgfgo_coordinate_put:nn {#3} {##1}}
+}
+%A1 |- C3
+\cs_new_protected:Npn \__pgfgo_coordinate_gamma:nnnn #1#2#3#4 {
+	\int_step_inline:nnnn {#2} {\__pgfgo_coordinate_step:nn {#2} {#4}} {#4} {\__pgfgo_coordinate_put:nn {#1} {##1}}
+	\int_step_inline:nnnn {#1 + \__pgfgo_coordinate_step:nn {#1} {#3}} {\__pgfgo_coordinate_step:nn {#1} {#3}} {#3}
+		{\__pgfgo_coordinate_put:nn {##1} {#4}}
+}
+%B1 r D3: UNA VUELTA DESDE LA PRIMERA ESQUINA, PRIMERO HORIZONTAL. SIN ORDEN.
+\cs_new_protected:Npn \__pgfgo_coordinate_frame:nnnn #1#2#3#4 {
+	\bool_lazy_or:nnTF {\int_compare_p:nNn {#1} = {#3}} {\int_compare_p:nNn {#2} = {#4}}
+		{\__pgfgo_coordinate_rectangle:nnnn {#1} {#2} {#3} {#4}}
+		{
+			\int_set:Nn \l__pgfgo_coordinate_a_int {\__pgfgo_coordinate_step:nn {#1} {#3}}
+			\int_set:Nn \l__pgfgo_coordinate_b_int {\__pgfgo_coordinate_step:nn {#2} {#4}}
+			\int_step_inline:nnnn {#1} {\l__pgfgo_coordinate_a_int} {#3} {\__pgfgo_coordinate_put:nn {##1} {#2}}
+			\int_step_inline:nnnn {#2 + \l__pgfgo_coordinate_b_int} {\l__pgfgo_coordinate_b_int} {#4}
+				{\__pgfgo_coordinate_put:nn {#3} {##1}}
+			\int_step_inline:nnnn {#3 - \l__pgfgo_coordinate_a_int} {- \l__pgfgo_coordinate_a_int} {#1}
+				{\__pgfgo_coordinate_put:nn {##1} {#4}}
+			\int_step_inline:nnnn {#4 - \l__pgfgo_coordinate_b_int} {- \l__pgfgo_coordinate_b_int}
+				{#2 + \l__pgfgo_coordinate_b_int}
+				{\__pgfgo_coordinate_put:nn {#1} {##1}}
+		}
+	\bool_set_false:N \l__pgfgo_coordinate_ordered_bool
+}
+%A1 -- E6, A1 -|- E6 Y A1 |-| E6 (#1: --, -| O |-). LAS PIEDRAS VAN EN EL ORDEN DEL CAMINO, DE LA PRIMERA
+%A LA SEGUNDA. EL EJE LARGO AVANZA DE A UNA; EN EL CORTO, LA POSICION MAS CERCANA A LA RECTA. SI LA RECTA
+%PASA JUSTO ENTRE DOS, GANA LA DEL LADO DEL EXTREMO MAS CERCANO, Y EN EL MEDIO EXACTO, LA MENOR: ASI LA
+%LINEA NO DEPENDE DEL ORDEN DE LOS EXTREMOS Y ES SIMETRICA. LA MISMA CUENTA ESTA EN pgf-go.lua.
+\int_new:N \l__pgfgo_coordinate_x_int
+\int_new:N \l__pgfgo_coordinate_y_int
+\int_new:N \l__pgfgo_coordinate_px_int
+\int_new:N \l__pgfgo_coordinate_py_int
+\int_new:N \l__pgfgo_coordinate_dx_int
+\int_new:N \l__pgfgo_coordinate_dy_int
+\int_new:N \l__pgfgo_coordinate_steps_int
+\int_new:N \l__pgfgo_coordinate_base_int
+\int_new:N \l__pgfgo_coordinate_rest_int
+\cs_new_protected:Npn \__pgfgo_coordinate_stairs:nnnnn #1#2#3#4#5 {
+	\int_set:Nn \l__pgfgo_coordinate_a_int {#2}
+	\int_set:Nn \l__pgfgo_coordinate_b_int {#4}
+	\int_set:Nn \l__pgfgo_coordinate_dx_int {\l__pgfgo_coordinate_b_int - \l__pgfgo_coordinate_a_int}
+	\int_set:Nn \l__pgfgo_coordinate_dy_int {#5 - #3}
+	\int_set:Nn \l__pgfgo_coordinate_steps_int
+		{\int_max:nn {\int_abs:n {\l__pgfgo_coordinate_dx_int}} {\int_abs:n {\l__pgfgo_coordinate_dy_int}}}
+	\int_compare:nNnTF {\l__pgfgo_coordinate_steps_int} = {0}
+		{\__pgfgo_coordinate_put:nn {\int_use:N \l__pgfgo_coordinate_a_int} {\int_eval:n {#3}}}
+		{
+			\int_step_inline:nnn {0} {\l__pgfgo_coordinate_steps_int} {
+				\int_compare:nNnTF {\int_abs:n {\l__pgfgo_coordinate_dy_int}} < {\int_abs:n {\l__pgfgo_coordinate_dx_int}}
+					{
+						\int_set:Nn \l__pgfgo_coordinate_x_int
+							{\l__pgfgo_coordinate_a_int + \int_sign:n {\l__pgfgo_coordinate_dx_int} * ##1}
+						\__pgfgo_coordinate_offset:nn {\l__pgfgo_coordinate_dy_int} {##1}
+						\int_set:Nn \l__pgfgo_coordinate_y_int
+							{#3 + \int_sign:n {\l__pgfgo_coordinate_dy_int} * \l__pgfgo_coordinate_base_int}
+					}
+					{
+						\int_set:Nn \l__pgfgo_coordinate_y_int {#3 + \int_sign:n {\l__pgfgo_coordinate_dy_int} * ##1}
+						\__pgfgo_coordinate_offset:nn {\l__pgfgo_coordinate_dx_int} {##1}
+						\int_set:Nn \l__pgfgo_coordinate_x_int
+							{\l__pgfgo_coordinate_a_int + \int_sign:n {\l__pgfgo_coordinate_dx_int} * \l__pgfgo_coordinate_base_int}
+					}
+				%EN UN ESCALON (CAMBIAN LAS DOS), LA ESQUINA DE -| O DE |- VA ANTES.
+				\bool_lazy_all:nT
+					{
+						{\int_compare_p:nNn {##1} > {0}}
+						{\int_compare_p:n {\l__pgfgo_coordinate_x_int != \l__pgfgo_coordinate_px_int}}
+						{\int_compare_p:n {\l__pgfgo_coordinate_y_int != \l__pgfgo_coordinate_py_int}}
+					}
+					{
+						\str_case:nn {#1} {
+							{-|} {\__pgfgo_coordinate_put:nn
+								{\int_use:N \l__pgfgo_coordinate_x_int} {\int_use:N \l__pgfgo_coordinate_py_int}}
+							{|-} {\__pgfgo_coordinate_put:nn
+								{\int_use:N \l__pgfgo_coordinate_px_int} {\int_use:N \l__pgfgo_coordinate_y_int}}
+						}
+					}
+				\__pgfgo_coordinate_put:nn {\int_use:N \l__pgfgo_coordinate_x_int} {\int_use:N \l__pgfgo_coordinate_y_int}
+				\int_set_eq:NN \l__pgfgo_coordinate_px_int \l__pgfgo_coordinate_x_int
+				\int_set_eq:NN \l__pgfgo_coordinate_py_int \l__pgfgo_coordinate_y_int
+			}
+		}
+}
+%DEJA EN \l__pgfgo_coordinate_base_int CUANTO SE CORRIO EL EJE CORTO (QUE AVANZA #1 EN TOTAL) EN EL PASO #2
+%DE \l__pgfgo_coordinate_steps_int: |#1| * #2 / PASOS, REDONDEADO (LOS EMPATES COMO SE DICE ARRIBA).
+\cs_new_protected:Npn \__pgfgo_coordinate_offset:nn #1#2 {
+	\int_set:Nn \l__pgfgo_coordinate_base_int
+		{\int_div_truncate:nn {\int_abs:n {#1} * (#2)} {\l__pgfgo_coordinate_steps_int}}
+	\int_set:Nn \l__pgfgo_coordinate_rest_int
+		{2 * (\int_abs:n {#1} * (#2) - \l__pgfgo_coordinate_base_int * \l__pgfgo_coordinate_steps_int)}
+	\int_compare:nNnTF {\l__pgfgo_coordinate_rest_int} = {\l__pgfgo_coordinate_steps_int}
+		{
+			\int_compare:nNnTF {2 * (#2)} = {\l__pgfgo_coordinate_steps_int}
+				{\int_compare:nNnT {#1} < {0} {\int_incr:N \l__pgfgo_coordinate_base_int}}
+				{
+					\int_compare:nNnT {2 * (#2)} > {\l__pgfgo_coordinate_steps_int}
+						{\int_incr:N \l__pgfgo_coordinate_base_int}
+				}
+		}
+		{
+			\int_compare:nNnT {\l__pgfgo_coordinate_rest_int} > {\l__pgfgo_coordinate_steps_int}
+				{\int_incr:N \l__pgfgo_coordinate_base_int}
+		}
+}
+
+%EL OPERADOR #1 DE (#2,#3) A (#4,#5).
+\cs_new_protected:Npn \__pgfgo_coordinate_link:nnnnn #1#2#3#4#5 {
+	\str_case:nn {#1} {
+		{--} {\__pgfgo_coordinate_stairs:nnnnn {--} {#2} {#3} {#4} {#5}}
+		{-|-} {\__pgfgo_coordinate_stairs:nnnnn {-|} {#2} {#3} {#4} {#5}}
+		{|-|} {\__pgfgo_coordinate_stairs:nnnnn {|-} {#2} {#3} {#4} {#5}}
+		{-|} {\__pgfgo_coordinate_jota:nnnn {#2} {#3} {#4} {#5}}
+		{|-} {\__pgfgo_coordinate_gamma:nnnn {#2} {#3} {#4} {#5}}
+		{r} {\__pgfgo_coordinate_frame:nnnn {#2} {#3} {#4} {#5}}
+	}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%ELEMENTOS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%NO HAY ESPACIOS AL PRINCIPIO Y AL FINAL PORQUE SE ELIMINAN AL SEPARAR LA clist.
+%TRAMOS.
+\regex_const:Nn \c__pgfgo_coordinate_LN_regex 		{\A([A-Z]{1})(\d{1,2})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_LLN_regex 		{\A([A-Z]{1}):([A-Z]{1})\s*(\d{1,2})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_LNN_regex 		{\A([A-Z]{1})\s*(\d{1,2}):(\d{1,2})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_LNLN_regex 	{\A([A-Z]{1})(\d{1,2}):([A-Z]{1})(\d{1,2})\Z}
+%LO QUE VA SOLO.
+\regex_const:Nn \c__pgfgo_coordinate_all_regex 		{\A\*\Z}
+\regex_const:Nn \c__pgfgo_coordinate_L_regex 		{\A([A-Z]{1})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_N_regex 		{\A(\d{1,2})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_LL_regex 		{\A([A-Z]{1}):([A-Z]{1})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_NN_regex 		{\A(\d{1,2}):(\d{1,2})\Z}
+\regex_const:Nn \c__pgfgo_coordinate_LLNN_regex 	{\A([A-Z]{1}):([A-Z]{1})\s*(\d{1,2}):(\d{1,2})\Z}
+%LOS OPERADORES, EN EL ORDEN EN QUE SE PRUEBAN (COMO EN pgf-go.lua).
+\regex_const:Nn \c__pgfgo_coordinate_link_regex 	{\s*(-\|-|\|-\||--|-\||\|-|r)\s*}
+
+\tl_new:N \l__pgfgo_coordinate_subset_tl
+\seq_new:N \l__pgfgo_coordinate_match_seq
+\tl_new:N \l__pgfgo_coordinate_match_tl
+\seq_new:N \l__pgfgo_coordinate_parts_seq
+\seq_new:N \l__pgfgo_coordinate_corners_seq
+\seq_new:N \l__pgfgo_coordinate_links_seq
+\tl_new:N \l__pgfgo_coordinate_corners_tl
+\tl_new:N \l__pgfgo_coordinate_from_tl
+\tl_new:N \l__pgfgo_coordinate_to_tl
+\int_new:N \l__pgfgo_coordinate_part_int
+\bool_new:N \l__pgfgo_coordinate_chain_bool
+
+%DEJA EN \l__pgfgo_coordinate_corners_tl LAS ESQUINAS {x1}{y1}{x2}{y2} DEL TRAMO #1 (VACIO SI NO ES UN TRAMO).
+\cs_new_protected:Npn \__pgfgo_coordinate_corners:n #1 {
+	\tl_clear:N \l__pgfgo_coordinate_corners_tl
+	\__pgfgo_coordinate_corners:Nnnnnn \c__pgfgo_coordinate_LN_regex {#1} {2} {3} {2} {3}
+	\__pgfgo_coordinate_corners:Nnnnnn \c__pgfgo_coordinate_LLN_regex {#1} {2} {4} {3} {4}
+	\__pgfgo_coordinate_corners:Nnnnnn \c__pgfgo_coordinate_LNN_regex {#1} {2} {3} {2} {4}
+	\__pgfgo_coordinate_corners:Nnnnnn \c__pgfgo_coordinate_LNLN_regex {#1} {2} {3} {4} {5}
+}
+%SI #2 COINCIDE CON #1, LAS ESQUINAS SON LOS GRUPOS #3 (LETRA), #4, #5 (LETRA) Y #6 (CONTANDO LA COINCIDENCIA
+%COMPLETA COMO 1).
+\cs_new_protected:Npn \__pgfgo_coordinate_corners:Nnnnnn #1#2#3#4#5#6 {
+	\tl_if_empty:NT \l__pgfgo_coordinate_corners_tl {
+		\regex_extract_once:NnNT #1 {#2} \l__pgfgo_coordinate_match_seq {
+			\tl_set:Ne \l__pgfgo_coordinate_corners_tl {
+				{\__pgfgo_coordinate_column:e {\seq_item:Nn \l__pgfgo_coordinate_match_seq {#3}}}
+				{\int_eval:n {\seq_item:Nn \l__pgfgo_coordinate_match_seq {#4}}}
+				{\__pgfgo_coordinate_column:e {\seq_item:Nn \l__pgfgo_coordinate_match_seq {#5}}}
+				{\int_eval:n {\seq_item:Nn \l__pgfgo_coordinate_match_seq {#6}}}
+			}
+		}
+	}
+}
+
+%UN ELEMENTO (LO QUE ESTA ENTRE DOS COMAS). SE PARTE EN TRAMOS Y OPERADORES (A1 -| C3 -- E3 ES A1, -|, C3,
+%--, E3). CADA OPERADOR VA DEL ULTIMO PUNTO DE UN TRAMO AL PRIMERO DEL SIGUIENTE, Y EL PUNTO QUE COMPARTEN VA
+%UNA SOLA VEZ. SI NO ES UNA CADENA, PUEDE SER ALGO QUE VA SOLO.
+\cs_new_protected:Npn \__pgfgo_coordinate_item:n #1 {
+	\bool_set_true:N \l__pgfgo_coordinate_ordered_bool
+	\bool_set_false:N \l__pgfgo_coordinate_skip_bool
+	\bool_set_true:N \l__pgfgo_coordinate_chain_bool
+	\seq_clear:N \l__pgfgo_coordinate_corners_seq
+	\seq_clear:N \l__pgfgo_coordinate_links_seq
+	\int_zero:N \l__pgfgo_coordinate_part_int
+	\regex_split:NnN \c__pgfgo_coordinate_link_regex {#1} \l__pgfgo_coordinate_parts_seq
+	\seq_map_inline:Nn \l__pgfgo_coordinate_parts_seq {
+		\int_incr:N \l__pgfgo_coordinate_part_int
+		\int_if_odd:nTF {\l__pgfgo_coordinate_part_int} {
+			\__pgfgo_coordinate_corners:n {##1}
+			\tl_if_empty:NTF \l__pgfgo_coordinate_corners_tl
+				{\bool_set_false:N \l__pgfgo_coordinate_chain_bool}
+				{\seq_put_right:NV \l__pgfgo_coordinate_corners_seq \l__pgfgo_coordinate_corners_tl}
+		} {\seq_put_right:Nn \l__pgfgo_coordinate_links_seq {##1}}
+	}
+	\int_if_odd:nF {\l__pgfgo_coordinate_part_int} {\bool_set_false:N \l__pgfgo_coordinate_chain_bool}
+	\bool_if:NTF \l__pgfgo_coordinate_chain_bool
+		{\__pgfgo_coordinate_chain:}
+		{
+			\int_compare:nNnTF {\l__pgfgo_coordinate_part_int} = {1}
+				{\__pgfgo_coordinate_alone:n {#1}}
+				{\msg_warning:nnn {pgfgo} {unknown-coordinate} {#1}}
+		}
+	\bool_if:NF \l__pgfgo_coordinate_ordered_bool {
+		\bool_if:NF \l__pgfgo_coordinate_subtract_bool {\bool_set_false:N \l__pgfgo_coordinate_all_ordered_bool}
+	}
+}
+
+\cs_new_protected:Npn \__pgfgo_coordinate_chain: {
+	\seq_pop_left:NN \l__pgfgo_coordinate_corners_seq \l__pgfgo_coordinate_from_tl
+	\exp_last_unbraced:NV \__pgfgo_coordinate_piece:nnnn \l__pgfgo_coordinate_from_tl
+	\seq_map_inline:Nn \l__pgfgo_coordinate_links_seq {
+		\seq_pop_left:NN \l__pgfgo_coordinate_corners_seq \l__pgfgo_coordinate_to_tl
+		\bool_set_true:N \l__pgfgo_coordinate_skip_bool
+		\use:e {
+			\exp_not:N \__pgfgo_coordinate_link:nnnnn {##1}
+			\exp_last_unbraced:NV \__pgfgo_coordinate_last:nnnn \l__pgfgo_coordinate_from_tl
+			\exp_last_unbraced:NV \__pgfgo_coordinate_first:nnnn \l__pgfgo_coordinate_to_tl
+		}
+		\bool_set_true:N \l__pgfgo_coordinate_skip_bool
+		\exp_last_unbraced:NV \__pgfgo_coordinate_piece:nnnn \l__pgfgo_coordinate_to_tl
+		\tl_set_eq:NN \l__pgfgo_coordinate_from_tl \l__pgfgo_coordinate_to_tl
+	}
+}
+\cs_new:Npn \__pgfgo_coordinate_first:nnnn #1#2#3#4 {{#1}{#2}}
+\cs_new:Npn \__pgfgo_coordinate_last:nnnn #1#2#3#4 {{#3}{#4}}
+
+%LAS FORMAS SE PRUEBAN EN ORDEN Y LA PRIMERA QUE COINCIDE CORTA CON \prg_break:.
+\cs_new_protected:Npn \__pgfgo_coordinate_alone:n #1 {
+	\tl_set:Nn \l__pgfgo_coordinate_subset_tl {#1}
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_LLNN_regex \__pgfgo_coordinate_LLNN:nnnn
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_LL_regex \__pgfgo_coordinate_LL:nn
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_NN_regex \__pgfgo_coordinate_NN:nn
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_L_regex \__pgfgo_coordinate_L:n
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_N_regex \__pgfgo_coordinate_N:n
+	\__pgfgo_coordinate_try:NN \c__pgfgo_coordinate_all_regex \__pgfgo_coordinate_all:
+	\msg_warning:nnV {pgfgo} {unknown-coordinate} \l__pgfgo_coordinate_subset_tl
+	\prg_break_point:
+}
+
+%SI EL ELEMENTO COINCIDE CON LA EXPRESION #1, LLAMA A #2 CON SUS GRUPOS Y TERMINA.
+\cs_new_protected:Npn \__pgfgo_coordinate_try:NN #1#2 {
+	\regex_extract_once:NVNT #1 \l__pgfgo_coordinate_subset_tl \l__pgfgo_coordinate_match_seq {
+		\seq_pop_left:NN \l__pgfgo_coordinate_match_seq \l__pgfgo_coordinate_match_tl
+		\use:e {\exp_not:N #2 \seq_map_function:NN \l__pgfgo_coordinate_match_seq \__pgfgo_coordinate_brace:n}
+		\prg_break:
+	}
+}
+\cs_new:Npn \__pgfgo_coordinate_brace:n #1 {{\exp_not:n {#1}}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%GRUPOS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%CORCHETES: [...][...], L[...] Y [...]N. SE REPARTEN EN SU LUGAR: A[1:3, 5] ES A1:3, A5.
+\regex_const:Nn \c__pgfgo_coordinate_brackets_both_regex {\[([^\]]*)\]\[([^\]]*)\]}
+\regex_const:Nn \c__pgfgo_coordinate_brackets_numbers_regex {([A-Z]{1})\[([^\]]*)\]}
+\regex_const:Nn \c__pgfgo_coordinate_brackets_letters_regex {\[([^\]]*)\](\d{1,2})}
+
+\tl_new:N \l__pgfgo_coordinate_group_tl
+\seq_new:N \l__pgfgo_coordinate_subsets_seq
+\seq_new:N \l__pgfgo_coordinate_brackets_seq
+\tl_new:N \l__pgfgo_coordinate_a_tl
+\tl_new:N \l__pgfgo_coordinate_b_tl
+
+\cs_new_protected:Npn \__pgfgo_coordinate_group:n #1 {
+	\tl_set:Nn \l__pgfgo_coordinate_group_tl {#1}
+	\str_if_in:NnT \l__pgfgo_coordinate_group_tl {[} {
+		\__pgfgo_coordinate_brackets:NN \c__pgfgo_coordinate_brackets_both_regex \__pgfgo_coordinate_both:nn
+		\__pgfgo_coordinate_brackets:NN \c__pgfgo_coordinate_brackets_numbers_regex \__pgfgo_coordinate_numbers:nn
+		\__pgfgo_coordinate_brackets:NN \c__pgfgo_coordinate_brackets_letters_regex \__pgfgo_coordinate_letters:nn
+	}
+	\seq_set_from_clist:NV \l__pgfgo_coordinate_subsets_seq \l__pgfgo_coordinate_group_tl
+	\seq_map_function:NN \l__pgfgo_coordinate_subsets_seq \__pgfgo_coordinate_item:n
+}
+\cs_generate_variant:Nn \seq_set_from_clist:Nn {NV}
+
+%CAMBIA CADA COINCIDENCIA DE #1 POR LOS ELEMENTOS QUE #2 DEJA EN \l__pgfgo_coordinate_brackets_seq A PARTIR
+%DE SUS DOS GRUPOS, SEPARADOS POR COMAS. LA PRIMERA APARICION DEL TEXTO ES LA COINCIDENCIA.
+\cs_new_protected:Npn \__pgfgo_coordinate_brackets:NN #1#2 {
+	\regex_extract_once:NVNT #1 \l__pgfgo_coordinate_group_tl \l__pgfgo_coordinate_match_seq {
+		\seq_pop_left:NN \l__pgfgo_coordinate_match_seq \l__pgfgo_coordinate_match_tl
+		\seq_pop_left:NN \l__pgfgo_coordinate_match_seq \l__pgfgo_coordinate_a_tl
+		\seq_pop_left:NN \l__pgfgo_coordinate_match_seq \l__pgfgo_coordinate_b_tl
+		\seq_clear:N \l__pgfgo_coordinate_brackets_seq
+		\exp_args:NVV #2 \l__pgfgo_coordinate_a_tl \l__pgfgo_coordinate_b_tl
+		\tl_replace_once:NVe \l__pgfgo_coordinate_group_tl \l__pgfgo_coordinate_match_tl
+			{\seq_use:Nn \l__pgfgo_coordinate_brackets_seq {,~}}
+		\__pgfgo_coordinate_brackets:NN #1#2
+	}
+}
+\cs_generate_variant:Nn \tl_replace_once:Nnn {NVe}
+%[A, B][1, 2]
+\cs_new_protected:Npn \__pgfgo_coordinate_both:nn #1#2 {
+	\clist_map_inline:nn {#1} {
+		\clist_map_inline:nn {#2} {\seq_put_right:Nn \l__pgfgo_coordinate_brackets_seq {##1 ####1}}
+	}
+}
+%A[1, 2]
+\cs_new_protected:Npn \__pgfgo_coordinate_numbers:nn #1#2 {
+	\clist_map_inline:nn {#2} {\seq_put_right:Nn \l__pgfgo_coordinate_brackets_seq {#1 ##1}}
+}
+%[A, B]1
+\cs_new_protected:Npn \__pgfgo_coordinate_letters:nn #1#2 {
+	\clist_map_inline:nn {#1} {\seq_put_right:Nn \l__pgfgo_coordinate_brackets_seq {##1 #2}}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%COORDENADAS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%DEJA EN #2 LAS INTERSECCIONES {x}{y} DE LAS COORDENADAS #1, SIN REPETIR, Y EN #3 SI TODO LO QUE SUMA
+%TIENE UN ORDEN FIJO.
+\seq_new:N \l__pgfgo_coordinate_groups_seq
+\cs_new_protected:Npn \__pgfgo_coordinate_points:nNN #1#2#3 {
+	\__pgfgo_coordinate_run:nNN {
+		\bool_set_false:N \l__pgfgo_coordinate_moves_bool
+		\seq_set_split:Nnn \l__pgfgo_coordinate_groups_seq {;} {#1}
+		\seq_map_inline:Nn \l__pgfgo_coordinate_groups_seq {
+			\__pgfgo_coordinate_group:n {##1}
+			\bool_set_inverse:N \l__pgfgo_coordinate_subtract_bool
+		}
+	} #2 #3
+}
+%LO MISMO PARA LAS JUGADAS DE \moves: UN SOLO GRUPO, CON REPETICIONES.
+\cs_new_protected:Npn \__pgfgo_coordinate_moves:nNN #1#2#3 {
+	\__pgfgo_coordinate_run:nNN {
+		\bool_set_true:N \l__pgfgo_coordinate_moves_bool
+		\__pgfgo_coordinate_group:n {#1}
+	} #2 #3
+}
+\cs_new_protected:Npn \__pgfgo_coordinate_run:nNN #1#2#3 {
+	\group_begin:
+		\int_zero:N \l__pgfgo_coordinate_count_int
+		\bool_set_false:N \l__pgfgo_coordinate_subtract_bool
+		\bool_set_true:N \l__pgfgo_coordinate_all_ordered_bool
+		#1
+		\tl_set:Ne \l__pgfgo_coordinate_items_tl
+			{\int_step_function:nN {\l__pgfgo_coordinate_count_int} \__pgfgo_coordinate_slot:n}
+	\use:e {
+		\group_end:
+		\seq_set_from_clist:Nn \exp_not:N #2 {\exp_not:V \l__pgfgo_coordinate_items_tl}
+		\bool_if:NTF \l__pgfgo_coordinate_all_ordered_bool {\bool_set_true:N} {\bool_set_false:N} \exp_not:N #3
+	}
+}
+
+\ExplSyntaxOff

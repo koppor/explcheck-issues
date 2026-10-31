@@ -1,0 +1,671 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                         %
+%        pas-tableur.sty  v3.01     encodage : UTF8       %
+%                                                         %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                         %
+%           Stephane PASQUET & Cédric Perquet             %
+%                                                         %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 
+\def\fileversion{3.01}
+\def\filedate{2026/09/04}
+\NeedsTeXFormat{LaTeX2e}[1999/12/01]
+\ProvidesClass{pas-tableur}[%
+  \filedate\space v\fileversion\space
+  LaTeX package by Stephane PASQUET and Cedric Pierquet]
+\RequirePackage{tikz}
+\usetikzlibrary{calc}
+\RequirePackage{xstring}
+\RequirePackage{xkeyval}
+\RequirePackage{customenvs-macros} % 20260904
+%
+% Definition des couleurs
+%
+\definecolor{grayTopCell}{cmyk}{0.08,0.05,0.06,0}
+\definecolor{grayBottomCell}{cmyk}{0.1,0.07,0.08,0}
+\definecolor{graySepCell}{cmyk}{0.29,0.21,0.21,0}
+\definecolor{blueSelecCellTop}{cmyk}{0.52,0.17,0,0}
+\definecolor{blueSelecCellBottom}{cmyk}{0.75,0.34,0,0}
+\definecolor{blueSelec}{cmyk}{0.23,0.06,0,0}
+%
+% Definition des dimensions par defaut
+%
+\def\col@width{7em}
+\def\numline@width{3em} % largeur de la colonne indiquant le numeros des lignes
+\def\line@height{1.57em}
+%
+	%==> Changer les valeurs par defaut
+	\newcommand*{\tabcolwidth}[1]{\def\col@width{#1}}
+	\newcommand*{\tabnumlinewidth}[1]{\def\numline@width{#1}}
+	\newcommand*{\tablineheight}[1]{\def\line@height{#1}}
+% 20260904
+\newcommand{\l@Gtblr@rowht}{}
+\newcommand{\GtblrFetchHeight}[1]{%
+	\@ifundefined{Gtblr@H#1}{%
+		\let\l@Gtblr@rowht\line@height
+	}{%
+		\edef\l@Gtblr@rowht{\csname Gtblr@H#1\endcsname}%
+	}%
+}
+% Fin 20260904
+
+% Definition des polices de caracteres
+%
+\newcommand{\helvbx}{\fontfamily{phv}\selectfont}%\usefont{T1}{phv}{m}{n}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Construction du tableur %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%	
+%==> Macro intermediaire : trace de la premiere cellule
+%
+\newcommand{\pastab@draw@cell}[5] 
+% #1 : \first@width, #2 : \first@name, #3 : 0=colonne1 / 1=autres colonnes / 
+% 2 = ligne 1, #4 : coord., #5 : contenu
+	{%
+		\ifnum#3=0%
+			\tikzstyle{cellstyle} = [celhead,minimum width={#1},minimum height=\line@height]%
+			\def\pastableur@coord{(0,0)}%
+		\else%
+			\ifnum#3=1%
+				\tikzstyle{cellstyle} = [celhead,right,minimum width={#1},minimum height=\line@height]%
+			\else
+				\ifnum#3=2%
+					\tikzstyle{cellstyle} = [below left,celhead,minimum width={#1},minimum height=\line@height]
+				\else%
+					\tikzstyle{cellstryle} = [below,celhead,minimum width={#1},minimum height=\line@height]
+				\fi%
+			\fi%
+			\def\pastableur@coord{(#4)}%
+		\fi%
+		\node[cellstyle] (#2) at \pastableur@coord {\helvbx#5};%
+		\fill[grayBottomCell] 
+					(#2.south west) -- 
+					(#2.south east) -- 
+					($0.5*(#2.south east)+0.5*(#2.north east)$) -- 
+					($0.5*(#2.south west)+0.5*(#2.north west)$) --
+					cycle;%
+		\fill[grayTopCell] 
+					(#2.north west) -- 
+					(#2.north east) -- 
+					($0.5*(#2.south east)+0.5*(#2.north east)$) -- 
+					($0.5*(#2.south west)+0.5*(#2.north west)$) --
+					cycle;%
+		\node[minimum width={#1},minimum height=\line@height,cellstyle] at \pastableur@coord {\helvbx#5};%
+	}
+%
+%==> Macro intermediaire : trace de la grille
+%
+\newcommand{\pastableur@grid}[4] % #1 : width, #2 : name, #3 : numline, #4 : coord.
+	{%
+		\node[celempty,below,minimum height=\line@height,minimum width=#1] (cell#2-#3) at (#4) {};%
+		\draw[graySepCell] ($(cell#2-#3.south west)+(0.25pt,0)$) -- (cell#2-#3.south east) -- ($(cell#2-#3.north east)+(0,-0.25pt)$);%
+	}
+%
+%==> Style des cellules
+%
+\tikzstyle{celempty} = [outer sep=0pt]
+\tikzstyle{celhead} = [draw=black,rectangle,outer sep=0pt]
+%	
+%==> Macro de redirection : etoilee ou pas etoilee ?
+%
+\newcommand{\tableur}{\@ifstar{\tableur@star}{\tableur@nostar}}
+%
+%==> Macro etoilee : \tableur*{A/<l1>,B/<l2>,...}. Tableur avec colonnes de largeurs differentes
+%
+% Modifiée dans la version 2.06 sur la suggestion de Emiel van Miltenburg
+
+\newcommand{\tableur@star}[2][1]
+	{
+		\IfSubStr{#2}{,}{\tableur@star@columns[#1]{#2}}{\tableur@star@onecolumn[#1]{#2}}
+	}
+	
+\newcommand{\tableur@star@columns}[2][1] 
+	{%
+		\xdef\list@of@col{#2}%
+		% Placement de la premiere cellule en-tête
+			\StrChar{#2}{1}[\first@name]%
+			\StrBetween{#2}{/}{,}[\first@width]%
+			\pastab@draw@cell{\first@width}{\first@name}{0}{}{\first@name}
+		% Placement des autres en-têtes de colonnes	
+			\foreach \name/\w [remember=\name as \lastname,count=\colnumber] in {#2}
+			{%
+				\ifx\name\first@name%
+				\else%
+					\pastab@draw@cell{\w}{\name}{1}{\lastname.east}{\name}
+				\fi%
+			}%
+		% Placement des en-têtes de lignes
+			\pastab@draw@cell{\numline@width}{numline1}{2}{\first@name.south west}{1}
+			\ifnum#1>1%
+				\foreach \num@line [remember=\num@line as \lastnum (initially 1)] in {2,...,#1}
+				{%
+					\pastab@draw@cell{\numline@width}{numline\num@line}{3}{numline\lastnum.south east}{\num@line}%
+				}%
+			\fi%
+		% Trace de la grille
+			\foreach \name/\w in {#2}
+			{%
+				\pastableur@grid{\w}{\name}{1}{\name.south}%
+			}%
+			\ifnum#1>1%
+				\foreach\numline [remember=\numline as \lastnumline (initially 1)] in {2,...,#1}
+				{%
+					\foreach \name/\w in {#2}
+					{%
+						\pastableur@grid{\w}{\name}{\numline}{cell\name-\lastnumline.south}%
+					}%
+				}%
+		\fi%
+	} 
+	
+\newcommand{\tableur@star@onecolumn}[2][1] 
+	{%
+		% Placement de la premiere cellule en-tête
+			\StrBefore{#2}{/}[\first@name]  
+			\StrBehind{#2}{/}[\first@width] 
+			\pastab@draw@cell{\first@width}{\first@name}{0}{}{\first@name}
+		% Placement des en-têtes de lignes
+			\pastab@draw@cell{\numline@width}{numline1}{2}{\first@name.south west}{1}
+			\ifnum#1>1%
+				\foreach \num@line [remember=\num@line as \lastnum (initially 1)] in {2,...,#1}
+				{%
+					\pastab@draw@cell{\numline@width}{numline\num@line}{3}{numline\lastnum.south east}{\num@line}%
+				}%
+			\fi%
+		% Trace de la grille
+			\foreach \name/\w in {#2}
+			{%
+				\pastableur@grid{\w}{\name}{1}{\name.south}%
+			}%
+			\ifnum#1>1%
+				\foreach\numline [remember=\numline as \lastnumline (initially 1)] in {2,...,#1}
+				{%
+					\foreach \name/\w in {#2}
+					{%
+						\pastableur@grid{\w}{\name}{\numline}{cell\name-\lastnumline.south}%
+					}%
+				}%
+		\fi%
+	} 
+	
+% --> Fin de \tableur*
+%	
+%==> Macro non etoilee : \tableur{A,B,C,...} ou \tableur{A-C}
+%	
+\xdef\col@names{ABCDEFGHIJKLMNOPQRSTUVWXYZ} %----------> Liste des noms de colonnes <----------
+%
+\newcommand{\tableur@nostar}[2][1] % [#1] -> nombre de lignes (par defaut, "1"), #2 -> A,B,...,Z
+	{%
+		\IfSubStr{#2}{-}
+		{%
+			\StrBefore{#2}{-}[\str@start] % 1ere lettre, par ex. "G"
+			\StrBehind{#2}{-}[\str@end]	  % 2eme lettre, par ex. "L"
+			\StrBetween{\col@names}{\str@start}{\str@end}[\str@col] %  retourne par exemple "HIJK"
+			\edef\str@col{\str@start\str@col\str@end} % retourne alors "GHIJKL"
+			\StrLen{\str@col}[\nb@columns] % nombre de colonnes
+			% --> On place la premiere cellule en-tête
+			\pastab@draw@cell{\col@width}{\str@start}{0}{}{\str@start}%
+			% --> On place les autres en-têtes
+			\foreach \i [remember=\i as \lasti (initially 1)] in {2,...,\nb@columns}
+			{%
+				\StrChar{\str@col}{\i}[\name]%
+				\StrChar{\str@col}{\lasti}[\lastname]%
+				\pastab@draw@cell{\col@width}{\name}{1}{\lastname.east}{\name}%
+			}%
+		}%
+		{%
+			\StrChar{#2}{1}[\str@start]%
+			\pastab@draw@cell{\col@width}{\str@start}{0}{}{\str@start}%
+			\foreach \name [remember=\name as \lastname] in {#2}
+			{%
+				\ifx\name\str@start%
+				\else%
+					\pastab@draw@cell{\col@width}{\name}{1}{\lastname.east}{\name}%
+				\fi%
+			}%
+		}%
+		% Placement des en-têtes de lignes
+			\StrChar{#2}{1}[\first@name]%
+			\pastab@draw@cell{\numline@width}{numline1}{2}{\first@name.south west}{1}
+			\ifnum#1>1%
+				\foreach \num@line [remember=\num@line as \lastnum (initially 1)] in {2,...,#1}
+				{%
+					\pastab@draw@cell{\numline@width}{numline\num@line}{3}{numline\lastnum.south east}{\num@line}%
+				}%
+			\fi%
+		% Trace de la grille
+			\IfSubStr{#2}{-}
+			{%
+				\foreach \i in {1,...,\nb@columns}
+				{%
+					\StrChar{\str@col}{\i}[\name]%
+					\pastableur@grid{\col@width}{\name}{1}{\name.south}%
+				}%
+				\ifnum#1>1%
+					\foreach\numline [remember=\numline as \lastnumline (initially 1)] in {2,...,#1}
+					{%
+						\foreach \i in {1,...,\nb@columns}
+						{%
+							\StrChar{\str@col}{\i}[\name]%
+							\pastableur@grid{\col@width}{\name}{\numline}{cell\name-\lastnumline.south}%
+						}%
+					}%
+				\fi%
+			}
+			{%
+				\foreach \name in {#2}
+				{%
+					\pastableur@grid{\col@width}{\name}{1}{\name.south}%
+				}%
+				\ifnum#1>1%
+					\foreach\numline [remember=\numline as \lastnumline (initially 1)] in {2,...,#1}
+					{%
+						\foreach \name in {#2}
+						{%
+							\pastableur@grid{\col@width}{\name}{\numline}{cell\name-\lastnumline.south}%
+						}%
+					}%
+				\fi%
+			}%
+	} % --> Fin de \tableur
+%	
+% Inserer quelque chose dans une cellule : \celtxt [modif. du 2016/01/21 due a "Un bon petit"]
+%
+\define@cmdkey [PAS] {celtxt} {width}{}
+\define@cmdkey [PAS] {celtxt} {color}{}
+\define@cmdkey [PAS] {celtxt} {align}{} % NEW 2023-04_16
+\define@cmdkey [PAS] {celtxt} {font}{} % NEW 2016-06-18
+\define@boolkey [PAS] {celtxt} {ajust}[true]{} % NEW 2016-06-20
+\define@boolkey [PAS] {celtxt} {l}[true]{}
+\define@boolkey [PAS] {celtxt} {r}[false]{}
+\define@boolkey [PAS] {celtxt} {c}[false]{} 
+\presetkeys    [PAS] {celtxt} {width = \col@width, color=black, font=\normalsize, ajust=false, align=left}{}
+%
+\newcommand*\celtxt@catcoderegime@begin{}
+\newcommand*\celtxt@catcoderegime@end{}
+%
+\newcommand*\celtxt
+	{%
+	  \@ifstar{%
+		\let\celtxt@catcoderegime@end\@empty
+		\let\celtxt@catcoderegime@begin\@empty
+		\celtxt@i
+	  }
+	  {%
+		\def\celtxt@catcoderegime@begin{%
+		  \begingroup
+		  \@makeother\^%
+		  \@makeother\$%
+		}%
+		\let\celtxt@catcoderegime@end\endgroup
+		\celtxt@i
+	  }%
+	}
+%
+\newcommand*{\celtxt@i}[1][]{\celtxt@ii{#1}}
+%
+\newcommand*\celtxt@ii[3]
+	{%
+	   \setkeys[PAS]{celtxt}{#1}%
+	   \ifPAS@celtxt@ajust\else\celtxt@catcoderegime@begin\fi
+	   \celtxt@iii{#1}{#2}{#3}%
+	}
+%
+
+\newcommand*\celtxt@iii[4]
+	{%
+	   \ifPAS@celtxt@ajust
+			\IfStrEq{\cmdPAS@celtxt@align}{right}{\def\postab@align{r}}{}
+			\IfStrEq{\cmdPAS@celtxt@align}{left}{\def\postab@align{l}}{}
+			\IfStrEq{\cmdPAS@celtxt@align}{center}{\def\postab@align{c}}{}
+			\node[text width=\dimexpr\cmdPAS@celtxt@width-4pt, align=\cmdPAS@celtxt@align, color=\cmdPAS@celtxt@color, font=\cmdPAS@celtxt@font, execute at begin node=\setlength{\baselineskip}{2pt}] at (cell#2-#3) {\begin{tabular}{@{}\postab@align @{}}#4\end{tabular}};% 
+	   \else
+			\celtxt@catcoderegime@end
+			\IfBeginWith{#4}{=}{\let\pastab@style\texttt}{\let\pastab@style\@empty}
+			\node[text width=\dimexpr\cmdPAS@celtxt@width-4pt,align=\cmdPAS@celtxt@align, color=\cmdPAS@celtxt@color, font=\cmdPAS@celtxt@font, execute at begin node=\setlength{\baselineskip}{2pt}] at (cell#2-#3) {\pastab@style{#4}};%
+		\fi
+	}
+%
+% Cellule selectionnee : \selecCell
+%
+% 20260904 - modif Cédric
+\newcommand*\selecCell[2]
+	{%
+	%==> En-tête ligne
+	\pastableur@colorcell{numline#2}{0}%
+	\GtblrFetchHeight{#2}%
+	\node[celhead,minimum width=\numline@width,minimum height=\l@Gtblr@rowht]
+	at (numline#2) {\helvbx#2};%
+	%==> En-tête colonne
+	\pastableur@colorcell{#1}{1}%
+	\node at (#1) {\helvbx#1};%
+	%==> Cellule
+	\draw[very thick] (cell#1-#2.south west) rectangle (cell#1-#2.north east);%
+	\fill[black] ($(cell#1-#2.south east)+(-1pt,1pt)$) rectangle +(3pt,-3pt);%
+	} % fin de  \selecCell
+% fin 20260904
+%
+% Selection de plusieurs cellules : \multiSelec{A-1}{B-2} _/!\_ Nouvelle syntaxe 2014
+%
+% modifiée par Cédric 20260904
+\newcommand*\multiSelec[2]
+	{%
+		\fill[blueSelec,opacity=0.5]
+		($(cell#1.north west)+(0.25pt,-0.25pt)$)
+		rectangle ($(cell#2.south east)+(-0.25pt,0.25pt)$);%
+		\fill[black] ($(cell#2.south east)+(-0.5pt,0.5pt)$) rectangle +(3pt,-3pt);%
+		%==> En-têtes colonnes
+		\StrChar{#1}{1}[\str@start]%
+		\StrChar{#2}{1}[\str@end]%
+		\StrBetween{\col@names}{\str@start}{\str@end}[\str@col]%
+		\edef\str@col{\str@start\str@col\str@end}%
+		\StrLen{\str@col}[\nb@columns]%
+		\foreach \i in {1,...,\nb@columns}{%
+			\StrChar{\str@col}{\i}[\name]%
+			\pastableur@colorcell{\name}{1}%
+			\node at (\name) {\helvbx\name};%
+		}%
+		%==> En-têtes lignes
+		\StrGobbleLeft{#1}{2}[\first@num]%
+		\StrGobbleLeft{#2}{2}[\second@num]%
+		\foreach \i in {\first@num,...,\second@num}{%
+			\pastableur@colorcell{numline\i}{0}%
+			\GtblrFetchHeight{\i}%
+			\node[celhead,minimum width=\numline@width,minimum height=\l@Gtblr@rowht]
+			at (numline\i) {\helvbx\i};%
+		}%
+		\draw[very thick] (cell#1.south west) rectangle (cell#1.north east);%
+	}% fin de \multiSelec
+%
+%
+% Selection de plusieurs cellules : \multimultiSelec{A-1}{A-2}{A-3}
+% Proposition de Emiel van Miltenburg pour la version 2.06 le 2024/09/14
+%
+% Modifiée par Cédric 20260904
+\newcommand*\multimultiSelec[3]
+{%
+	\fill[blueSelec,opacity=0.5]
+	($(cell#1.north west)+(0.25pt,-0.25pt)$)
+	rectangle ($(cell#3.south east)+(-0.25pt,0.25pt)$);%
+	\fill[black] ($(cell#3.south east)+(-0.5pt,0.5pt)$) rectangle +(3pt,-3pt);%
+	%==> En-têtes colonnes
+	\StrChar{#1}{1}[\str@start]%
+	\StrChar{#2}{1}[\str@end]%
+	\StrBetween{\col@names}{\str@start}{\str@end}[\str@col]%
+	\edef\str@col{\str@start\str@col\str@end}%
+	\StrLen{\str@col}[\nb@columns]%
+	\foreach \i in {1,...,\nb@columns}{%
+		\StrChar{\str@col}{\i}[\name]%
+		\pastableur@colorcell{\name}{1}%
+		\node at (\name) {\helvbx\name};%
+	}%
+	%==> En-têtes lignes
+	\StrGobbleLeft{#1}{2}[\first@num]%
+	\StrGobbleLeft{#2}{2}[\second@num]%
+	\foreach \i in {\first@num,...,\second@num}{%
+		\pastableur@colorcell{numline\i}{0}%
+		\GtblrFetchHeight{\i}%
+		\node[celhead,minimum width=\numline@width,minimum height=\l@Gtblr@rowht]
+		at (numline\i) {\helvbx\i};%
+	}%
+	\draw[very thick] (cell#2.south west) rectangle (cell#1.north east);%
+}% fin de \multimultiSelec
+%
+%
+%
+
+\newlength\pastableur@decal
+\newcommand{\pastableur@colorcell}[2] % #1 : name, #2 : 0=en-tetes "lignes" / 1=en-tetes "colonnes"
+% modifiée par Cédric 20260904
+	{%
+		\ifnum#2=0%
+		\setlength\pastableur@decal{0pt}%
+		\else%
+		\setlength\pastableur@decal{0.2pt}%
+		\fi%
+		\fill[blueSelecCellBottom]
+		($(#1.south west)+(\pastableur@decal,\pastableur@decal)$) --
+		($(#1.south east)+(-\pastableur@decal,\pastableur@decal)$) --
+		($0.5*(#1.south east)+0.5*(#1.north east)+(-\pastableur@decal,0)$) --
+		($0.5*(#1.south west)+0.5*(#1.north west)+(\pastableur@decal,0)$) --
+		cycle;%
+		\fill[blueSelecCellTop]
+		($(#1.north west)+(\pastableur@decal,-\pastableur@decal)$) --
+		($(#1.north east)+(-\pastableur@decal,-\pastableur@decal)$) --
+		($0.5*(#1.south east)+0.5*(#1.north east)+(-\pastableur@decal,0)$) --
+		($0.5*(#1.south west)+0.5*(#1.north west)+(\pastableur@decal,0)$) --
+		cycle;%
+	}%
+	
+% Ajout du 2026-05-11 - Modifiée par Cédric 20260904
+
+\newcommand{\renumLine}[2]{%
+  \fill[white] (numline#1.south west) rectangle (numline#1.north east);%
+  \fill[grayBottomCell]%
+  (numline#1.south west) --%
+  (numline#1.south east) --%
+  ($0.5*(numline#1.south east)+0.5*(numline#1.north east)$) --%
+  ($0.5*(numline#1.south west)+0.5*(numline#1.north west)$) --%
+  cycle;%
+  \fill[grayTopCell]%
+  (numline#1.north west) --%
+  (numline#1.north east) --%
+  ($0.5*(numline#1.south east)+0.5*(numline#1.north east)$) --%
+  ($0.5*(numline#1.south west)+0.5*(numline#1.north west)$) --%
+  cycle;%
+  \GtblrFetchHeight{#1}%
+  \node[celhead,minimum width=\numline@width,minimum height=\l@Gtblr@rowht]
+  at (numline#1) {\helvbx #2};%
+}
+
+\newcommand{\renumLineSelect}[2]{%
+  \fill[white] (numline#1.south west) rectangle (numline#1.north east);%
+  \pastableur@colorcell{numline#1}{0}%
+  \GtblrFetchHeight{#1}%
+  \node[celhead,minimum width=\numline@width,minimum height=\l@Gtblr@rowht]
+  at (numline#1) {\helvbx #2};%
+}
+
+%%% Nouvelles commandes de Cédric - 20260904
+
+% \gentableur
+\NewDocumentCommand{\gentableur}{ s O{1} m O{} }{%
+	% 1. Sauvegarder \line@height
+	\edef\Gtblr@savedht{\line@height}%
+	% 2. Stocker les hauteurs dans \Gtblr@H<r> (global, via \xdef)
+	\ifstrempty{#4}{%
+		\foreach \Gr in {1,...,#2}{%
+			\expandafter\xdef\csname Gtblr@H\Gr\endcsname{\line@height}%
+		}%
+	}{%
+		\foreach \Ght [count=\Gr] in {#4}{%
+			\edef\Gtblr@rownum{\Gr}%
+			\expandafter\xdef\csname Gtblr@H\Gtblr@rownum\endcsname{\Ght}%
+		}%
+	}%
+	% 3. Extraire la première colonne
+	\StrChar{#3}{1}[\first@name]%
+	\IfSubStr{#3}{,}{%
+		\StrBetween{#3}{/}{,}[\first@width]%
+	}{%
+		\StrBehind{#3}{/}[\first@width]%
+	}%
+	% 4. En-têtes de colonnes (hauteur = \line@height initial)
+	\pastab@draw@cell{\first@width}{\first@name}{0}{}{\first@name}%
+	\foreach \name/\w [remember=\name as \lastname, count=\colnumber] in {#3}{%
+		\ifx\name\first@name\else%
+		\pastab@draw@cell{\w}{\name}{1}{\lastname.east}{\name}%
+		\fi%
+	}%
+	% 5. Lignes : numlines + cellules, hauteur variable
+	\foreach \Gr in {1,...,#2}{%
+		\xdef\line@height{\csname Gtblr@H\Gr\endcsname}%
+		\pgfmathparse{int(\Gr-1)}\xdef\Gtblr@prev{\pgfmathresult}%
+		\ifnum\Gr=1%
+		\pastab@draw@cell{\numline@width}{numline1}{2}{\first@name.south west}{1}%
+		\else%
+		\pastab@draw@cell{\numline@width}{numline\Gr}{2}{numline\Gtblr@prev.south east}{\Gr}%
+		\fi%
+		\foreach \name/\w in {#3}{%
+			\ifnum\Gr=1%
+			\pastableur@grid{\w}{\name}{1}{\name.south}%
+			\else%
+			\pastableur@grid{\w}{\name}{\Gr}{cell\name-\Gtblr@prev.south}%
+			\fi%
+		}%
+	}%
+	% 6. Restaurer \line@height
+	\xdef\line@height{\Gtblr@savedht}%
+}
+
+\NewDocumentCommand\celcouleur{ O{graySepCell!50} m }{%OK
+	\draw[draw=none,fill=#1] ($(cell#2.south west)+(0.2pt,0.2pt)$) rectangle ($(cell#2.north east) + (-0.2pt,-0.2pt)$) ;%
+}
+
+\newcommand\plagecouleur[3][lightgray]{%
+	%1 = couleur bordure
+	%2 = celulle HG
+	%3 = cellule BD
+	\StrBefore{#2}{-}[\str@col@start]  % 1ere lettre, par ex. "G"
+	\StrBehind{#2}{-}[\str@lign@start] % 2eme lettre, par ex. "2"
+	\StrBefore{#3}{-}[\str@col@end]    % 1ere lettre, par ex. "H"
+	\StrBehind{#3}{-}[\str@lign@end]   % 2eme lettre, par ex. "3"
+	%grande bordure
+	\foreach \tmpC in {\str@col@start,...,\str@col@end}{%
+		\foreach \tmpL in {\str@lign@start,...,\str@lign@end}{%
+			\celcouleur[#1]{\tmpC-\tmpL}
+		}
+	}
+}
+
+\NewDocumentCommand\lignetxt{ s O{} m D<>{1} m }{%3=num ligne,%5=liste
+	\IfBooleanTF{#1}%
+	{
+		\foreach \x [count=\i] in {#5}
+		{%
+			\xdef\j{\inteval{\i+(#4-1)}}%
+			\StrChar{ABCDEFGHIJKLMNOPQRSTUVWXYZ}{\j}[\iltr]%
+			\IfEq{\x}{}{}{\celtxt*[#2]{\iltr}{#3}{\x}}%
+		}%
+	}%
+	{%
+		\foreach \x [count=\i] in {#5}
+		{%
+			\xdef\j{\inteval{\i+(#4-1)}}%
+			\StrChar{ABCDEFGHIJKLMNOPQRSTUVWXYZ}{\j}[\iltr]%
+			\IfEq{\x}{}{}{\celtxt[#2]{\iltr}{#3}{\x}}%
+		}%
+	}%
+}
+
+\NewDocumentCommand\colonnetxt{ s O{} m D<>{1} m }{%3=lettre colonne,%5=liste
+	\IfBooleanTF{#1}%
+	{%
+		\foreach \x [count=\i] in {#5}
+		{%
+			\xdef\j{\inteval{\i+(#4-1)}}
+			\IfStrEq{\x}{}{}{\celtxt*[#2]{#3}{\j}{\x}}%
+		}%
+	}%
+	{%
+		\foreach \x [count=\i] in {#5}
+		{%
+			\xdef\j{\inteval{\i+(#4-1)}}
+			\IfStrEq{\x}{}{}{\celtxt[#2]{#3}{\j}{\x}}%
+		}%
+	}%
+}
+
+\newcommand\celbordures[2][black]{%
+	%1 = couleur bordure
+	%2 = celulle HG
+	%3 = cellule BD
+	\draw[#1] (cell#2.north west) rectangle (cell#2.south east) ;
+}
+
+\newcommand\plagebordures[3][black]{%
+	%1 = couleur bordure
+	%2 = celulle HG
+	%3 = cellule BD
+	\StrBefore{#2}{-}[\str@col@start]  % 1ere lettre, par ex. "G"
+	\StrBehind{#2}{-}[\str@lign@start] % 2eme lettre, par ex. "2"
+	\StrBefore{#3}{-}[\str@col@end]    % 1ere lettre, par ex. "H"
+	\StrBehind{#3}{-}[\str@lign@end]   % 2eme lettre, par ex. "3"
+	%grande bordure
+	\foreach \tmpC in {\str@col@start,...,\str@col@end}{%
+		\foreach \tmpL in {\str@lign@start,...,\str@lign@end}{%
+			\celbordures[#1]{\tmpC-\tmpL}
+		}
+	}
+}
+
+\ExplSyntaxOn
+
+\seq_new:N \l_Rc_rows_seq
+\seq_new:N \l_Rc_cols_seq
+\tl_new:N  \l_Rc_opts_tl
+\tl_new:N  \l_Rc_cell_tl
+\tl_new:N  \l_Rc_col_letter_tl
+\tl_new:N  \l__Rc_row_test_tl
+\int_new:N \l_Rc_row_int
+\int_new:N \l_Rc_col_int
+
+% Conversion index colonne → lettre
+\cs_new:Npn \Rc_col_letter:n #1 {
+	\tl_set:Nx \l_Rc_col_letter_tl {
+		\int_case:nn {#1} {
+			{1}{A} {2}{B} {3}{C} {4}{D} {5}{E}
+			{6}{F} {7}{G} {8}{H} {9}{I} {10}{J}
+			{11}{K} {12}{L} {13}{M} {14}{N} {15}{O}
+			{16}{P} {17}{Q} {18}{R} {19}{S} {20}{T}
+			{21}{U} {22}{V} {23}{W} {24}{X} {25}{Y}
+			{26}{Z}
+		}
+	}
+}
+
+% Remplir la cellule courante (si non vide)
+\cs_new_protected:Npn \Rc_flush_cell: {
+	\tl_trim_spaces:N \l_Rc_cell_tl
+	\tl_if_empty:NF \l_Rc_cell_tl {
+		\Rc_col_letter:n { \int_use:N \l_Rc_col_int }
+		% Appel à \celtxt* pour préserver les catcodes (math, macros, etc.)
+		\use:x {
+			\exp_not:N \celtxt *
+			[ \exp_not:V \l_Rc_opts_tl ]
+			{ \tl_use:N \l_Rc_col_letter_tl }
+			{ \int_use:N \l_Rc_row_int }
+			{ \exp_not:V \l_Rc_cell_tl }
+		}
+	}
+}
+
+% Macro principale, si pas d'ambiguïté avec les largeurs :-/
+\NewDocumentCommand{\remplircases}{ O{} D<>{1} +m }{
+	\tl_set:Nn \l_Rc_opts_tl {#1}
+	% Ligne de départ (décrémentée car on incrémente avant chaque ligne)
+	\int_set:Nn \l_Rc_row_int { \int_eval:n {#2 - 1} }
+	% Découpage par lignes sur \\
+	\seq_set_split:Nnn \l_Rc_rows_seq {\\} {#3}
+	\seq_map_inline:Nn \l_Rc_rows_seq {
+		% Ignorer les lignes vides (ligne après le dernier \\)
+		\tl_set:Nn \l__Rc_row_test_tl {##1}
+		\tl_trim_spaces:N \l__Rc_row_test_tl
+		\tl_if_empty:NF \l__Rc_row_test_tl {
+			\int_incr:N \l_Rc_row_int
+			\int_zero:N \l_Rc_col_int
+			% Découpage par cellules sur & (comme tabular !)
+			\seq_set_split:Nnn \l_Rc_cols_seq {&} {##1}
+			\seq_map_inline:Nn \l_Rc_cols_seq {
+				\int_incr:N \l_Rc_col_int
+				\tl_set:Nn \l_Rc_cell_tl {####1}
+				\Rc_flush_cell:
+			}
+		}
+	}
+}
+
+\ExplSyntaxOff
+
+\endinput

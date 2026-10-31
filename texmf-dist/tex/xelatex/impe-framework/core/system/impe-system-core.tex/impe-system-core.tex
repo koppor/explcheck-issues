@@ -1,0 +1,294 @@
+% Unified public entry for the IMPE template system.
+% This file wires the stable subsystem entries together.
+
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+\RequirePackage{import}
+
+\hfuzz=20pt
+\hbadness=10000
+\vbadness=10000
+\emergencystretch=3em
+
+\makeatletter
+\@ifundefined{ifNextSystemInstalled}
+  {\newif\ifNextSystemInstalled\NextSystemInstalledfalse}
+  {}
+\makeatother
+
+\ifNextSystemInstalled
+  \input{core/layout/impe-layout-system.tex}
+  \input{core/fonts/impe-fonts-system.tex}
+  \input{core/features/impe-features-system.tex}
+\else
+  \subimport{../layout/}{impe-layout-system.tex}
+  \subimport{../fonts/}{impe-fonts-system.tex}
+  \subimport{../features/}{impe-features-system.tex}
+\fi
+
+\ExplSyntaxOn
+
+\bool_new:N \g__nextsystem_installed_bool
+\cs_if_exist:NTF \ifNextSystemInstalled
+  {
+    \ifNextSystemInstalled
+      \bool_gset_true:N \g__nextsystem_installed_bool
+    \else
+      \bool_gset_false:N \g__nextsystem_installed_bool
+    \fi
+  }
+  { \bool_gset_false:N \g__nextsystem_installed_bool }
+
+\tl_new:N \l__nextsystem_layout_tl
+\tl_new:N \l__nextsystem_globalfonts_tl
+\tl_new:N \l__nextsystem_fonts_tl
+\tl_new:N \l__nextsystem_features_tl
+\tl_new:N \l__nextsystem_ui_tl
+\tl_new:N \l__nextsystem_effective_layout_tl
+\tl_new:N \l__nextsystem_effective_globalfonts_tl
+\bool_new:N \g__nextsystem_class_defaults_loaded_bool
+\bool_new:N \g__nextsystem_ui_loaded_bool
+
+\providecommand{\NextHeaderTitleText}{}
+\providecommand{\HeaderTitle}[1]{\renewcommand{\NextHeaderTitleText}{#1}}
+\providecommand{\NextHeaderStyleText}{running}
+\providecommand{\HeaderStyle}[1]{%
+  \renewcommand{\NextHeaderStyleText}{#1}%
+  \ifcsname NextFeatureHeadersApply\endcsname
+    \NextFeatureHeadersApply
+  \fi
+}
+
+\makeatletter
+\providecommand{\NextHeaderTitleFromTitleText}{}
+\providecommand{\NextHeaderTitleFirstLine}[1]{%
+  \NextHeaderTitleFirstLineAux#1\\\@nil
+}
+\def\NextHeaderTitleFirstLineAux#1\\#2\@nil{#1}
+\providecommand{\NextHeaderTitleContent}{%
+  \ifx\NextHeaderTitleText\@empty
+    \NextHeaderTitleFromTitleText
+  \else
+    \NextHeaderTitleText
+  \fi
+}
+\providecommand{\NextRunningHeaderText}{}
+\providecommand{\NextRunningHeaderContent}{\NextRunningHeaderText}
+\providecommand{\NextSetRunningHeader}[1]{\gdef\NextRunningHeaderText{#1}}
+\@ifclassloaded{beamer}
+  {}
+  {%
+    \let\NextSystemOriginalTitle\title
+    \renewcommand{\title}[1]{%
+      \NextSystemOriginalTitle{#1}%
+      \gdef\NextHeaderTitleFromTitleText{\NextHeaderTitleFirstLine{#1}}%
+    }%
+  }
+\makeatother
+
+\cs_new_protected:Npn \__nextsystem_resolve_defaults:
+  {
+    \tl_set_eq:NN \l__nextsystem_effective_layout_tl \l__nextsystem_layout_tl
+    \tl_set_eq:NN \l__nextsystem_effective_globalfonts_tl \l__nextsystem_globalfonts_tl
+
+    \tl_if_blank:VT \l__nextsystem_effective_layout_tl
+      {
+        \cs_if_exist:NT \NextDefaultLayout
+          { \tl_set:Nx \l__nextsystem_effective_layout_tl { \NextDefaultLayout } }
+      }
+
+    \tl_if_blank:VT \l__nextsystem_effective_globalfonts_tl
+      {
+        \cs_if_exist:NT \NextDefaultGlobalFonts
+          { \tl_set:Nx \l__nextsystem_effective_globalfonts_tl { \NextDefaultGlobalFonts } }
+      }
+  }
+
+\cs_new_protected:Npn \__nextsystem_apply_ui:
+  {
+    \bool_if:NF \g__nextsystem_ui_loaded_bool
+      {
+        \cs_if_exist:NTF \NextSystemUiTag
+          { \tl_set:Nx \l__nextsystem_ui_tl { \NextSystemUiTag } }
+          { \tl_set:Nn \l__nextsystem_ui_tl { en } }
+
+        \str_if_eq:VnT \l__nextsystem_ui_tl { zh }
+          {
+            \bool_if:NTF \g__nextsystem_installed_bool
+              { \input{core/system/impe-ui-zh-internal.tex} }
+              {
+                \cs_if_exist:NTF \NextSystemRoot
+                  { \expandafter\subimport\expandafter{\NextSystemRoot core/system/}{impe-ui-zh-internal.tex} }
+                  { \subimport{./}{impe-ui-zh-internal.tex} }
+              }
+          }
+        \bool_gset_true:N \g__nextsystem_ui_loaded_bool
+      }
+  }
+
+\cs_new_protected:Npn \__nextsystem_apply_class_defaults:
+  {
+    \bool_if:NF \g__nextsystem_class_defaults_loaded_bool
+      {
+        \cs_if_exist:NT \NextDefaultLayout
+          {
+            \tl_set:Nx \l_tmpa_tl { \NextDefaultLayout }
+            \tl_if_blank:VF \l_tmpa_tl
+              { \exp_args:NV \UseLayout \l_tmpa_tl }
+          }
+
+        \cs_if_exist:NT \NextDefaultGlobalFonts
+          {
+            \tl_set:Nx \l_tmpa_tl { \NextDefaultGlobalFonts }
+            \tl_if_blank:VF \l_tmpa_tl
+              { \exp_args:NV \UseFonts \l_tmpa_tl [global] }
+          }
+
+        \__nextsystem_apply_ui:
+        \bool_gset_true:N \g__nextsystem_class_defaults_loaded_bool
+      }
+  }
+
+\keys_define:nn { nextsystem/setup }
+  {
+    layout .tl_set:N = \l__nextsystem_layout_tl,
+    globalfonts .tl_set:N = \l__nextsystem_globalfonts_tl,
+    mainfonts .meta:n = { globalfonts = {#1} },
+    fonts .tl_set:N = \l__nextsystem_fonts_tl,
+    features .tl_set:N = \l__nextsystem_features_tl,
+  }
+
+\cs_new_protected:Npn \__nextsystem_setup_apply:
+  {
+    \__nextsystem_resolve_defaults:
+
+    \tl_if_blank:VF \l__nextsystem_effective_layout_tl
+      { \exp_args:NV \UseLayout \l__nextsystem_effective_layout_tl }
+
+    \tl_if_blank:VF \l__nextsystem_effective_globalfonts_tl
+      { \exp_args:NV \UseFonts \l__nextsystem_effective_globalfonts_tl [global] }
+
+    \tl_if_blank:VF \l__nextsystem_fonts_tl
+      { \exp_args:NV \UseFonts \l__nextsystem_fonts_tl }
+
+    \__nextsystem_apply_ui:
+
+    \tl_if_blank:VF \l__nextsystem_features_tl
+      { \exp_args:NV \UseFeatures \l__nextsystem_features_tl }
+  }
+
+\NewDocumentCommand{\UseTemplateSet}{m}
+  {
+    \tl_clear:N \l__nextsystem_layout_tl
+    \tl_clear:N \l__nextsystem_globalfonts_tl
+    \tl_clear:N \l__nextsystem_fonts_tl
+    \tl_clear:N \l__nextsystem_features_tl
+    \keys_set:nn { nextsystem/setup } {#1}
+    \__nextsystem_setup_apply:
+  }
+
+\NewDocumentCommand{\UseNextSystem}{m}
+  { \UseTemplateSet{#1} }
+
+\NewDocumentCommand{\UseGlobalFonts}{m}
+  { \UseFonts{#1}[global] }
+
+\NewDocumentCommand{\UseGlobalFont}{m}
+  { \UseFont{#1}[global] }
+
+\NewDocumentCommand{\UseMainFonts}{m}
+  { \UseGlobalFonts{#1} }
+
+\NewDocumentCommand{\UseMainFont}{m}
+  { \UseGlobalFont{#1} }
+
+\NewDocumentCommand{\UseLocalFonts}{m}
+  { \UseFonts{#1}[local] }
+
+\NewDocumentCommand{\UseLocalFont}{m}
+  { \UseFont{#1}[local] }
+
+\ExplSyntaxOff
+
+\makeatletter
+\providecommand{\@subtitle}{}
+\providecommand{\subtitle}[1]{\gdef\@subtitle{#1}}
+\providecommand{\NextTitleFont}{\normalfont\LARGE\bfseries}
+\providecommand{\NextSubtitleFont}{\normalfont\large}
+\providecommand{\NextTitleAuthorFont}{\normalfont\large}
+\providecommand{\NextTitleDateFont}{\normalfont\large}
+\@ifundefined{chapter}
+  {\providecommand{\NextTitleTopSkip}{2em}}
+  {\providecommand{\NextTitleTopSkip}{0.18\textheight}}
+\providecommand{\NextTitleBottomSkip}{1.5em}
+\providecommand{\NextTitleBlock}{%
+  \begin{center}%
+    {\NextTitleFont \@title \par}%
+    \ifx\@subtitle\@empty
+    \else
+      \vskip 0.5em%
+      {\NextSubtitleFont \@subtitle \par}%
+    \fi
+    \vskip 1.5em%
+    {\NextTitleAuthorFont
+      \lineskip 0.5em%
+      \begin{tabular}[t]{c}%
+        \@author
+      \end{tabular}\par}%
+    \vskip 1em%
+    {\NextTitleDateFont \@date \par}%
+  \end{center}%
+}
+\@ifclassloaded{beamer}
+  {}
+  {%
+    \def\@maketitle{%
+      \newpage
+      \null
+      \vspace*{\NextTitleTopSkip}%
+      \NextTitleBlock
+      \vskip \NextTitleBottomSkip%
+    }%
+    \renewcommand{\maketitle}{%
+      \par
+      \begingroup
+        \renewcommand\thefootnote{\@fnsymbol\c@footnote}%
+        \def\@makefnmark{\rlap{\@textsuperscript{\normalfont\@thefnmark}}}%
+        \long\def\@makefntext##1{\parindent 1em\noindent
+          \hb@xt@1.8em{\hss\@textsuperscript{\normalfont\@thefnmark}}##1}%
+        \if@twocolumn
+          \ifnum \col@number=\@ne
+            \@maketitle
+          \else
+            \twocolumn[\@maketitle]%
+          \fi
+        \else
+          \newpage
+          \global\@topnum\z@
+          \@maketitle
+        \fi
+        \thispagestyle{plain}\@thanks
+      \endgroup
+      \setcounter{footnote}{0}%
+      \global\let\thanks\relax
+      \global\let\maketitle\relax
+      \global\let\@maketitle\relax
+      \global\let\@thanks\@empty
+      \global\let\@author\@empty
+      \global\let\@date\@empty
+      \global\let\@title\@empty
+      \global\let\@subtitle\@empty
+      \global\let\title\relax
+      \global\let\subtitle\relax
+      \global\let\author\relax
+      \global\let\date\relax
+      \global\let\and\relax
+    }%
+  }
+\makeatother
+
+\ExplSyntaxOn
+
+\__nextsystem_apply_class_defaults:
+
+\ExplSyntaxOff

@@ -1,0 +1,898 @@
+\ProvidesFile{pgf-go-stones.sty}[2026/10/23 v0.2026.10.23 pgf-go: stones and moves]
+\ExplSyntaxOn
+
+
+%INTERSECCION DE LA PIEDRA QUE SE ESTA DIBUJANDO (LA USA LA CLAVE mark).
+\tl_new:N \l_pgfgo_parsed_x_coordinate_tl
+\tl_new:N \l_pgfgo_parsed_y_coordinate_tl
+
+
+
+\keys_define:nn { pgfgo / stone }{
+	forget						.code:n	=	{\bool_set_false:N\l_pgfgo_goban_remember_stone_bool},
+	forget						.groups:n	=	{preset},
+
+	black				.code:n		=	{\__pgfgo_stone_set_player:NNN \c_true_bool \c_false_bool \c_false_bool},
+	black				.groups:n = { player-id },
+	b						.code:n	= {\keys_set:nn{ pgfgo / stone }{black}},
+	b						.groups:n = { player-id },
+
+
+	white				.code:n		=	{\__pgfgo_stone_set_player:NNN \c_false_bool \c_true_bool \c_false_bool},
+	white				.groups:n = { player-id },
+	w						.code:n	= {\keys_set:nn{ pgfgo / stone }{white}},
+	w						.groups:n = { player-id },
+
+	neutral				.code:n		=	{\__pgfgo_stone_set_player:NNN \c_false_bool \c_false_bool \c_true_bool},
+	neutral				.groups:n = { player-id },
+	n						.code:n	= {\keys_set:nn{ pgfgo / stone }{neutral}},
+	n						.groups:n = { player-id },
+
+	%NO CUENTA EN LAS CAPTURAS. #1: OPCIONES DE ESTA PIEDRA (VER \__pgfgo_stone_prisoner_style:n).
+	prisoner				.code:n	= {
+		\bool_set_true:N \l__pgfgo_stone_prisoner_bool
+		\tl_set:Nn \l__pgfgo_stone_prisoner_options_tl {#1}
+	},
+	prisoner				.groups:n = { captures-id },
+
+	mark								.code:n = {
+			\pgfgo_mark:nee{#1}{\l_pgfgo_parsed_x_coordinate_tl}{\l_pgfgo_parsed_y_coordinate_tl}
+	},
+
+	mark		.groups:n = {mark}
+}
+
+%#1, #2, #3: SI LA PIEDRA ES NEGRA, BLANCA, NEUTRAL.
+\cs_new_protected:Npn \__pgfgo_stone_set_player:NNN #1#2#3 {
+	\bool_set_eq:NN	\l_pgfgo_players_black_bool		#1
+	\bool_set_eq:NN	\l_pgfgo_players_white_bool		#2
+	\bool_set_eq:NN	\l_pgfgo_players_neutral_bool	#3
+}
+
+
+
+\bool_new:N \l_pgfgo_move_numbers_bool
+\keys_define:nn { pgfgo / move} {
+	forget						.code:n	=	{\bool_set_false:N\l_pgfgo_goban_remember_move_bool},
+	forget						.groups:n	=	{preset, local},
+
+
+	%FIJAN DE QUIEN ES EL TURNO; LAS JUGADAS SIGUIENTES ALTERNAN DESDE AHI.
+	black			.code:n			= {\pgfgo_kernel_move_set_player:n {black}},
+	black			.groups:n		= {player-id},
+	b						.code:n	= {\keys_set:nn{ pgfgo / move }{black}},
+	b						.groups:n = { player-id, local },
+
+
+	white			.code:n			= {\pgfgo_kernel_move_set_player:n {white}},
+	white			.groups:n		= { player-id },
+	w						.code:n	= {\keys_set:nn{ pgfgo / move }{white}},
+	w						.groups:n = { player-id, local },
+
+
+	from				.code:n			=	{\pgfgo_kernel_move_set_number:n {#1}},
+	from				.groups:n		= {first stone, preset, local},
+
+
+	%SI LAS JUGADAS LLEVAN SU NUMERO. ES ESTILO: \pgfgoset{move = {numbers = false}} VALE PARA TODAS.
+	numbers			.bool_set:N		= \l_pgfgo_move_numbers_bool,
+	numbers			.default:n		= {true},
+	numbers			.initial:n		= {true},
+	numbers			.groups:n		= {preset},
+}
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------PIEDRA-------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%RADIO DEL BRILLO (LA EXPRESION QUE RECIBE PGF).
+\tl_const:Nn \c__pgfgo_stone_shine_radius_tl {
+	\fp_use:N\l_tmpa_fp * \l_pgfgo_players_stone_radius_dim * \fp_to_decimal:N\l_pgfgo_players_stone_scale_fp
+}
+
+%EL BRILLO DIBUJADO: UN TRAZO CURVO Y UNA ELIPSE, PROPORCIONALES AL RADIO DE LA PIEDRA.
+\cs_new_protected:Nn \pgfgo_stones_shine_default: {
+	\pgfscope
+	\pgfsetfillopacity{\fp_use:N\l_pgfgo_players_stone_shine_opacity_fp}
+	\pgftransformrotate{-45}
+	\pgftransformrotate{\fp_to_decimal:N\l_pgfgo_players_stone_shine_angle_fp}
+	\pgfsetfillcolor{\l_pgfgo_players_stone_shine_color_tl}
+	\fp_set:Nn\l_tmpa_fp{0.8}
+	\pgfpathmoveto{\pgfpointpolar{135}{\c__pgfgo_stone_shine_radius_tl}}
+	\pgfpatharc{135}{190}{\c__pgfgo_stone_shine_radius_tl}
+	\pgfpathquadraticcurveto{\pgfpointpolar{135}{\c__pgfgo_stone_shine_radius_tl}}{\pgfpointpolar{80}{\c__pgfgo_stone_shine_radius_tl}}
+	\pgfpatharc{80}{135}{\c__pgfgo_stone_shine_radius_tl}
+	\pgfpathclose
+
+	\pgfusepath{fill}
+
+	\pgftransformshift{\pgfpointpolar{-45}{\c__pgfgo_stone_shine_radius_tl}}
+	\pgftransformrotate{45}
+	%LOS SEMIEJES: 4/17 Y 1/17 DEL RADIO (0.04cm Y 0.01cm CON UN RADIO DE 0.17cm).
+	\dim_set:Nn \l__pgfgo_stone_shine_a_dim {\fp_to_dim:n
+		{4 / 17 * \l_pgfgo_players_stone_radius_dim * \l_pgfgo_players_stone_scale_fp}}
+	\dim_set:Nn \l__pgfgo_stone_shine_b_dim {\fp_to_dim:n
+		{1 / 17 * \l_pgfgo_players_stone_radius_dim * \l_pgfgo_players_stone_scale_fp}}
+	\pgfpathellipse{\pgfpointorigin}{\pgfpoint{\l__pgfgo_stone_shine_a_dim}{0cm}}
+		{\pgfpoint{0cm}{\l__pgfgo_stone_shine_b_dim}}
+	\pgfusepath{fill}
+	\endpgfscope
+}
+\dim_new:N \l__pgfgo_stone_shine_a_dim
+\dim_new:N \l__pgfgo_stone_shine_b_dim
+
+%LA IMAGEN DE shine/image O DE shadow/image, CENTRADA EN LA PIEDRA: EL ARCHIVO #1, DE ANCHO #2 (VACIO: EL
+%DIAMETRO DE LA PIEDRA), GIRADA #3. CON #4 (silhouette), SOLO SU FORMA, DEL COLOR DE RELLENO ACTUAL. LA
+%OPACIDAD Y EL COLOR LOS PONE QUIEN LLAMA, DENTRO DE UN \pgfscope (LA IMAGEN CARGADA QUEDA ADENTRO: NO
+%CAMBIA LA DE LA PIEDRA).
+\cs_new_protected:Npn \__pgfgo_stone_file:NNNN #1#2#3#4 {
+	\pgfgo_image_load:Ve #1 {
+		width = \tl_if_empty:NTF #2
+			{\fp_to_dim:n {2 * \l_pgfgo_players_stone_radius_dim * \l_pgfgo_players_stone_scale_fp}}
+			{\dim_eval:n {#2}}
+	}
+	\tl_if_blank:VF #3 {\pgftransformrotate{\fp_eval:n {#3}}}
+	\bool_if:NTF #4 {\pgfgo_image_shadow:} {\pgfgo_image_draw:}
+}
+
+%EL BRILLO, ENCIMA DE LA PIEDRA: EL DIBUJADO O LA IMAGEN shine/image. NO GIRA CON LA IMAGEN DE LA PIEDRA.
+\cs_new_protected:Npn \__pgfgo_stone_shine: {
+	\bool_if:NT \l_pgfgo_players_stone_shine_bool {
+		\tl_if_empty:NTF \l_pgfgo_players_stone_shine_image_tl
+			{\pgfgo_stones_shine_default:}
+			{
+				\pgfscope
+					\pgfsetfillopacity{\fp_use:N\l_pgfgo_players_stone_shine_opacity_fp}
+					\pgfsetfillcolor{\l_pgfgo_players_stone_shine_color_tl}
+					\__pgfgo_stone_file:NNNN
+						\l_pgfgo_players_stone_shine_image_tl
+						\l_pgfgo_players_stone_shine_image_width_tl
+						\l_pgfgo_players_stone_shine_image_rotate_tl
+						\l_pgfgo_players_stone_shine_image_silhouette_bool
+				\endpgfscope
+			}
+	}
+}
+
+
+
+
+
+
+\cs_set:Nn\pgfgo_stone_set_render_options:{
+	\pgfonlayer{pgfgo_layer_stone}
+	\pgfsetfillcolor{\l_pgfgo_players_stone_fill_color_tl}
+	\pgfsetfillopacity{\fp_use:N\l_pgfgo_players_stone_fill_opacity_fp}
+	\pgfsetstrokecolor{\l_pgfgo_players_stone_line_color_tl}
+	\pgfsetstrokeopacity{\fp_use:N\l_pgfgo_players_stone_line_opacity_fp}
+	\endpgfonlayer
+}
+
+
+%SOMBRA DE LA PIEDRA, CORRIDA Y AGRANDADA (scale): LA IMAGEN shadow/image O, SIN ELLA, LA SILUETA DE LA
+%PIEDRA QUE DIBUJA #1.
+\cs_new_protected:Npn \__pgfgo_stone_shadow:n #1 {
+	\bool_if:NT\l_pgfgo_players_stone_shadow_bool{
+		\pgfscope
+		\pgfsetfillopacity{\fp_use:N\l_pgfgo_players_stone_shadow_opacity_fp}
+		\pgfsetfillcolor{\l_pgfgo_players_stone_shadow_color_tl}
+		\pgftransformshift{\pgfpointpolar{\fp_use:N\l_pgfgo_players_stone_shadow_angle_fp}{\dim_use:N\l_pgfgo_players_stone_shadow_offset_dim}}
+		\fp_compare:nNnF \l_pgfgo_players_stone_shadow_scale_fp = {1}
+			{\pgftransformscale{\fp_use:N\l_pgfgo_players_stone_shadow_scale_fp}}
+		\tl_if_empty:NTF \l_pgfgo_players_stone_shadow_image_tl
+			{#1}
+			{
+				\__pgfgo_stone_file:NNNN
+					\l_pgfgo_players_stone_shadow_image_tl
+					\l_pgfgo_players_stone_shadow_image_width_tl
+					\l_pgfgo_players_stone_shadow_image_rotate_tl
+					\l_pgfgo_players_stone_shadow_image_silhouette_bool
+			}
+		\endpgfscope
+	}
+}
+
+%LA PIEDRA ES UNA IMAGEN: SIN CIRCULO NI BORDE. LA SOMBRA TIENE LA FORMA DE LA IMAGEN. EL BRILLO VA ENCIMA
+%Y NO GIRA CON ELLA.
+\cs_new_protected:Npn \__pgfgo_stone_image: {
+	\__pgfgo_stone_image_load:
+	\pgfgo_image_angle:Nnn \l_pgfgo_players_stone_image_rotate_tl
+		{\l_pgfgo_parsed_x_coordinate_tl} {\l_pgfgo_parsed_y_coordinate_tl}
+	\__pgfgo_stone_shadow:n {
+		\pgftransformrotate{\fp_use:N\l_pgfgo_image_angle_fp}
+		\pgfgo_image_shadow:
+	}
+	\pgfscope
+	\pgftransformrotate{\fp_use:N\l_pgfgo_image_angle_fp}
+	\str_if_eq:VnF \l_pgfgo_players_stone_image_opacity_tl {1}
+		{\pgfsetfillopacity{\l_pgfgo_players_stone_image_opacity_tl}}
+	\pgfgo_image_draw:
+	\endpgfscope
+	\__pgfgo_stone_shine:
+}
+
+%EL GIRO DE UNA IMAGEN (#1: UN ANGULO, random O <MIN>:<MAX>) EN EL PUNTO (#2,#3), EN \l_pgfgo_image_angle_fp.
+%CON random (= 0:360) O UN RANGO, UN ANGULO DEL RANGO QUE DEPENDE SOLO DE LA POSICION: LA IMAGEN DE UN
+%PUNTO QUEDA SIEMPRE IGUAL (EN TODOS LOS DIAGRAMAS Y EN TODOS LOS CUADROS DE UNA ANIMACION). EL VALOR SE
+%PASA A CADENA: EL : PUEDE LLEGAR ACTIVO (babel francais). LO USAN stone/image Y goban/hoshi/image.
+\fp_new:N \l_pgfgo_image_angle_fp
+\str_new:N \l__pgfgo_image_rotate_str
+\seq_new:N \l__pgfgo_image_rotate_seq
+\cs_new_protected:Npn \pgfgo_image_angle:Nnn #1#2#3 {
+	\str_set:NV \l__pgfgo_image_rotate_str #1
+	\str_if_eq:VnTF \l__pgfgo_image_rotate_str {random}
+		{\__pgfgo_image_angle_range:nnnn {0} {360} {#2} {#3}}
+		{
+			\str_if_in:NnTF \l__pgfgo_image_rotate_str {:}
+				{
+					\seq_set_split:NVV \l__pgfgo_image_rotate_seq \c_colon_str \l__pgfgo_image_rotate_str
+					\__pgfgo_image_angle_range:eenn
+						{\seq_item:Nn \l__pgfgo_image_rotate_seq {1}}
+						{\seq_item:Nn \l__pgfgo_image_rotate_seq {2}}
+						{#2} {#3}
+				}
+				{
+					\tl_if_blank:VTF #1
+						{\fp_zero:N \l_pgfgo_image_angle_fp}
+						{\fp_set:Nn \l_pgfgo_image_angle_fp {\l__pgfgo_image_rotate_str}}
+				}
+		}
+}
+\cs_new_protected:Npn \__pgfgo_image_angle_range:nnnn #1#2#3#4 {
+	\fp_set:Nn \l_pgfgo_image_angle_fp {
+		sin((#3) * 12.9898 + (#4) * 78.233) * 43758.5453
+	}
+	\fp_set:Nn \l_pgfgo_image_angle_fp {
+		(#1) + (\l_pgfgo_image_angle_fp - floor(\l_pgfgo_image_angle_fp)) * ((#2) - (#1))
+	}
+}
+\cs_generate_variant:Nn \__pgfgo_image_angle_range:nnnn {eenn}
+\cs_generate_variant:Nn \str_if_eq:nnTF {Vn}
+\cs_generate_variant:Nn \seq_set_split:Nnn {NVV}
+
+%CON VARIOS ARCHIVOS, LA IMAGEN SE ELIGE POR LA POSICION: CADA PUNTO MUESTRA SIEMPRE LA MISMA.
+\tl_new:N \l__pgfgo_stone_image_file_tl
+\cs_new_protected:Npn \__pgfgo_stone_image_load: {
+	\tl_set:Ne \l__pgfgo_stone_image_file_tl {
+		\seq_item:Nn \l_pgfgo_players_stone_image_seq {
+			\pgfgo_image_pick:nnn {\l_pgfgo_parsed_x_coordinate_tl} {\l_pgfgo_parsed_y_coordinate_tl}
+				{\seq_count:N \l_pgfgo_players_stone_image_seq}
+		}
+	}
+	\pgfgo_image_load:Ve \l__pgfgo_stone_image_file_tl {
+		width = \tl_if_empty:NTF \l_pgfgo_players_stone_image_width_tl
+			{\fp_to_dim:n {2 * \l_pgfgo_players_stone_radius_dim * \l_pgfgo_players_stone_scale_fp}}
+			{\dim_eval:n {\l_pgfgo_players_stone_image_width_tl}}
+	}
+}
+
+%UNA PIEDRA TRANSLUCIDA VA EN UN GRUPO DE TRANSPARENCIA: SE COMPONE ENTERA (EL BORDE NO SE VE SOBRE EL
+%RELLENO). OPACA, EL GRUPO NO CAMBIA NADA Y CADA UNO ES UN OBJETO MAS EN EL PDF: VA EN UN \pgfscope.
+\cs_set:Nn\pgfgo_stone_default_shape:{
+	\bool_lazy_and:nnTF
+		{\fp_compare_p:nNn {\l_pgfgo_players_stone_fill_opacity_fp} = {1}}
+		{\fp_compare_p:nNn {\l_pgfgo_players_stone_line_opacity_fp} = {1}}
+		{\pgfscope \__pgfgo_stone_shape: \endpgfscope}
+		{\pgftransparencygroup \__pgfgo_stone_shape: \endpgftransparencygroup}
+}
+\cs_new_protected:Npn \__pgfgo_stone_shape: {
+	\seq_if_empty:NTF \l_pgfgo_players_stone_image_seq {
+	%SOMBRA
+	\__pgfgo_stone_shadow:n {
+		\pgfpathcircle{
+			\pgfpointorigin}{
+			\l_pgfgo_players_stone_radius_dim * \fp_to_decimal:N\l_pgfgo_players_stone_scale_fp
+		}
+		\pgfusepath{fill}
+		\pgftransformreset
+	}
+
+	%PIEDRA
+	\pgfsetlinewidth{\l_pgfgo_players_stone_line_width_dim * \fp_use:N \l_pgfgo_players_stone_scale_fp}
+	\pgfpathcircle{\pgfpointorigin}{\l_pgfgo_players_stone_radius_dim * \fp_to_decimal:N\l_pgfgo_players_stone_scale_fp}
+	\pgfusepath{\bool_if:NT\l_pgfgo_players_stone_line_bool{stroke},\bool_if:NT\l_pgfgo_players_stone_fill_bool{fill}}
+	\__pgfgo_stone_shine:
+	}{\__pgfgo_stone_image:}
+}
+
+
+
+
+\cs_set:Nn\pgfgo_stone_render_shape:{
+	\pgfonlayer{pgfgo_layer_stone}
+	\pgfgo_stone_default_shape:
+	\endpgfonlayer
+}
+
+
+
+
+
+
+%LO QUE HAY EN CADA PUNTO DEL goban ACTUAL (LO USA EL TERRITORIO): "x,y" -> black | white | neutral
+%(PIEDRAS VIVAS) O dead-black | dead-white (PRISIONEROS). LAS CAPTURAS Y AE QUITAN LAS PIEDRAS.
+\prop_new:N \g_pgfgo_points_prop
+
+\cs_new_protected:Npn \pgfgo_points_begin: {
+	\prop_gclear:N \g_pgfgo_points_prop
+	\prop_gclear:N \g_pgfgo_territory_prop
+}
+
+\cs_new_protected:Npn \__pgfgo_points_put:nnn #1#2#3 {
+	\bool_lazy_and:nnT
+		{\int_compare_p:n {1 <= #1 <= \l_pgfgo_goban_size_x_int}}
+		{\int_compare_p:n {1 <= #2 <= \l_pgfgo_goban_size_y_int}}
+		{
+			\__pgfgo_captures_key:nn {#1} {#2}
+			\prop_gput:NVe \g_pgfgo_points_prop \l__pgfgo_captures_key_tl {#3}
+		}
+}
+
+\cs_new_protected:Npn \__pgfgo_points_remove:nn #1#2 {
+	\__pgfgo_captures_key:nn {#1} {#2}
+	\prop_gremove:NV \g_pgfgo_points_prop \l__pgfgo_captures_key_tl
+}
+
+%DIBUJA UNA PIEDRA. SI #1 NO INDICA EL JUGADOR, LA PIEDRA ES NEUTRAL.
+%SOLO SE DIBUJA SI ESTA EN LA PARTE VISIBLE DEL TABLERO. CON CAPTURAS, LAS PIEDRAS NEGRAS Y BLANCAS
+%QUE NO SON PRISIONEROS VAN AL TABLERO DEL KERNEL Y SE DIBUJAN AL CERRAR EL goban.
+\cs_set_protected:Npn\pgfgo_stone:nnn #1#2#3 {
+	\group_begin:
+		\keys_set:nn { pgfgo / stone } {neutral}
+		\keys_set_groups:nnn { pgfgo / stone } {player-id, captures-id} {#1}
+		\__pgfgo_points_put:nnn {#2} {#3}
+			{\bool_if:NT \l__pgfgo_stone_prisoner_bool {dead-} \__pgfgo_players_current:}
+		\bool_lazy_and:nnTF {\l_pgfgo_goban_captures_bool}
+			{! \l_pgfgo_players_neutral_bool && ! \l__pgfgo_stone_prisoner_bool}
+			{
+				\exp_args:Ne \pgfgo_kernel_board_put:nnn
+					{\bool_if:NTF \l_pgfgo_players_black_bool {black} {white}} {#2} {#3}
+				\pgfgo_kernel_if_visible:nnT {#2} {#3}
+					{\__pgfgo_captures_defer:nnn {#2} {#3} {\__pgfgo_stone_draw:nnn {#1} {#2} {#3}}}
+			}
+			{\pgfgo_kernel_if_visible:nnT {#2} {#3} {\__pgfgo_stone_draw:nnn {#1} {#2} {#3}}}
+	\group_end:
+}
+
+%UNA PIEDRA CAPTURADA CON captures = fade SE DIBUJA COMO UN PRISIONERO.
+\cs_set_protected:Npn\__pgfgo_stone_draw:nnn #1#2#3 {
+	\bool_if:NTF \l__pgfgo_captures_fade_bool
+		{\__pgfgo_stone_draw_aux:nnn {#1, prisoner} {#2} {#3}}
+		{\__pgfgo_stone_draw_aux:nnn {#1} {#2} {#3}}
+}
+
+%EL ESTILO DE UN PRISIONERO DEL JUGADOR #1, ANTES DE LAS OPCIONES DE LA PIEDRA: OPACIDAD DEL RELLENO 0.5,
+%/pgfgo/prisoner, pgfgo/players/#1/stone/prisoner Y EL VALOR DE prisoner EN LA PIEDRA.
+\cs_new_protected:Npn \__pgfgo_stone_prisoner_style:n #1 {
+	\keys_set:nn { pgfgo / players / #1 / stone / fill } {opacity = 0.5}
+	\keys_set:nV { pgfgo / players / #1 / stone } \l_pgfgo_prisoner_options_tl
+	\keys_set:nv { pgfgo / players / #1 / stone } {l_pgfgo_players_ #1 _stone_prisoner_tl}
+	\keys_set:nV { pgfgo / players / #1 / stone } \l__pgfgo_stone_prisoner_options_tl
+}
+\cs_generate_variant:Nn \__pgfgo_stone_prisoner_style:n {e}
+
+\cs_new_protected:Npn\__pgfgo_stone_draw_aux:nnn #1#2#3 {
+	\group_begin:
+	\keys_set:nn { pgfgo / stone }{neutral}
+	\bool_set_false:N \l__pgfgo_stone_prisoner_bool
+	\keys_set_groups:nnn{ pgfgo / stone }{ player-id, captures-id }{#1}
+	\bool_if:NT \l__pgfgo_stone_prisoner_bool
+		{\__pgfgo_stone_prisoner_style:e {\__pgfgo_players_current:}}
+	\keys_set_exclude_groups:enn { pgfgo / players / \__pgfgo_players_current: / stone } { external } {#1}
+	\pgfgo_get_variables_from_current_player:
+
+	\tl_set:Nn\l_pgfgo_parsed_x_coordinate_tl{#2}
+	\tl_set:Nn\l_pgfgo_parsed_y_coordinate_tl{#3}
+	\pgfgo_stone_set_render_options:
+	\pgfscope
+	\pgftransformshift{\pgfpointxy{#2}{#3}}
+	\pgfgo_stone_render_shape:
+	\endpgfscope
+
+	%-----MARCAS-------------------------
+	\pgfscope
+	\keys_set_groups:nnn {pgfgo / stone} {mark} {#1}
+	\endpgfscope
+
+	\group_end:
+}
+\cs_generate_variant:Nn \__pgfgo_stone_draw_aux:nnn {enn}
+\cs_generate_variant:Nn \keys_set_exclude_groups:nnn {enn}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---------------------------------------CAPTURAS------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%CON goban/captures (SOLO kernel = lua) EL KERNEL LLEVA LAS PIEDRAS DEL TABLERO. COMO PGF NO PUEDE
+%BORRAR, LAS PIEDRAS NEGRAS Y BLANCAS Y LAS JUGADAS SE GUARDAN POR INTERSECCION Y SE DIBUJAN AL
+%CERRAR EL goban (LAS CAPAS CONSERVAN EL ORDEN). UNA CAPTURA BORRA LA PIEDRA GUARDADA O, CON fade,
+%LA MARCA PARA DIBUJARLA COMO PRISIONERO. LAS PIEDRAS NEUTRALES Y LOS PRISIONEROS NO CUENTAN.
+\bool_new:N \l_pgfgo_goban_captures_bool
+\bool_new:N \l_pgfgo_goban_captures_fade_bool
+\bool_new:N \l__pgfgo_captures_fade_bool
+\bool_new:N \l__pgfgo_stone_prisoner_bool
+\tl_new:N \l__pgfgo_stone_prisoner_options_tl
+%goban/captured marks = remove.
+\bool_new:N \l_pgfgo_goban_captured_marks_bool
+
+%"x,y" -> CODIGO QUE DIBUJA LO QUE HAY EN LA INTERSECCION.
+\prop_new:N \g__pgfgo_captures_pending_prop
+%"x,y" DE LAS PIEDRAS CAPTURADAS QUE SE DIBUJAN ATENUADAS.
+\prop_new:N \g__pgfgo_captures_faded_prop
+%"x,y" -> CODIGO DE LAS MARCAS SOBRE LA PIEDRA (CON goban/captured marks = remove).
+\prop_new:N \g__pgfgo_captures_marks_prop
+\tl_new:N \l__pgfgo_captures_marks_tl
+\tl_new:N \l__pgfgo_captures_key_tl
+\cs_generate_variant:Nn \prop_gput:Nnn {NVn}
+\cs_generate_variant:Nn \prop_gremove:Nn {NV}
+\cs_generate_variant:Nn \prop_if_in:NnT {NVT}
+
+\cs_new_protected:Npn \__pgfgo_captures_key:nn #1#2 {
+	\tl_set:Ne \l__pgfgo_captures_key_tl {\int_eval:n {#1} , \int_eval:n {#2}}
+}
+
+\cs_new_protected:Npn \pgfgo_captures_begin: {
+	\pgfgo_kernel_board_clear:
+	\prop_gclear:N \g__pgfgo_captures_pending_prop
+	\prop_gclear:N \g__pgfgo_captures_faded_prop
+	\prop_gclear:N \g__pgfgo_captures_marks_prop
+}
+
+%GUARDA LA MARCA #1 DE (#2,#3) CON LA PIEDRA. LA SECUENCIA QUEDA FIJA EN EL NUMERO DE AHORA.
+\cs_new_protected:Npn \pgfgo_captures_mark:nnn #1#2#3 {
+	\__pgfgo_captures_key:nn {#2} {#3}
+	\prop_get:NVNF \g__pgfgo_captures_marks_prop \l__pgfgo_captures_key_tl \l__pgfgo_captures_marks_tl
+		{\tl_clear:N \l__pgfgo_captures_marks_tl}
+	\prop_gput:NVe \g__pgfgo_captures_marks_prop \l__pgfgo_captures_key_tl {
+		\exp_not:V \l__pgfgo_captures_marks_tl
+		\exp_not:N \pgfgo_kernel_sequence_reset:n {\pgfgo_kernel_sequence_number:}
+		\exp_not:N \__pgfgo_mark_draw:nnn {\exp_not:n {#1}} {\exp_not:n {#2}} {\exp_not:n {#3}}
+	}
+	\pgfgo_mark_step:n {#1}
+}
+
+%GUARDA EL CODIGO #3 PARA LA INTERSECCION (#1,#2). REEMPLAZA LO QUE HABIA.
+\cs_new_protected:Npn \__pgfgo_captures_defer:nnn #1#2#3 {
+	\__pgfgo_captures_key:nn {#1} {#2}
+	\prop_gput:NVn \g__pgfgo_captures_pending_prop \l__pgfgo_captures_key_tl {#3}
+	\prop_gremove:NV \g__pgfgo_captures_faded_prop \l__pgfgo_captures_key_tl
+}
+\cs_generate_variant:Nn \__pgfgo_captures_defer:nnn {nne}
+
+%APLICA LAS CAPTURAS DE LA ULTIMA JUGADA (\l_pgfgo_kernel_captured_seq). CON \l__pgfgo_captures_keep_bool
+%(\sgfdiagrams) EL KERNEL LAS SACA DEL TABLERO, PERO SE SIGUEN DIBUJANDO.
+\bool_new:N \l__pgfgo_captures_keep_bool
+\cs_new_protected:Npn \__pgfgo_captures_apply: {
+	\bool_if:NF \l_pgfgo_captures_collect_bool
+		{\seq_map_inline:Nn \l_pgfgo_kernel_captured_seq {\__pgfgo_points_remove:nn ##1}}
+	\bool_if:nF {\l__pgfgo_captures_keep_bool || \l_pgfgo_captures_collect_bool} {\__pgfgo_captures_remove_drawn:}
+}
+\cs_new_protected:Npn \__pgfgo_captures_remove_drawn: {
+	\seq_map_inline:Nn \l_pgfgo_kernel_captured_seq {
+		\__pgfgo_captures_key:nn ##1
+		\bool_if:NTF \l_pgfgo_goban_captures_fade_bool
+			{
+				\prop_if_in:NVT \g__pgfgo_captures_pending_prop \l__pgfgo_captures_key_tl
+					{\prop_gput:NVn \g__pgfgo_captures_faded_prop \l__pgfgo_captures_key_tl {}}
+			}
+			{\prop_gremove:NV \g__pgfgo_captures_pending_prop \l__pgfgo_captures_key_tl}
+		\prop_gremove:NV \g__pgfgo_captures_marks_prop \l__pgfgo_captures_key_tl
+	}
+}
+
+%QUITA LA PIEDRA DE (#1,#2): DEL TABLERO DEL KERNEL Y DE LO QUE SE VA A DIBUJAR.
+\cs_new_protected:Npn \pgfgo_captures_remove:nn #1#2 {
+	\pgfgo_kernel_board_put:nnn {empty} {#1} {#2}
+	\__pgfgo_points_remove:nn {#1} {#2}
+	\__pgfgo_captures_key:nn {#1} {#2}
+	\prop_gremove:NV \g__pgfgo_captures_pending_prop \l__pgfgo_captures_key_tl
+	\prop_gremove:NV \g__pgfgo_captures_faded_prop \l__pgfgo_captures_key_tl
+	\prop_gremove:NV \g__pgfgo_captures_marks_prop \l__pgfgo_captures_key_tl
+}
+
+%CON CAPTURAS, UNA JUGADA EN UN PUNTO OCUPADO ES UN ERROR DE LA PARTIDA (SIN CAPTURAS PUEDE SER BUSCADO).
+\msg_new:nnn {pgfgo} {occupied-point}
+	{Move~#1~is~played~on~#2,~which~is~not~empty.}
+\cs_generate_variant:Nn \msg_warning:nnnn {nnee}
+
+%SI HUBO ESE AVISO (LO MIRA pgf-go-sgf.sty: UNA PARTIDA CON AVISOS NO SE GUARDA PARA SEGUIRLA DESPUES).
+\bool_new:N \g__pgfgo_captures_warned_bool
+
+\cs_new_protected:Npn \__pgfgo_captures_move:nnnn #1#2#3#4 {
+	\bool_if:NF \l_pgfgo_captures_collect_bool {
+		\pgfgo_kernel_board_if_occupied:nnT {#3} {#4} {
+			\bool_gset_true:N \g__pgfgo_captures_warned_bool
+			\msg_warning:nnee {pgfgo} {occupied-point}
+				{\pgfgo_kernel_move_number:} {\pgfgo_kernel_column_name:n {#3} \int_eval:n {#4}}
+		}
+	}
+	\bool_if:NF \l__pgfgo_notes_noted_bool {
+		\pgfgo_kernel_if_visible:nnT {#3} {#4}
+			{\__pgfgo_captures_defer:nne {#3} {#4} {\__pgfgo_move_code:nnnn {#1} {#2} {#3} {#4}}}
+	}
+	\pgfgo_kernel_move_play:nn {#3} {#4}
+	\__pgfgo_captures_apply:
+	%UNA JUGADA ANOTADA ("N at M") DEJA VER LA PIEDRA M, AUNQUE HAYA SIDO CAPTURADA.
+	\bool_if:NT \l__pgfgo_notes_noted_bool {\__pgfgo_notes_show_first:nn {#3} {#4}}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%------------------------------------NOTAS "N at M"---------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%CON goban/notes, UNA JUGADA NUMERADA N EN UN PUNTO DONDE YA HUBO UNA JUGADA NUMERADA M DEL MISMO goban
+%NO SE DIBUJA: EL PUNTO SIGUE MOSTRANDO M Y SE ANOTA "N at M" (COMO EN LOS LIBROS: "7 at 3").
+%\pgfgomovenotes IMPRIME LAS NOTAS DEL ULTIMO goban. SOLO CUENTAN LAS JUGADAS NUMERADAS Y VISIBLES.
+\bool_new:N \l_pgfgo_goban_notes_bool
+\bool_new:N \l__pgfgo_notes_noted_bool
+%NOTAS DEL ULTIMO goban, {N}{M}.
+\seq_new:N \g_pgfgo_move_notes_seq
+%"x,y" -> NUMERO Y CODIGO DE LA PRIMERA JUGADA NUMERADA EN ESE PUNTO.
+\prop_new:N \g__pgfgo_notes_number_prop
+\prop_new:N \g__pgfgo_notes_code_prop
+\tl_new:N \l__pgfgo_notes_tl
+\tl_new:N \l_pgfgo_notes_at_tl
+\tl_new:N \l_pgfgo_notes_pass_tl
+\tl_new:N \l_pgfgo_notes_separator_tl
+\cs_generate_variant:Nn \prop_get:NnNTF {NV}
+\cs_generate_variant:Nn \prop_get:NnNT {NV}
+\cs_generate_variant:Nn \prop_get:NnNF {NV}
+\cs_generate_variant:Nn \prop_gput:Nnn {NVe, NVV}
+
+\cs_new_protected:Npn \pgfgo_notes_begin: {
+	\seq_gclear:N \g_pgfgo_move_notes_seq
+	\prop_gclear:N \g__pgfgo_notes_number_prop
+	\prop_gclear:N \g__pgfgo_notes_code_prop
+}
+
+%(#1,#2) ESTA EN LA PARTE VISIBLE (SIN AVISAR SI ESTA FUERA DEL TABLERO).
+\prg_new_conditional:Npnn \__pgfgo_notes_if_visible:nn #1#2 {p} {
+	\bool_if:nTF {
+		\int_compare_p:n {\l_pgfgo_goban_from_x_int <= #1 <= \l_pgfgo_goban_to_x_int} &&
+		\int_compare_p:n {\l_pgfgo_goban_from_y_int <= #2 <= \l_pgfgo_goban_to_y_int}
+	} {\prg_return_true:} {\prg_return_false:}
+}
+
+%ANTES DE JUGAR: DECIDE SI LA JUGADA (#1: NUMERADA, #2: OPCIONES, #3,#4: PUNTO) SE ANOTA EN VEZ DE
+%DIBUJARSE (\l__pgfgo_notes_noted_bool), O LA REGISTRA COMO LA PRIMERA JUGADA NUMERADA DEL PUNTO.
+\cs_new_protected:Npn \__pgfgo_notes_check:nnnn #1#2#3#4 {
+	\bool_set_false:N \l__pgfgo_notes_noted_bool
+	\bool_lazy_and:nnT {\l_pgfgo_goban_notes_bool} {\__pgfgo_notes_if_visible_p:nn {#3} {#4}} {
+		\IfBooleanT {#1} {
+			\__pgfgo_captures_key:nn {#3} {#4}
+			\prop_get:NVNTF \g__pgfgo_notes_number_prop \l__pgfgo_captures_key_tl \l__pgfgo_notes_tl {
+				\bool_set_true:N \l__pgfgo_notes_noted_bool
+				\seq_gput_right:Ne \g_pgfgo_move_notes_seq
+					{{\pgfgo_kernel_move_number:} {\exp_not:V \l__pgfgo_notes_tl}}
+			}{
+				\prop_gput:NVe \g__pgfgo_notes_number_prop \l__pgfgo_captures_key_tl
+					{\pgfgo_kernel_move_number:}
+				\prop_gput:NVe \g__pgfgo_notes_code_prop \l__pgfgo_captures_key_tl
+					{\__pgfgo_move_code:nnnn {#1} {#2} {#3} {#4}}
+			}
+		}
+	}
+}
+
+%ANOTA QUE LA JUGADA ACTUAL ES UN PASE ({N}{}, QUE \pgfgomovenotes ESCRIBE "N: pass").
+\cs_new_protected:Npn \pgfgo_notes_pass: {
+	\seq_gput_right:Ne \g_pgfgo_move_notes_seq {{\pgfgo_kernel_move_number:} {}}
+}
+
+%CON CAPTURAS: VUELVE A DIBUJAR LA PRIMERA JUGADA NUMERADA DEL PUNTO.
+\cs_new_protected:Npn \__pgfgo_notes_show_first:nn #1#2 {
+	\__pgfgo_captures_key:nn {#1} {#2}
+	\prop_get:NVNT \g__pgfgo_notes_code_prop \l__pgfgo_captures_key_tl \l__pgfgo_notes_tl {
+		\prop_gput:NVV \g__pgfgo_captures_pending_prop \l__pgfgo_captures_key_tl \l__pgfgo_notes_tl
+		\prop_gremove:NV \g__pgfgo_captures_faded_prop \l__pgfgo_captures_key_tl
+	}
+}
+
+\keys_define:nn {pgfgo / notes} {
+	at					.tl_set:N		= \l_pgfgo_notes_at_tl,
+	at					.initial:n	= {\pgfgo_text:n {at}},
+	pass				.tl_set:N		= \l_pgfgo_notes_pass_tl,
+	pass				.initial:n	= {\pgfgo_text:n {pass}},
+	separator		.tl_set:N		= \l_pgfgo_notes_separator_tl,
+	separator		.initial:n	= {,~},
+}
+\keys_define:nn {pgfgo} {
+	notes				.code:n			= {\keys_set:nn {pgfgo / notes} {#1}}
+}
+
+%UNA NOTA: "N at M", O "N: pass" SI M ESTA VACIO.
+\cs_new_protected:Npn \__pgfgo_notes_item:nn #1#2 {
+	\tl_if_empty:nTF {#2}
+		{\seq_put_right:Nn \l_tmpa_seq {#1 : \nobreakspace \l_pgfgo_notes_pass_tl}}
+		{\seq_put_right:Nn \l_tmpa_seq {#1 \nobreakspace \l_pgfgo_notes_at_tl \nobreakspace #2}}
+}
+
+\NewDocumentCommand \pgfgomovenotes {O{}} {
+	\group_begin:
+		\keys_set:nn {pgfgo / notes} {#1}
+		\seq_clear:N \l_tmpa_seq
+		\seq_map_inline:Nn \g_pgfgo_move_notes_seq {
+			\__pgfgo_notes_item:nn ##1
+		}
+		\seq_use:Nn \l_tmpa_seq {\l_pgfgo_notes_separator_tl}
+	\group_end:
+}
+
+%\pgfgoprisoners{black | white} ESCRIBE LOS PRISIONEROS DEL JUGADOR EN EL ULTIMO goban CON CAPTURAS. CON
+%OTRO JUGADOR, UN ERROR Y 0.
+\msg_new:nnn {pgfgo} {unknown-prisoners-player}
+	{Unknown~player~'#1'~in~\iow_char:N\\pgfgoprisoners~(black,~b,~white~or~w):~the~number~is~0.}
+\NewDocumentCommand \pgfgoprisoners {m} {
+	\pgfgo_kernel_if_feature:nTF {captures}
+		{
+			\str_case:enF {\tl_trim_spaces:n {#1}} {{b} {} {black} {} {w} {} {white} {}}
+				{\msg_error:nnn {pgfgo} {unknown-prisoners-player} {#1}}
+			\exp_args:Ne \pgfgo_kernel_prisoners:n
+				{\str_case:enF {\tl_trim_spaces:n {#1}} {{b} {black} {w} {white}} {\tl_trim_spaces:n {#1}}}
+		}
+		{\pgfgo_kernel_require:n {captures}}
+}
+\cs_generate_variant:Nn \str_case:nnF {e}
+
+%DIBUJA LO QUE QUEDO, AL CERRAR EL goban. CON \l_pgfgo_captures_overlay_bool (ANIMACIONES POR CAPAS) NO
+%DIBUJA NADA: LAS PIEDRAS VAN EN SUS PROPIAS CAPAS.
+\bool_new:N \l_pgfgo_captures_overlay_bool
+%CON \l_pgfgo_captures_collect_bool LAS PIEDRAS SE GUARDAN, PERO NINGUNA SE QUITA (goban SIN captures).
+\bool_new:N \l_pgfgo_captures_collect_bool
+\cs_new_protected:Npn \pgfgo_captures_end: {
+	\bool_if:NF \l_pgfgo_captures_overlay_bool {\__pgfgo_captures_draw:}
+}
+\cs_new_protected:Npn \__pgfgo_captures_draw: {
+	\prop_map_inline:Nn \g__pgfgo_captures_pending_prop {
+		\group_begin:
+			\prop_if_in:NnT \g__pgfgo_captures_faded_prop {##1}
+				{\bool_set_true:N \l__pgfgo_captures_fade_bool}
+			##2
+		\group_end:
+	}
+	%LAS MARCAS VAN DESPUES: LA SECUENCIA DE CADA UNA SE FIJA AL DIBUJARLA.
+	\prop_map_inline:Nn \g__pgfgo_captures_marks_prop {
+		\group_begin: ##2 \group_end:
+	}
+}
+
+\cs_new:Nn \pgfgo_stone:nn {\pgfgo_stone:nnn{#1}#2}
+\cs_generate_variant:Nn\pgfgo_stone:nn {nV}
+
+
+
+\DeclareDocumentCommand{\stone}{O{}m}{
+	\group_begin:
+	\keys_set_groups:nnn{ pgfgo / stone }{ preset }{#1}
+	\pgfgo_kernel_point:nTF {#2} { %Devuelve \l_pgfgo_kernel_point_tl
+		%\stone SIN JUGADOR DIBUJA UNA PIEDRA NEUTRAL, COMO \stones.
+		%RECORDAR LAS PIEDRAS
+		\pgfgo_remember:Nnn \l_pgfgo_goban_remember_stone_bool {stone}
+			{\exp_not:N\pgfgo_stone:nn{neutral, \exp_not:n{#1}}{\exp_not:V \l_pgfgo_kernel_point_tl}}
+
+		\pgfgo_stone:nV{neutral, #1}\l_pgfgo_kernel_point_tl
+	}{
+		\msg_warning:nnn {pgfgo} {unknown-coordinate} {#2}
+	}
+	\group_end:
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------PIEDRAS------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cs_new_protected:Nn \pgfgo_stones_parsed:nn {
+	\clist_map_inline:nn {#2} {\pgfgo_stone:nn{#1}{##1}}
+}
+
+\cs_set_protected:Npn\pgfgo_stones:nn #1#2 {
+	\group_begin:
+
+	\pgfgo_kernel_points:n{#2} %Devuelve \l_pgfgo_kernel_points_seq
+
+	\keys_set_groups:nnn{ pgfgo / stone }{ preset }{#1}
+	%RECORDAR LAS PIEDRAS
+	\clist_set_from_seq:NN \l_tmpa_clist\l_pgfgo_kernel_points_seq
+	\pgfgo_remember:Nnn \l_pgfgo_goban_remember_stone_bool {stone}
+		{\exp_not:N\pgfgo_stones_parsed:nn{\exp_not:n{#1}}{\exp_not:V\l_tmpa_clist}}
+
+	%DIBUJAR LAS PIEDRAS
+	\seq_map_inline:Nn \l_pgfgo_kernel_points_seq {\pgfgo_stone:nnn {#1} ##1}
+	\group_end:
+}
+
+
+
+\NewDocumentCommand{\stones}{O{}m}{\pgfgo_stones:nn {#1}{#2}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------PRISIONEROS--------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%/pgfgo/prisoner GUARDA EL ESTILO DE TODOS LOS PRISIONEROS (VER \__pgfgo_stone_prisoner_style:n).
+\tl_new:N \l_pgfgo_prisoner_options_tl
+\keys_define:nn {pgfgo} {prisoner .tl_set:N = \l_pgfgo_prisoner_options_tl}
+
+\NewDocumentCommand{\prisoners}{O{}m}{\stones[prisoner, #1]{#2}}
+\NewDocumentCommand{\prisoner}{O{}m}{\stone[prisoner, #1]{#2}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%-------------------------------------------MOVE------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\tl_new:N \l_pgfgo_move_x_tl
+\tl_new:N \l_pgfgo_move_y_tl
+
+%EL COLOR DE LA PROXIMA JUGADA: black O white.
+\cs_new:Npn \__pgfgo_move_color: {\pgfgo_kernel_move_if_black:TF {black} {white}}
+
+%EL CODIGO QUE DIBUJA LA JUGADA (#1: NUMERADA, #2: OPCIONES, #3,#4: PUNTO) CON EL NUMERO Y EL COLOR
+%DE AHORA. PARA USAR DENTRO DE UNA EXPANSION e.
+\cs_new:Npn \__pgfgo_move_code:nnnn #1#2#3#4 {
+	\exp_not:N \__pgfgo_move_draw:nnnnnn
+		{\exp_not:n {#1}} {\exp_not:n {#2}} {\exp_not:n {#3}} {\exp_not:n {#4}}
+		{\pgfgo_kernel_move_number:} {\__pgfgo_move_color:}
+}
+
+%FUERA DE LA PARTE VISIBLE NO SE DIBUJA, PERO LA JUGADA CUENTA (NUMERO Y TURNO).
+\cs_set_protected:Npn\pgfgo_move:nnnn #1#2#3#4 {
+	\__pgfgo_notes_check:nnnn {#1} {#2} {#3} {#4}
+	\__pgfgo_points_put:nnn {#3} {#4} {\__pgfgo_move_color:}
+	\bool_if:NTF \l_pgfgo_goban_captures_bool {
+		\__pgfgo_captures_move:nnnn {#1} {#2} {#3} {#4}
+	}{
+		%UNA JUGADA ANOTADA ("N at M") NO SE DIBUJA.
+		\bool_if:NF \l__pgfgo_notes_noted_bool {
+			\pgfgo_kernel_if_visible:nnT {#3} {#4}
+				{\use:e {\__pgfgo_move_code:nnnn {#1} {#2} {#3} {#4}}}
+		}
+		\pgfgo_kernel_move_play:nn {#3} {#4}
+	}
+}
+
+%TAMANO DEL NUMERO SEGUN LA CANTIDAD DE LETRAS Y CIFRAS (SI NO SE FIJA CON label/font size).
+\tl_new:N \l__pgfgo_move_label_tl
+\tl_new:N \l__pgfgo_move_label_size_tl
+\int_new:N \l__pgfgo_move_label_int
+
+%DIBUJA LA JUGADA NUMERO #5 DE #6 (black O white) EN (#3,#4). #1: MOSTRAR EL NUMERO. #2: OPCIONES.
+\cs_new_protected:Npn\__pgfgo_move_draw:nnnnnn #1#2#3#4#5#6 {
+	\group_begin:
+	\tl_set:Nn\l_pgfgo_move_x_tl{#3}
+	\tl_set:Nn\l_pgfgo_move_y_tl{#4}
+
+	\keys_set:nn { pgfgo / stone }{#6}
+	\keys_set_exclude_groups:nnn {pgfgo / players / #6 / move} {external} {#2}
+	\pgfgo_get_values_from_player:n {#6}
+	%LAS OPCIONES DE PIEDRA Y mark VAN A LA PIEDRA; EL COLOR (#6) VA AL FINAL PARA QUE NO LO CAMBIE b O w.
+	\__pgfgo_stone_draw:nnn{#2, #6}{#3}{#4}
+
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%----------------------LABEL-----------------------%
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+	\IfBooleanT{#1}{
+		\tl_set:Ne \l__pgfgo_move_label_tl {\pgfgo_players_move_label_format:n{#5}}
+		\tl_if_empty:NTF \l_pgfgo_players_move_label_font_size_tl
+			{
+				\pgfgo_players_label_length:NnVN \pgfgo_players_move_label_format:n {#5} \l__pgfgo_move_label_tl \l__pgfgo_move_label_int
+				\tl_set:Ne \l__pgfgo_move_label_size_tl {
+					\int_case:nnF {\l__pgfgo_move_label_int}
+						{{1} {1em} {2} {0.65em}}
+						{0.45em}
+				}
+			}
+			{\tl_set_eq:NN \l__pgfgo_move_label_size_tl \l_pgfgo_players_move_label_font_size_tl}
+
+		\pgfscope
+		\pgfsetcolor{\l_pgfgo_players_move_label_color_tl}
+		\str_if_eq:VnF \l_pgfgo_players_move_label_opacity_tl {1}
+			{\pgfsetfillopacity{\l_pgfgo_players_move_label_opacity_tl}}
+		\pgftext[at=\pgfpointxy{\l_pgfgo_move_x_tl}{\l_pgfgo_move_y_tl}]{
+			\l_pgfgo_players_move_label_font_tl\fontsize{ \l__pgfgo_move_label_size_tl }{0pt}\selectfont
+			\l__pgfgo_move_label_tl
+		}
+		\pgfusepath{stroke}
+		\endpgfscope
+	}
+
+	\group_end:
+}
+\cs_generate_variant:Nn \regex_count:NnN {NV}
+
+
+\cs_new:Nn\pgfgo_move:nnn{\pgfgo_move:nnnn{#1}{#2}#3}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%-------------------------------------------MOVES-----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+%VUELVE A DIBUJAR JUGADAS RECORDADAS. #2 TRAE LAS OPCIONES ORIGINALES MAS from Y EL COLOR CON QUE EMPEZARON.
+%SIN NUMEROS SI resume O \pgfgoview LOS ESCONDEN (SE DECIDE ACA: CON CAPTURAS, LA PIEDRA SE DIBUJA AL FINAL).
+\cs_new_protected:Nn \pgfgo_move_parsed:nnn {
+	\group_begin:
+	\keys_set_groups:nnn { pgfgo / move} {player-id, first stone} {#2}
+	\keys_set_groups:nnn { pgfgo / players / neutral / move} { label } {#2}
+	\bool_if:nTF {#1 && ! \l_pgfgo_remember_hide_numbers_bool}
+		{\clist_map_inline:nn {#3} {\pgfgo_move:nnn{\BooleanTrue}{#2}{##1}}}
+		{\clist_map_inline:nn {#3} {\pgfgo_move:nnn{\BooleanFalse}{#2}{##1}}}
+	\group_end:
+}
+
+
+
+
+
+%EL CODIGO QUE VUELVE A DIBUJAR LAS JUGADAS \l_tmpa_clist (#1: NUMERADAS, #2: OPCIONES). PARA UNA EXPANSION e.
+\cs_new:Npn \__pgfgo_moves_code:nn #1#2 {
+	\exp_not:N\pgfgo_move_parsed:nnn
+		{#1}
+		{
+			\exp_not:n{#2},
+			from = \pgfgo_kernel_move_number:,
+			\__pgfgo_move_color:
+		}
+		{\exp_not:V\l_tmpa_clist}
+}
+
+%LAS JUGADAS DE \moves SON UNA SECUENCIA (CON ORDEN Y REPETICIONES), NO UN CONJUNTO COMO EN \stones: CADA
+%ELEMENTO SE JUEGA EN SU ORDEN. LO QUE NO TIENE UN ORDEN FIJO (RECTANGULOS, r, *, ...) SE JUEGA COMO LO LEE
+%EL KERNEL, CON UN AVISO; LOS GRUPOS QUE RESTAN (;) DAN ERROR. LAS COORDENADAS SE EXPANDEN CON e. DEJA LAS
+%JUGADAS {x}{y} EN \l_pgfgo_kernel_points_seq.
+\msg_new:nnn {pgfgo} {moves-subtract} {
+	'#1'~subtracts~points~(;)~and~\iow_char:N\\moves~only~adds~them:~no~move~is~played.
+}
+\tl_new:N \l__pgfgo_moves_coordinates_tl
+
+\cs_new_protected:Npn \__pgfgo_moves_points:n #1 {
+	\tl_set:Ne \l__pgfgo_moves_coordinates_tl {#1}
+	\tl_if_in:NnTF \l__pgfgo_moves_coordinates_tl {;} {
+		\msg_error:nnV {pgfgo} {moves-subtract} \l__pgfgo_moves_coordinates_tl
+		\seq_clear:N \l_pgfgo_kernel_points_seq
+	} {
+		\exp_args:NV \pgfgo_kernel_moves:n \l__pgfgo_moves_coordinates_tl
+		\bool_if:NF \l_pgfgo_kernel_points_ordered_bool
+			{\msg_warning:nnV {pgfgo} {unordered-coordinate} \l__pgfgo_moves_coordinates_tl}
+	}
+}
+
+%\BooleanTrue O \BooleanFalse, SEGUN numbers.
+\tl_new:N \l__pgfgo_moves_numbers_tl
+
+\NewDocumentCommand{\moves}{O{}m}{
+	\group_begin:
+	\__pgfgo_moves_points:n{#2} %Devuelve \l_pgfgo_kernel_points_seq
+
+	\keys_set_groups:nnn { pgfgo / move} {preset, player-id, first stone} {#1}
+	\keys_set_groups:nnn { pgfgo / players / neutral / move} { label } {#1}
+	\tl_set:Ne \l__pgfgo_moves_numbers_tl
+		{\bool_if:NTF \l_pgfgo_move_numbers_bool {\exp_not:N \BooleanTrue} {\exp_not:N \BooleanFalse}}
+	%RECORDAR LAS PIEDRAS (CON EL NUMERO Y EL COLOR DE LA PRIMERA JUGADA), CON LOS NUMEROS COMO SE DIBUJAN.
+	\clist_set_from_seq:NN \l_tmpa_clist\l_pgfgo_kernel_points_seq
+	\pgfgo_remember:Nnn \l_pgfgo_goban_remember_move_bool {stone} {
+		\bool_if:NF \l_pgfgo_goban_remember_move_label_bool {\exp_not:N \pgfgo_remember_numbers:n}
+		{\__pgfgo_moves_code:nn {\exp_not:V \l__pgfgo_moves_numbers_tl} {#1}}
+	}
+
+	%-------------------------------------------------------------------------
+
+
+	\seq_map_inline:Nn \l_pgfgo_kernel_points_seq
+		{\exp_args:NV \pgfgo_move:nnnn \l__pgfgo_moves_numbers_tl {#1} ##1}
+	\group_end:
+}
+
+\ExplSyntaxOff

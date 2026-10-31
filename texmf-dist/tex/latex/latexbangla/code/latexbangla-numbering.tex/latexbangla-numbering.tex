@@ -1,0 +1,72 @@
+% Counter presentation; arithmetic and reset relationships stay upstream.
+% Part of latexbangla, LPPL 1.3c or later; copyright 2026 Adib Hasan.
+
+% Keep this formatter expandable: labels are written to .aux/.toc files and
+% expanded in PDF strings. Match LaTeX's empty value for zero and its error for
+% values beyond the alphabet instead of silently inventing multiple letters.
+\cs_new:Npn \__latexbangla_format_alphabetic:n #1
+  {
+    \int_compare:nNnTF {#1} = {0}
+      {}
+      {
+        \int_compare:nNnTF {#1} < {1}
+          {\@ctrerr}
+          {
+            \int_compare:nNnTF {#1} > {\clist_count:N \c__latexbangla_alphabet_clist}
+              {\@ctrerr}
+              {\clist_item:Nn \c__latexbangla_alphabet_clist {#1}}
+          }
+      }
+  }
+
+% Polyglossia replaces \thefootnote on language activation even when the class
+% chose Roman or symbolic marks. Its decimal formatter already localizes the
+% ordinary \arabic-based definition, so that replacement is unnecessary here.
+% Hook the specific upstream activation command, not begin-document: an author
+% can change footnote formatting in a later hook or switch languages afterward.
+% These two hooks are the isolated dependency on Polyglossia's implementation.
+% Save immediately before activation and undo only its known footnote rewrite.
+\exp_args:Ne \AddToHook{cmd/\g__latexbangla_language_tl @globalnumbers/before}[latexbangla/footnotes]
+  {\cs_set_eq:NN \__latexbangla_original_footnote: \thefootnote}
+% Match Polyglossia's LaTeX definition, including the older format's \long flag.
+\newcommand\__latexbangla_upstream_footnote:{\localnumeral*{footnote}}
+
+\exp_args:Ne \AddToHook{cmd/\g__latexbangla_language_tl @globalnumbers/after}[latexbangla/numbering]
+  {
+    \bool_if:NT \g__latexbangla_convert_counters_bool
+      {
+        \cs_if_eq:NNT \thefootnote \__latexbangla_upstream_footnote:
+          {\cs_set_eq:NN \thefootnote \__latexbangla_original_footnote:}
+        % The tested upstream formatter accepts digits, not a leading minus.
+        % Reuse the signed wrapper around its converter, only if the upstream
+        % formatter is still installed. Explicit author formatters take priority.
+        \exp_args:NNc \cs_if_eq:NNT \@arabic {\g__latexbangla_language_tl number}
+          {\cs_set_eq:NN \@arabic \__latexbangla_format_integer:n}
+      }
+  }
+
+\AddToHook{begindocument/end}[latexbangla/alphabet]
+  {
+    \bool_if:NT \g__latexbangla_convert_counters_bool
+      {
+        \cs_set_eq:NN \@alph \__latexbangla_format_alphabetic:n
+        \cs_set_eq:NN \@Alph \__latexbangla_format_alphabetic:n
+      }
+  }
+
+% Retained explicit converters always request Bengali digits, including when
+% automatic counter conversion is disabled. Let Polyglossia supply the mapping.
+% Counter values are signed TeX integers. Split off their sign because the
+% upstream digit-only converter is not a general text filter.
+\cs_new:Npn \__latexbangla_format_integer:n #1
+  {
+    \int_compare:nNnTF {#1} < {0}
+      {-\exp_args:Ne \bengalidigits {\int_abs:n {#1}}}
+      {\exp_args:Ne \bengalidigits {\int_eval:n {#1}}}
+  }
+\NewExpandableDocumentCommand \numtobangla {m}
+  {\bengalidigits{#1}}
+\NewExpandableDocumentCommand \tobangla {m}
+  {\__latexbangla_format_integer:n {\value{#1}}}
+
+\endinput

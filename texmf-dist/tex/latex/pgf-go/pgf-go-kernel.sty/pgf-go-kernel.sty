@@ -1,0 +1,476 @@
+\ProvidesFile{pgf-go-kernel.sty}[2026/10/23 v0.2026.10.23 pgf-go: compute kernel interface]
+\ExplSyntaxOn
+
+%INTERFAZ ENTRE EL CALCULO Y EL DIBUJO.
+%EL DIBUJO (goban, stones, marks) Y LAS CLAVES SOLO USAN LAS FUNCIONES \pgfgo_kernel_... Y LAS
+%VARIABLES DECLARADAS ACA. UN KERNEL ES UN MODULO pgf-go-kernel-<nombre>.sty QUE DEFINE TODAS LAS
+%FUNCIONES DE \c__pgfgo_kernel_interface_clist. SE ELIGE CON \usepackage[kernel = <nombre>]{pgf-go}.
+%POR DEFECTO SE USA lua CON LuaLaTeX Y expl3 CON LOS DEMAS MOTORES. kernel = lua NECESITA LuaLaTeX.
+%
+%EL TAMANO Y LA VENTANA DEL TABLERO SON LOCALES (RESPETAN LOS GRUPOS DE TEX, COMO LAS OPCIONES DE goban).
+%LA JUGADA, EL TURNO, LA SECUENCIA DE MARCAS Y LA MEMORIA SON GLOBALES.
+%
+%TABLERO
+%	\pgfgo_kernel_board_size:n {9 | 9x13}
+%		FIJA \l_pgfgo_goban_size_x_int Y \l_pgfgo_goban_size_y_int. ERROR unknown-goban-key SI NO ES UN TAMANO.
+%	\pgfgo_kernel_board_window:n {A1 to E5}
+%		GUARDA LA VENTANA PEDIDA CON partial (TODAVIA SIN RECORTAR). USA \l_pgfgo_use_i_bool.
+%	\pgfgo_kernel_board_init:
+%		FIJA \l_pgfgo_goban_from_x_int, ..._from_y_int, ..._to_x_int Y ..._to_y_int: LA PARTE VISIBLE.
+%		ES TODO EL TABLERO, O LA VENTANA RECORTADA AL TABLERO SI \l_pgfgo_goban_partial_bool.
+%	\pgfgo_kernel_if_visible:nnTF {x}{y}
+%		VERDADERO SI (x,y) ESTA EN LA PARTE VISIBLE. SI ESTA FUERA DEL TABLERO AVISA (outside-board).
+%		CON \l_pgfgo_goban_partial_auto_bool, ANTES SUMA EL PUNTO A LO DIBUJADO (\pgfgo_kernel_extent_add:nn).
+%	\pgfgo_kernel_column_name:n {x}							EXPANDIBLE
+%		LETRA DE LA COLUMNA x. SIN use i SE SALTEA LA I.
+%	\pgfgo_kernel_hoshi:
+%		DEJA EN \l_pgfgo_kernel_points_seq LOS PUNTOS DE ESTRELLA DEL TABLERO, {x}{y}, FILA POR FILA DESDE
+%		ABAJO. EN CADA EJE (DE 7 LINEAS O MAS) LA LINEA 4 DESDE EL BORDE (LA 3 SI EL EJE TIENE MENOS DE 13) Y,
+%		SI EL EJE ES IMPAR, LA DEL MEDIO. SE DIBUJAN LAS CUATRO ESQUINAS; EL CENTRO SI LOS DOS EJES SON
+%		IMPARES; Y EL MEDIO DE LOS LADOS SI ADEMAS LOS DOS TIENEN 15 LINEAS O MAS.
+%
+%COORDENADAS
+%	\pgfgo_kernel_points:n {<coordenadas>}
+%		DEJA EN \l_pgfgo_kernel_points_seq LAS INTERSECCIONES {x}{y}, SIN REPETIR, EN EL ORDEN EN QUE APARECEN.
+%		LAS <coordenadas> SE EXPANDEN CON e.
+%		ACEPTA TODA LA SINTAXIS DE \stones (RANGOS, OPERADORES, CORCHETES, ; PARA RESTAR). AVISA CON
+%		unknown-coordinate. \l_pgfgo_kernel_points_ordered_bool ES VERDADERO SI TODO LO QUE SUMA TIENE UN
+%		ORDEN FIJO (NO LO TIENEN LOS RECTANGULOS, r, LAS COLUMNAS Y FILAS ENTERAS NI *).
+%	\pgfgo_kernel_moves:n {<coordenadas>}
+%		COMO \pgfgo_kernel_points:n, PERO SIN ; Y CON REPETICIONES: LAS JUGADAS DE \moves, EN ORDEN.
+%	\pgfgo_kernel_point:nTF {<coordenada>}
+%		VERDADERO SI ES UNA SOLA INTERSECCION COMO C3; ENTONCES \l_pgfgo_kernel_point_tl ES {x}{y}.
+%	\pgfgo_kernel_polygon:n {{x}{y},{x}{y},...}
+%		DEJA EN \l_pgfgo_kernel_points_seq LAS INTERSECCIONES DEL TABLERO DENTRO DEL POLIGONO CERRADO DE ESOS
+%		VERTICES O SOBRE SU BORDE, {x}{y}, FILA POR FILA DESDE ABAJO (Y CADA FILA DE IZQUIERDA A DERECHA).
+%	\pgfgo_kernel_region:n {{x}{y},{x}{y},...}
+%		RECIBE LOS PUNTOS DE TERRITORIO DE UN COLOR Y DEJA EN \l_pgfgo_kernel_region_seq LOS CONTORNOS DE LA
+%		REGION QUE PINTAN: CADA CASILLA [x,x+1]x[y,y+1] DEL TABLERO CON ALGUNA ESQUINA EN ESOS PUNTOS. CADA
+%		CONTORNO ES UNA clist DE VERTICES {x}{y} (SIN REPETIR EL PRIMERO), SOLO LOS DE LOS PUNTOS DONDE EL BORDE
+%		GIRA. EN UN CONTACTO POR UNA SOLA ESQUINA EL BORDE GIRA A LA IZQUIERDA (SEPARA LAS ZONAS). CADA CONTORNO
+%		EMPIEZA EN SU VERTICE MAS BAJO Y, ENTRE ESOS, EL DE MAS A LA IZQUIERDA: UN EXTERIOR SIGUE HACIA EL ESTE
+%		(SENTIDO ANTIHORARIO) Y UN HUECO HACIA EL NORTE (HORARIO). VAN ORDENADOS POR ESE PRIMER VERTICE, FILA
+%		POR FILA DESDE ABAJO.
+%
+%JUGADAS
+%	\pgfgo_kernel_move_reset:							JUGADA 1, JUEGAN LAS NEGRAS.
+%	\pgfgo_kernel_move_set_number:n {n}
+%	\pgfgo_kernel_move_set_player:n {black | white}
+%	\pgfgo_kernel_move_number:							EXPANDIBLE. NUMERO DE LA PROXIMA JUGADA.
+%	\pgfgo_kernel_move_if_black:TF							EXPANDIBLE. LA PROXIMA JUGADA ES DE LAS NEGRAS.
+%	\pgfgo_kernel_move_play:nn {x}{y}
+%		JUEGA LA PROXIMA JUGADA EN (x,y): AVANZA EL NUMERO Y CAMBIA EL TURNO.
+%
+%SECUENCIAS DE MARCAS
+%	\pgfgo_kernel_sequence_reset:n {n}
+%	\pgfgo_kernel_sequence_number:							EXPANDIBLE. NUMERO DE LA PROXIMA MARCA.
+%	\pgfgo_kernel_sequence_step:
+%
+%MEMORIA (name, resume Y \pgfgoview)
+%	HAY UNA MEMORIA POR NOMBRE: LA DE UN goban CON name, Y LAS COPIAS QUE HACE resume.
+%	\pgfgo_kernel_remember_push:nn {<nombre>} {<codigo>}
+%		AGREGA <codigo> A ESA MEMORIA. SE EXPANDE CON e (USAR \exp_not:n PARA LAS OPCIONES DEL USUARIO).
+%	\pgfgo_kernel_remember_clear:n {<nombre>}
+%	\pgfgo_kernel_remember_replay:n {<nombre>}				EJECUTA EL CODIGO GUARDADO, EN ORDEN.
+%	\pgfgo_kernel_remember_append:nn {<nombre>} {<otro>}
+%		AGREGA A LA MEMORIA <nombre> UNA COPIA DE LO QUE TIENE LA MEMORIA <otro>.
+%	\pgfgo_kernel_remember_get:nN {<nombre>} <tl>
+%		DEJA EN <tl> (LOCAL) TODO EL CODIGO DE ESA MEMORIA, EN ORDEN (VACIO SI NO EXISTE).
+%
+%CAPACIDADES
+%	EL KERNEL GUARDA EN \g_pgfgo_kernel_features_clist LO QUE SABE HACER ADEMAS DE LO ANTERIOR
+%	(captures, sgf). LAS CAPTURAS Y SGF SOLO LOS DA EL KERNEL lua. \pgfgo_kernel_if_feature:nTF Y
+%	\pgfgo_kernel_require:n LO CONSULTAN. UN KERNEL QUE DECLARA UNA CAPACIDAD DEFINE TODAS SUS FUNCIONES.
+%
+%captures: EL KERNEL LLEVA LAS PIEDRAS QUE HAY EN EL TABLERO.
+%	\pgfgo_kernel_board_clear:							TABLERO VACIO.
+%	\pgfgo_kernel_board_put:nnn {black | white | empty}{x}{y}
+%		PONE UNA PIEDRA SIN CAPTURAR NADA (\stones), O LA QUITA CON empty. FUERA DEL TABLERO NO HACE NADA.
+%	\pgfgo_kernel_board_if_occupied:nnTF {x}{y}
+%		VERDADERO SI HAY UNA PIEDRA EN (x,y).
+%	\pgfgo_kernel_board_save:n {<nombre>}
+%		GUARDA CON ESE NOMBRE UNA COPIA DEL TABLERO, LOS PRISIONEROS, EL NUMERO Y EL TURNO.
+%	\pgfgo_kernel_board_restore:n {<nombre>}
+%		VUELVE A LO GUARDADO CON ESE NOMBRE (LA COPIA SIGUE GUARDADA). UN NOMBRE SIN COPIA NO CAMBIA NADA.
+%	\pgfgo_kernel_prisoners:n {black | white}					EXPANDIBLE
+%		PRISIONEROS DEL JUGADOR DESDE \pgfgo_kernel_board_clear:: LAS PIEDRAS DEL OTRO COLOR QUE QUITARON LAS
+%		JUGADAS (NO CUENTAN LAS QUE QUITA board_put CON empty).
+%	\pgfgo_kernel_move_play:nn {x}{y}
+%		ADEMAS PONE LA PIEDRA DEL TURNO Y SACA LOS GRUPOS SIN LIBERTADES (PRIMERO LOS DEL RIVAL; DESPUES
+%		EL PROPIO, SI ES UN SUICIDIO). DEJA EN \l_pgfgo_kernel_captured_seq LAS PIEDRAS QUE SACO, {x}{y}.
+%		SIN LA CAPACIDAD captures, \l_pgfgo_kernel_captured_seq QUEDA VACIA.
+%
+%territory: TERRITORIO.
+%	\pgfgo_kernel_territory:n {{x}{y}{black | white | neutral}...}
+%		RECIBE LAS PIEDRAS VIVAS Y DEJA EN \l_pgfgo_kernel_territory_seq CADA PUNTO SIN PIEDRA VIVA DEL TABLERO,
+%		{x}{y}{black | white | neutral}: EL COLOR QUE RODEA SU REGION (neutral SI LA TOCAN LOS DOS O NINGUNO).
+%		FILA POR FILA DESDE ABAJO.
+%
+%sgf: LECTURA DE PARTIDAS. SE LEE LA PARTIDA \l_pgfgo_kernel_sgf_game_int DEL ARCHIVO (1 ES LA PRIMERA; SI NO
+%EXISTE, AVISO sgf-game Y SE LEE LA PRIMERA). UN ARCHIVO QUE NO ES UTF-8 SE LEE EN LA CODIFICACION
+%\l_pgfgo_kernel_sgf_charset_tl O, SI ES auto, EN LA DE CA (Latin-1 SI NO HAY): Latin-1, GBK (Y GB2312),
+%Big5, Shift_JIS, EUC-JP O EUC-KR. OTRA CODIFICACION DA EL AVISO sgf-charset Y SE LEE COMO Latin-1. SIN CA,
+%UN ARCHIVO QUE PARECE DE DOS BYTES DA EL AVISO sgf-guess-charset. UTF-16 CON BOM SE PASA A UTF-8.
+%	\pgfgo_kernel_sgf_define:nn {<nombre>}{<archivo>}
+%		DESDE AHORA, <nombre> EN EL LUGAR DE UN ARCHIVO (EN TODAS LAS FUNCIONES DE ABAJO) ES <archivo>.
+%	\pgfgo_kernel_sgf_read:nn {<archivo>}{<variante>}
+%		LEE UNA LINEA DE LA PARTIDA. <variante> ES UNA LISTA DE NUMEROS (2.1): EN CADA
+%		BIFURCACION SE TOMA ESA VARIANTE (1 ES LA PRINCIPAL). O ES LA LISTA DE LAS JUGADAS DE LA LINEA
+%		DESDE LA PRIMERA, SEPARADAS POR COMAS O ESPACIOS (R16, P17, pass; USA \l_pgfgo_use_i_bool): EN CADA
+%		BIFURCACION SE TOMA LA VARIANTE QUE JUEGA LA SIGUIENTE. CUANDO SE TERMINA, SE SIGUE POR LA PRIMERA.
+%		AVISO sgf-variation SI PIDE UNA VARIANTE (O UNA JUGADA) QUE NO EXISTE. \pgfgo_kernel_sgf_read:n LEE LA PRINCIPAL. DEJA:
+%		\l_pgfgo_kernel_sgf_size_x_int, \l_pgfgo_kernel_sgf_size_y_int	TAMANO (SZ; 19 SI NO ESTA).
+%		\l_pgfgo_kernel_sgf_black_seq, \l_pgfgo_kernel_sgf_white_seq		PIEDRAS INICIALES (AB, AW), {x}{y}.
+%		\l_pgfgo_kernel_sgf_moves_seq		JUGADAS, {black | white}{x}{y} (UN PASE TIENE x VACIO, E y VACIO O end SI ESTA ENTRE LOS QUE TERMINAN LA LINEA), Y
+%			ENTRE ELLAS LOS CAMBIOS DE LOS NODOS SIGUIENTES (AB, AW, AE): {add-black | add-white | remove}{x}{y},
+%			{number}{n}{} ANTES DE UNA JUGADA CON MN (SU NUMERO ES n) Y {player}{black | white}{} DONDE ESTA PL.
+%		\l_pgfgo_kernel_sgf_view_tl		LA VISTA (VW) DE LOS NODOS ANTERIORES A LA PRIMERA JUGADA, COMO
+%			{x1}{y1}{x2}{y2} (EL RECTANGULO QUE LA CONTIENE). VACIA SI NO HAY.
+%		\l_pgfgo_kernel_sgf_figures_seq		DONDE EMPIEZA CADA FIGURA (FG), {jugada}{i}: i ES EL NUMERO DEL
+%			TEXTO DE SU NOMBRE (\pgfgo_kernel_sgf_name:n), O 0 SI NO TIENE.
+%		\l_pgfgo_kernel_sgf_print_int		COMO SE NUMERAN LAS JUGADAS AL IMPRIMIR (PM): 0 SIN NUMEROS, 1 COMO
+%			ESTAN, 2 REINICIADAS CADA 100. 1 SI NO ESTA.
+%		\l_pgfgo_kernel_sgf_komi_tl		EL komi (KM), COMO NUMERO. 0 SI NO ESTA.
+%		LAS COORDENADAS YA ESTAN EN EL SISTEMA DE pgf-go (LA FILA 1 ES LA DE ABAJO).
+%		ERROR sgf-not-found SI NO ENCUENTRA EL ARCHIVO.
+%	\pgfgo_kernel_sgf_comment:nn {k}{<true | false>}		EXPANDIBLE
+%		COMENTARIO (C) DE LA JUGADA k DE LA ULTIMA PARTIDA LEIDA, COMO TEXTO (CATCODES 12 Y ESPACIOS). CON
+%		false, SIN EL CHAT DE KGS Y OGS.
+%		k = 0 ES EL DE LOS NODOS ANTERIORES A LA PRIMERA JUGADA. VACIO SI NO HAY.
+%	\pgfgo_kernel_sgf_marks:n {k}
+%		DEJA EN \l_pgfgo_kernel_sgf_marks_seq LAS MARCAS (TR, SQ, CR, MA, SL, LB, DD) Y EL TERRITORIO (TB, TW)
+%		DE LA JUGADA k, COMO {<forma>}{x}{y}{black | white | neutral}{i}. LA FORMA ES triangle, square, circle,
+%		cross, selected, label, dim, black-territory O white-territory. EL COLOR ES EL DE LA PIEDRA QUE HAY
+%		AHI EN ESE MOMENTO; i, PARA label, EL NUMERO DE SU TEXTO. LOS PUNTOS ATENUADOS (dim) VAN PRIMERO, Y
+%		SE HEREDAN: SON LOS DEL ULTIMO DD HASTA LA JUGADA k.
+%	\pgfgo_kernel_sgf_annotations:n {k}
+%		DEJA EN \l_pgfgo_kernel_sgf_annotations_seq LAS ANOTACIONES DE LA JUGADA k, EN ORDEN, COMO
+%		{propiedad}{valor}: {N}{i} (EL NOMBRE DEL NODO ES EL TEXTO i), O {GB | GW | DM | UC | TE | BM | DO | IT}
+%		{1 | 2} (2: ENFATIZADO).
+%	\pgfgo_kernel_sgf_name:n {i}								EXPANDIBLE
+%		TEXTO DEL NOMBRE i (N), COMO TEXTO.
+%	\pgfgo_kernel_sgf_variations:nn {k}{children | siblings | auto}
+%		DEJA EN \l_pgfgo_kernel_sgf_variations_seq LAS VARIANTES DE LA JUGADA k COMO {x}{y}{color}{letra}:
+%		children, LAS JUGADAS QUE PUEDEN SEGUIR; siblings, LAS ALTERNATIVAS A LA JUGADA k; auto, LO QUE DICE
+%		ST (NADA SI ST PIDE QUE NO SE MARQUEN). SOLO SI HAY MAS DE UNA. LOS PASES NO SE MARCAN.
+%	\pgfgo_kernel_sgf_lines:n {k}
+%		DEJA EN \l_pgfgo_kernel_sgf_lines_seq LAS FLECHAS (AR) Y LINEAS (LN) DE LA JUGADA k, COMO
+%		{arrow | line}{x1}{y1}{x2}{y2}.
+%	\pgfgo_kernel_sgf_label:n {i}							EXPANDIBLE
+%		TEXTO DE LA ETIQUETA i (LB), COMO TEXTO.
+%	\pgfgo_kernel_sgf_glyphs:n {<texto>}
+%		AVISO sgf-glyphs SI LA FUENTE ACTUAL NO TIENE ALGUN CARACTER CJK DEL TEXTO (UNA VEZ POR FUENTE).
+%	\pgfgo_kernel_sgf_info:nn {<archivo>}{<propiedad>}		EXPANDIBLE
+%		ESCRIBE UNA PROPIEDAD DE LA RAIZ (PB, PW, RE, KM, DT, ...), COMO TEXTO.
+%	\pgfgo_kernel_sgf_move_info:nnnn {<archivo>}{<variante>}{k}{<propiedad>}	EXPANDIBLE
+%		ESCRIBE UNA PROPIEDAD DE LA JUGADA k DE ESA LINEA (DE SU NODO Y DE LOS NODOS SIN JUGADA QUE LO
+%		SIGUEN; k = 0: LOS ANTERIORES A LA PRIMERA JUGADA), COMO TEXTO. VARIOS VALORES, CON COMAS.
+%	\pgfgo_kernel_sgf_view:nn {k1}{k2}
+%		DEJA EN \l_pgfgo_kernel_sgf_view_tl LA VISTA QUE ABARCA LAS DE LAS JUGADAS k1 A k2 DE LA ULTIMA PARTIDA
+%		LEIDA: UN VW VALE DESDE LA JUGADA DE SU NODO (O LA SIGUIENTE, SI EL NODO NO TIENE JUGADA) HASTA EL
+%		PROXIMO VW. VACIA SI EN ALGUNA DE ESAS JUGADAS SE VE TODO EL TABLERO. LA JUGADA 0 TIENE LA VISTA DE LA 1.
+%	\pgfgo_kernel_sgf_tree:n {<archivo>}
+%		RECORRE TODO EL ARBOL DE LA PARTIDA. DEJA:
+%		\l_pgfgo_kernel_sgf_paths_seq		TODAS LAS LINEAS, EN ORDEN, COMO <variante> PARA
+%			\pgfgo_kernel_sgf_read:nn (VACIA PARA UNA PARTIDA SIN BIFURCACIONES).
+%		\l_pgfgo_kernel_sgf_extent_tl		EL RECTANGULO QUE CONTIENE TODAS LAS PIEDRAS, JUGADAS, MARCAS, FLECHAS
+%			Y LINEAS DEL ARBOL, {x1}{y1}{x2}{y2}. VACIO SI NO HAY NINGUNA.
+%	\pgfgo_kernel_sgf_extent:nn {<archivo>}{<variante>; <variante>; ...}
+%		DEJA EN \l_pgfgo_kernel_sgf_extent_tl EL RECTANGULO QUE CONTIENE LAS PIEDRAS Y LAS JUGADAS (SIN LAS
+%		MARCAS, FLECHAS NI LINEAS) DE ESAS LINEAS (<variante> COMO PARA \pgfgo_kernel_sgf_read:nn; VACIA ES
+%		LA PRINCIPAL). VACIO SI NO HAY NINGUNA.
+%	\pgfgo_kernel_sgf_path:nn {<archivo>}{<variante>}
+%		DEJA EN \l_pgfgo_kernel_sgf_path_tl LA <variante> COMO NUMEROS, SIN LOS 1 DEL FINAL (COMO EN
+%		\l_pgfgo_kernel_sgf_branches_seq). SI NO EXISTE, QUEDA COMO ESTA.
+%	\pgfgo_kernel_sgf_branches:nn {<archivo>}{<variante>}
+%		DEJA EN \l_pgfgo_kernel_sgf_branches_seq LAS LINEAS QUE SE APARTAN DE LA LINEA <variante> (COMO PARA
+%		\pgfgo_kernel_sgf_read:nn; VACIA ES LA PRINCIPAL), EN ORDEN, COMO
+%		{<variante>}{<profundidad>}{<nace>}{<empieza>}{<ultima>}{<comentada>}: <variante> COMO PARA
+%		\pgfgo_kernel_sgf_read:nn (SIN LOS 1 DEL FINAL); <profundidad>, CUANTAS VECES SE APARTA; <nace>, LA
+%		JUGADA DE ESA LINEA QUE REEMPLAZA; <empieza>, SU PRIMERA JUGADA PROPIA; <ultima>, SU CANTIDAD DE
+%		JUGADAS; <comentada>, 1 SI ALGUNA DE SUS JUGADAS PROPIAS TIENE COMENTARIO (C) Y SI NO 0.
+
+
+\clist_const:Nn \c__pgfgo_kernel_interface_clist {
+	pgfgo_kernel_board_size:n,
+	pgfgo_kernel_board_window:n,
+	pgfgo_kernel_board_init:,
+	pgfgo_kernel_if_visible:nnT,
+	pgfgo_kernel_if_visible:nnF,
+	pgfgo_kernel_if_visible:nnTF,
+	pgfgo_kernel_column_name:n,
+	pgfgo_kernel_hoshi:,
+	pgfgo_kernel_points:n,
+	pgfgo_kernel_moves:n,
+	pgfgo_kernel_point:nTF,
+	pgfgo_kernel_polygon:n,
+	pgfgo_kernel_region:n,
+	pgfgo_kernel_move_reset:,
+	pgfgo_kernel_move_set_number:n,
+	pgfgo_kernel_move_set_player:n,
+	pgfgo_kernel_move_number:,
+	pgfgo_kernel_move_if_black_p:,
+	pgfgo_kernel_move_if_black:T,
+	pgfgo_kernel_move_if_black:F,
+	pgfgo_kernel_move_if_black:TF,
+	pgfgo_kernel_move_play:nn,
+	pgfgo_kernel_sequence_reset:n,
+	pgfgo_kernel_sequence_number:,
+	pgfgo_kernel_sequence_step:,
+	pgfgo_kernel_remember_push:nn,
+	pgfgo_kernel_remember_clear:n,
+	pgfgo_kernel_remember_replay:n,
+	pgfgo_kernel_remember_append:nn,
+	pgfgo_kernel_remember_get:nN
+}
+
+%FUNCIONES DE CADA CAPACIDAD.
+\clist_const:Nn \c__pgfgo_kernel_captures_clist {
+	pgfgo_kernel_board_clear:,
+	pgfgo_kernel_board_put:nnn,
+	pgfgo_kernel_board_if_occupied:nnT,
+	pgfgo_kernel_board_if_occupied:nnF,
+	pgfgo_kernel_board_if_occupied:nnTF,
+	pgfgo_kernel_board_save:n,
+	pgfgo_kernel_board_restore:n,
+	pgfgo_kernel_prisoners:n
+}
+\clist_const:Nn \c__pgfgo_kernel_territory_clist {
+	pgfgo_kernel_territory:n
+}
+\clist_const:Nn \c__pgfgo_kernel_sgf_clist {
+	pgfgo_kernel_sgf_define:nn,
+	pgfgo_kernel_sgf_read:n,
+	pgfgo_kernel_sgf_read:nn,
+	pgfgo_kernel_sgf_comment:nn,
+	pgfgo_kernel_sgf_marks:n,
+	pgfgo_kernel_sgf_lines:n,
+	pgfgo_kernel_sgf_variations:nn,
+	pgfgo_kernel_sgf_annotations:n,
+	pgfgo_kernel_sgf_name:n,
+	pgfgo_kernel_sgf_label:n,
+	pgfgo_kernel_sgf_glyphs:n,
+	pgfgo_kernel_sgf_info:nn,
+	pgfgo_kernel_sgf_move_info:nnnn,
+	pgfgo_kernel_sgf_path:nn,
+	pgfgo_kernel_sgf_view:nn,
+	pgfgo_kernel_sgf_tree:n,
+	pgfgo_kernel_sgf_extent:nn,
+	pgfgo_kernel_sgf_branches:nn
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%ENTRADAS (LAS FIJAN LAS CLAVES)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\bool_new:N \l_pgfgo_use_i_bool
+\bool_new:N \l_pgfgo_goban_partial_bool
+%partial = auto: MIENTRAS SE DIBUJA SE VE TODO EL TABLERO (\l_pgfgo_goban_partial_bool ES FALSO).
+\bool_new:N \l_pgfgo_goban_partial_auto_bool
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%SALIDAS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%TAMANO COMPLETO DEL TABLERO.
+\int_new:N \l_pgfgo_goban_size_x_int
+\int_new:N \l_pgfgo_goban_size_y_int
+
+%PARTE VISIBLE DEL TABLERO.
+\int_new:N \l_pgfgo_goban_from_x_int
+\int_new:N \l_pgfgo_goban_from_y_int
+\int_new:N \l_pgfgo_goban_to_x_int
+\int_new:N \l_pgfgo_goban_to_y_int
+
+\seq_new:N \l_pgfgo_kernel_points_seq
+\bool_new:N \l_pgfgo_kernel_points_ordered_bool
+\tl_new:N \l_pgfgo_kernel_point_tl
+\seq_new:N \l_pgfgo_kernel_region_seq
+
+\seq_new:N \l_pgfgo_kernel_captured_seq
+\seq_new:N \l_pgfgo_kernel_territory_seq
+
+\int_new:N \l_pgfgo_kernel_sgf_size_x_int
+\int_new:N \l_pgfgo_kernel_sgf_size_y_int
+\seq_new:N \l_pgfgo_kernel_sgf_black_seq
+\seq_new:N \l_pgfgo_kernel_sgf_white_seq
+\seq_new:N \l_pgfgo_kernel_sgf_moves_seq
+\seq_new:N \l_pgfgo_kernel_sgf_marks_seq
+\seq_new:N \l_pgfgo_kernel_sgf_lines_seq
+\seq_new:N \l_pgfgo_kernel_sgf_annotations_seq
+
+\clist_new:N \g_pgfgo_kernel_features_clist
+
+%sgf: LA PARTIDA DEL ARCHIVO QUE SE LEE (ENTRADA) Y LO QUE SE LEE (SALIDAS).
+\int_new:N \l_pgfgo_kernel_sgf_game_int
+\int_set:Nn \l_pgfgo_kernel_sgf_game_int {1}
+\tl_new:N \l_pgfgo_kernel_sgf_charset_tl
+\tl_set:Nn \l_pgfgo_kernel_sgf_charset_tl {auto}
+\tl_new:N \l_pgfgo_kernel_sgf_view_tl
+\seq_new:N \l_pgfgo_kernel_sgf_figures_seq
+\seq_new:N \l_pgfgo_kernel_sgf_variations_seq
+\int_new:N \l_pgfgo_kernel_sgf_print_int
+\tl_new:N \l_pgfgo_kernel_sgf_komi_tl
+\seq_new:N \l_pgfgo_kernel_sgf_paths_seq
+\tl_new:N \l_pgfgo_kernel_sgf_path_tl
+\tl_new:N \l_pgfgo_kernel_sgf_extent_tl
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%MENSAJES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\msg_new:nnn {pgfgo} {unknown-goban-key}
+	{Unknown~goban~key~or~size~'#1'.~Use~a~size~like~'9'~or~'9x13'.}
+\msg_new:nnn {pgfgo} {unknown-coordinate}
+	{Coordinate~'#1'~was~not~recognized~and~is~ignored.~Columns~are~upper-case~letters~(for~example~'C3').}
+\msg_new:nnn {pgfgo} {unordered-coordinate}
+	{'#1'~has~no~fixed~order~(rectangles,~r,~whole~columns~or~rows,~*):~its~points~go~in~the~order~in~
+	which~pgf-go~reads~them.}
+\msg_new:nnn {pgfgo} {outside-board}
+	{Point~(#1,#2)~is~outside~the~board~and~is~ignored.}
+
+\msg_new:nnn {pgfgo} {kernel-engine}
+	{kernel~=~#1~needs~LuaLaTeX.~Using~kernel~=~expl3.}
+\msg_new:nnn {pgfgo} {kernel-missing}
+	{kernel~=~#1~is~not~available~(pgf-go-kernel-#1.sty~was~not~found).~Using~kernel~=~expl3.}
+\msg_new:nnn {pgfgo} {kernel-incomplete}
+	{kernel~=~#1~does~not~define~'#2'.}
+\msg_new:nnn {pgfgo} {kernel-feature}
+	{'#1'~needs~kernel~=~lua~(the~current~kernel~is~'#2').}
+\msg_new:nnn {pgfgo} {sgf-not-found}
+	{SGF~file~'#1'~was~not~found.}
+\msg_new:nnn {pgfgo} {sgf-game}
+	{'#1'~has~no~game~#2.~The~first~game~is~used.}
+\msg_new:nnn {pgfgo} {sgf-charset}
+	{'#1'~uses~the~charset~'#2',~which~is~not~supported~(UTF-8,~Latin-1,~GBK,~Big5,~Shift_JIS,~
+		EUC-JP~and~EUC-KR~are).~It~is~read~as~Latin-1.~Convert~the~file~to~UTF-8.}
+\msg_new:nnn {pgfgo} {sgf-guess-charset}
+	{'#1'~is~not~UTF-8~and~does~not~say~its~charset~(CA),~so~it~is~read~as~Latin-1,~but~it~looks~like~
+		GBK,~Big5,~Shift_JIS~or~EUC-KR.~Set~it~with~\iow_char:N\\pgfgoset{sgf~charset~=~...}.}
+\msg_new:nnn {pgfgo} {sgf-variation}
+	{'#1'~has~no~variation~'#2'.~The~first~variation~is~used~from~there.}
+
+\cs_generate_variant:Nn \msg_warning:nnn {nnV}
+\cs_generate_variant:Nn \msg_error:nnnn {nnnV, nnVe}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%LO DIBUJADO (partial = auto). IGUAL EN TODOS LOS KERNELS.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%	\pgfgo_kernel_extent_clear:
+%		EMPIEZA SIN NADA DIBUJADO.
+%	\pgfgo_kernel_extent_add:nn {x}{y}
+%		SUMA EL PUNTO (SI ESTA EN EL TABLERO) AL RECTANGULO DE LO DIBUJADO.
+%	\pgfgo_kernel_extent_window:n {margen}
+%		FIJA LA PARTE VISIBLE (Y \l_pgfgo_goban_partial_bool): EL RECTANGULO DE LO DIBUJADO, margen LINEAS MAS
+%		GRANDE. UN LADO QUE QUEDA A DOS LINEAS O MENOS DEL BORDE LLEGA HASTA EL. SIN NADA DIBUJADO, TODO EL
+%		TABLERO. EL RECTANGULO ES GLOBAL: LO SUMAN LAS PIEDRAS Y MARCAS DE ADENTRO DE LOS GRUPOS.
+\int_new:N \g__pgfgo_kernel_extent_from_x_int
+\int_new:N \g__pgfgo_kernel_extent_from_y_int
+\int_new:N \g__pgfgo_kernel_extent_to_x_int
+\int_new:N \g__pgfgo_kernel_extent_to_y_int
+\bool_new:N \g__pgfgo_kernel_extent_bool
+
+\cs_new_protected:Npn \pgfgo_kernel_extent_clear: {
+	\bool_gset_false:N \g__pgfgo_kernel_extent_bool
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_extent_add:nn #1#2 {
+	\bool_lazy_and:nnT
+		{\int_compare_p:n {1 <= #1 <= \l_pgfgo_goban_size_x_int}}
+		{\int_compare_p:n {1 <= #2 <= \l_pgfgo_goban_size_y_int}}
+		{
+			\bool_if:NTF \g__pgfgo_kernel_extent_bool
+				{
+					\int_gset:Nn \g__pgfgo_kernel_extent_from_x_int {\int_min:nn {\g__pgfgo_kernel_extent_from_x_int} {#1}}
+					\int_gset:Nn \g__pgfgo_kernel_extent_from_y_int {\int_min:nn {\g__pgfgo_kernel_extent_from_y_int} {#2}}
+					\int_gset:Nn \g__pgfgo_kernel_extent_to_x_int {\int_max:nn {\g__pgfgo_kernel_extent_to_x_int} {#1}}
+					\int_gset:Nn \g__pgfgo_kernel_extent_to_y_int {\int_max:nn {\g__pgfgo_kernel_extent_to_y_int} {#2}}
+				}
+				{
+					\bool_gset_true:N \g__pgfgo_kernel_extent_bool
+					\int_gset:Nn \g__pgfgo_kernel_extent_from_x_int {#1}
+					\int_gset:Nn \g__pgfgo_kernel_extent_from_y_int {#2}
+					\int_gset:Nn \g__pgfgo_kernel_extent_to_x_int {#1}
+					\int_gset:Nn \g__pgfgo_kernel_extent_to_y_int {#2}
+				}
+		}
+}
+
+\cs_new:Npn \__pgfgo_kernel_extent_low:nn #1#2 {
+	\int_compare:nNnTF {#1 - #2} > {3} {#1 - #2} {1}
+}
+\cs_new:Npn \__pgfgo_kernel_extent_high:nnn #1#2#3 {
+	\int_compare:nNnTF {#1 + #2} < {#3 - 2} {#1 + #2} {#3}
+}
+\cs_new_protected:Npn \pgfgo_kernel_extent_window:n #1 {
+	\bool_set_true:N \l_pgfgo_goban_partial_bool
+	\bool_if:NTF \g__pgfgo_kernel_extent_bool
+		{
+			\int_set:Nn \l_pgfgo_goban_from_x_int {\__pgfgo_kernel_extent_low:nn {\g__pgfgo_kernel_extent_from_x_int} {#1}}
+			\int_set:Nn \l_pgfgo_goban_from_y_int {\__pgfgo_kernel_extent_low:nn {\g__pgfgo_kernel_extent_from_y_int} {#1}}
+			\int_set:Nn \l_pgfgo_goban_to_x_int
+				{\__pgfgo_kernel_extent_high:nnn {\g__pgfgo_kernel_extent_to_x_int} {#1} {\l_pgfgo_goban_size_x_int}}
+			\int_set:Nn \l_pgfgo_goban_to_y_int
+				{\__pgfgo_kernel_extent_high:nnn {\g__pgfgo_kernel_extent_to_y_int} {#1} {\l_pgfgo_goban_size_y_int}}
+		}
+		{
+			\int_set:Nn \l_pgfgo_goban_from_x_int {1}
+			\int_set:Nn \l_pgfgo_goban_from_y_int {1}
+			\int_set_eq:NN \l_pgfgo_goban_to_x_int \l_pgfgo_goban_size_x_int
+			\int_set_eq:NN \l_pgfgo_goban_to_y_int \l_pgfgo_goban_size_y_int
+		}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%CAPACIDADES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_if_feature:n #1 {T, F, TF} {
+	\clist_if_in:NnTF \g_pgfgo_kernel_features_clist {#1} {\prg_return_true:} {\prg_return_false:}
+}
+
+%ERROR SI EL KERNEL ACTUAL NO SABE HACER #1.
+\cs_new_protected:Npn \pgfgo_kernel_require:n #1 {
+	\pgfgo_kernel_if_feature:nF {#1}
+		{\msg_error:nnnV {pgfgo} {kernel-feature} {#1} \g_pgfgo_kernel_tl}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%CARGA DEL KERNEL
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%\g_pgfgo_kernel_tl LO FIJA LA OPCION kernel DE pgf-go.sty. SI EL KERNEL PEDIDO NO SE PUEDE USAR, SE USA expl3.
+\str_if_eq:VnT \g_pgfgo_kernel_tl {lua} {
+	\sys_if_engine_luatex:F {
+		\msg_warning:nnV {pgfgo} {kernel-engine} \g_pgfgo_kernel_tl
+		\tl_gset:Nn \g_pgfgo_kernel_tl {expl3}
+	}
+}
+
+\__pgfgo_module_if_exist:nF {pgf-go-kernel- \g_pgfgo_kernel_tl} {
+	\msg_warning:nnV {pgfgo} {kernel-missing} \g_pgfgo_kernel_tl
+	\tl_gset:Nn \g_pgfgo_kernel_tl {expl3}
+}
+
+\__pgfgo_load_module:e {pgf-go-kernel- \g_pgfgo_kernel_tl}
+
+\cs_new_protected:Npn \__pgfgo_kernel_check:N #1 {
+	\clist_map_inline:Nn #1 {
+		\cs_if_exist:cF {##1}
+			{\msg_error:nnVe {pgfgo} {kernel-incomplete} \g_pgfgo_kernel_tl {\c_backslash_str ##1}}
+	}
+}
+\cs_generate_variant:Nn \__pgfgo_kernel_check:N {c}
+\__pgfgo_kernel_check:N \c__pgfgo_kernel_interface_clist
+\clist_map_inline:Nn \g_pgfgo_kernel_features_clist {
+	\__pgfgo_kernel_check:c {c__pgfgo_kernel_ #1 _clist}
+}
+
+\ExplSyntaxOff

@@ -1,0 +1,232 @@
+\ProvidesFile{pgf-go-store.sty}[2026/10/23 v0.2026.10.23 pgf-go: named gobans as text]
+%LOS goban CON NOMBRE COMO TEXTO: EN EL .aux (PARA UNA VISTA ANTES DEL goban) Y EN ARCHIVOS (export Y
+%\pgfgoimport, PARA USARLOS EN OTRO DOCUMENTO).
+\ExplSyntaxOn
+
+%UN REGISTRO ES UNA LINEA
+%	\ExplSyntaxOn \pgfgo_store_record:nnnnnnn {<version>}{<nombre>}{<tamano>}{<capturas>}{<opciones>}{<estilo>}{<memoria>} \ExplSyntaxOff
+%<estilo> ES EL CODIGO DE \pgfgo_style_save:N Y <memoria> EL DE LA MEMORIA DEL goban (pgf-go-remember.sty).
+\int_const:Nn \c__pgfgo_store_version_int {2}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------TEXTO--------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%LA MEMORIA #1 EN #2, CON EL CODIGO DE CADA resume ADENTRO (\pgfgo_remember_resume_code:NNNn): EL TEXTO NO
+%PUEDE NOMBRAR OTRAS MEMORIAS, QUE EN OTRA COMPILACION NO EXISTEN.
+\regex_const:Nn \c__pgfgo_store_resume_regex {
+	\c{pgfgo_remember_resume:NNNn} (\c{c_[a-z]+_bool}) (\c{c_[a-z]+_bool}) (\c{c_[a-z]+_bool})
+	\cB. ((?:\c[^BE].)*) \cE.
+}
+\seq_new:N \l__pgfgo_store_match_seq
+\str_new:N \l__pgfgo_store_memory_str
+\tl_new:N \l__pgfgo_store_inner_tl
+\cs_new_protected:Npn \__pgfgo_store_memory:nN #1#2 {
+	\pgfgo_kernel_remember_get:nN {#1} #2
+	\__pgfgo_store_inline:N #2
+}
+\cs_new_protected:Npn \__pgfgo_store_inline:N #1 {
+	\regex_extract_once:NVNT \c__pgfgo_store_resume_regex #1 \l__pgfgo_store_match_seq {
+		\str_set:Ne \l__pgfgo_store_memory_str {\seq_item:Nn \l__pgfgo_store_match_seq {5}}
+		\pgfgo_kernel_remember_get:VN \l__pgfgo_store_memory_str \l__pgfgo_store_inner_tl
+		\regex_replace_once:NnN \c__pgfgo_store_resume_regex
+			{\c{pgfgo_remember_resume_code:NNNn} \1 \2 \3 \cB\{ \u{l__pgfgo_store_inner_tl} \cE\}} #1
+		\__pgfgo_store_inline:N #1
+	}
+}
+\prg_generate_conditional_variant:Nnn \regex_extract_once:NnN {NV} {T}
+\cs_generate_variant:Nn \pgfgo_kernel_remember_get:nN {VN}
+
+%EL REGISTRO SE LEE CON LOS CATCODES DE expl3, QUE NO TIENEN ESPACIOS: CADA ESPACIO SE ESCRIBE ~ (QUE EN
+%expl3 ES UN ESPACIO). TAMPOCO TIENEN ~ ACTIVO NI _ DE SUBINDICE, Y % CORTARIA LA LINEA.
+\cs_new_protected:Npn \__pgfgo_store_escape:N #1 {
+	\regex_replace_all:nnN {\cS.} {\cO\~} #1
+	\regex_replace_all:nnN {\cA\~} {\c{nobreakspace}} #1
+	\regex_replace_all:nnN {\cD.} {\c{sb}} #1
+	\regex_replace_all:nnN {\cO\%} {\c{c_percent_str}} #1
+}
+
+%EL REGISTRO DEL goban #1, YA COMO TEXTO: {<nombre>}{<tamano>}{<capturas>}{<opciones>}{<estilo>}{<memoria>}.
+\tl_new:N \l__pgfgo_store_record_tl
+\tl_new:N \l__pgfgo_store_memory_tl
+\cs_new_protected:Npn \__pgfgo_store_record:n #1 {
+	\pgfgo_goban_name_get:nN {#1} \l__pgfgo_store_record_tl
+	\__pgfgo_store_memory:nN {#1} \l__pgfgo_store_memory_tl
+	\tl_set:Ne \l__pgfgo_store_record_tl
+		{{\exp_not:n {#1}} \exp_not:V \l__pgfgo_store_record_tl {\exp_not:V \l__pgfgo_store_memory_tl}}
+	\__pgfgo_store_escape:N \l__pgfgo_store_record_tl
+}
+
+\cs_new_protected:Npn \__pgfgo_store_write:N #1 {
+	\iow_now:Ne #1 {
+		\exp_not:N \ExplSyntaxOn
+		\exp_not:N \pgfgo_store_record:nnnnnnn {\int_use:N \c__pgfgo_store_version_int}
+			\exp_not:V \l__pgfgo_store_record_tl
+		\exp_not:N \ExplSyntaxOff
+	}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------LECTURA------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%DESDE EL .aux (aux) O DESDE \pgfgoimport (import).
+\str_new:N \l__pgfgo_store_mode_str
+\str_set:Nn \l__pgfgo_store_mode_str {aux}
+\tl_new:N \l__pgfgo_store_import_name_tl
+\msg_new:nnn {pgfgo} {store-version}
+	{The~goban~'#1'~was~written~by~another~version~of~pgf-go:~it~is~not~used.}
+\cs_new_protected:Npn \pgfgo_store_record:nnnnnnn #1#2#3#4#5#6#7 {
+	\int_compare:nNnTF {#1} = {\c__pgfgo_store_version_int} {
+		\str_case:Vn \l__pgfgo_store_mode_str {
+			{aux} {
+				%EL .aux SE LEE AL EMPEZAR EL DOCUMENTO Y AL TERMINAR: SOLO VALE LA PRIMERA LECTURA. SI UN NOMBRE
+				%SE USA DOS VECES, VALE EL PRIMER goban.
+				\bool_if:NT \g__pgfgo_store_aux_bool {
+					\prop_if_in:NnF \g__pgfgo_store_aux_prop {#2}
+						{\prop_gput:Nnn \g__pgfgo_store_aux_prop {#2} {{#2}{#3}{#4}{#5}{#6}{#7}}}
+				}
+			}
+			{import} {
+				\tl_if_empty:NT \l__pgfgo_store_import_name_tl {\tl_set:Nn \l__pgfgo_store_import_name_tl {#2}}
+				\pgfgo_goban_name_set:Vnnnnn \l__pgfgo_store_import_name_tl {#3} {#4} {#5} {#6} {#7}
+			}
+		}
+	}{
+		\msg_warning:nnn {pgfgo} {store-version} {#2}
+	}
+}
+\cs_generate_variant:Nn \pgfgo_goban_name_set:nnnnnn {V}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------EL .aux-----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%LOS goban QUE TRAE EL .aux, Y LOS QUE UNA VISTA USO ANTES DE QUE APARECIERAN (CON EL REGISTRO QUE USO,
+%O VACIO SI NO HABIA). SOLO ESTOS VAN AL .aux.
+\prop_new:N \g__pgfgo_store_aux_prop
+\prop_new:N \g__pgfgo_store_early_prop
+\prop_new:N \g__pgfgo_store_loaded_prop
+\bool_new:N \g__pgfgo_store_aux_bool
+\bool_new:N \g__pgfgo_store_rerun_bool
+\bool_new:N \g__pgfgo_store_aux_header_bool
+\hook_gput_code:nnn {begindocument/before} {pgfgo} {\bool_gset_true:N \g__pgfgo_store_aux_bool}
+\hook_gput_code:nnn {begindocument} {pgfgo} {\bool_gset_false:N \g__pgfgo_store_aux_bool}
+\msg_new:nnn {pgfgo} {store-rerun} {Views~of~gobans~that~come~later~may~have~changed.~Compile~again.}
+\hook_gput_code:nnn {enddocument/afterlastpage} {pgfgo}
+	{\bool_if:NT \g__pgfgo_store_rerun_bool {\msg_warning:nn {pgfgo} {store-rerun}}}
+
+%PARA \pgfgoview: EL goban #1 DEL .aux, CON SU MEMORIA EN pgfgo/aux/#1.
+\tl_new:N \l__pgfgo_store_aux_tl
+\prg_new_protected_conditional:Npnn \pgfgo_store_find:n #1 {TF} {
+	\prop_get:NnNTF \g__pgfgo_store_aux_prop {#1} \l__pgfgo_store_aux_tl {
+		\prop_if_in:NnF \g__pgfgo_store_early_prop {#1}
+			{\prop_gput:NnV \g__pgfgo_store_early_prop {#1} \l__pgfgo_store_aux_tl}
+		\exp_after:wN \__pgfgo_store_find:nnnnnn \l__pgfgo_store_aux_tl
+		\prg_return_true:
+	}{
+		\prop_if_in:NnF \g__pgfgo_store_early_prop {#1} {\prop_gput:Nnn \g__pgfgo_store_early_prop {#1} {}}
+		\prg_return_false:
+	}
+}
+\cs_new_protected:Npn \__pgfgo_store_find:nnnnnn #1#2#3#4#5#6 {
+	\prop_if_in:NnF \g__pgfgo_store_loaded_prop {#1} {
+		\prop_gput:Nnn \g__pgfgo_store_loaded_prop {#1} {}
+		\pgfgo_kernel_remember_clear:n {pgfgo/aux/#1}
+		\pgfgo_kernel_remember_push:nn {pgfgo/aux/#1} {\exp_not:n {#6}}
+	}
+	\pgfgo_view_set:nnnnn {#4} {#5} {pgfgo/aux/#1} {#2} {#3}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------export-------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%goban/export = <archivo>: AL TERMINAR, EL goban (CON name) QUEDA EN ESE ARCHIVO, PARA \pgfgoimport. SIN
+%EXTENSION, .pgfgo. EN UNA VISTA NO HACE NADA.
+\tl_new:N \l_pgfgo_goban_export_tl
+\keys_define:nn {pgfgo / goban} {
+	export	.code:n	= {\tl_if_empty:NT \l_pgfgo_goban_view_tl {\tl_set:Nn \l_pgfgo_goban_export_tl {#1}}},
+	export	.value_required:n = true,
+}
+
+%EL ARCHIVO #1, CON .pgfgo SI NO TIENE EXTENSION.
+\str_new:N \l__pgfgo_store_file_str
+\cs_new_protected:Npn \__pgfgo_store_file:n #1 {
+	\file_parse_full_name:nNNN {#1} \l_tmpa_str \l_tmpb_str \l__pgfgo_store_file_str
+	\str_if_empty:NTF \l__pgfgo_store_file_str
+		{\str_set:Nn \l__pgfgo_store_file_str {#1.pgfgo}}
+		{\str_set:Nn \l__pgfgo_store_file_str {#1}}
+}
+
+\iow_new:N \g__pgfgo_store_iow
+\msg_new:nnn {pgfgo} {export-name} {export~needs~a~name~(goban/name).}
+\tl_new:N \l__pgfgo_store_early_tl
+
+%AL TERMINAR UN goban: SU NOMBRE ES \l_pgfgo_goban_name_tl (VACIO EN UNA VISTA O SIN name).
+\cs_new_protected:Npn \pgfgo_store_end: {
+	\tl_if_empty:NTF \l_pgfgo_goban_name_tl {
+		\tl_if_empty:NF \l_pgfgo_goban_export_tl {\msg_error:nn {pgfgo} {export-name}}
+	}{
+		\__pgfgo_store_save:V \l_pgfgo_goban_name_tl
+	}
+}
+\cs_new_protected:Npn \__pgfgo_store_save:n #1 {
+	\bool_lazy_or:nnT {\prop_if_in_p:Nn \g__pgfgo_store_early_prop {#1}} {! \tl_if_empty_p:N \l_pgfgo_goban_export_tl} {
+		\__pgfgo_store_record:n {#1}
+		%UNA VISTA LO USO ANTES: AL .aux, Y SI NO ES EL QUE USO, HAY QUE VOLVER A COMPILAR.
+		\prop_get:NnNT \g__pgfgo_store_early_prop {#1} \l__pgfgo_store_early_tl {
+			\prop_gremove:Nn \g__pgfgo_store_early_prop {#1}
+			\__pgfgo_store_escape:N \l__pgfgo_store_early_tl
+			\str_if_eq:eeF {\tl_to_str:N \l__pgfgo_store_early_tl} {\tl_to_str:N \l__pgfgo_store_record_tl}
+				{\bool_gset_true:N \g__pgfgo_store_rerun_bool}
+			\legacy_if:nT {@filesw} {
+				%PARA QUE EL .aux SE PUEDA LEER SIN pgf-go.
+				\bool_if:NF \g__pgfgo_store_aux_header_bool {
+					\bool_gset_true:N \g__pgfgo_store_aux_header_bool
+					\iow_now:Nn \@auxout {
+						\ExplSyntaxOn \cs_if_exist:NF \pgfgo_store_record:nnnnnnn
+							{\cs_new_eq:NN \pgfgo_store_record:nnnnnnn \use_none:nnnnnnn} \ExplSyntaxOff
+					}
+				}
+				\__pgfgo_store_write:N \@auxout
+			}
+		}
+		\tl_if_empty:NF \l_pgfgo_goban_export_tl {
+			\__pgfgo_store_file:V \l_pgfgo_goban_export_tl
+			\iow_open:Nn \g__pgfgo_store_iow {\l__pgfgo_store_file_str}
+			\iow_now:Ne \g__pgfgo_store_iow
+				{\c_percent_str\c_space_tl pgf-go:~\iow_char:N\\pgfgoimport\iow_char:N\{\l__pgfgo_store_file_str\iow_char:N\}}
+			\__pgfgo_store_write:N \g__pgfgo_store_iow
+			\iow_close:N \g__pgfgo_store_iow
+		}
+	}
+}
+\cs_generate_variant:Nn \__pgfgo_store_save:n {V}
+\cs_generate_variant:Nn \__pgfgo_store_file:n {V}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------\pgfgoimport------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%\pgfgoimport[name = <nombre>]{<archivo>}: EL goban DE UN ARCHIVO DE export, COMO SI SE HUBIERA DIBUJADO
+%(PARA \pgfgoview Y resume), CON SU NOMBRE O CON OTRO.
+\keys_define:nn {pgfgo / import} {
+	name	.tl_set:N	= \l__pgfgo_store_import_name_tl,
+}
+\msg_new:nnn {pgfgo} {import-file} {There~is~no~file~'#1'~to~import.}
+\cs_new_protected:Npn \pgfgo_store_import:nn #1#2 {
+	\group_begin:
+		\tl_clear:N \l__pgfgo_store_import_name_tl
+		\keys_set:nn {pgfgo / import} {#1}
+		\str_set:Nn \l__pgfgo_store_mode_str {import}
+		\__pgfgo_store_file:n {#2}
+		\file_if_exist:nTF {\l__pgfgo_store_file_str}
+			{\file_input:n {\l__pgfgo_store_file_str}}
+			{\msg_error:nnV {pgfgo} {import-file} \l__pgfgo_store_file_str}
+	\group_end:
+}
+\cs_generate_variant:Nn \msg_error:nnn {nnV}
+\NewDocumentCommand \pgfgoimport {O{} m} {\pgfgo_store_import:nn {#1} {#2}}
+
+\ExplSyntaxOff

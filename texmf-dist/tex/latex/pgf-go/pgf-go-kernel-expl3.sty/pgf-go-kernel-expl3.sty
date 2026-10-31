@@ -1,0 +1,540 @@
+\ProvidesFile{pgf-go-kernel-expl3.sty}[2026/10/23 v0.2026.10.23 pgf-go: expl3 compute kernel]
+\ExplSyntaxOn
+
+%KERNEL DE CALCULO EN expl3 (EL KERNEL POR DEFECTO FUERA DE LuaLaTeX). LA INTERFAZ ESTA DESCRIPTA EN pgf-go-kernel.sty.
+%NO SABE HACER CAPTURAS NI SGF.
+\clist_gclear:N \g_pgfgo_kernel_features_clist
+
+\__pgfgo_load_module:n {pgf-go-coordinate-parser}
+
+\cs_generate_variant:Nn \int_from_alph:n {e}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------TABLERO------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\seq_new:N \l__pgfgo_kernel_match_seq
+\int_new:N \l__pgfgo_kernel_x_int
+\tl_new:N \l__pgfgo_kernel_y_tl
+\tl_new:N \l__pgfgo_kernel_to_tl
+
+%VENTANA PEDIDA CON partial, ANTES DE RECORTARLA AL TABLERO.
+\int_new:N \l__pgfgo_kernel_window_from_x_int
+\int_new:N \l__pgfgo_kernel_window_from_y_int
+\int_new:N \l__pgfgo_kernel_window_to_x_int
+\int_new:N \l__pgfgo_kernel_window_to_y_int
+
+
+%9 O 9x13.
+\regex_const:Nn \c__pgfgo_kernel_size_regex {\A(\d{1,2})(?:\s*x\s*(\d{1,2}))?\Z}
+\cs_new_protected:Npn \pgfgo_kernel_board_size:n #1 {
+	\regex_extract_once:NnNTF \c__pgfgo_kernel_size_regex {#1} \l__pgfgo_kernel_match_seq {
+		\int_set:Nn \l_pgfgo_goban_size_x_int {\seq_item:Nn \l__pgfgo_kernel_match_seq {2}}
+		\int_set:Nn \l_pgfgo_goban_size_y_int {
+			\seq_item:Nn \l__pgfgo_kernel_match_seq
+				{\tl_if_empty:eTF {\seq_item:Nn \l__pgfgo_kernel_match_seq {3}} {2} {3}}
+		}
+	}{
+		\msg_error:nnn {pgfgo} {unknown-goban-key} {#1}
+	}
+}
+
+
+%COLUMNA Y FILA DE UNA COORDENADA COMO C3. DEJA \l__pgfgo_kernel_x_int Y \l__pgfgo_kernel_y_tl.
+\regex_const:Nn \c__pgfgo_kernel_coordinate_regex {([A-Za-z]*)\s*(\d*)}
+\cs_new_protected:Npn \__pgfgo_kernel_parse_coordinate:n #1 {
+	\regex_extract_once:NnN \c__pgfgo_kernel_coordinate_regex {#1} \l__pgfgo_kernel_match_seq
+	\int_set:Nn \l__pgfgo_kernel_x_int {\int_from_alph:e {\seq_item:Nn \l__pgfgo_kernel_match_seq {2}}}
+
+	\bool_if:NF \l_pgfgo_use_i_bool {
+		\int_compare:nNnT {\l__pgfgo_kernel_x_int} > {9} {
+			\int_decr:N \l__pgfgo_kernel_x_int
+		}
+	}
+
+	\tl_set:Ne \l__pgfgo_kernel_y_tl {\seq_item:Nn \l__pgfgo_kernel_match_seq {3}}
+}
+\cs_generate_variant:Nn \__pgfgo_kernel_parse_coordinate:n {e, V}
+
+
+\regex_const:Nn \c__pgfgo_kernel_window_regex {
+	\A\s*
+	([a-zA-Z]{1}\s*\d{1,2})
+	\s* to \s*
+	([a-zA-Z]{1}\s*\d{1,2})
+	\s*\Z
+}
+\cs_new_protected:Npn \pgfgo_kernel_board_window:n #1 {
+	\regex_extract_once:NnN \c__pgfgo_kernel_window_regex {#1} \l__pgfgo_kernel_match_seq
+
+	\tl_set:Ne \l__pgfgo_kernel_to_tl {\seq_item:Nn \l__pgfgo_kernel_match_seq {3}}
+
+	\__pgfgo_kernel_parse_coordinate:e {\seq_item:Nn \l__pgfgo_kernel_match_seq {2}}
+	\int_set_eq:NN \l__pgfgo_kernel_window_from_x_int \l__pgfgo_kernel_x_int
+	\int_set:Nn \l__pgfgo_kernel_window_from_y_int {\l__pgfgo_kernel_y_tl}
+
+	\__pgfgo_kernel_parse_coordinate:V \l__pgfgo_kernel_to_tl
+	\int_set_eq:NN \l__pgfgo_kernel_window_to_x_int \l__pgfgo_kernel_x_int
+	\int_set:Nn \l__pgfgo_kernel_window_to_y_int {\l__pgfgo_kernel_y_tl}
+}
+
+
+\cs_new_protected:Npn \pgfgo_kernel_board_init: {
+	\bool_if:NTF \l_pgfgo_goban_partial_bool {
+		%LA VENTANA SE RECORTA AL TAMANO DEL TABLERO.
+		\int_set:Nn \l_pgfgo_goban_from_x_int {\int_max:nn {1} {\int_min:nn {\l__pgfgo_kernel_window_from_x_int} {\l__pgfgo_kernel_window_to_x_int}}}
+		\int_set:Nn \l_pgfgo_goban_from_y_int {\int_max:nn {1} {\int_min:nn {\l__pgfgo_kernel_window_from_y_int} {\l__pgfgo_kernel_window_to_y_int}}}
+		\int_set:Nn \l_pgfgo_goban_to_x_int {\int_min:nn {\l_pgfgo_goban_size_x_int} {\int_max:nn {\l__pgfgo_kernel_window_from_x_int} {\l__pgfgo_kernel_window_to_x_int}}}
+		\int_set:Nn \l_pgfgo_goban_to_y_int {\int_min:nn {\l_pgfgo_goban_size_y_int} {\int_max:nn {\l__pgfgo_kernel_window_from_y_int} {\l__pgfgo_kernel_window_to_y_int}}}
+	}{
+		\int_set:Nn \l_pgfgo_goban_from_x_int {1}
+		\int_set:Nn \l_pgfgo_goban_from_y_int {1}
+		\int_set_eq:NN \l_pgfgo_goban_to_x_int \l_pgfgo_goban_size_x_int
+		\int_set_eq:NN \l_pgfgo_goban_to_y_int \l_pgfgo_goban_size_y_int
+	}
+}
+
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_if_visible:nn #1#2 {T, F, TF} {
+	\bool_if:NT \l_pgfgo_goban_partial_auto_bool {\pgfgo_kernel_extent_add:nn {#1} {#2}}
+	\bool_if:nTF {
+		\int_compare_p:n {1 <= #1 <= \l_pgfgo_goban_size_x_int} &&
+		\int_compare_p:n {1 <= #2 <= \l_pgfgo_goban_size_y_int}
+	}{
+		\bool_if:nTF {
+			\int_compare_p:n {\l_pgfgo_goban_from_x_int <= #1 <= \l_pgfgo_goban_to_x_int} &&
+			\int_compare_p:n {\l_pgfgo_goban_from_y_int <= #2 <= \l_pgfgo_goban_to_y_int}
+		} {\prg_return_true:} {\prg_return_false:}
+	}{
+		\msg_warning:nnnn {pgfgo} {outside-board} {#1} {#2}
+		\prg_return_false:
+	}
+}
+
+
+\cs_new:Npn \pgfgo_kernel_column_name:n #1 {
+	\int_to_Alph:n {#1 \bool_if:NF \l_pgfgo_use_i_bool {\int_compare:nNnT {#1} > {8} {+ 1}}}
+}
+
+%PUNTOS DE ESTRELLA. EN CADA EJE: LA LINEA CERCA DEL BORDE Y, SI ES IMPAR, LA DEL MEDIO (0 SI NO HAY).
+\int_new:N \l__pgfgo_kernel_hoshi_near_x_int
+\int_new:N \l__pgfgo_kernel_hoshi_near_y_int
+\int_new:N \l__pgfgo_kernel_hoshi_mid_x_int
+\int_new:N \l__pgfgo_kernel_hoshi_mid_y_int
+\bool_new:N \l__pgfgo_kernel_hoshi_center_bool
+\bool_new:N \l__pgfgo_kernel_hoshi_sides_bool
+\cs_new_protected:Npn \__pgfgo_kernel_hoshi_axis:nNN #1#2#3 {
+	\int_set:Nn #2 {\int_compare:nNnTF {#1} < {13} {3} {4}}
+	\int_set:Nn #3 {\int_if_odd:nTF {#1} {(#1 + 1) / 2} {0}}
+}
+\cs_new_protected:Npn \pgfgo_kernel_hoshi: {
+	\seq_clear:N \l_pgfgo_kernel_points_seq
+	\bool_if:nT {
+		! \int_compare_p:nNn {\l_pgfgo_goban_size_x_int} < {7} &&
+		! \int_compare_p:nNn {\l_pgfgo_goban_size_y_int} < {7}
+	}{
+		\__pgfgo_kernel_hoshi_axis:nNN {\l_pgfgo_goban_size_x_int}
+			\l__pgfgo_kernel_hoshi_near_x_int \l__pgfgo_kernel_hoshi_mid_x_int
+		\__pgfgo_kernel_hoshi_axis:nNN {\l_pgfgo_goban_size_y_int}
+			\l__pgfgo_kernel_hoshi_near_y_int \l__pgfgo_kernel_hoshi_mid_y_int
+		%EL CENTRO SI LOS DOS EJES SON IMPARES; EL MEDIO DE LOS LADOS SI ADEMAS LOS DOS TIENEN 15 LINEAS O MAS.
+		\bool_set:Nn \l__pgfgo_kernel_hoshi_center_bool {
+			\int_compare_p:nNn {\l__pgfgo_kernel_hoshi_mid_x_int} > {0} &&
+			\int_compare_p:nNn {\l__pgfgo_kernel_hoshi_mid_y_int} > {0}
+		}
+		\bool_set:Nn \l__pgfgo_kernel_hoshi_sides_bool {
+			\l__pgfgo_kernel_hoshi_center_bool &&
+			! \int_compare_p:nNn {\l_pgfgo_goban_size_x_int} < {15} &&
+			! \int_compare_p:nNn {\l_pgfgo_goban_size_y_int} < {15}
+		}
+		%FILA POR FILA DESDE ABAJO: LA FILA CERCANA (ESQUINAS), LA DEL MEDIO (LADOS Y CENTRO) Y LA LEJANA.
+		\__pgfgo_kernel_hoshi_row:nNN {\l__pgfgo_kernel_hoshi_near_y_int}
+			\c_true_bool \l__pgfgo_kernel_hoshi_sides_bool
+		\int_compare:nNnT {\l__pgfgo_kernel_hoshi_mid_y_int} > {0} {
+			\__pgfgo_kernel_hoshi_row:nNN {\l__pgfgo_kernel_hoshi_mid_y_int}
+				\l__pgfgo_kernel_hoshi_sides_bool \l__pgfgo_kernel_hoshi_center_bool
+		}
+		\__pgfgo_kernel_hoshi_row:nNN {\l_pgfgo_goban_size_y_int - \l__pgfgo_kernel_hoshi_near_y_int + 1}
+			\c_true_bool \l__pgfgo_kernel_hoshi_sides_bool
+	}
+}
+%UNA FILA DE PUNTOS DE ESTRELLA: LAS COLUMNAS CERCA DEL BORDE SI #2 Y LA DEL MEDIO SI #3.
+\cs_new_protected:Npn \__pgfgo_kernel_hoshi_row:nNN #1#2#3 {
+	\bool_if:NT #2 {\__pgfgo_kernel_hoshi_put:nn {\l__pgfgo_kernel_hoshi_near_x_int} {#1}}
+	\bool_if:NT #3 {\__pgfgo_kernel_hoshi_put:nn {\l__pgfgo_kernel_hoshi_mid_x_int} {#1}}
+	\bool_if:NT #2
+		{\__pgfgo_kernel_hoshi_put:nn {\l_pgfgo_goban_size_x_int - \l__pgfgo_kernel_hoshi_near_x_int + 1} {#1}}
+}
+\cs_new_protected:Npn \__pgfgo_kernel_hoshi_put:nn #1#2 {
+	\seq_put_right:Ne \l_pgfgo_kernel_points_seq {{\int_eval:n {#1}}{\int_eval:n {#2}}}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%--------------------------------------COORDENADAS----------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%LAS COORDENADAS SE EXPANDEN ANTES (COMO EN EL KERNEL lua).
+\cs_new_protected:Npn \pgfgo_kernel_points:n #1 {
+	\__pgfgo_coordinate_points:eNN {#1} \l_pgfgo_kernel_points_seq \l_pgfgo_kernel_points_ordered_bool
+}
+\cs_new_protected:Npn \pgfgo_kernel_moves:n #1 {
+	\__pgfgo_coordinate_moves:eNN {#1} \l_pgfgo_kernel_points_seq \l_pgfgo_kernel_points_ordered_bool
+}
+\cs_generate_variant:Nn \__pgfgo_coordinate_points:nNN {eNN}
+\cs_generate_variant:Nn \__pgfgo_coordinate_moves:nNN {eNN}
+
+
+\prg_new_protected_conditional:Npnn \pgfgo_kernel_point:n #1 {TF} {
+	\regex_extract_once:NnNTF \c__pgfgo_coordinate_LN_regex {#1} \l__pgfgo_kernel_match_seq {
+		\tl_set:Ne \l_pgfgo_kernel_point_tl {
+			{\__pgfgo_coordinate_column:e {\seq_item:Nn \l__pgfgo_kernel_match_seq {2}}}
+			{\seq_item:Nn \l__pgfgo_kernel_match_seq {3}}
+		}
+		\prg_return_true:
+	}{
+		\prg_return_false:
+	}
+}
+
+
+%PUNTOS DE UN POLIGONO. UN PUNTO ESTA ADENTRO SI ESTA SOBRE UNA ARISTA O SI UN RAYO HACIA LA DERECHA CRUZA
+%UNA CANTIDAD IMPAR DE ARISTAS. TODO CON ENTEROS. LAS ARISTAS QUEDAN EN \l__pgfgo_kernel_edges_seq COMO
+%{ax}{ay}{bx}{by}; EN CADA FILA SE ARMA EN \l__pgfgo_kernel_row_tl LA PRUEBA DE SUS PUNTOS CON LAS ARISTAS QUE
+%LA TOCAN.
+\seq_new:N \l__pgfgo_kernel_vertices_seq
+\tl_new:N \l__pgfgo_kernel_previous_tl
+\seq_new:N \l__pgfgo_kernel_edges_seq
+\tl_new:N \l__pgfgo_kernel_row_tl
+\bool_new:N \l__pgfgo_kernel_inside_bool
+\bool_new:N \l__pgfgo_kernel_border_bool
+\int_new:N \l__pgfgo_kernel_min_x_int
+\int_new:N \l__pgfgo_kernel_max_x_int
+\int_new:N \l__pgfgo_kernel_min_y_int
+\int_new:N \l__pgfgo_kernel_max_y_int
+\int_new:N \l__pgfgo_kernel_dy_int
+\int_new:N \l__pgfgo_kernel_n_int
+
+\cs_new_protected:Npn \pgfgo_kernel_polygon:n #1 {
+	\seq_clear:N \l_pgfgo_kernel_points_seq
+	\seq_set_from_clist:Nn \l__pgfgo_kernel_vertices_seq {#1}
+	\seq_if_empty:NF \l__pgfgo_kernel_vertices_seq {
+		\seq_clear:N \l__pgfgo_kernel_edges_seq
+		\int_set:Nn \l__pgfgo_kernel_min_x_int {\c_max_int}
+		\int_set:Nn \l__pgfgo_kernel_max_x_int {-\c_max_int}
+		\int_set:Nn \l__pgfgo_kernel_min_y_int {\c_max_int}
+		\int_set:Nn \l__pgfgo_kernel_max_y_int {-\c_max_int}
+		\seq_get_right:NN \l__pgfgo_kernel_vertices_seq \l__pgfgo_kernel_previous_tl
+		\seq_map_inline:Nn \l__pgfgo_kernel_vertices_seq {
+			\__pgfgo_kernel_polygon_edge:nnN ##1 \l__pgfgo_kernel_previous_tl
+			\tl_set:Nn \l__pgfgo_kernel_previous_tl {##1}
+		}
+		\int_step_inline:nnn
+			{\int_max:nn {1} {\l__pgfgo_kernel_min_y_int}}
+			{\int_min:nn {\l_pgfgo_goban_size_y_int} {\l__pgfgo_kernel_max_y_int}}
+			{
+				\tl_clear:N \l__pgfgo_kernel_row_tl
+				\seq_map_inline:Nn \l__pgfgo_kernel_edges_seq {\__pgfgo_kernel_polygon_row:nnnnn {##1} ####1}
+				\int_step_inline:nnn
+					{\int_max:nn {1} {\l__pgfgo_kernel_min_x_int}}
+					{\int_min:nn {\l_pgfgo_goban_size_x_int} {\l__pgfgo_kernel_max_x_int}}
+					{\__pgfgo_kernel_polygon_point:nn {####1} {##1}}
+			}
+	}
+}
+
+%LA ARISTA QUE VA DEL VERTICE ANTERIOR (#3, {x}{y}) A (#1,#2).
+\cs_new_protected:Npn \__pgfgo_kernel_polygon_edge:nnN #1#2#3 {
+	\int_set:Nn \l__pgfgo_kernel_min_x_int {\int_min:nn {\l__pgfgo_kernel_min_x_int} {#1}}
+	\int_set:Nn \l__pgfgo_kernel_max_x_int {\int_max:nn {\l__pgfgo_kernel_max_x_int} {#1}}
+	\int_set:Nn \l__pgfgo_kernel_min_y_int {\int_min:nn {\l__pgfgo_kernel_min_y_int} {#2}}
+	\int_set:Nn \l__pgfgo_kernel_max_y_int {\int_max:nn {\l__pgfgo_kernel_max_y_int} {#2}}
+	\seq_put_right:Ne \l__pgfgo_kernel_edges_seq {\exp_not:V #3 {#1}{#2}}
+}
+
+%LA PRUEBA DE LA ARISTA (#2,#3)-(#4,#5) EN LA FILA #1. SI LA ARISTA ES HORIZONTAL Y ESTA EN LA FILA, ES BORDE
+%ENTRE SUS DOS EXTREMOS. SI NO, Y LA FILA ESTA ENTRE SUS EXTREMOS, LA CORTA EN x = N / dy (CON dy > 0): EL
+%PUNTO ESTA SOBRE LA ARISTA SI x dy = N, Y LA ARISTA CRUZA SU RAYO SI x dy < N Y UN EXTREMO ESTA ARRIBA DE LA
+%FILA Y EL OTRO NO.
+\cs_new_protected:Npn \__pgfgo_kernel_polygon_row:nnnnn #1#2#3#4#5 {
+	\int_compare:nNnTF {#3} = {#5} {
+		\int_compare:nNnT {#1} = {#3} {
+			\tl_put_right:Ne \l__pgfgo_kernel_row_tl {
+				\exp_not:N \__pgfgo_kernel_polygon_span:nn {\int_min:nn {#2} {#4}} {\int_max:nn {#2} {#4}}
+			}
+		}
+	}{
+		\int_compare:nT {\int_min:nn {#3} {#5} <= #1 <= \int_max:nn {#3} {#5}} {
+			\int_set:Nn \l__pgfgo_kernel_dy_int {#5 - #3}
+			\int_set:Nn \l__pgfgo_kernel_n_int {(#1 - #3) * (#4 - #2) + #2 * (#5 - #3)}
+			\int_compare:nNnT {\l__pgfgo_kernel_dy_int} < {0} {
+				\int_set:Nn \l__pgfgo_kernel_dy_int {- \l__pgfgo_kernel_dy_int}
+				\int_set:Nn \l__pgfgo_kernel_n_int {- \l__pgfgo_kernel_n_int}
+			}
+			\tl_put_right:Ne \l__pgfgo_kernel_row_tl {
+				\exp_not:N \__pgfgo_kernel_polygon_cut:nnN
+					{\int_use:N \l__pgfgo_kernel_n_int} {\int_use:N \l__pgfgo_kernel_dy_int}
+					\int_compare:nTF {#1 < \int_max:nn {#3} {#5}} {\exp_not:N \c_true_bool} {\exp_not:N \c_false_bool}
+			}
+		}
+	}
+}
+\cs_new_protected:Npn \__pgfgo_kernel_polygon_point:nn #1#2 {
+	\bool_set_false:N \l__pgfgo_kernel_inside_bool
+	\bool_set_false:N \l__pgfgo_kernel_border_bool
+	\cs_set:Npn \__pgfgo_kernel_polygon_x: {#1}
+	\l__pgfgo_kernel_row_tl
+	\bool_if:nT {\l__pgfgo_kernel_inside_bool || \l__pgfgo_kernel_border_bool}
+		{\seq_put_right:Nn \l_pgfgo_kernel_points_seq {{#1}{#2}}}
+}
+\cs_new:Npn \__pgfgo_kernel_polygon_x: {}
+\cs_new_protected:Npn \__pgfgo_kernel_polygon_span:nn #1#2 {
+	\int_compare:nT {#1 <= \__pgfgo_kernel_polygon_x: <= #2}
+		{\bool_set_true:N \l__pgfgo_kernel_border_bool}
+}
+\cs_new_protected:Npn \__pgfgo_kernel_polygon_cut:nnN #1#2#3 {
+	\int_compare:nNnTF {\__pgfgo_kernel_polygon_x: * #2} = {#1}
+		{\bool_set_true:N \l__pgfgo_kernel_border_bool}
+		{
+			\bool_if:NT #3 {
+				\int_compare:nNnT {\__pgfgo_kernel_polygon_x: * #2} < {#1}
+					{\bool_set_inverse:N \l__pgfgo_kernel_inside_bool}
+			}
+		}
+}
+
+
+%REGION. EL METODO ESTA EXPLICADO EN pgfgo.region (pgf-go.lua); LOS DOS KERNELS DAN LO MISMO. SE CALCULA EN
+%UN GRUPO, CON UN NOMBRE POR PUNTO QUE NO HACE FALTA BORRAR: \__pgfgo_kernel_region_own_x_y: MARCA LOS PUNTOS
+%RECIBIDOS, \__pgfgo_kernel_region_cell_x_y: LAS CASILLAS PINTADAS (POR SU ESQUINA DE ABAJO A LA IZQUIERDA) Y
+%\__pgfgo_kernel_region_out_x_y: SUMA LAS DIRECCIONES DE LOS LADOS QUE SALEN DEL VERTICE (x,y) Y TODAVIA NO SE
+%RECORRIERON. LA DIRECCION d (0 ESTE, 1 NORTE, 2 OESTE, 3 SUR) VALE 2^d.
+\seq_new:N \g__pgfgo_kernel_region_seq
+\int_new:N \l__pgfgo_kernel_region_x_int
+\int_new:N \l__pgfgo_kernel_region_y_int
+\int_new:N \l__pgfgo_kernel_region_d_int
+\int_new:N \l__pgfgo_kernel_region_last_int
+\bool_new:N \l__pgfgo_kernel_region_found_bool
+\tl_new:N \l__pgfgo_kernel_region_tl
+
+\cs_new_protected:Npn \pgfgo_kernel_region:n #1 {
+	\group_begin:
+		\seq_clear:N \l_pgfgo_kernel_region_seq
+		\clist_map_inline:nn {#1} {\__pgfgo_kernel_region_own:nn ##1}
+		\int_step_inline:nn {\l_pgfgo_goban_size_y_int - 1} {
+			\int_step_inline:nn {\l_pgfgo_goban_size_x_int - 1} {\__pgfgo_kernel_region_cell:nn {####1} {##1}}
+		}
+		\int_step_inline:nn {\l_pgfgo_goban_size_y_int - 1} {
+			\int_step_inline:nn {\l_pgfgo_goban_size_x_int - 1} {\__pgfgo_kernel_region_sides:nn {####1} {##1}}
+		}
+		\int_step_inline:nn {\l_pgfgo_goban_size_y_int} {
+			\int_step_inline:nn {\l_pgfgo_goban_size_x_int} {\__pgfgo_kernel_region_start:nn {####1} {##1}}
+		}
+		\seq_gset_eq:NN \g__pgfgo_kernel_region_seq \l_pgfgo_kernel_region_seq
+	\group_end:
+	\seq_set_eq:NN \l_pgfgo_kernel_region_seq \g__pgfgo_kernel_region_seq
+}
+
+\cs_new_protected:Npn \__pgfgo_kernel_region_own:nn #1#2 {
+	\cs_set_eq:cN {__pgfgo_kernel_region_own_ \int_eval:n {#1} _ \int_eval:n {#2} :} \prg_do_nothing:
+}
+\cs_new:Npn \__pgfgo_kernel_region_if_own_p:nn #1#2 {
+	\cs_if_exist_p:c {__pgfgo_kernel_region_own_ \int_eval:n {#1} _ \int_eval:n {#2} :}
+}
+\cs_new:Npn \__pgfgo_kernel_region_if_painted_p:nn #1#2 {
+	\cs_if_exist_p:c {__pgfgo_kernel_region_cell_ \int_eval:n {#1} _ \int_eval:n {#2} :}
+}
+%LOS LADOS QUE SALEN DEL VERTICE (#1,#2) Y FALTA RECORRER.
+\cs_new:Npn \__pgfgo_kernel_region_out:nn #1#2 {
+	\cs_if_exist_use:cF {__pgfgo_kernel_region_out_ \int_eval:n {#1} _ \int_eval:n {#2} :} {0}
+}
+\cs_new:Npn \__pgfgo_kernel_region_bit:n #1 {\int_case:nn {#1} {{0} {1} {1} {2} {2} {4} {3} {8}}}
+%VERDADERO SI DEL VERTICE (#1,#2) SALE UN LADO HACIA #3 QUE FALTA RECORRER.
+\cs_new:Npn \__pgfgo_kernel_region_if_out_p:nnn #1#2#3 {
+	\int_if_odd_p:n {\int_div_truncate:nn {\__pgfgo_kernel_region_out:nn {#1} {#2}} {\__pgfgo_kernel_region_bit:n {#3}}}
+}
+
+\cs_new_protected:Npn \__pgfgo_kernel_region_cell:nn #1#2 {
+	\bool_lazy_any:nT {
+		{\__pgfgo_kernel_region_if_own_p:nn {#1} {#2}}
+		{\__pgfgo_kernel_region_if_own_p:nn {#1 + 1} {#2}}
+		{\__pgfgo_kernel_region_if_own_p:nn {#1} {#2 + 1}}
+		{\__pgfgo_kernel_region_if_own_p:nn {#1 + 1} {#2 + 1}}
+	} {\cs_set_eq:cN {__pgfgo_kernel_region_cell_ #1 _ #2 :} \prg_do_nothing:}
+}
+
+%LOS LADOS DE LA CASILLA (#1,#2), EN SENTIDO ANTIHORARIO, QUE NO TIENEN OTRA CASILLA PINTADA DEL OTRO LADO.
+\cs_new_protected:Npn \__pgfgo_kernel_region_sides:nn #1#2 {
+	\cs_if_exist:cT {__pgfgo_kernel_region_cell_ #1 _ #2 :} {
+		\bool_if:nF {\__pgfgo_kernel_region_if_painted_p:nn {#1} {#2 - 1}}
+			{\__pgfgo_kernel_region_add:nnn {#1} {#2} {1}}
+		\bool_if:nF {\__pgfgo_kernel_region_if_painted_p:nn {#1 + 1} {#2}}
+			{\__pgfgo_kernel_region_add:nnn {#1 + 1} {#2} {2}}
+		\bool_if:nF {\__pgfgo_kernel_region_if_painted_p:nn {#1} {#2 + 1}}
+			{\__pgfgo_kernel_region_add:nnn {#1 + 1} {#2 + 1} {4}}
+		\bool_if:nF {\__pgfgo_kernel_region_if_painted_p:nn {#1 - 1} {#2}}
+			{\__pgfgo_kernel_region_add:nnn {#1} {#2 + 1} {8}}
+	}
+}
+%SUMA #3 A LOS LADOS QUE SALEN DEL VERTICE (#1,#2).
+\cs_new_protected:Npn \__pgfgo_kernel_region_add:nnn #1#2#3 {
+	\cs_set:cpe {__pgfgo_kernel_region_out_ \int_eval:n {#1} _ \int_eval:n {#2} :}
+		{\int_eval:n {\__pgfgo_kernel_region_out:nn {#1} {#2} + #3}}
+}
+
+%LOS CONTORNOS QUE EMPIEZAN EN EL VERTICE (#1,#2). CADA UNO EMPIEZA POR EL LADO DE MENOR DIRECCION.
+\cs_new_protected:Npn \__pgfgo_kernel_region_start:nn #1#2 {
+	\int_compare:nNnF {\__pgfgo_kernel_region_out:nn {#1} {#2}} = {0} {
+		\int_zero:N \l__pgfgo_kernel_region_d_int
+		\bool_until_do:nn {\__pgfgo_kernel_region_if_out_p:nnn {#1} {#2} {\l__pgfgo_kernel_region_d_int}}
+			{\int_incr:N \l__pgfgo_kernel_region_d_int}
+		\int_set:Nn \l__pgfgo_kernel_region_x_int {#1}
+		\int_set:Nn \l__pgfgo_kernel_region_y_int {#2}
+		\__pgfgo_kernel_region_remove:
+		\tl_set:Nn \l__pgfgo_kernel_region_tl {{#1}{#2}}
+		\__pgfgo_kernel_region_move:
+		\bool_until_do:nn {
+			\int_compare_p:nNn {\l__pgfgo_kernel_region_x_int} = {#1} &&
+			\int_compare_p:nNn {\l__pgfgo_kernel_region_y_int} = {#2}
+		}{
+			\int_set_eq:NN \l__pgfgo_kernel_region_last_int \l__pgfgo_kernel_region_d_int
+			\bool_set_false:N \l__pgfgo_kernel_region_found_bool
+			\__pgfgo_kernel_region_take:n {\int_mod:nn {\l__pgfgo_kernel_region_last_int + 1} {4}}
+			\__pgfgo_kernel_region_take:n {\l__pgfgo_kernel_region_last_int}
+			\__pgfgo_kernel_region_take:n {\int_mod:nn {\l__pgfgo_kernel_region_last_int + 3} {4}}
+			\int_compare:nNnF {\l__pgfgo_kernel_region_d_int} = {\l__pgfgo_kernel_region_last_int} {
+				\tl_put_right:Ne \l__pgfgo_kernel_region_tl
+					{,{\int_use:N \l__pgfgo_kernel_region_x_int}{\int_use:N \l__pgfgo_kernel_region_y_int}}
+			}
+			\__pgfgo_kernel_region_move:
+		}
+		\seq_put_right:NV \l_pgfgo_kernel_region_seq \l__pgfgo_kernel_region_tl
+		\__pgfgo_kernel_region_start:nn {#1} {#2}
+	}
+}
+
+%SI DEL VERTICE ACTUAL SALE UN LADO HACIA #1 (Y TODAVIA NO SE ELIGIO OTRO), LO TOMA.
+\cs_new_protected:Npn \__pgfgo_kernel_region_take:n #1 {
+	\bool_if:NF \l__pgfgo_kernel_region_found_bool {
+		\bool_if:nT {
+			\__pgfgo_kernel_region_if_out_p:nnn
+				{\l__pgfgo_kernel_region_x_int} {\l__pgfgo_kernel_region_y_int} {#1}
+		}{
+			\bool_set_true:N \l__pgfgo_kernel_region_found_bool
+			\int_set:Nn \l__pgfgo_kernel_region_d_int {#1}
+			\__pgfgo_kernel_region_remove:
+		}
+	}
+}
+
+%QUITA EL LADO QUE SALE DEL VERTICE ACTUAL HACIA \l__pgfgo_kernel_region_d_int.
+\cs_new_protected:Npn \__pgfgo_kernel_region_remove: {
+	\__pgfgo_kernel_region_add:nnn {\l__pgfgo_kernel_region_x_int} {\l__pgfgo_kernel_region_y_int}
+		{- \__pgfgo_kernel_region_bit:n {\l__pgfgo_kernel_region_d_int}}
+}
+
+\cs_new_protected:Npn \__pgfgo_kernel_region_move: {
+	\int_case:nn {\l__pgfgo_kernel_region_d_int} {
+		{0} {\int_incr:N \l__pgfgo_kernel_region_x_int}
+		{1} {\int_incr:N \l__pgfgo_kernel_region_y_int}
+		{2} {\int_decr:N \l__pgfgo_kernel_region_x_int}
+		{3} {\int_decr:N \l__pgfgo_kernel_region_y_int}
+	}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------JUGADAS------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%NUMERO DE LA PROXIMA JUGADA Y TURNO. SON GLOBALES PORQUE LAS JUGADAS SE ENCADENAN ENTRE \moves.
+\int_new:N \g__pgfgo_kernel_move_int
+\int_gset:Nn \g__pgfgo_kernel_move_int {1}
+\bool_new:N \g__pgfgo_kernel_black_turn_bool
+\bool_gset_true:N \g__pgfgo_kernel_black_turn_bool
+
+
+\cs_new_protected:Npn \pgfgo_kernel_move_reset: {
+	\int_gset:Nn \g__pgfgo_kernel_move_int {1}
+	\bool_gset_true:N \g__pgfgo_kernel_black_turn_bool
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_move_set_number:n #1 {
+	\int_gset:Nn \g__pgfgo_kernel_move_int {#1}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_move_set_player:n #1 {
+	\bool_gset:Nn \g__pgfgo_kernel_black_turn_bool {\str_if_eq_p:nn {#1} {black}}
+}
+
+\cs_new:Npn \pgfgo_kernel_move_number: {\int_use:N \g__pgfgo_kernel_move_int}
+
+\prg_new_conditional:Npnn \pgfgo_kernel_move_if_black: {p, T, F, TF} {
+	\bool_if:NTF \g__pgfgo_kernel_black_turn_bool {\prg_return_true:} {\prg_return_false:}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_move_play:nn #1#2 {
+	\int_gincr:N \g__pgfgo_kernel_move_int
+	\bool_gset_inverse:N \g__pgfgo_kernel_black_turn_bool
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---------------------------------SECUENCIAS DE MARCAS------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\int_new:N \g__pgfgo_kernel_sequence_int
+\int_gset:Nn \g__pgfgo_kernel_sequence_int {1}
+
+\cs_new_protected:Npn \pgfgo_kernel_sequence_reset:n #1 {
+	\int_gset:Nn \g__pgfgo_kernel_sequence_int {#1}
+}
+
+\cs_new:Npn \pgfgo_kernel_sequence_number: {\int_use:N \g__pgfgo_kernel_sequence_int}
+
+\cs_new_protected:Npn \pgfgo_kernel_sequence_step: {
+	\int_gincr:N \g__pgfgo_kernel_sequence_int
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%----------------------------------------MEMORIA------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%UNA PILA GLOBAL POR NOMBRE (\g__pgfgo_kernel_remember_<nombre>_seq), CREADA AL USARLA. CADA ITEM ES CODIGO
+%QUE VUELVE A DIBUJAR EL ELEMENTO.
+\cs_new:Npn \__pgfgo_kernel_remember_seq:n #1 {g__pgfgo_kernel_remember_ #1 _seq}
+\cs_new_protected:Npn \__pgfgo_kernel_remember_new:n #1 {
+	\seq_if_exist:cF {\__pgfgo_kernel_remember_seq:n {#1}} {\seq_new:c {\__pgfgo_kernel_remember_seq:n {#1}}}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_push:nn #1#2 {
+	\__pgfgo_kernel_remember_new:n {#1}
+	\seq_gput_right:ce {\__pgfgo_kernel_remember_seq:n {#1}} {#2}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_clear:n #1 {
+	\__pgfgo_kernel_remember_new:n {#1}
+	\seq_gclear:c {\__pgfgo_kernel_remember_seq:n {#1}}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_replay:n #1 {
+	\seq_if_exist:cT {\__pgfgo_kernel_remember_seq:n {#1}}
+		{\seq_map_inline:cn {\__pgfgo_kernel_remember_seq:n {#1}} {##1}}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_append:nn #1#2 {
+	\__pgfgo_kernel_remember_new:n {#1}
+	\__pgfgo_kernel_remember_new:n {#2}
+	\seq_gconcat:ccc {\__pgfgo_kernel_remember_seq:n {#1}}
+		{\__pgfgo_kernel_remember_seq:n {#1}} {\__pgfgo_kernel_remember_seq:n {#2}}
+}
+
+\cs_new_protected:Npn \pgfgo_kernel_remember_get:nN #1#2 {
+	\seq_if_exist:cTF {\__pgfgo_kernel_remember_seq:n {#1}}
+		{\tl_set:Ne #2 {\seq_use:cn {\__pgfgo_kernel_remember_seq:n {#1}} {}}}
+		{\tl_clear:N #2}
+}
+
+\ExplSyntaxOff

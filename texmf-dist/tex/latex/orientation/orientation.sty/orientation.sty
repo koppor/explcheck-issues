@@ -1,0 +1,229 @@
+\ProvidesPackage{orientation}[2026/10/22 v2.0 orientation]
+% orientation package by Daniel Benjamin Miller <dbmiller@dbmiller.org>
+% Made available under the CC-Zero Dedication, 2021--26
+% For more info: https://creativecommons.org/publicdomain/zero/1.0/
+\RequirePackage{iftex}
+\let\orientation@option\@empty
+\DeclareOption{dvips}{\def\orientation@option{dvips}}
+\DeclareOption{dvipdfmx}{\def\orientation@option{dvipdfmx}}
+\DeclareOption{xdvipdfmx}{\def\orientation@option{dvipdfmx}}
+\DeclareOption{xetex}{\def\orientation@option{dvipdfmx}}
+\DeclareOption{pdftex}{\def\orientation@option{pdftex}}
+\DeclareOption{luatex}{\def\orientation@option{luatex}}
+\DeclareOption*{\PackageError{orientation}{Unknown option `\CurrentOption'}
+{Engine options: dvips, dvipdfmx, xdvipdfmx, xetex, pdftex, luatex.}}
+\ProcessOptions*\relax
+%By default, don't change orientation.
+\let\orientation@default\@empty
+\let\orientation@page\@empty
+\let\orientation@restore\@empty
+\DeclareRobustCommand{\setportrait}{\gdef\orientation@default{0}}
+\DeclareRobustCommand{\setlandscape}{\gdef\orientation@default{90}}
+\DeclareRobustCommand{\setupsidedown}{\gdef\orientation@default{180}}
+\DeclareRobustCommand{\setcounterlandscape}{\gdef\orientation@default{270}}
+\DeclareRobustCommand{\thispageportrait}{\gdef\orientation@page{0}}
+\DeclareRobustCommand{\thispagelandscape}{\gdef\orientation@page{90}}
+\DeclareRobustCommand{\thispageupsidedown}{\gdef\orientation@page{180}}
+\DeclareRobustCommand{\thispagecounterlandscape}{\gdef\orientation@page{270}}
+\ExplSyntaxOn
+\tl_new:N \g__orientation_saved_attr_tl
+\tl_new:N \l__orientation_attr_tl
+\tl_new:N \l__orientation_chunk_tl
+\tl_new:N \g__orientation_saved_rotate_tl
+\int_new:N \l__orientation_depth_int
+\int_new:N \l__orientation_string_int
+\bool_new:N \l__orientation_escape_bool
+\bool_new:N \l__orientation_comment_bool
+%Only replace top-level PDF dictionary entries
+\cs_new_protected:Npn \__orientation_flush:
+{
+\regex_replace_all:nnN { /Rotate\s+[+\-]?\d+\s* } { ~ }
+\l__orientation_chunk_tl
+\tl_put_right:NV \l__orientation_attr_tl \l__orientation_chunk_tl
+\tl_clear:N \l__orientation_chunk_tl
+}
+\cs_new_protected:Npn \__orientation_copy:n #1
+{
+\int_compare:nNnTF \l__orientation_depth_int = {0}
+{ \tl_put_right:Nn \l__orientation_chunk_tl {#1} }
+{ \tl_put_right:Nn \l__orientation_attr_tl {#1} }
+}
+\cs_new_protected:Npn \__orientation_filter:n #1
+{
+\bool_if:NTF \l__orientation_comment_bool
+{
+\int_compare:nNnF \l__orientation_depth_int = {0}
+{ \tl_put_right:Nn \l__orientation_attr_tl {#1} }
+\int_case:nn {`#1}
+{ {10}{\bool_set_false:N \l__orientation_comment_bool}
+{13}{\bool_set_false:N \l__orientation_comment_bool} }
+}
+{
+\int_compare:nNnTF \l__orientation_string_int > {0}
+{
+\tl_put_right:Nn \l__orientation_attr_tl {#1}
+\bool_if:NTF \l__orientation_escape_bool
+{ \bool_set_false:N \l__orientation_escape_bool }
+{ \int_case:nn {`#1}
+{ {92}{\bool_set_true:N \l__orientation_escape_bool}
+{40}{\int_incr:N \l__orientation_string_int}
+{41}{\int_decr:N \l__orientation_string_int} } }
+}
+{
+\int_case:nnF {`#1}
+{
+{37}{\bool_set_true:N \l__orientation_comment_bool
+\int_compare:nNnTF \l__orientation_depth_int = {0}
+{\tl_put_right:Nn \l__orientation_chunk_tl {~}}
+{\tl_put_right:Nn \l__orientation_attr_tl {#1}}}
+{40}{\__orientation_flush:
+\int_incr:N \l__orientation_string_int
+\tl_put_right:Nn \l__orientation_attr_tl {#1}}
+{60}{\__orientation_flush:
+\int_incr:N \l__orientation_depth_int
+\tl_put_right:Nn \l__orientation_attr_tl {#1}}
+{91}{\__orientation_flush:
+\int_incr:N \l__orientation_depth_int
+\tl_put_right:Nn \l__orientation_attr_tl {#1}}
+{62}{\int_decr:N \l__orientation_depth_int
+\tl_put_right:Nn \l__orientation_attr_tl {#1}}
+{93}{\int_decr:N \l__orientation_depth_int
+\tl_put_right:Nn \l__orientation_attr_tl {#1}}
+}
+{ \__orientation_copy:n {#1} }
+}
+}
+}
+
+\cs_new_protected:Npn \orientation@native #1
+{
+\tl_gset:No \g__orientation_saved_attr_tl { \the\orientation@pageattr }
+\tl_clear:N \l__orientation_attr_tl
+\tl_clear:N \l__orientation_chunk_tl
+\int_zero:N \l__orientation_depth_int
+\int_zero:N \l__orientation_string_int
+\bool_set_false:N \l__orientation_escape_bool
+\bool_set_false:N \l__orientation_comment_bool
+\tl_set:Nx \l_tmpa_tl {\g__orientation_saved_attr_tl}
+\exp_args:NV \str_map_inline:nn \l_tmpa_tl {\__orientation_filter:n {##1}}
+\__orientation_flush:
+\tl_put_right:Nn \l__orientation_attr_tl { ~/Rotate~#1 }
+\orientation@pageattr\expandafter{\l__orientation_attr_tl}
+\cs_gset_protected:Npn \orientation@restore
+{
+\orientation@pageattr\expandafter{\g__orientation_saved_attr_tl}
+\cs_gset_eq:NN \orientation@restore \prg_do_nothing:
+}
+}
+
+%Make sure behavior is right when orientation is normally set at document level
+\cs_new_protected:Npn \orientation@managed #1
+{
+\pdfmanagement_get:nnN { Page } { Rotate } \l_tmpa_tl
+\tl_gset_eq:NN \g__orientation_saved_rotate_tl \l_tmpa_tl
+\pdfmanagement_add:nnn { Page } { Rotate } {#1}
+\cs_gset_protected:Npn \orientation@restore
+{
+\quark_if_no_value:NTF \g__orientation_saved_rotate_tl
+{ \pdfmanagement_remove:nn { Page } { Rotate } }
+{ \pdfmanagement_add:nnx { Page } { Rotate }
+{ \g__orientation_saved_rotate_tl } }
+\cs_gset_eq:NN \orientation@restore \prg_do_nothing:
+}
+}
+
+\cs_new_protected:Npn \orientation@init
+{
+\ifpdf
+\ifluatex
+\def\orientation@driver{luatex}
+\cs_set:Npn \orientation@pageattr { \pdfvariable pageattr }
+\else
+\def\orientation@driver{pdftex}
+\cs_set_eq:NN \orientation@pageattr \pdfpageattr
+\fi
+\else
+\ifxetex
+\def\orientation@driver{dvipdfmx}
+\else
+%use dvips by default
+\def\orientation@driver{dvips}
+\cs_if_exist:NT \c_sys_backend_str
+{ \str_if_eq:VnT \c_sys_backend_str {dvipdfmx}
+{ \def\orientation@driver{dvipdfmx} } }
+\cs_if_exist:NT \Gin@driver
+{ \str_case:Vn \Gin@driver
+{ {dvipdfmx.def}{\def\orientation@driver{dvipdfmx}}
+{dvipdfm.def}{\def\orientation@driver{dvipdfmx}} } }
+\str_case:Vn \orientation@option
+{ {dvips}{\def\orientation@driver{dvips}}
+{dvipdfmx}{\def\orientation@driver{dvipdfmx}} }
+\fi
+\fi
+\tl_if_empty:NF \orientation@option
+{
+\str_if_eq:VVF \orientation@option \orientation@driver
+{ \PackageError{orientation}
+{Driver~`\orientation@option'~is~incompatible~with~this~engine/output~mode}
+{Remove~the~driver~option~or~select~\orientation@driver.} }
+}
+\str_case:Vn \orientation@driver
+{
+{pdftex}{\cs_set_eq:NN \orientation@apply \orientation@native}
+{luatex}{\cs_set_eq:NN \orientation@apply \orientation@native}
+{dvips}{\cs_set_protected:Npn \orientation@apply ##1
+{ \special{ps:[{ThisPage}~<</Rotate~##1>>~/PUT~pdfmark~true} }}
+{dvipdfmx}{\cs_set_protected:Npn \orientation@apply ##1
+{ \special{pdf:put~@thispage~<</Rotate~##1>>} }}
+}
+\cs_if_exist:NT \pdfmanagement_if_active:T
+{
+\pdfmanagement_if_active:T
+{
+\tl_set:Nx \l_tmpa_tl {\c_sys_backend_str}
+\str_if_eq:VnT \l_tmpa_tl {xetex}
+{ \tl_set:Nn \l_tmpa_tl {dvipdfmx} }
+\str_if_eq:VVF \l_tmpa_tl \orientation@driver
+{ \PackageError{orientation}{PDF~management~backend~mismatch}
+{Select~the~same~backend~in~\string\DocumentMetadata
+~and~orientation.} }
+\cs_set_eq:NN \orientation@apply \orientation@managed
+% LuaTeX keeps Page defaults in Lua; override
+\ifluatex
+\cs_set_protected:Npn \orientation@apply ##1
+{ \pdfmanagement_add:nnn {ThisPage}{Rotate}{##1} }
+\fi
+}
+}
+\PackageInfo{orientation}{Using~\orientation@driver\space backend}
+\cs_set_eq:NN \orientation@before \prg_do_nothing:
+\cs_set_eq:NN \orientation@background \orientation@shipout
+\cs_if_eq:NNT \orientation@apply \orientation@native
+{
+\cs_set_eq:NN \orientation@before \orientation@shipout
+\cs_set_eq:NN \orientation@background \prg_do_nothing:
+}
+}
+\ExplSyntaxOff
+
+\AtBeginDocument{\orientation@init}
+\newcommand{\orientation@shipout}{%
+\ifx\orientation@page\@empty
+\let\orientation@angle\orientation@default
+\else
+\let\orientation@angle\orientation@page
+\fi
+\ifx\orientation@angle\@empty\else
+\expandafter\orientation@apply\expandafter{\orientation@angle}%
+\fi
+}
+\AddToHook{shipout/before}[orientation]{%
+\global\let\orientation@restore\@empty
+\orientation@before
+}
+\AddToHook{shipout/background}[orientation]{%
+\orientation@background
+\global\let\orientation@page\@empty
+}
+\AddToHook{shipout/after}[orientation]{\orientation@restore}
+\endinput
