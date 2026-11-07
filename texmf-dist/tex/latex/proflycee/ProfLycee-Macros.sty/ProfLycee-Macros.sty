@@ -1,0 +1,947 @@
+% Author...................: C. Pierquet
+% licence..................: Released under the LaTeX Project Public License v1.3c or later, see http://www.latex-project.org/lppl.txt
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ProfLycee-Macros}[2025/12/12 0.1b Internal macros]
+% 0.1b   booleans multilng with simplekv
+% 0.1a   initial version
+
+%=====pmultilng booleans with simplekv ??
+\newcommand\setKVboolfalsedefaultmulti[3][]{%#1 = family / %#2 = translated key / %#3 = french key / change value if default [fr] value is false
+  \ifboolKV[#1]{#2}{\setKV[#1]{#3=true}}{}%
+}
+\newcommand\setKVbooltruedefaultmulti[3][]{%#1 = family / %#2 = translated key / %#3 = french key / change value if default [fr] value is true
+  \ifboolKV[#1]{#2}{}{\setKV[#1]{#3=false}}%
+}
+
+\NewDocumentCommand\IfStrInList{ m m }{%
+  \IfSubStr{,#2,}{,#1,}%
+  \@firstoftwo%
+  \@secondoftwo%
+}
+
+\ExplSyntaxOn
+
+%=====patch num et xint (latex3)
+\NewDocumentCommand\pflnumfrac{ s O{} m }{
+  % * = moins sur le numérateur
+  % #2 = argument optionnel [d/t/n/dec=...]
+  % #3 = argument mandataire {calcul ou fraction}
+  % Calcul et transformation en A/B
+  %\tl_set:Ne \l_tmpa_tl { \xintPRaw { \xintIrr { \xinteval{#3} } } }
+  \tl_set:Ne \l_tmpa_tl { \xinteval{reduce(#3)} }
+  % Test si le symbole / apparaît (fraction ou entier)
+  \tl_if_in:NnTF \l_tmpa_tl { / }
+  { % C'est une fraction
+    % Extraction du numérateur et dénominateur
+    \seq_set_split:NnV \l_tmpa_seq { / } \l_tmpa_tl
+    \tl_set:Ne \l_numerateur_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+    \tl_set:Ne \l_denominateur_tl { \seq_item:Nn \l_tmpa_seq { 2 } }
+    % Traitement selon l'argument optionnel
+    \tl_if_empty:nTF {#2}
+    { % Pas d'argument optionnel : \frac par défaut
+      \IfBooleanTF{#1}
+      { \ensuremath{ \frac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+      {
+        \fp_compare:nNnTF { \l_numerateur_tl } < { 0 }
+        { \ensuremath{ -\frac{\num{\fpeval{abs(\l_numerateur_tl)}}}{\num{\l_denominateur_tl}} } }
+        { \ensuremath{ \frac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+      }
+    }
+    { % Argument optionnel présent
+      \str_case:nnF {#2}
+      {
+        {d} { % \dfrac
+          \IfBooleanTF{#1}
+          { \ensuremath{ \dfrac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          {
+            \fp_compare:nNnTF { \l_numerateur_tl } < { 0 }
+            { \ensuremath{ -\dfrac{\num{\fpeval{abs(\l_numerateur_tl)}}}{\num{\l_denominateur_tl}} } }
+            { \ensuremath{ \dfrac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          }
+        }
+        {t} { % \tfrac
+          \IfBooleanTF{#1}
+          { \ensuremath{ \tfrac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          {
+            \fp_compare:nNnTF { \l_numerateur_tl } < { 0 }
+            { \ensuremath{ -\tfrac{\num{\fpeval{abs(\l_numerateur_tl)}}}{\num{\l_denominateur_tl}} } }
+            { \ensuremath{ \tfrac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          }
+        }
+        {n} { % \nicefrac
+          \ensuremath{ \nicefrac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} }
+        }
+      }
+      { % Cas par défaut : vérifier si "dec" est présent
+        \tl_if_in:nnTF {#2} { dec }
+        { % Forme décimale
+          \tl_if_in:nnTF {#2} { = }
+          { % Précision spécifiée
+            \tl_set:Nn \l_tmpb_tl {#2}
+            \seq_set_split:NnV \l_tmpb_seq { = } \l_tmpb_tl
+            \tl_set:Ne \l_precdecimal_tl { \seq_item:Nn \l_tmpb_seq { 2 } }
+            \ensuremath{ \num{ \xintfloateval{ round(#3,\l_precdecimal_tl) } } }
+          }
+          { % Pas de précision
+            \ensuremath{ \num{ \xintfloateval{#3} } }
+          }
+        }
+        { % Argument optionnel non reconnu : comportement par défaut
+          \IfBooleanTF{#1}
+          { \ensuremath{ \frac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          {
+            \fp_compare:nNnTF { \l_numerateur_tl } < { 0 }
+            { \ensuremath{ -\frac{\num{\fpeval{abs(\l_numerateur_tl)}}}{\num{\l_denominateur_tl}} } }
+            { \ensuremath{ \frac{\num{\l_numerateur_tl}}{\num{\l_denominateur_tl}} } }
+          }
+        }
+      }
+    }
+  }
+  { % C'est un entier
+    \num{\l_tmpa_tl}
+  }
+}
+
+\NewDocumentCommand\pflnumrad{ s O{} m }{
+  % * = moins sur le numérateur
+  % #2 = argument optionnel [d/t/n]
+  % #3 = angle sous la forme a*pi/b
+  % Suppression de "pi" et traitement des cas particuliers
+  % Traitement de l'argument
+  \tl_set:Nn \l_tmpa_tl {#3}
+  % Remplacer "pi" en début par "1" et "-pi" en début par "-1"
+  \regex_replace_once:nnN { \A pi } { 1 } \l_tmpa_tl
+  \regex_replace_once:nnN { \A -pi } { -1 } \l_tmpa_tl
+  % Supprimer tous les "pi" restants (dans le reste de l'expression)
+  \tl_remove_all:Nn \l_tmpa_tl { pi }
+  %simplification éventuelle ?
+  \tl_set:Ne \l_tmpa_tl { \xintPRaw { \xintIrr { \xinteval{\l_tmpa_tl} } } }
+  % Extraction numérateur/dénominateur
+  \tl_if_in:NnTF \l_tmpa_tl { / }
+  { % Il y a une fraction
+    \seq_set_split:NnV \l_tmpa_seq { / } \l_tmpa_tl
+    \tl_set:Ne \l_MPnumerateurinit_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+    \tl_set:Ne \l_MPdenominateurinit_tl { \seq_item:Nn \l_tmpa_seq { 2 } }
+  }
+  { % Pas de fraction
+    \tl_set_eq:NN \l_MPnumerateurinit_tl \l_tmpa_tl
+    \tl_set:Nn \l_MPdenominateurinit_tl { 1 }
+  }
+  % Affichage selon l'option
+    \str_case:nnF {#2}
+    {
+        {d} { \__pflnumrad_display:Nnn \displaystyle { d } {#1} }
+        {t} { \__pflnumrad_display:Nnn \tfrac { t } {#1} }
+        {n} { \__pflnumrad_display:Nnn \nicefrac { n } {#1} }
+        {}  { \__pflnumrad_display:Nnn \frac {} {#1} }
+      }
+    { \__pflnumrad_display:Nnn \frac {} {#1} } % Défaut
+}
+
+% Fonction auxiliaire pour l'affichage
+\cs_new:Npn \__pflnumrad_display:Nnn #1 #2 #3 {
+  \ensuremath{
+    \xintifboolexpr{ \l_MPdenominateurinit_tl == 1 }
+    { % Dénominateur = 1 : pas de fraction
+      \xintifboolexpr{ \l_MPnumerateurinit_tl == 1 }{ \pi }{}
+      \xintifboolexpr{ \l_MPnumerateurinit_tl == -1 }{ -\pi }{}
+      \xintifboolexpr{ \xinteval{abs(\l_MPnumerateurinit_tl) != 1} }
+      { \num{\l_MPnumerateurinit_tl} \pi }{}
+    }
+    { % Dénominateur ≠ 1 : affichage en fraction
+      \str_if_eq:nnTF {#2} {n}
+      { % nicefrac : pas de signe moins devant
+        \nicefrac{
+          \xintifboolexpr{ \l_MPnumerateurinit_tl == 1 }{ \pi }{}
+          \xintifboolexpr{ \l_MPnumerateurinit_tl == -1 }{ -\pi }{}
+          \xintifboolexpr{ \xinteval{abs(\l_MPnumerateurinit_tl) != 1} }
+          { \num{\l_MPnumerateurinit_tl} \pi }{}
+        }{
+          \num{\l_MPdenominateurinit_tl}
+        }
+      }
+      { % frac, dfrac ou tfrac
+        \str_if_eq:nnTF {#2} {d}
+        { \IfBooleanT{#3}{-} \displaystyle\frac }
+        { \IfBooleanT{#3}{-} #1 }
+        {
+          \xintifboolexpr{ \l_MPnumerateurinit_tl == 1 }{ \pi }{}
+          \xintifboolexpr{ \l_MPnumerateurinit_tl == -1 }
+          { \IfBooleanTF{#3}{}{-} \pi }{}
+          \xintifboolexpr{ \xinteval{abs(\l_MPnumerateurinit_tl) != 1} }
+          {
+            \num{
+              \IfBooleanTF{#3}
+              { \xinteval{abs(\l_MPnumerateurinit_tl)} }
+              { \l_MPnumerateurinit_tl }
+            } \pi
+          }{}
+        }{
+          \num{\l_MPdenominateurinit_tl}
+        }
+      }
+    }
+  }
+}
+
+\DeclareDocumentCommand\pflnumsqrt{ O{} m }{
+  % #1 = option [d/n]
+  % #2 = calcul ou fraction
+  % Calcul et réduction
+  \tl_set:Ne \l_calculargument_tl { \xintIrr{ \xinteval{#2} } }
+  % Test si égal à 1
+  \xintifboolexpr{ \l_calculargument_tl == 1 }
+  { \ensuremath{1} }
+  {
+    % Test si c'est un entier (se termine par /1)
+    \regex_match:nVTF { /1 \Z } { \l_calculargument_tl }
+    { % C'est un entier - on recalcule sans la partie /1
+      \tl_set:Ne \l_calculargument_tl { \xintiieval{#2} }
+      \tl_set:Ne \l_ExtractRacStop_tl { \xintiFloor{ \xintfloateval{sqrt(\l_calculargument_tl)} } }
+      % Recherche du plus grand carré diviseur
+      \tl_set:Nn \l_ExtractRacID_tl { 1 }
+      \xintFor* ##1 ~ in ~ { \xintSeq{1}{\l_ExtractRacStop_tl} } \do {
+        \xintifboolexpr{ \xintiiRem{\l_calculargument_tl}{\xintiieval{##1*##1}} == 0 }
+        { \tl_set:Nn \l_ExtractRacID_tl {##1} }
+        { }
+      }
+      \tl_set:Ne \l_ExtracReste_tl { \xintiieval{\l_calculargument_tl/(\l_ExtractRacID_tl*\l_ExtractRacID_tl)} }
+      % Affichage
+      \ensuremath{
+        \xintifboolexpr{ \l_ExtractRacID_tl == 1 && \l_ExtracReste_tl == 1 }
+        { 1 }
+        {
+          \xintifboolexpr{ \l_ExtractRacID_tl == 1 }
+          { }
+          { \num{ \xintiieval{\l_ExtractRacID_tl} } }
+          \xintifboolexpr{ \l_ExtracReste_tl == 1 }
+          { }
+          { \sqrt{ \num{\l_ExtracReste_tl} } }
+        }
+      }
+    }
+    { % C'est une fraction
+      % Extraction numérateur/dénominateur
+      \seq_set_split:NnV \l_tmpa_seq { / } \l_calculargument_tl
+      \tl_set:Ne \l_numerateur_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+      \tl_set:Ne \l_denominateur_tl { \seq_item:Nn \l_tmpa_seq { 2 } }
+      % Calculs
+      \tl_set:Ne \l_ExtractRacNNum_tl { \xintiieval{\l_numerateur_tl*\l_denominateur_tl} }
+      \tl_set:Ne \l_ExtractRacStop_tl { \xintiFloor{ \xintfloateval{sqrt(\l_ExtractRacNNum_tl)} } }
+      % Recherche du plus grand carré diviseur
+      \tl_set:Nn \l_ExtractRacID_tl { 1 }
+      \xintFor* ##1 ~ in ~ { \xintSeq{1}{\l_ExtractRacStop_tl} } \do {
+        \xintifboolexpr{ \xintiiRem{\l_ExtractRacNNum_tl}{\xintiieval{##1*##1}} == 0 }
+        { \tl_set:Nn \l_ExtractRacID_tl {##1} }
+        { }
+      }
+      % Simplification
+      \tl_set:Ne \l_ExtractRacGCD_tl { \xintiiGCD{\l_ExtractRacID_tl}{\l_denominateur_tl} }
+      \tl_set:Ne \l_RacNumSimpl_tl { \xintiieval{\l_ExtractRacID_tl/\l_ExtractRacGCD_tl} }
+      \tl_set:Ne \l_RacDenomSimpl_tl { \xintiieval{\l_denominateur_tl/\l_ExtractRacGCD_tl} }
+      \tl_set:Ne \l_RacRacSimpl_tl { \xintiieval{\l_ExtractRacNNum_tl/(\l_ExtractRacID_tl*\l_ExtractRacID_tl)} }
+      % Affichage selon l'option
+      \str_case:nnF {#1}
+      {
+        {d} { \__pflnumsqrt_frac:Nn \dfrac {d} }
+        {n} { \__pflnumsqrt_frac:Nn \nicefrac {n} }
+        {}  { \__pflnumsqrt_frac:Nn \frac {} }
+      }
+      { \__pflnumsqrt_frac:Nn \frac {} }
+    }
+  }
+}
+
+\cs_new:Npn \__pflnumsqrt_frac:Nn #1 #2 {
+  \ensuremath{
+    #1 {
+      \xintifboolexpr{ \l_RacNumSimpl_tl == 1 && \l_RacRacSimpl_tl == 1 }
+      { 1 }
+      {
+        \xintifboolexpr{ \l_RacNumSimpl_tl == 1 }
+        { }
+        { \l_RacNumSimpl_tl }
+        \xintifboolexpr{ \l_RacRacSimpl_tl == 1 }
+        { }
+        { \sqrt{ \num{\l_RacRacSimpl_tl} } }
+      }
+    }{
+      \l_RacDenomSimpl_tl
+    }
+  }
+}
+
+\NewDocumentCommand\pflnum{ s D<>{} O{} m }{
+  % * = version étoilée (arrondi ou - devant fraction)
+  % #2 = type <frac/rad/rac/annee>
+  % #3 = option []
+  % #4 = valeur
+  \str_case:nnF {#2}
+  {
+    {} { % Argument <> vide := entier/décimal
+      \IfBooleanTF{#1}
+      { % Version étoilée : float
+        \tl_if_empty:nTF {#3}
+        { \num{ \xintfloateval{#4} } }
+        { \num{ \xintfloateval{round(#4,#3)} } }
+      }
+      { % Version normale : entier
+        \num{ \xintiieval{#4} }
+      }
+    }
+    {frac} { % Fraction
+      \IfBooleanTF{#1}
+      { \pflnumfrac*[#3]{#4} }
+      { \pflnumfrac[#3]{#4} }
+    }
+    {rad} { % Angle radian
+      \IfBooleanTF{#1}
+      { \pflnumrad*[#3]{#4} }
+      { \pflnumrad[#3]{#4} }
+    }
+    {rac} { % Racine carrée
+      \pflnumsqrt[#3]{#4}
+    }
+    {annee} { % Année (pas de séparateur de milliers)
+      \IfBooleanTF{#1}
+      { % Version étoilée : float
+        \tl_if_empty:nTF {#3}
+        { \num[digit-group-size=5]{ \xintfloateval{#4} } }
+        { \num[digit-group-size=5]{ \xintfloateval{round(#4,#3)} } }
+      }
+      { % Version normale : entier
+        \num[digit-group-size=5]{ \xintiieval{#4} }
+      }
+    }
+  }
+  { % Cas par défaut si #2 non reconnu : traiter comme entier/décimal
+    \IfBooleanTF{#1}
+    {
+      \tl_if_empty:nTF {#3}
+      { \num{ \xintfloateval{#4} } }
+      { \num{ \xintfloateval{round(#4,#3)} } }
+    }
+    { \num{ \xintiieval{#4} } }
+  }
+}
+
+%=====(test and) split
+\cs_new_protected:Npn \__cutandsplit_with_arg:nn #1 #2
+{
+  \tl_set:Nn \l_tmparg_tl { #1 }
+  \seq_gset_split:NnV \g_tmpa_seq { #2 } { \l_tmparg_tl }
+}
+
+\cs_new_protected:Npn \__cutandsplit_with_macro:nn #1 #2
+{
+  \seq_gset_split:NnV \g_tmpa_seq { #2 } { #1 }
+}
+
+\NewDocumentCommand\pfltestcutandsplit{ O{} m m m m }%l3-ifsubstr-strcut (OK ?)
+{
+  %#1 = str to test + #2 = substr + #3 = left macro (or #2 if not found) + #4 = right macro (or #2 if not found)
+  \tl_set:Ne \l_tmpa_tl { #2 }
+  \tl_if_in:NnTF \l_tmpa_tl { #3 }
+  {
+    \pflcutandsplit[#1]{#2}{#3}{#4}{#5}
+  }
+  {
+    \tl_gset:Ne #4 {#2}
+    \tl_gset:Ne #5 {#2}
+  }
+}
+
+\NewDocumentCommand\pflcutandsplit{ O{} m m m m }%l3-strcut (OK ?)
+{
+  \str_case:nnF { #1 }
+  {
+    { mac } { \__cutandsplit_with_macro:nn {#2} {#3} }
+  }
+  { \__cutandsplit_with_arg:nn {#2} {#3} }
+  \tl_gset:Ne #4 { \seq_item:Nn \g_tmpa_seq {1} }
+  \tl_gset:Ne #5 { \seq_item:Nn \g_tmpa_seq {2} }
+}
+
+%=====before delim
+\NewDocumentCommand\plfbeforechar{ m m m }%l3-strbefore (OK ?)
+  {
+    \seq_set_split:Nee \l_tmpa_seq { #2 } { #1 }
+    \tl_set:Ne #3 { \seq_item:Nn \l_tmpa_seq { 1 } }
+  }
+
+%=====after delim
+\NewDocumentCommand\plfafterchar{ m m m }%l3-strbehind (OK ?)
+  {
+    \seq_set_split:Nee \l_tmpa_seq { #2 } { #1 }
+    \tl_set:Ne #3 { \seq_item:Nn \l_tmpa_seq { 2 } }
+  }
+
+%=====len of string
+\NewDocumentCommand\pfllenstr{ m O{\mytmplen} }%l3-strlen (OK ?)
+{
+  \str_set:Ne \l_tmpa_str { #1 }
+  \tl_gset:Ne #2 { \int_to_arabic:n { \str_count:N \l_tmpa_str } }
+}
+
+%=====ifendwith
+\NewDocumentCommand\pflifendwith{ m m }%l3-ifendwith (OK ?)
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \tl_set:Ne \l_tmpb_tl { #2 }
+    \tl_set:Ne \l_tmpc_tl { \tl_range:Nnn \l_tmpa_tl { - \tl_count:N \l_tmpb_tl } { -1 } }
+    \tl_if_eq:NNTF \l_tmpc_tl \l_tmpb_tl { \use_i:nn } { \use_ii:nn }
+  }
+  
+%=====ifbeginwith
+\NewDocumentCommand\pflifbeginwith{ m m }%l3-ibeginwith (OK ?)
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \tl_set:Ne \l_tmpb_tl { #2 }
+    \tl_set:Ne \l_tmpc_tl { \tl_range:Nnn \l_tmpa_tl { 1 } { \tl_count:N \l_tmpb_tl } }
+    \tl_if_eq:NNTF \l_tmpc_tl \l_tmpb_tl { \use_i:nn } { \use_ii:nn }
+  }
+
+%=====midstring
+\NewDocumentCommand\pflmidstring{ m m m O{\mymidstring} }%l3-midstring (OK ?)
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \int_set:Nn \l_tmpa_int { #2 }
+    \int_set:Nn \l_tmpb_int { #3 }
+    \tl_set:Ne \l_tmpb_tl { \tl_range:Nnn \l_tmpa_tl { \l_tmpa_int } { \l_tmpb_int } }
+    \tl_gset_eq:NN #4 \l_tmpb_tl
+  }
+
+%=====char from string
+\NewDocumentCommand\pflcharfromstr{ m m O{\mychar} }%l3-strchar (OK ?)
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \int_set:Nn \l_tmpb_int { #2 }
+    \tl_set:Ne \l_tmpc_tl { \tl_item:Nn \l_tmpa_tl { \l_tmpb_int } }
+    \tl_gset:Ne #3 { \l_tmpc_tl }
+  }
+
+%=====test chaîne
+\NewDocumentCommand\pfltestequal{ m m }{%
+  \ifthenelse{\equal{#1}{#2}}%
+  \@firstoftwo%
+  \@secondoftwo%
+}
+
+\NewDocumentCommand\pfltesteq{ m m }%l3-ifeq (OK ???!!!???)
+  {
+    \tl_set:Ne \l_tmpa_tl { #1 }
+    \tl_set:Ne \l_tmpb_tl { #2 }
+    \tl_if_eq:NNTF \l_tmpa_tl \l_tmpb_tl { \use_i:nn } { \use_ii:nn }
+  }
+
+%===listofitems ??
+\cs_generate_variant:Nn \seq_set_split:Nnn { NVo }
+
+% Déclaration des clés
+\keys_define:nn { readlistwithlevels }
+{
+  main-sep  .tl_set:N = \l__pfl_main_sep_tl,
+  main-sep  .initial:n = {,},
+  second-sep .tl_set:N = \l__pfl_second_sep_tl,
+  second-sep .initial:n = {/},
+}
+
+% Fonction générique pour accéder aux éléments d'une structure 1D
+\cs_new:Npn \__pfl_onelevel_get:nnn #1 #2 #3
+{
+  % #1 = nom de la structure
+  % #2 = index i
+  % #3 = macro de sortie (peut être vide)
+  \int_set:Nn \l_tmpa_int { \int_eval:n { #2 } }
+  \tl_clear:N \l_tmpa_tl
+  % Test de longueur / existence
+  \int_compare:nTF { \l_tmpa_int <= \int_use:c { g__pfl_#1_count_int } }
+  {
+  \tl_set:Nx \l_tmpa_tl { \seq_item:cn { g__pfl_#1_main_seq } { \int_use:N \l_tmpa_int } }
+    \tl_if_empty:nTF { #3 }
+    {
+      % Pas de macro fournie : afficher directement
+      \tl_use:N \l_tmpa_tl
+    }
+    {
+      % Macro fournie : stocker dans ##2
+      \tl_set_eq:NN #3 \l_tmpa_tl
+    }
+  }
+  {
+  \tl_if_empty:nTF { #3 }
+    {
+      % Pas de macro fournie : afficher directement -none-
+      \text{-none-}
+    }
+    {
+      % Macro fournie : stocker dans ##2
+      \tl_set:Nn \l_tmpa_tl { }
+      \tl_set_eq:NN #3 \l_tmpa_tl
+    }
+  }
+}
+
+\NewDocumentCommand\readonelevellist{ O{} m m }
+{
+  % #1 = séparateur principal (par défaut : ,)
+  % #2 = nom de la structure (ex : maliste)
+  % #3 = contenu de la liste
+  
+  % Traiter les options
+  \keys_set:nn { readlistwithlevels } { #1 }
+  
+  % Stocker le séparateur principal
+  \tl_if_exist:cF { g__pfl_#2_mainsep_tl } { \tl_new:c { g__pfl_#2_mainsep_tl } }
+  \tl_gset_eq:cN { g__pfl_#2_mainsep_tl } \l__pfl_main_sep_tl
+  
+  %liste à construire
+  \seq_if_exist:cF { g__pfl_#2_main_seq } { \seq_new:c { g__pfl_#2_main_seq } }
+  \seq_clear:c { g__pfl_#2_main_seq }
+  \seq_set_split:NVo \l_tmpa_seq \l__pfl_main_sep_tl { #3 }
+  \seq_gset_eq:cN { g__pfl_#2_main_seq } \l_tmpa_seq
+
+  % Stocker le nombre d'éléments
+  \int_if_exist:cF { g__pfl_#2_count_int } { \int_new:c { g__pfl_#2_count_int } }
+  \int_gset:cn { g__pfl_#2_count_int } { \seq_count:c { g__pfl_#2_main_seq } }
+  
+  % Créer la macro \#2len qui retourne le compte
+  \cs_gset:cpn { #2len } { \int_use:c { g__pfl_#2_count_int } }
+  
+  % Créer la macro \#2 qui retourne un élément i.j
+  \cs_if_exist:cTF { #2 }
+  {
+    \exp_args:Nc \RenewDocumentCommand { #2 } { m O{} }
+    {
+      \__pfl_onelevel_get:nnn { #2 } { ##1 } { ##2 }
+    }
+  }
+  {
+    \exp_args:Nc \NewDocumentCommand { #2 } { m O{} }
+    {
+      \__pfl_onelevel_get:nnn { #2 } { ##1 } { ##2 }
+    }
+  }
+}
+
+% Fonction générique pour accéder aux éléments d'une structure 1D
+\cs_new:Npn \__pfl_twolevel_get:nnnn #1 #2 #3 #4
+{
+  % #1 = nom de la structure
+  % #2 = index i
+  % #3 = index j
+  % #4 = macro de sortie (peut être vide)
+
+  % Gestion des indices en entier
+  \int_set:Nn \l_tmpa_int { \int_eval:n { #2 } }
+  \int_set:Nn \l_tmpb_int { \int_eval:n { #3 } }
+
+  % Validité des indices
+  \int_compare:nTF { \l_tmpa_int <= \int_use:c { g__pfl_#1_count_int } }
+  {
+    % Gérer les indices négatifs pour \l_tmpa_int (Niv1)
+    \int_compare:nT { \l_tmpa_int < 0 }
+    {
+      \int_set:Nn \l_tmpa_int { \int_use:c { g__pfl_#1_count_int } + \l_tmpa_int + 1 }
+    }
+
+    % Gérer les indices négatifs pour \l_tmpb_int (Niv2)
+    \int_if_exist:cTF { g__pfl_#1_subcount_ \int_use:N \l_tmpa_int _int }
+    {
+      % Gérer les indices négatifs pour \l_tmpb_int
+      \int_compare:nT { \l_tmpb_int < 0 }
+      {
+        \int_set:Nn \l_tmpb_int
+          { \int_use:c { g__pfl_#1_subcount_ \int_use:N \l_tmpa_int _int } + \l_tmpb_int + 1 }
+      }
+
+      % Vérifier si l'indice de l'élément est valide
+      \int_compare:nTF { \l_tmpb_int <= \int_use:c { g__pfl_#1_subcount_ \int_use:N \l_tmpa_int _int } }
+      {
+        % Récupérer l'élément
+        \tl_set:Nx \l_tmpa_tl { \seq_item:cn { g__pfl_#1_sub_\int_use:N \l_tmpa_int _seq } { \l_tmpb_int } }
+        \tl_if_empty:nTF { #4 }
+          { \tl_use:N \l_tmpa_tl }
+          { \tl_set_eq:NN #4 \l_tmpa_tl }
+      }
+      {
+        % Indice d'élément invalide
+        \tl_clear:N \l_tmpa_tl
+        \tl_if_empty:nTF { #4 }
+          { \text{-none-} }
+          { \tl_clear:N #4 }
+      }
+    }
+    {
+      % La sous-liste n'existe pas
+      \tl_clear:N \l_tmpa_tl
+      \tl_if_empty:nTF { #4 }
+        { \text{-none-} }
+        { \tl_clear:N #4 }
+    }
+  }
+  {
+    % Indice de sous-liste invalide
+    \tl_clear:N \l_tmpa_tl
+    \tl_if_empty:nTF { #4 }
+      { \text{-none-} }
+      { \tl_clear:N #4 }
+  }
+}
+% \cs_new:Npn \__pfl_twolevel_get:nnnn #1 #2 #3 #4
+% {
+  % % #1 = nom de la structure
+  % % #2 = indexI
+  % % #3 = indexJ
+  % % #4 = macro de sortie (peut être vide)
+  % \int_set:Nn \l_tmpa_int { \int_eval:n { #2 } }
+  % \int_compare:nT { \l_tmpa_int < 0 }
+  % {
+    % \int_set:Nn \l_tmpa_int { \int_use:c { g__pfl_#1_count_int } + \l_tmpa_int + 1 }
+  % }
+  % \int_set:Nn \l_tmpb_int { \int_eval:n { #3 } }
+  % \int_compare:nT { \l_tmpb_int < 0 }
+  % {
+    % \int_set:Nn \l_tmpb_int 
+      % { \int_use:c { g__pfl_#1_subcount_ \int_use:N \l_tmpa_int _int } + \l_tmpb_int + 1 }
+  % }
+  % \tl_clear:N \l_tmpa_tl
+  % % Test de validité des indices (?)
+  
+  % \bool_if:nTF 
+  % {
+    % \int_compare_p:n { \l_tmpa_int <= \int_use:c { g__pfl_#1_count_int } } 
+    % && 
+    % \int_compare_p:n { \l_tmpb_int <= \int_use:c { g__pfl_#1_subcount_ \int_use:N \l_tmpa_int _int } } 
+  % }
+  % {
+    % \tl_set:Nx \l_tmpa_tl 
+      % { \seq_item:cn { g__pfl_#1_sub_\int_use:N \l_tmpa_int _seq } { \l_tmpb_int } }
+    % \tl_if_empty:nTF { #4 }
+    % {
+      % % Pas de macro fournie : afficher directement
+      % \tl_use:N \l_tmpa_tl
+    % }
+    % {
+      % % Macro fournie : stocker dans #4
+      % \tl_set_eq:NN #4 \l_tmpa_tl
+    % }
+  % }
+  % {
+    % \tl_if_empty:nTF { #4 }
+    % {
+      % % Pas de macro fournie : afficher -none-
+      % \text{-none-}
+    % }
+    % {
+      % % Macro fournie : stocker vide dans #4
+      % \tl_clear:N #4
+    % }
+  % }
+% }
+
+
+% Fonction générique pour accéder aux éléments niv1 d'une structure 2D
+\cs_new:Npn \__pfl_twolevel_get_one:nnn #1 #2 #3
+{
+  % #1 = nom de la structure
+  % #3 = indexI
+  % #4 = macro de sortie (peut être vide)
+  \int_set:Nn \l_tmpa_int { \int_eval:n { #2 } }
+  \tl_clear:N \l_tmpa_tl
+  % Test de longueur
+  \int_compare:nTF { \l_tmpa_int <= \int_use:c { g__pfl_#1_count_int } }
+  {
+  \tl_set:Nx \l_tmpa_tl { \seq_item:cn { g__pfl_#1_main_seq } { \int_use:N \l_tmpa_int } }
+    \tl_if_empty:nTF { #3 }
+    {
+      % Pas de macro fournie : afficher directement
+      \tl_use:N \l_tmpa_tl
+    }
+    {
+      % Macro fournie : stocker dans ##2
+      \tl_set_eq:NN #3 \l_tmpa_tl
+    }
+  }
+  {
+  \tl_if_empty:nTF { #3 }
+    {
+      % Pas de macro fournie : afficher directement -none-
+      \text{-none-}
+    }
+    {
+      % Macro fournie : stocker dans ##2
+      \tl_set:Nn \l_tmpa_tl { }
+      \tl_set_eq:NN #3 \l_tmpa_tl
+    }
+  }
+}
+
+\NewDocumentCommand\readtwolevelslist{ O{} m m }
+{
+  % #1 = clés (séparateurs)
+  % #2 = nom de la structure (ex: maliste)
+  % #3 = séparateur secondaire
+  
+  % Traiter les options
+  \keys_set:nn { readlistwithlevels } { #1 }
+  
+  % Stocker les séparateurs
+  \tl_if_exist:cF { g__pfl_#2_mainsep_tl } { \tl_new:c { g__pfl_#2_mainsep_tl } }
+  \tl_gset_eq:cN { g__pfl_#2_mainsep_tl } \l__pfl_main_sep_tl
+  
+  \tl_if_exist:cF { g__pfl_#2_secsep_tl } { \tl_new:c { g__pfl_#2_secsep_tl } }
+  \tl_gset_eq:cN { g__pfl_#2_secsep_tl } \l__pfl_second_sep_tl
+  
+  %liste à construire
+  \seq_if_exist:cF { g__pfl_#2_main_seq } { \seq_new:c { g__pfl_#2_main_seq } }
+  \seq_clear:c { g__pfl_#2_main_seq }
+  \seq_set_split:NVo \l_tmpa_seq \l__pfl_main_sep_tl { #3 }
+  \seq_gset_eq:cN { g__pfl_#2_main_seq } \l_tmpa_seq
+  
+  % Stocker le nombre d'éléments
+  \int_if_exist:cF { g__pfl_#2_count_int } { \int_new:c { g__pfl_#2_count_int } }
+  \int_gset:cn { g__pfl_#2_count_int } { \seq_count:c { g__pfl_#2_main_seq } }
+  
+  % Créer la macro \#2len qui retourne le compte
+  \cs_gset:cpn { #2len } { \int_use:c { g__pfl_#2_count_int } }
+  
+  % Parser tous les sous-niveaux
+  \int_zero:N \l_tmpa_int
+  \seq_map_inline:cn { g__pfl_#2_main_seq }
+  {
+    \int_incr:N \l_tmpa_int
+    \seq_set_split:NVn \l_tmpb_seq \l__pfl_second_sep_tl { ##1 }
+    \cs_if_exist:cF { g__pfl_#2_sub_ \int_to_arabic:n { \l_tmpa_int } _seq }
+      { \seq_new:c { g__pfl_#2_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } }
+    \seq_gset_eq:cN { g__pfl_#2_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } \l_tmpb_seq
+    
+    % Stocker le nombre d'éléments de chaque sous-groupe (utile ??)
+    \int_if_exist:cF { g__pfl_#2_subcount_ \int_to_arabic:n { \l_tmpa_int } _int }
+      { \int_new:c { g__pfl_#2_subcount_ \int_to_arabic:n { \l_tmpa_int } _int } }
+    \int_gset:cn { g__pfl_#2_subcount_ \int_to_arabic:n { \l_tmpa_int } _int } 
+      { \seq_count:c { g__pfl_#2_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } }
+  }
+  
+  %création de la macro récupérant l'élément i.j
+  \cs_if_exist:cTF { #2 }
+  {
+    \exp_args:Nc \RenewDocumentCommand { #2 } { m O{} }
+    {
+      %argument sous la forme i,j ou i
+    \tl_set:Nn \l_tmpa_tl { ##1 }
+    \tl_if_in:NnTF \l_tmpa_tl { , }
+    {
+      \seq_set_split:Nnn \l_tmpc_seq {,} { ##1 }
+      \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpc_seq { 1 } }
+      \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpc_seq { 2 } }
+      \__pfl_twolevel_get:nnnn { #2 } { \tl_use:N \l_tmpa_tl } { \tl_use:N \l_tmpb_tl } { ##2 }
+    }
+    {
+      \__pfl_twolevel_get_one:nnn { #2 } { ##1 } { ##2 }
+    }
+    }
+  }
+  {
+    \exp_args:Nc \NewDocumentCommand { #2 } { m O{} }
+    {
+      %argument sous la forme i,j ou i
+    \tl_set:Nn \l_tmpa_tl { ##1 }
+    \tl_if_in:NnTF \l_tmpa_tl { , }
+    {
+      \seq_set_split:Nnn \l_tmpc_seq {,} { ##1 }
+      \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpc_seq { 1 } }
+      \tl_set:Nx \l_tmpb_tl { \seq_item:Nn \l_tmpc_seq { 2 } }
+      \__pfl_twolevel_get:nnnn { #2 } { \tl_use:N \l_tmpa_tl } { \tl_use:N \l_tmpb_tl } { ##2 }
+    }
+    {
+      \__pfl_twolevel_get_one:nnn { #2 } { ##1 } { ##2 }
+    }
+    }
+  }
+}
+
+\NewDocumentCommand\foreachelement{ m m m +m }
+{
+    % #1 = nom de la variable (ex: \myelt)
+    % #2 = \in (juste pour la syntaxe)
+    % #3 = nom de la liste (ex: malistedecouleurs)
+    % #4 = code à exécuter
+    \int_step_inline:nn { \int_use:c { g__pfl_#3_count_int } }
+    {
+        \tl_set:Nx #1 { \seq_item:cn { g__pfl_#3_main_seq } { ##1 } }
+        \cs_set:cpx { \cs_to_str:N #1 index } { ##1 }
+        #4
+    }
+}
+
+%========inutile ?
+\NewDocumentCommand\pflgetfromlistsingle{ s m m O{\myelt} } %inutile ??
+{
+  % #2 = nom, #3 = index, #4 = macro
+  \int_set:Nn \l_tmpa_int { \int_eval:n { #3 } }
+  \tl_clear:N \l_tmpa_tl
+  %test de longueur, semble OK
+  \int_compare:nTF { \l_tmpa_int <= \int_use:c { g__pfl_#2_count_int } }
+  {
+    \tl_set:Nx \l_tmpa_tl { \seq_item:cn { g__pfl_#2_main_seq } { \int_use:N \l_tmpa_int } }
+    \IfBooleanTF{#1}
+    {
+      \tl_if_exist:NF \g__pfleltlistsingle_result_tl
+      { \tl_new:N \g__pfleltlistsingle_result_tl }
+      \tl_gset_eq:NN \g__pfleltlistsingle_result_tl \l_tmpa_tl
+      \tl_use:N \l_tmpa_tl
+    }
+    {
+      \tl_set_eq:NN #4 \l_tmpa_tl
+    }
+  }
+  {
+    \IfBooleanTF{#1}
+    {\text{-none-}}
+    {
+       \tl_set:Nn \l_tmpa_tl { }
+       \tl_set_eq:NN #4 \l_tmpa_tl
+    }
+  }
+}
+
+\NewDocumentCommand\pfllenlist{ s O{,} m O{\mytmplen} }
+{
+  \tl_set:Ne \l_tmpa_tl { #3 }
+  %sep = , => clist !
+  \str_if_eq:enTF { #2 } { , }
+  {
+    \clist_set:Ne \l__pfltmp_clist { \l_tmpa_tl }
+    \IfBooleanTF{#1}
+    {
+      \clist_count:N { \l__pfltmp_clist }
+    }
+    {
+      \tl_gset:Ne #4 { \clist_count:N { \l__pfltmp_clist } }
+    }
+  }
+  {
+    \seq_set_split:NnV \l_tmpa_seq { #2 } \l_tmpa_tl
+    \tl_set:Nn \l_tmpa_tl { \seq_count:N \l_tmpa_seq }
+    \IfBooleanTF{#1}%if star := just printing // if not, storing
+    {
+       \l_tmpa_tl
+    }
+    {
+       \tl_gset:Ne #4 { \l_tmpa_tl }
+    }
+  }
+}
+
+\NewDocumentCommand\pflcreatelistdbl{ s O{,} m m m }
+{
+  % #1 = étoilée :=> version argument
+  % #2 = séparateur principal
+  % #3 = nom de la structure (ex: maliste)
+  % #4 = séparateur secondaire
+  % #5 = contenu de la liste
+  
+  % Stocker les séparateurs
+  \tl_if_exist:cF { g__pfl_#3_secsep_tl }
+  { \tl_new:c { g__pfl_#3_secsep_tl } }
+  \tl_gset:cn { g__pfl_#3_secsep_tl } { #4 }
+  
+  \tl_if_exist:cF { g__pfl_#3_mainsep_tl }
+  { \tl_new:c { g__pfl_#3mainsep_tl } }
+  \tl_gset:cn { g__pfl_#3_mainsep_tl } { #2 }
+  
+  %expansion de la liste, si besoin
+  \IfBooleanTF{#1}
+  {
+    \tl_set:Nn \l_tmpmylist_tl { #5 }
+    % Parser le premier niveau
+    \str_if_eq:nnTF { #2 } { , }
+    {
+      \clist_set:cV { l__pfl_#3_main_clist } { \l_tmpmylist_tl }
+    }
+    {
+      \seq_set_split:NnV \l_tmpa_seq { #2 } { \l_tmpmylist_tl }
+      \seq_if_exist:cF { g__pfl_#3_main_seq } 
+      { \seq_new:c { g__pfl_#3_main_seq } }
+      \seq_gset_eq:cN { g__pfl_#3_main_seq } \l_tmpa_seq
+    }
+  }
+  {
+    % Parser le premier niveau
+    \str_if_eq:nnTF { #2 } { , }
+    {
+      \clist_set:cV { l__pfl_#3_main_clist } { #5 }
+    }
+    {
+      \seq_set_split:NnV \l_tmpa_seq { #2 } { #5 }
+      \seq_if_exist:cF { g__pfl_#3_main_seq } 
+      { \seq_new:c { g__pfl_#3_main_seq } }
+      \seq_gset_eq:cN { g__pfl_#3_main_seq } \l_tmpa_seq
+    }
+  }
+  
+  % Parser tous les sous-niveaux
+  \int_zero:N \l_tmpa_int
+  \str_if_eq:nnTF { #2 } { , }
+  {
+    \clist_map_inline:cn { l__pfl_#3_main_clist }
+    {
+    \int_incr:N \l_tmpa_int
+    \seq_set_split:Nnn \l_tmpb_seq { #4 } { ##1 }
+    \cs_if_exist:cF { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq }
+    { \seq_new:c { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } }
+    \seq_gset_eq:cN { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } \l_tmpb_seq
+    }
+  }
+  {
+  \seq_map_inline:cn { g__pfl_#3_main_seq }
+    {
+    \int_incr:N \l_tmpa_int
+    \seq_set_split:Nno \l_tmpb_seq { #4 } { ##1 }
+    \cs_if_exist:cF { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq }
+    { \seq_new:c { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } }
+    \seq_gset_eq:cN { g__pfl_#3_sub_ \int_to_arabic:n { \l_tmpa_int } _seq } \l_tmpb_seq
+    }
+  }
+  
+  % Stocker le nombre d'éléments
+  \int_if_exist:cF { g__pfl_#3_count_int }
+  { \int_new:c { g__pfl_#3_count_int } }
+  \int_gset:cn { g__pfl_#3_count_int } { \l_tmpa_int }
+}
+
+\NewDocumentCommand\pflgetfromlistdbl{ s m m m O{\myelt} }
+{
+  % #2 = nom, #3 = index1, #4 = index2, #5 = macro
+  \int_set:Nn \l_tmpa_int { \int_eval:n { #3 } }
+  \int_set:Nn \l_tmpb_int { \int_eval:n { #4 } }
+  \int_compare:nTF { \l_tmpa_int <= \int_use:c { g__pfl_#2_count_int } }
+  {
+    \tl_set:Nx \l_tmpa_tl { \seq_item:cn { g__pfl_#2_sub_\int_use:c { l_tmpa_int }_seq } { \l_tmpb_int } }
+    \IfBooleanTF{#1}
+    {
+      \tl_if_exist:NF \g__pfleltlistdbl_result_tl
+        { \tl_new:N \g__pfleltlistdbl_result_tl }
+      \tl_gset_eq:NN \g__pfleltlistdbl_result_tl \l_tmpa_tl
+      \tl_use:N \l_tmpa_tl
+    }
+    {
+       \tl_gset:NV #5 \l_tmpa_tl
+    }
+  }
+  {
+    \IfBooleanTF{#1}
+    {\text{-none-}}
+    {
+       \tl_set:Nn \l_tmpa_tl { }
+       \tl_set_eq:NN #4 \l_tmpa_tl
+    }
+  }
+}
+
+\ExplSyntaxOff
+
+\endinput

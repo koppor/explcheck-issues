@@ -1,0 +1,302 @@
+% Copyright (C) 2026 Yu Zhai <me@zhaiyusci.net>
+% This work may be distributed and/or modified under the LaTeX Project
+% Public License, version 1.3c or (at your option) any later version.
+% https://www.latex-project.org/lppl.txt
+% LPPL maintenance status: maintained.
+% Current Maintainer: Yu Zhai <me@zhaiyusci.net>.
+% The distributed Work is listed in MANIFEST.md.
+%
+\NeedsTeXFormat{LaTeX2e}[2020-10-01]
+\IfFormatAtLeastTF{2020-10-01}{}{%
+  \PackageError{matchedsplit}{LaTeX 2020-10-01 or newer is required}%
+    {Update your LaTeX format and packages before loading matchedsplit.}%
+  \endinput
+}
+\ProvidesExplPackage{matchedsplit}{2026-10-29}{0.8.1}{Nested matched delimiters across aligned rows}
+\RequirePackage{amsmath}
+\RequirePackage{xcolor}
+\RequirePackage{l3keys2e}
+\ExplSyntaxOn
+
+\bool_new:N \g__ms_override_split_bool
+\bool_new:N \g__ms_override_align_bool
+\bool_new:N \g__ms_rainbow_bool
+\bool_new:N \l__ms_rainbow_bool
+\clist_new:N \g__ms_colors_clist
+\clist_new:N \l__ms_colors_clist
+\prop_new:N \l__ms_color_prop
+\definecolor{msblue}{HTML}{0072B2}
+\definecolor{msorange}{HTML}{D55E00}
+\definecolor{msgreen}{HTML}{009E73}
+\definecolor{mspurple}{HTML}{9B51A0}
+\definecolor{msred}{HTML}{B33A3A}
+\definecolor{mscyan}{HTML}{00838F}
+\clist_gset:Nn \g__ms_colors_clist
+ {msblue,msorange,msgreen,mspurple,msred,mscyan}
+\msg_new:nnn {matchedsplit}{empty-colors}{The~colors~list~must~not~be~empty.}
+\cs_new_protected:Npn \__ms_set_colors:Nn #1#2
+ {\clist_set:Nn \l_tmpa_clist {#2}
+  \clist_if_empty:NTF \l_tmpa_clist
+   {\msg_error:nn {matchedsplit}{empty-colors}}
+   {\clist_set_eq:NN #1\l_tmpa_clist}}
+\keys_define:nn {matchedsplit/package}
+ {
+  overridesplit .bool_gset:N = \g__ms_override_split_bool,
+  overridealign .bool_gset:N = \g__ms_override_align_bool,
+  rainbow .bool_gset:N = \g__ms_rainbow_bool,
+  colors .code:n =
+   {\__ms_set_colors:Nn \l__ms_colors_clist {#1}
+    \clist_gset_eq:NN \g__ms_colors_clist \l__ms_colors_clist}
+ }
+\clist_set_eq:NN \l__ms_colors_clist \g__ms_colors_clist
+\ProcessKeysOptions{matchedsplit/package}
+\keys_define:nn {matchedsplit/environment}
+ {
+  rainbow .bool_set:N = \l__ms_rainbow_bool,
+  colors .code:n = {\__ms_set_colors:Nn \l__ms_colors_clist {#1}}
+ }
+\cs_new_protected:Npn \__ms_options:n #1
+ {\bool_set_eq:NN \l__ms_rainbow_bool \g__ms_rainbow_bool
+  \clist_set_eq:NN \l__ms_colors_clist \g__ms_colors_clist
+  \keys_set:nn {matchedsplit/environment}{#1}}
+\cs_generate_variant:Nn \tl_if_head_is_group:nTF {V}
+\cs_generate_variant:Nn \tl_if_head_eq_charcode:nNT {VN}
+\tl_new:N \l__ms_input_tl
+\tl_new:N \l__ms_render_tl
+\tl_new:N \l__ms_content_tl
+\tl_new:N \l__ms_key_tl
+\seq_new:N \l__ms_stack_seq
+\int_new:N \l__ms_id_int
+\int_new:N \l__ms_pending_int
+\int_new:N \l__ms_env_depth_int
+\int_new:N \l__ms_env_pending_int
+\prop_new:N \l__ms_content_prop
+\bool_new:N \l__ms_valid_bool
+\msg_new:nnn {matchedsplit} {unmatched} {Unmatched~#1~in~matchedsplit.}
+\msg_new:nnn {matchedsplit} {metadata} {Expected~a~braced~argument~after~label/tag/intertext.}
+\msg_new:nnn {matchedsplit} {row-space} {Missing~closing~bracket~in~row~spacing.}
+\msg_new:nnn {matchedsplit} {delimiter} {Missing~delimiter~after~left/middle/right.}
+\cs_new_protected:Npn \__ms_fail:n #1
+ {\bool_set_false:N \l__ms_valid_bool \msg_error:nnn {matchedsplit}{unmatched}{#1}}
+\cs_new_protected:Npn \__ms_append_active:n #1
+ {\seq_map_inline:Nn \l__ms_stack_seq
+   {\prop_get:NnN \l__ms_content_prop {##1} \l__ms_content_tl
+    \tl_put_right:Nn \l__ms_content_tl {#1}
+    \prop_put:NnV \l__ms_content_prop {##1} \l__ms_content_tl}}
+\cs_new_protected:Npn \__ms_close:n #1
+ {
+  \seq_pop_right:NN \l__ms_stack_seq \l__ms_key_tl
+  \prop_get:NVN \l__ms_content_prop \l__ms_key_tl \l__ms_content_tl
+  \box_if_exist:cF {l__ms_delim_\l__ms_key_tl _box}
+   {\box_new:c {l__ms_delim_\l__ms_key_tl _box}}
+  % Invisible delimiters support middle without inflating the measured height.
+  \hbox_set:cn {l__ms_delim_\l__ms_key_tl _box}
+   {$\displaystyle \left.\l__ms_content_tl\right.$}
+  \tl_put_right:Nx \l__ms_render_tl
+   {\exp_not:N \__ms_right:nn {\l__ms_key_tl}{\exp_not:n{#1}}}
+  \__ms_append_active:n {\right#1}
+ }
+\cs_new_protected:Npn \__ms_token:n #1
+ {
+  \int_compare:nNnTF {\l__ms_pending_int} > {0}
+   {
+    \int_case:nn {\l__ms_pending_int}
+     {
+      {1}{\__ms_append_active:n {\left#1}
+          \int_incr:N \l__ms_id_int
+          \tl_set:Nx \l__ms_key_tl {\int_use:N \l__ms_id_int}
+          \seq_put_right:NV \l__ms_stack_seq \l__ms_key_tl
+          \prop_put:NVx \l__ms_color_prop \l__ms_key_tl
+           {\int_eval:n {\int_mod:nn
+             {\seq_count:N \l__ms_stack_seq - 1}
+             {\clist_count:N \l__ms_colors_clist} + 1}}
+          \prop_put:NVn \l__ms_content_prop \l__ms_key_tl {}
+          \tl_put_right:Nx \l__ms_render_tl
+            {\exp_not:N \__ms_left:nn {\l__ms_key_tl}{\exp_not:n{#1}}}}
+      {2}{\seq_if_empty:NTF \l__ms_stack_seq
+           {\__ms_fail:n {middle}}
+           {\seq_get_right:NN \l__ms_stack_seq \l__ms_key_tl
+            \tl_put_right:Nx \l__ms_render_tl
+             {\exp_not:N \__ms_middle:nn {\l__ms_key_tl}{\exp_not:n{#1}}}
+            \__ms_append_active:n {\middle#1}}}
+      {3}{\seq_if_empty:NTF \l__ms_stack_seq
+           {\__ms_fail:n {right}} {\__ms_close:n {#1}}}
+     }
+    \int_zero:N \l__ms_pending_int
+   }
+   {
+    \token_if_eq_meaning:NNTF #1 \left
+      {\int_set:Nn \l__ms_pending_int {1}}
+      {\token_if_eq_meaning:NNTF #1 \middle
+        {\int_set:Nn \l__ms_pending_int {2}}
+        {\token_if_eq_meaning:NNTF #1 \right
+          {\int_set:Nn \l__ms_pending_int {3}}
+          {\tl_put_right:Nn \l__ms_render_tl {#1}
+           \token_if_eq_meaning:NNTF #1 \\
+             {\__ms_row_options:}
+             {\token_if_eq_charcode:NNF #1 & {\__ms_append_active:n {#1}}}}}}
+   }
+ }
+% Preserve row spacing in the output, but remove it from the measurement.
+\cs_new_protected:Npn \__ms_row_options:
+ {
+  \tl_trim_spaces:N \l__ms_input_tl
+  \tl_if_head_eq_charcode:VNT \l__ms_input_tl *
+   {\tl_put_right:Nn \l__ms_render_tl {*}
+    \tl_set:Nx \l__ms_input_tl {\exp_not:f {\tl_tail:V \l__ms_input_tl}}}
+  \tl_trim_spaces:N \l__ms_input_tl
+  \tl_if_head_eq_charcode:VNT \l__ms_input_tl [
+   {\tl_if_in:NnTF \l__ms_input_tl {]}
+     {\exp_after:wN \__ms_row_space:w \l__ms_input_tl \q_mark \q_stop}
+     {\bool_set_false:N \l__ms_valid_bool
+      \tl_clear:N \l__ms_input_tl \msg_error:nn {matchedsplit}{row-space}}}
+ }
+\cs_new_protected:Npn \__ms_row_space:w [#1]#2\q_stop
+ {\tl_put_right:Nn \l__ms_render_tl {[#1]} \tl_set:Nn \l__ms_input_tl {#2}\tl_remove_once:Nn \l__ms_input_tl {\q_mark}}
+% Groups are opaque: keep braces and native math environments intact.
+\cs_new_protected:Npn \__ms_scan:
+ {
+  \tl_trim_spaces:N \l__ms_input_tl
+  \tl_if_empty:NF \l__ms_input_tl
+   {\tl_if_head_is_group:VTF \l__ms_input_tl
+     {\exp_after:wN \__ms_group:w \l__ms_input_tl \q_mark \q_stop}
+     {\exp_after:wN \__ms_single:w \l__ms_input_tl \q_mark \q_stop}
+    \__ms_scan:}
+ }
+\cs_new_protected:Npn \__ms_group:w #1#2\q_stop
+ {\tl_set:Nn \l__ms_input_tl {#2}\tl_remove_once:Nn \l__ms_input_tl {\q_mark}
+  \int_compare:nNnTF {\l__ms_pending_int} = {0}
+   {\int_add:Nn \l__ms_env_depth_int {\l__ms_env_pending_int}
+    \int_zero:N \l__ms_env_pending_int
+    \__ms_append_active:n {{#1}} \tl_put_right:Nn \l__ms_render_tl {{#1}}}
+   {\bool_set_false:N \l__ms_valid_bool \msg_error:nn {matchedsplit}{delimiter}
+    \int_zero:N \l__ms_pending_int}}
+\cs_new_protected:Npn \__ms_single:w #1#2\q_stop
+ {\tl_set:Nn \l__ms_input_tl {#2}\tl_remove_once:Nn \l__ms_input_tl {\q_mark} \__ms_dispatch:n {#1}}
+% Keep nested environments opaque; their alignment tokens belong to them.
+\cs_new_protected:Npn \__ms_copy:n #1
+ {\__ms_append_active:n {#1}\tl_put_right:Nn \l__ms_render_tl {#1}}
+\cs_new_protected:Npn \__ms_dispatch:n #1
+ {
+  \token_if_eq_meaning:NNTF #1 \begin
+   {\int_set:Nn \l__ms_env_pending_int {1}\__ms_copy:n {#1}}
+   {\token_if_eq_meaning:NNTF #1 \end
+     {\int_set:Nn \l__ms_env_pending_int {-1}\__ms_copy:n {#1}}
+     {\int_compare:nNnTF {\l__ms_env_depth_int} > {0}
+       {\__ms_copy:n {#1}}
+       {\token_if_eq_meaning:NNTF #1 \label
+         {\__ms_metadata:n {#1}}
+         {\token_if_eq_meaning:NNTF #1 \tag
+           {\__ms_metadata:n {#1}}
+           {\token_if_eq_meaning:NNTF #1 \notag
+             {\tl_put_right:Nn \l__ms_render_tl {#1}}
+             {\token_if_eq_meaning:NNTF #1 \nonumber
+               {\tl_put_right:Nn \l__ms_render_tl {#1}}
+               {\token_if_eq_meaning:NNTF #1 \intertext
+                 {\__ms_metadata:n {#1}}
+                 {\token_if_eq_meaning:NNTF #1 \displaybreak
+                   {\tl_put_right:Nn \l__ms_render_tl {#1}\__ms_row_options:}
+                   {\__ms_token:n {#1}}}}}}}}}}
+ }
+% Labels and tags must run only during amsmath's numbering pass, never
+% while measuring delimiter content (which may span several numbered rows).
+\cs_new_protected:Npn \__ms_metadata:n #1
+ {
+  \tl_put_right:Nn \l__ms_render_tl {#1}
+  \tl_trim_spaces:N \l__ms_input_tl
+  \token_if_eq_meaning:NNT #1 \tag
+   {\tl_if_head_eq_charcode:VNT \l__ms_input_tl *
+     {\tl_put_right:Nn \l__ms_render_tl {*}
+      \tl_set:Nx \l__ms_input_tl {\exp_not:f {\tl_tail:V \l__ms_input_tl}}}}
+  \tl_trim_spaces:N \l__ms_input_tl
+  \tl_if_head_is_group:VTF \l__ms_input_tl
+   {\exp_after:wN \__ms_metadata_arg:w \l__ms_input_tl \q_mark \q_stop}
+   {\bool_set_false:N \l__ms_valid_bool
+    \tl_clear:N \l__ms_input_tl \msg_error:nn {matchedsplit}{metadata}}
+ }
+\cs_new_protected:Npn \__ms_metadata_arg:w #1#2\q_stop
+ {\tl_put_right:Nn \l__ms_render_tl {{#1}}
+  \tl_set:Nn \l__ms_input_tl {#2}\tl_remove_once:Nn \l__ms_input_tl {\q_mark}}
+\cs_new_protected:Npn \__ms_color:n #1
+ {\bool_if:NT \l__ms_rainbow_bool
+   {\exp_args:Nx \color
+     {\clist_item:Nn \l__ms_colors_clist {\prop_item:Nn \l__ms_color_prop {#1}}}}}
+\cs_new:Npn \__ms_phantom:n #1
+ {\vphantom{\box_use:c {l__ms_delim_#1_box}}}
+\cs_new:Npn \__ms_left:nn #1#2
+ {\mathopen{\__ms_color:n {#1}\nulldelimiterspace=0pt \left#2\__ms_phantom:n{#1}\right.}}
+\cs_new:Npn \__ms_middle:nn #1#2
+ {\mathrel{\__ms_color:n {#1}\nulldelimiterspace=0pt \left.\__ms_phantom:n{#1}\middle#2\right.}}
+\cs_new:Npn \__ms_right:nn #1#2
+ {\mathclose{\__ms_color:n {#1}\nulldelimiterspace=0pt \left.\__ms_phantom:n{#1}\right#2}}
+\cs_new_protected:Npn \__ms_prepare:n #1
+ {
+  \tl_set:Nn \l__ms_input_tl {#1}
+  \tl_clear:N \l__ms_render_tl
+  \seq_clear:N \l__ms_stack_seq
+  \prop_clear:N \l__ms_content_prop
+  \prop_clear:N \l__ms_color_prop
+  \int_zero:N \l__ms_env_depth_int
+  \int_zero:N \l__ms_env_pending_int
+  \int_zero:N \l__ms_id_int
+  \int_zero:N \l__ms_pending_int
+  \bool_set_true:N \l__ms_valid_bool
+  \__ms_scan:
+  \int_compare:nNnF {\l__ms_pending_int} = {0}
+   {\bool_set_false:N \l__ms_valid_bool \msg_error:nn {matchedsplit}{delimiter}}
+  \seq_if_empty:NF \l__ms_stack_seq {\__ms_fail:n {left}}
+ }
+\cs_new_protected:Npn \__ms_typeset:nnn #1#2#3
+ {\group_align_safe_begin:
+  \group_begin:
+  \__ms_options:n {#3}
+  \__ms_prepare:n {#1}
+  \bool_if:NT \l__ms_valid_bool
+   {\begin{aligned}[#2]\tl_use:N \l__ms_render_tl\end{aligned}}
+  \group_end:\group_align_safe_end:}
+\NewDocumentEnvironment{matchedsplit}{O{} +b}
+ {\__ms_typeset:nnn {#2}{c}{#1}}{}
+\bool_if:NT \g__ms_override_split_bool
+ {
+  \RenewDocumentEnvironment{split}{O{} +b}
+   {\ifctagsplit@
+      \__ms_typeset:nnn {#2}{c}{#1}
+    \else
+      \iftagsleft@ \__ms_typeset:nnn {#2}{t}{#1}
+      \else \__ms_typeset:nnn {#2}{b}{#1}\fi
+    \fi}{}
+  % amsmath locally restores split from insplit@ inside align and gather.
+  \cs_set_eq:NN \insplit@ \split
+ }
+% Retain native amsmath numbering, measuring, tags and display layout.
+\NewCommandCopy\msnativealign\align
+\NewCommandCopy\endmsnativealign\endalign
+\exp_args:Ncc \NewCommandCopy {msnativealign*}{align*}
+\exp_args:Ncc \NewCommandCopy {endmsnativealign*}{endalign*}
+\cs_new_protected:Npn \__ms_align:nnn #1#2#3
+ {\group_begin:
+  \group_align_safe_begin:
+  \__ms_options:n {#3}
+  \__ms_prepare:n {#1}
+  \group_align_safe_end:
+  \bool_if:NT \l__ms_valid_bool
+   {\exp_args:NnV \__ms_align_render:nn {#2}\l__ms_render_tl}
+  \group_end:}
+\cs_new_protected:Npn \__ms_align_render:nn #1#2
+ {\cs_set_eq:NN \endalign \endmsnativealign
+  \begin{msnativealign#1}#2\end{msnativealign#1}}
+\NewDocumentEnvironment{matchedalign}{O{} +b}{\__ms_align:nnn {#2}{}{#1}}{}
+\NewDocumentEnvironment{matchedalign*}{O{} +b}{\__ms_align:nnn {#2}{*}{#1}}{}
+\bool_if:NT \g__ms_override_align_bool
+ {
+  \RenewDocumentEnvironment{align}{O{} +b}{\__ms_align:nnn {#2}{}{#1}}{}
+  \RenewDocumentEnvironment{align*}{O{} +b}{\__ms_align:nnn {#2}{*}{#1}}{}
+  % These native environments also finish through endalign. Restore its
+  % native meaning locally so the opt-in replacement cannot break them.
+  \clist_map_inline:nn {alignat,alignat*,xalignat,xalignat*,xxalignat,flalign,flalign*}
+   {\AddToHook{env/#1/begin}{\cs_set_eq:NN \endalign \endmsnativealign}}
+ }
+\ExplSyntaxOff
+
+
+

@@ -1,0 +1,482 @@
+% Khitan Small Script special builder.
+%
+% The current TeX/fontspec shaping path does not reliably expose the font's
+% native cluster substitution behaviour, so IMPE LaTeX System composes Khitan Small Script
+% clusters explicitly from the encoded character stream.
+%
+% Model used here:
+% - clusters are separated by spaces
+% - Type A starts with two adjacent characters
+% - Type B inserts U+16FE4 KHITAN SMALL SCRIPT FILLER after the first character
+% - Type A lays out rows of pairs, with a final centred character if odd
+% - Type B lays out a first centred character, then applies the Type A rule to
+%   the remaining characters
+
+\ExplSyntaxOn
+
+\tl_const:Nn \c__font_khs_filler_tl { 𖿤 }
+
+\seq_new:N \l__font_khs_cluster_seq
+\seq_new:N \l__font_khs_char_seq
+\seq_new:N \l__font_khs_line_seq
+\tl_new:N \l__font_khs_current_line_tl
+\tl_new:N \l__font_khs_content_tl
+\tl_new:N \l__font_khs_style_family_tl
+\tl_new:N \l__font_khs_style_series_tl
+\tl_new:N \l__font_khs_style_shape_tl
+\tl_new:N \l__font_khs_style_setup_tl
+\dim_new:N \l__font_khs_target_width_dim
+\dim_new:N \l__font_khs_line_width_dim
+\dim_new:N \l__font_khs_cluster_measure_dim
+\dim_new:N \l__font_khs_cell_wd_dim
+\dim_new:N \l__font_khs_cell_ht_dim
+\dim_new:N \l__font_khs_cluster_wd_dim
+\dim_new:N \l__font_khs_row_gap_dim
+\dim_new:N \l__font_khs_col_gap_dim
+\dim_new:N \l__font_khs_space_gap_dim
+\dim_new:N \l__font_khs_target_ht_dim
+\dim_new:N \l__font_khs_actual_ht_dim
+\dim_new:N \l__font_khs_raise_dim
+\bool_new:N \l__font_khs_type_b_bool
+\bool_new:N \l__font_khs_first_row_bool
+\bool_new:N \l__font_khs_first_cluster_bool
+\int_new:N \l__font_khs_run_max_rows_int
+\int_new:N \l__font_khs_cluster_rows_int
+\box_new:N \l__font_khs_measure_box
+\box_new:N \l__font_khs_cluster_box
+
+\cs_new_protected:Npn \__font_khs_reset_style_parse:
+  {
+    \tl_clear:N \l__font_khs_style_family_tl
+    \tl_clear:N \l__font_khs_style_series_tl
+    \tl_clear:N \l__font_khs_style_shape_tl
+    \tl_clear:N \l__font_khs_style_setup_tl
+  }
+
+\cs_new_protected:Npn \__font_khs_apply_style_setup:
+  {
+    \tl_clear:N \l__font_khs_style_setup_tl
+    \tl_if_blank:VF \l__font_khs_style_family_tl
+      { \tl_put_right:NV \l__font_khs_style_setup_tl \l__font_khs_style_family_tl }
+    \tl_if_blank:VF \l__font_khs_style_series_tl
+      { \tl_put_right:NV \l__font_khs_style_setup_tl \l__font_khs_style_series_tl }
+    \tl_if_blank:VF \l__font_khs_style_shape_tl
+      { \tl_put_right:NV \l__font_khs_style_setup_tl \l__font_khs_style_shape_tl }
+  }
+
+\cs_new_protected:Npn \__font_khs_prepare_content:n #1
+  {
+    \tl_set:Nn \l__font_khs_content_tl {#1}
+    \__font_khs_reset_style_parse:
+    \__font_khs_strip_wrappers:
+    \__font_khs_apply_style_setup:
+  }
+
+\cs_new_protected:Npn \__font_khs_strip_wrappers:
+  {
+    \tl_if_head_eq_meaning:VNTF \l__font_khs_content_tl \textsf
+      { \__font_khs_unwrap_textsf: }
+      {
+        \tl_if_head_eq_meaning:VNTF \l__font_khs_content_tl \texttt
+          { \__font_khs_unwrap_texttt: }
+          {
+            \tl_if_head_eq_meaning:VNTF \l__font_khs_content_tl \textbf
+              { \__font_khs_unwrap_textbf: }
+              {
+                \tl_if_head_eq_meaning:VNTF \l__font_khs_content_tl \textit
+                  { \__font_khs_unwrap_textit: }
+                  { }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_unwrap_textsf:
+  { \exp_after:wN \__font_khs_unwrap_textsf_aux:w \l__font_khs_content_tl \q_stop }
+\cs_new_protected:Npn \__font_khs_unwrap_textsf_aux:w \textsf #1#2 \q_stop
+  {
+    \tl_set:Nn \l__font_khs_style_family_tl { \sffamily }
+    \tl_set:Nn \l__font_khs_content_tl {#1}
+    \__font_khs_strip_wrappers:
+  }
+
+\cs_new_protected:Npn \__font_khs_unwrap_texttt:
+  { \exp_after:wN \__font_khs_unwrap_texttt_aux:w \l__font_khs_content_tl \q_stop }
+\cs_new_protected:Npn \__font_khs_unwrap_texttt_aux:w \texttt #1#2 \q_stop
+  {
+    \tl_set:Nn \l__font_khs_style_family_tl { \ttfamily }
+    \tl_set:Nn \l__font_khs_content_tl {#1}
+    \__font_khs_strip_wrappers:
+  }
+
+\cs_new_protected:Npn \__font_khs_unwrap_textbf:
+  { \exp_after:wN \__font_khs_unwrap_textbf_aux:w \l__font_khs_content_tl \q_stop }
+\cs_new_protected:Npn \__font_khs_unwrap_textbf_aux:w \textbf #1#2 \q_stop
+  {
+    \tl_set:Nn \l__font_khs_style_series_tl { \bfseries }
+    \tl_set:Nn \l__font_khs_content_tl {#1}
+    \__font_khs_strip_wrappers:
+  }
+
+\cs_new_protected:Npn \__font_khs_unwrap_textit:
+  { \exp_after:wN \__font_khs_unwrap_textit_aux:w \l__font_khs_content_tl \q_stop }
+\cs_new_protected:Npn \__font_khs_unwrap_textit_aux:w \textit #1#2 \q_stop
+  {
+    \tl_set:Nn \l__font_khs_style_shape_tl { \itshape }
+    \tl_set:Nn \l__font_khs_content_tl {#1}
+    \__font_khs_strip_wrappers:
+  }
+\cs_new:Npn \__font_khs_strip_fillers:n #1
+  {
+    \tl_clear:N \l_tmpa_tl
+    \tl_map_inline:nn {#1}
+      {
+        \str_if_eq:eeF
+          { \tl_to_str:n {##1} }
+          { \tl_to_str:V \c__font_khs_filler_tl }
+          { \tl_put_right:Nn \l_tmpa_tl {##1} }
+      }
+    \tl_use:N \l_tmpa_tl
+  }
+
+\cs_new_protected:Npn \__font_khs_render_linear:n #1
+  {
+    \__font_khs_prepare_content:n {#1}
+    \tl_set_eq:NN \l_tmpa_tl \l__font_khs_content_tl
+    \tl_replace_all:NVn \l_tmpa_tl \c__font_khs_filler_tl { }
+    \cs_if_exist:NT \XeTeXinterchartokenstate
+      { \XeTeXinterchartokenstate = 0 }
+    \tl_use:N \l__font_khs_style_setup_tl
+    \tl_use:N \l_tmpa_tl
+  }
+\cs_new_protected:Npn \__font_khs_measure_cells:
+  {
+    \dim_zero:N \l__font_khs_cell_wd_dim
+    \dim_zero:N \l__font_khs_cell_ht_dim
+    \seq_map_inline:Nn \l__font_khs_char_seq
+      {
+        \hbox_set:Nn \l__font_khs_measure_box { ##1 }
+        \dim_set:Nn \l_tmpa_dim { \box_wd:N \l__font_khs_measure_box }
+        \dim_set:Nn \l_tmpb_dim
+          { \box_ht:N \l__font_khs_measure_box + \box_dp:N \l__font_khs_measure_box }
+        \dim_compare:nNnT { \l_tmpa_dim } > { \l__font_khs_cell_wd_dim }
+          { \dim_set_eq:NN \l__font_khs_cell_wd_dim \l_tmpa_dim }
+        \dim_compare:nNnT { \l_tmpb_dim } > { \l__font_khs_cell_ht_dim }
+          { \dim_set_eq:NN \l__font_khs_cell_ht_dim \l_tmpb_dim }
+      }
+    \dim_set:Nn \l__font_khs_col_gap_dim { 0.2em }
+    \dim_set:Nn \l__font_khs_row_gap_dim { 0.05em }
+    \dim_set:Nn \l__font_khs_space_gap_dim { 0.5em }
+    \dim_set:Nn \l__font_khs_cluster_wd_dim
+      { 2\l__font_khs_cell_wd_dim + \l__font_khs_col_gap_dim }
+  }
+
+\cs_new_protected:Npn \__font_khs_set_run_max_rows:n #1
+  { \int_set:Nn \l__font_khs_run_max_rows_int {#1} }
+
+\cs_new_protected:Npn \__font_khs_compute_cluster_rows:
+  {
+    \bool_if:NTF \l__font_khs_type_b_bool
+      {
+        \int_set:Nn \l__font_khs_cluster_rows_int
+          { 1 + \int_div_truncate:nn { \seq_count:N \l__font_khs_char_seq } { 2 } }
+      }
+      {
+        \int_set:Nn \l__font_khs_cluster_rows_int
+          {
+            \int_div_truncate:nn
+              { \seq_count:N \l__font_khs_char_seq + 1 }
+              { 2 }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_center_row:n #1
+  {
+    \bool_if:NF \l__font_khs_first_row_bool
+      { \kern \l__font_khs_row_gap_dim }
+    \bool_set_false:N \l__font_khs_first_row_bool
+    \hbox to \l__font_khs_cluster_wd_dim { \hfil #1 \hfil }
+  }
+
+\cs_new_protected:Npn \__font_khs_pair_row:nn #1#2
+  {
+    \bool_if:NF \l__font_khs_first_row_bool
+      { \kern \l__font_khs_row_gap_dim }
+    \bool_set_false:N \l__font_khs_first_row_bool
+    \hbox to \l__font_khs_cluster_wd_dim
+      {
+        \hbox to \l__font_khs_cell_wd_dim { \hss #1 \hss }
+        \kern \l__font_khs_col_gap_dim
+        \hbox to \l__font_khs_cell_wd_dim { \hss #2 \hss }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_render_rows_from:n #1
+  {
+    \int_step_inline:nnnn { #1 } { 2 } { \seq_count:N \l__font_khs_char_seq }
+      {
+        \int_compare:nNnTF { ##1 } = { \seq_count:N \l__font_khs_char_seq }
+          { \__font_khs_center_row:n { \seq_item:Nn \l__font_khs_char_seq { ##1 } } }
+          {
+            \__font_khs_pair_row:nn
+              { \seq_item:Nn \l__font_khs_char_seq { ##1 } }
+              { \seq_item:Nn \l__font_khs_char_seq { \int_eval:n { ##1 + 1 } } }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_render_cluster_body:
+  {
+    \__font_khs_measure_cells:
+    \__font_khs_compute_cluster_rows:
+    \int_compare:nNnTF { \seq_count:N \l__font_khs_char_seq } = { 1 }
+      { \hbox_set:Nn \l__font_khs_cluster_box { \seq_item:Nn \l__font_khs_char_seq { 1 } } }
+      {
+        \vbox_set:Nn \l__font_khs_cluster_box
+          {
+            \offinterlineskip
+            \bool_set_true:N \l__font_khs_first_row_bool
+            \bool_if:NTF \l__font_khs_type_b_bool
+              {
+                \__font_khs_center_row:n { \seq_item:Nn \l__font_khs_char_seq { 1 } }
+                \int_compare:nNnT { \seq_count:N \l__font_khs_char_seq } > { 1 }
+                  { \__font_khs_render_rows_from:n { 2 } }
+              }
+              { \__font_khs_render_rows_from:n { 1 } }
+          }
+      }
+    \dim_set:Nn \l__font_khs_actual_ht_dim
+      { \box_ht:N \l__font_khs_cluster_box + \box_dp:N \l__font_khs_cluster_box }
+    \dim_set:Nn \l__font_khs_target_ht_dim
+      {
+        \int_max:nn { 1 } { \l__font_khs_run_max_rows_int }
+        \l__font_khs_cell_ht_dim
+        +
+        \int_eval:n { \int_max:nn { 1 } { \l__font_khs_run_max_rows_int } - 1 }
+        \l__font_khs_row_gap_dim
+      }
+    \dim_set:Nn \l__font_khs_raise_dim
+      { \dim_eval:n { (\l__font_khs_target_ht_dim - \l__font_khs_actual_ht_dim) / 2 } }
+    \raisebox{\dim_use:N \l__font_khs_raise_dim}{\box_use_drop:N \l__font_khs_cluster_box}
+  }
+
+\cs_new_protected:Npn \__font_khs_begin_cluster:
+  {
+    \seq_clear:N \l__font_khs_char_seq
+    \bool_set_false:N \l__font_khs_type_b_bool
+  }
+
+\cs_new_protected:Npn \__font_khs_push_char:n #1
+  {
+    \seq_put_right:Nn \l__font_khs_char_seq { #1 }
+  }
+
+\cs_new_protected:Npn \__font_khs_mark_type_b:
+  {
+    \bool_set_true:N \l__font_khs_type_b_bool
+  }
+
+\cs_new_protected:Npn \__font_khs_space:
+  { \hskip \l__font_khs_space_gap_dim }
+
+\cs_new_protected:Npn \__font_khs_breakable_space:
+  {
+    \penalty0
+    \hskip \l__font_khs_space_gap_dim plus 0.15em minus 0.08em\relax
+  }
+
+\cs_new_protected:Npn \__font_khs_parse_cluster:n #1
+  {
+    \__font_khs_begin_cluster:
+    \tl_map_inline:nn {#1}
+      {
+        \str_if_eq:eeTF
+          { \tl_to_str:n {##1} }
+          { \tl_to_str:V \c__font_khs_filler_tl }
+          {
+            \int_compare:nNnT { \seq_count:N \l__font_khs_char_seq } = { 1 }
+              { \__font_khs_mark_type_b: }
+          }
+          { \__font_khs_push_char:n {##1} }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_compute_run_max_rows:
+  {
+    \int_set:Nn \l__font_khs_run_max_rows_int { 1 }
+    \seq_map_inline:Nn \l__font_khs_cluster_seq
+      {
+        \tl_if_blank:nF {##1}
+          {
+            \__font_khs_parse_cluster:n {##1}
+            \__font_khs_compute_cluster_rows:
+            \int_set:Nn \l__font_khs_run_max_rows_int
+              {
+                \int_max:nn
+                  { \l__font_khs_run_max_rows_int }
+                  { \l__font_khs_cluster_rows_int }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_render_text:n #1
+  {
+    \regex_split:nnN { \s+ } {#1} \l__font_khs_cluster_seq
+    \__font_khs_compute_run_max_rows:
+    \bool_set_true:N \l__font_khs_first_cluster_bool
+    \seq_map_inline:Nn \l__font_khs_cluster_seq
+      {
+        \tl_if_blank:nF {##1}
+          {
+            \bool_if:NF \l__font_khs_first_cluster_bool
+              { \__font_khs_space: }
+            \bool_set_false:N \l__font_khs_first_cluster_bool
+            \__font_khs_parse_cluster:n {##1}
+            \__font_khs_render_cluster_body:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_render_text_breakable:n #1
+  {
+    \regex_split:nnN { \s+ } {#1} \l__font_khs_cluster_seq
+    \__font_khs_compute_run_max_rows:
+    \bool_set_true:N \l__font_khs_first_cluster_bool
+    \seq_map_inline:Nn \l__font_khs_cluster_seq
+      {
+        \tl_if_blank:nF {##1}
+          {
+            \bool_if:NF \l__font_khs_first_cluster_bool
+              { \__font_khs_breakable_space: }
+            \bool_set_false:N \l__font_khs_first_cluster_bool
+            \__font_khs_parse_cluster:n {##1}
+            \__font_khs_render_cluster_body:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_measure_cluster:n #1
+  {
+    \hbox_set:Nn \l__font_khs_measure_box
+      {
+        \__font_khs_parse_cluster:n {#1}
+        \__font_khs_render_cluster_body:
+      }
+    \dim_set:Nn \l__font_khs_cluster_measure_dim
+      { \box_wd:N \l__font_khs_measure_box }
+  }
+
+\cs_new_protected:Npn \__font_khs_flush_current_line:
+  {
+    \tl_if_blank:VF \l__font_khs_current_line_tl
+      {
+        \seq_put_right:NV \l__font_khs_line_seq \l__font_khs_current_line_tl
+        \tl_clear:N \l__font_khs_current_line_tl
+        \dim_zero:N \l__font_khs_line_width_dim
+      }
+  }
+
+\cs_new_protected:Npn \__font_khs_compute_lines:n #1
+  {
+    \seq_clear:N \l__font_khs_line_seq
+    \tl_clear:N \l__font_khs_current_line_tl
+    \dim_zero:N \l__font_khs_line_width_dim
+    \dim_set:Nn \l__font_khs_target_width_dim { \linewidth }
+    \seq_map_inline:Nn \l__font_khs_cluster_seq
+      {
+        \tl_if_blank:nF {##1}
+          {
+            \__font_khs_measure_cluster:n {##1}
+            \dim_set:Nn \l_tmpa_dim { \l__font_khs_cluster_measure_dim }
+            \tl_if_blank:VTF \l__font_khs_current_line_tl
+              {
+                \tl_set:Nn \l__font_khs_current_line_tl {##1}
+                \dim_set:Nn \l__font_khs_line_width_dim { \l_tmpa_dim }
+              }
+              {
+                \dim_set:Nn \l_tmpb_dim
+                  {
+                    \l__font_khs_line_width_dim
+                    + \l__font_khs_space_gap_dim
+                    + \l_tmpa_dim
+                  }
+                \dim_compare:nNnTF { \l_tmpb_dim } > { \l__font_khs_target_width_dim }
+                  {
+                    \__font_khs_flush_current_line:
+                    \tl_set:Nn \l__font_khs_current_line_tl {##1}
+                    \dim_set:Nn \l__font_khs_line_width_dim { \l_tmpa_dim }
+                  }
+                  {
+                    \tl_put_right:Nn \l__font_khs_current_line_tl { ~ ##1 }
+                    \dim_set:Nn \l__font_khs_line_width_dim { \l_tmpb_dim }
+                  }
+              }
+          }
+      }
+    \__font_khs_flush_current_line:
+  }
+
+\cs_new_protected:Npn \__font_khs_render_block:n #1
+  {
+    \group_begin:
+      \parindent=0pt
+      \parskip=0pt
+      \noindent
+      \__font_khs_prepare_content:n {#1}
+      \tl_use:N \l__font_khs_style_setup_tl
+      \__font_khs_render_text_breakable:n { \l__font_khs_content_tl }
+      \par
+    \group_end:
+  }
+
+\cs_new_protected:Npn \__font_define_public_command_khitan:nn #1#2
+  {
+    \cs_set_protected:cpn { #1stack } ##1
+      {
+        {
+          \use:c { __font_prepare_local_#2: }
+          \cs_if_exist:NT \XeTeXinterchartokenstate
+            { \XeTeXinterchartokenstate = 0 }
+          \__font_khs_render_text:n {##1}
+        }
+      }
+
+    \exp_args:Nc \DeclareDocumentCommand { #1stackblock } { +m }
+      {
+        {
+          \use:c { __font_prepare_local_#2: }
+          \cs_if_exist:NT \XeTeXinterchartokenstate
+            { \XeTeXinterchartokenstate = 0 }
+          \__font_khs_render_block:n { ##1 }
+        }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_public_command_khitan_linear:nn #1#2
+  {
+    \cs_set_protected:cpn { #1 } ##1
+      {
+        {
+          \use:c { __font_prepare_local_#2: }
+          \__font_khs_render_linear:n {##1}
+        }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_special_khitan_small:
+  {
+    \tl_clear:N \l__font_script_tl
+    \tl_clear:N \l__font_language_tl
+    \tl_set:Nn \l__font_backend_tl { generic }
+    \__font_special_use_generic:
+    \exp_args:NVV \__font_define_public_command_khitan:nn
+      \l__font_command_tl
+      \l__font_name_tl
+    \exp_args:NVV \__font_define_public_command_khitan_linear:nn
+      \l__font_command_tl
+      \l__font_name_tl
+  }
+
+\ExplSyntaxOff

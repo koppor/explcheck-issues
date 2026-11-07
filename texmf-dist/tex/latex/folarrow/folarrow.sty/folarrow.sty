@@ -1,0 +1,1053 @@
+%% folarrow.sty
+%% 軸に3本の斜線が入った矢印（葉層束の射影を表す）
+%% amscd，xy-pic，tikz-cdの図式と本文の数式で使う．
+%%
+%% Author: Yuwsuke Kieda
+%% Copyright (c) 2026 Yuwsuke Kieda
+%% This file is part of the folarrow package, released under the MIT License
+%% (see the file LICENSE). The arrow fonts of the package keep the licenses of
+%% their original fonts (see licenses/FONTS.md).
+%%
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesPackage{folarrow}[2026/10/10 v20261010.0 foliated arrows for amscd, xy-pic and tikz-cd]
+\RequirePackage{pict2e}
+\RequirePackage{graphics}
+
+%% ---------------------------------------------------------------
+%% パラメータ
+%%   span：斜線の長さ（矢頭の幅に対する比）
+%%   lean：斜線の傾き（長さに対する，矢印方向へのずれの比）
+%%   gap：斜線の間隔（矢頭の幅に対する比）
+%%   shift：矢印の中央から根元側へずらす量（矢頭の幅に対する比）
+%%   thickness：斜線の太さ（空なら矢印の軸の太さ．下の「矢頭の幅と線の太さ」を参照）
+%%   glyphs：本文用の矢印（\folrightarrowなど）に，用意したフォントの字形を使うか
+%%     （true／false．下の「本文用の矢印のフォント」を参照）
+%%   lite：簡易版（パッケージの読み込み時だけ指定できる）．ほかのファイル（folarrow.lua，
+%%     folarrow-fonts.def，folarrow-glyphs.def，folarrow-otf.def，矢印のフォントとマップファイル）
+%%     を一切使わず，すべての矢印を描いて組む．
+%%     矢頭の幅と線の太さは，XeTeX＋OpenTypeの数式フォントなら\XeTeXglyphboundsで読み，
+%%     それ以外はフォントの寸法から推定する．3本線は矢印の箱の中央に置く（字面の中心との
+%%     ずれは補正しない）．
+%% ---------------------------------------------------------------
+\def\fol@span{1.0}
+\def\fol@lean{0.25}
+\def\fol@gap{0.35}
+\def\fol@shift{0}
+\def\fol@thickness{}
+\newif\iffol@glyphs \fol@glyphstrue
+\newif\iffol@lite
+% 形のキーがすべて既定値か（本文用の矢印にフォントの字形を使えるか）．キーを設定するたびに判定する
+\newif\iffol@defaultshape \fol@defaultshapetrue
+% キーの値は設定のときに確かめる．数でないもの，範囲の外の値はエラーにして，前の値のままにする．
+%   \fol@setnum{キー}{マクロ}{値}{範囲の条件（fpの式．##1が値）}{範囲の説明}
+\ExplSyntaxOn
+\cs_new_protected:Npn \fol@setnum #1#2#3#4#5
+  {
+    \regex_match:nnTF { \A\s*[+\-]?(\d+\.?\d*|\.\d+)([eE][+\-]?\d+)?\s*\Z } {#3}
+      {
+        \fp_compare:nTF {#4}
+          { \tl_set:Nx #2 { \fp_eval:n {#3} } }
+          { \msg_error:nnnnn { folarrow } { range } {#1} {#3} {#5} }
+      }
+      { \msg_error:nnnnn { folarrow } { number } {#1} {#3} {#5} }
+    \fol@checkdefault
+  }
+\cs_new_protected:Npn \fol@setthickness #1
+  {
+    \tl_if_blank:nTF {#1}
+      { \tl_clear:N \fol@thickness }
+      {
+        \regex_match:nnTF
+          { \A\s*(([+\-]?(\d+\.?\d*|\.\d+)\s*(pt|bp|mm|cm|in|pc|dd|cc|sp|em|ex|px|nd|nc))|\\[A-Za-z@]+)\s*\Z } {#1}
+          {
+            \dim_compare:nNnTF {#1} < { 0pt }
+              { \msg_error:nnnnn { folarrow } { range } { thickness } {#1} { a~non-negative~length } }
+              { \tl_set:Nn \fol@thickness {#1} }
+          }
+          { \msg_error:nnnnn { folarrow } { number } { thickness } {#1} { a~length~such~as~0.4pt } }
+      }
+    \fol@checkdefault
+  }
+\cs_new_protected:Npn \fol@checkdefault
+  {
+    \bool_lazy_and:nnTF
+      { \tl_if_empty_p:N \fol@thickness }
+      { \fp_compare_p:n { abs(\fol@span-1) + abs(\fol@lean-0.25) + abs(\fol@gap-0.35) + abs(\fol@shift) < 0.0001 } }
+      { \fol@defaultshapetrue } { \fol@defaultshapefalse }
+  }
+\msg_new:nnnn { folarrow } { number }
+  { Invalid~value~'#2'~for~the~key~'#1'. }
+  { The~value~must~be~#3.~The~previous~value~is~kept. }
+\msg_new:nnnn { folarrow } { range }
+  { The~value~'#2'~for~the~key~'#1'~is~out~of~range. }
+  { The~value~must~be~#3.~The~previous~value~is~kept. }
+\ExplSyntaxOff
+\DeclareKeys[folarrow]{
+  span.code       = \fol@setnum{span}\fol@span{#1}{#1>0 && #1<=10}{a number greater than 0 and at most 10},
+  lean.code       = \fol@setnum{lean}\fol@lean{#1}{abs(#1)<=5}{a number between -5 and 5},
+  gap.code        = \fol@setnum{gap}\fol@gap{#1}{#1>=0 && #1<=10}{a number between 0 and 10},
+  shift.code      = \fol@setnum{shift}\fol@shift{#1}{abs(#1)<=10}{a number between -10 and 10},
+  thickness.code  = \fol@setthickness{#1},
+  glyphs.if       = fol@glyphs,
+  lite.if         = fol@lite,
+  lite.usage      = load,
+}
+\ProcessKeyOptions[folarrow]
+% 簡易版では，ほかのファイルを使わない（フォントの字形も使わない）
+\iffol@lite \fol@glyphsfalse \fi
+% LuaTeXのグリフ情報（folarrow.lua）を使うか
+\ifdefined\directlua \iffol@lite\else \def\fol@uselua{}\fi \fi
+\NewDocumentCommand\folarrowsetup{m}{\SetKeys[folarrow]{#1}}
+
+%% ---------------------------------------------------------------
+%% 描画の核
+%%   \fol@strokes{cx}{cy}{ux}{uy}{b}{t}
+%%   (cx,cy)：3本の中心（pt単位の数），(ux,uy)：矢印の向きの単位ベクトル，
+%%   b：矢頭の幅（pt），t：線の太さ（pt）．
+%%   斜線の向きは ±lean×u＋n（nはuを左に90°回した法線）で，右上がりに
+%%   なるほうの符号を選ぶ．横向きなら「///」，縦向きなら右上がりの
+%%   ほぼ水平な3本になる．
+%%   現在位置を原点とする幅0の箱に描く．
+%%   線の端は\fol@capに従う：r（丸）なら丸い端，b（切りっぱなし）なら切りっぱなし．
+%%   矢印の尻（軸の端）の形に合わせる．丸い端は線の太さの半分だけ外にはみ出すので，
+%%   見た目の長さがそろうよう，そのぶん短く引く．
+%% ---------------------------------------------------------------
+\def\fol@cap{b}
+\def\fol@cap@r{r}
+\def\fol@off{0}
+\def\fol@acr{0}
+\def\fol@strokes#1#2#3#4#5#6{%
+  \begingroup
+  \edef\fol@s{\fpeval{\fol@span*(#5)}}%
+  \ifx\fol@cap\fol@cap@r
+    \edef\fol@k{\fpeval{max(0,\fol@s-(#6))/\fol@s}}%
+  \else
+    \def\fol@k{1}%
+  \fi
+  \edef\fol@sg{\fpeval{
+      ((\fol@lean*(#3)-(#4))*(\fol@lean*(#4)+(#3)) >= 0) ? 1 : -1}}%
+  % 斜線の半分のベクトル
+  \edef\fol@vx{\fpeval{0.5*\fol@k*\fol@s*(\fol@sg*\fol@lean*(#3)-(#4))}}%
+  \edef\fol@vy{\fpeval{0.5*\fol@k*\fol@s*(\fol@sg*\fol@lean*(#4)+(#3))}}%
+  % 斜線どうしの間隔のベクトル
+  \edef\fol@dx{\fpeval{\fol@gap*(#5)*(#3)}}%
+  \edef\fol@dy{\fpeval{\fol@gap*(#5)*(#4)}}%
+  \unitlength=1pt
+  % タグ付けしたPDF（\DocumentMetadata{tagging=on}など）では，3本線は図ではなく飾り（artifact）にする
+  \expandafter\ifx\csname l_tag_graphic_mode_tl\endcsname\relax\else
+    \@namedef{l_tag_graphic_mode_tl}{artifact}%
+  \fi
+  \hbox to\z@{%
+    \fol@tatebegin
+    \begin{picture}(0,0)%
+      \linethickness{#6pt}%
+      \ifx\fol@cap\fol@cap@r\roundcap\else\buttcap\fi
+      \fol@oneline{#1}{#2}{-1}%
+      \fol@oneline{#1}{#2}{0}%
+      \fol@oneline{#1}{#2}{1}%
+    \end{picture}\fol@tateend\hss}%
+  \endgroup}
+% pTeX／upTeXの縦組み（dvipdfmx）では，pict2eのPDFの描画命令が縦組みに合わせて回らないので，
+% -90°回して描く．\iftdirはpTeX系にしかないので，\csnameで呼ぶ（ほかのエンジンで\ifと\fiの
+% 対応が崩れないように）．LuaTeX-jaの縦組みでは回さなくても正しい．
+% （定義の本体に\fiを含むので，条件分岐の中には書かず，\@gobbleか\@firstofoneで選ぶ）
+\let\fol@tatebegin\relax \let\fol@tateend\relax
+\ifdefined\directlua\expandafter\@gobble\else\expandafter\@firstofone\fi
+  {\@ifundefined{iftdir}{}{%
+    \def\fol@tatebegin{\csname iftdir\endcsname\special{pdf:btrans rotate -90}\fi}%
+    \def\fol@tateend{\csname iftdir\endcsname\special{pdf:etrans}\fi}}}
+\def\fol@oneline#1#2#3{%
+  \Line(\fpeval{(#1)+(#3)*\fol@dx-\fol@vx},\fpeval{(#2)+(#3)*\fol@dy-\fol@vy})%
+       (\fpeval{(#1)+(#3)*\fol@dx+\fol@vx},\fpeval{(#2)+(#3)*\fol@dy+\fol@vy})}
+
+%% ---------------------------------------------------------------
+%% 矢頭の幅と線の太さ：\fol@b（矢頭の幅）と\fol@t（線の太さ）をpt単位の数で決める
+%%   \fol@hmetrics{style}：横向きの矢印（\rightarrow系の文字）
+%%   \fol@vmetrics{style}{box}{kind}：縦向きの矢印の箱．kindはbig（\Big\downarrowなど）
+%%                                  またはinl（\foldownarrowの土台）
+%% 次の順に試す．
+%%   1. LuaTeXでOpenTypeの数式フォントなら，グリフの外接矩形から直接求める（folarrow.lua）．
+%%   2. 矢印の文字を持つフォントの名前が実測データ（folarrow-fonts.def）にあれば，
+%%      そのquadに実測の比を掛ける．\rightarrowは数式文字コードから，縦向きの矢印は
+%%      \downarrowの区切り記号コードから，実際に使われるフォントを求める．
+%%   3. どちらもなければ，箱の寸法とフォントのパラメーターから推定する．
+%% thicknessキーが空でなければ，線の太さはその値にする．
+%% ---------------------------------------------------------------
+\def\fol@setff#1{% #1が\displaystyleなどのとき，\fol@ffを\textfontなどにする
+  \ifx#1\scriptscriptstyle\let\fol@ff\scriptscriptfont
+  \else\ifx#1\scriptstyle\let\fol@ff\scriptfont
+  \else\let\fol@ff\textfont\fi\fi}
+\newbox\fol@refbox
+
+% 1. LuaTeX：グリフの外接矩形から（簡易版では使わない）
+\ifdefined\fol@uselua
+  \directlua{require('folarrow')}
+  \def\fol@luaextent#1#2{% #1：箱の番号，#2：true（縦向き）かfalse
+    \edef\fol@lua{\directlua{folarrow.extent(\number#1, #2)}}}
+\else
+  \def\fol@luaextent#1#2{\let\fol@lua\@empty}
+\fi
+\def\fol@splitlua#1 #2 #3 #4\@nil{\def\fol@b{#1}\def\fol@t{#2}\def\fol@otfkey{#3}\def\fol@glyphmid{#4}}
+% 矢頭の上下の中心（ベースラインからの高さ，pt）．グリフから読めたときだけ設定する
+\let\fol@glyphmid\@empty
+
+% 1'. XeTeX：OpenTypeの数式フォントなら\XeTeXglyphboundsでグリフの外接矩形を読む
+% \fol@xeextent{家族番号}{文字コード}{hかv}（フォントは\fol@ffで選んだスタイルのもの）：矢頭の幅（横向きは→の高さ＋深さ，縦向きは↓の
+% 字面の幅）と，マイナス記号の高さ＋深さ（線の太さ）を\fol@luaに「幅 太さ」で入れる．
+% 添字用の字形（ssty）や\Bigの大きい字形は読めないので，元の字形の値になる．
+\ifdefined\XeTeXglyphbounds
+  \def\fol@xeextent#1#2#3{%
+    \ifnum\XeTeXfonttype\fol@ff#1 =\tw@
+      \setbox\@tempboxa\hbox{\the\fol@ff#1\relax
+        \count@=\XeTeXcharglyph#2\relax
+        \if#3v%
+          \setbox\@tempboxa\hbox{\XeTeXglyph\count@}%
+          \@tempdima=\wd\@tempboxa
+          \advance\@tempdima-\XeTeXglyphbounds1 \count@
+          \advance\@tempdima-\XeTeXglyphbounds3 \count@
+          \@tempdimc=\z@
+        \else
+          \@tempdima=\XeTeXglyphbounds2 \count@
+          \advance\@tempdima\XeTeXglyphbounds4 \count@
+          % 矢頭の上下の中心：（上端の高さ－下端の深さ）／2
+          \@tempdimc=\XeTeXglyphbounds2 \count@
+          \advance\@tempdimc-\XeTeXglyphbounds4 \count@
+          \divide\@tempdimc\tw@
+        \fi
+        \count@=\XeTeXcharglyph"2212\relax
+        \@tempdimb=\XeTeXglyphbounds2 \count@
+        \advance\@tempdimb\XeTeXglyphbounds4 \count@
+        \xdef\fol@xe@tmp{\strip@pt\@tempdima\space\strip@pt\@tempdimb}%
+        \xdef\fol@xe@mid{\strip@pt\@tempdimc}}%
+      \ifx\fol@xe@tmp\fol@xe@zero\else
+        \fol@xecorrect{\fol@ff#1}{#3}%
+        \let\fol@lua\fol@xe@tmp
+      \fi
+    \fi}
+  \def\fol@xe@zero{0.0 0.0}
+  % フォントごとの補正（folarrow.luaの表と同じ実測値．XeTeXでは\Bigの大きい字形を
+  % 読めないので，KpMathは\Bigの矢頭の幅も補正する）
+  \ExplSyntaxOn
+  \cs_new_protected:Npn \fol@xecorrect #1#2
+    {
+      \str_set:Nx \l__fol_str { \str_lowercase:f { \fontname #1 } }
+      \regex_replace_all:nnN { [^a-z0-9] } { } \l__fol_str
+      \tl_set:Nn \l_tmpa_tl { 1 } % 太さ
+      \tl_set:Nn \l_tmpb_tl { 1 } % 幅
+      \str_if_in:NnT \l__fol_str { asanamath } { \tl_set:Nn \l_tmpa_tl { 1.058 } }
+      \str_if_in:NnT \l__fol_str { gfsneohellenicmath } { \tl_set:Nn \l_tmpa_tl { 0.815 } }
+      \str_if_eq:nnT {#2} { v }
+        {
+          \str_if_in:NnT \l__fol_str { minionmath } { \tl_set:Nn \l_tmpa_tl { 1.16 } }
+          \str_if_in:NnT \l__fol_str { gfsneohellenicmath } { \tl_set:Nn \l_tmpa_tl { 0.79 } }
+          \str_if_in:NnT \l__fol_str { kpmath }
+            { \tl_set:Nn \l_tmpa_tl { 1.087 } \tl_set:Nn \l_tmpb_tl { 0.917 } }
+        }
+      \exp_after:wN \__fol_xe_apply:w \fol@xe@tmp \q_stop
+    }
+  \cs_new_protected:Npn \__fol_xe_apply:w #1~#2 \q_stop
+    {
+      \tl_gset:Nx \fol@xe@tmp
+        { \fp_eval:n { #1 * \l_tmpb_tl } ~ \fp_eval:n { #2 * \l_tmpa_tl } ~ \l__fol_str \c_space_tl \fol@xe@mid }
+    }
+  \ExplSyntaxOff
+\else
+  \def\fol@xeextent#1#2#3{}
+\fi
+
+% 2. 実測データ
+% \fol@hdata{フォント名}{矢頭の幅/quad}{軸の太さ/quad}{\longrightarrowの尻}{伸びる矢印の尻}
+%           {中心のずれ：\longrightarrow,伸びる矢印,（直交方向）\longrightarrow,伸びる矢印,
+%           （左向き）\longleftarrow,伸びる矢印,（左向きの直交方向）\longleftarrow,伸びる矢印}
+% \fol@vdata{フォント名}{\Bigの矢頭の幅/quad}{\Bigの軸の太さ/quad}{土台の矢頭の幅/quad}{土台の軸の太さ/quad}
+%           {\Bigの尻}{土台の尻}{中心のずれ：\Bigの下向き,\Bigの上向き,土台の下向き,土台の上向き,
+%           （直交方向）同じ4つ}
+% \fol@otfcap{鍵}{\longrightarrowの尻}{伸びる矢印の尻}{\Bigの尻}{土台の尻}
+%           {中心のずれ：\longrightarrow,伸びる矢印,\Bigの下向き,\Bigの上向き,土台の下向き,土台の上向き,
+%           （直交方向）同じ6つ,（左向き）\longleftarrow,伸びる矢印,（左向きの直交方向）同じ2つ}
+%           ：OpenTypeのフォント
+% 尻の形はr（丸）かb（切りっぱなし）．3本線の端をこれに合わせる．
+% 中心のずれは，箱の中心に置いた3本線の中心が矢印の字面の中心から矢頭の側へずれる量と，
+% 軸に直交する方向（横向きは下，縦向きは右が正）にずれる量（quadに対する比）．
+% 3本線をこの量だけ戻して，字面の中心（軸の上）に置く．
+\def\fol@hdata#1#2#3#4#5#6{\@namedef{fol@H@#1}{{#2}{#3}{#4}{#5}{#6}}}
+\def\fol@vdata#1#2#3#4#5#6#7#8{\@namedef{fol@V@#1}{{#2}{#3}{#4}{#5}{#6}{#7}{#8}}}
+\def\fol@otfcaps{}
+\def\fol@otfcap#1#2#3#4#5#6{\g@addto@macro\fol@otfcaps{\fol@oc{#1}{#2}{#3}{#4}{#5}{#6}}}
+% \fol@otfcapxe：XeTeXで測った値（形式は\fol@otfcapと同じ）．XeTeXでは\Bigなどに選ばれる
+% 字形がLuaTeXと違うことがあるので，XeTeXのときだけ使う（あとから足すので優先される）．
+\ifdefined\XeTeXrevision
+  \let\fol@otfcapxe\fol@otfcap
+\else
+  \def\fol@otfcapxe#1#2#3#4#5#6{}
+\fi
+\iffol@lite\else \InputIfFileExists{folarrow-fonts.def}{}{}\fi
+
+\ExplSyntaxOn
+\str_new:N \l__fol_str
+\seq_new:N \l__fol_seq
+% \fol@hfamily〈マクロ〉：\rightarrowの数式文字コード（\mathchar"…）から家族番号を取り出す．
+% \fol@vfamily〈マクロ〉：\downarrowの区切り記号コード（\delimiter"…）から，大きい字形の
+% 家族番号を取り出す．取り出せなければ既定値（2または3）にする．
+\regex_const:Nn \c__fol_mathchar_regex { \\mathchar\s*\"([0-9A-Fa-f]+) }
+\regex_const:Nn \c__fol_delimiter_regex { \\delimiter\s*\"([0-9A-Fa-f]+) }
+% unicode-math（LuaTeX，XeTeX）：\Umathchar"類"家族"文字，\Udelimiter"類"家族"文字
+\regex_const:Nn \c__fol_umath_regex
+  { \\U(?:mathchar|delimiter)\s*\"([0-9A-Fa-f]+)\"([0-9A-Fa-f]+)\" }
+\cs_new_protected:Npn \__fol_family:NNnN #1#2#3#4
+  {
+    \cs_if_exist:cTF { fol@FAM@ \token_to_meaning:N #1 }
+      { \tl_set_eq:Nc #4 { fol@FAM@ \token_to_meaning:N #1 } }
+      {
+        \__fol_family_compute:NNnN #1#2{#3}#4
+        \tl_gset_eq:cN { fol@FAM@ \token_to_meaning:N #1 } #4
+      }
+  }
+\cs_new_protected:Npn \__fol_family_compute:NNnN #1#2#3#4
+  {
+    \str_set:Nx \l__fol_str { \token_to_meaning:N #1 }
+    \regex_extract_once:NVNTF \c__fol_umath_regex \l__fol_str \l__fol_seq
+      { \tl_set:Nx #4 { \int_from_hex:e { \seq_item:Nn \l__fol_seq { 3 } } } }
+      {
+        \regex_extract_once:NVNTF #2 \l__fol_str \l__fol_seq
+          {
+            \tl_set:Nx #4
+              { \int_eval:n { \int_mod:nn { \int_div_truncate:nn
+                  { \int_from_hex:e { \seq_item:Nn \l__fol_seq { 2 } } } { 256 } } { 16 } } }
+          }
+          { \tl_set:Nn #4 {#3} }
+      }
+  }
+\cs_generate_variant:Nn \regex_extract_once:NnNTF { NV }
+\cs_generate_variant:Nn \int_from_hex:n { e }
+\cs_new_protected:Npn \fol@hfamily #1
+  { \__fol_family:NNnN \rightarrow \c__fol_mathchar_regex { 2 } #1 }
+\cs_new_protected:Npn \fol@vfamily #1
+  { \__fol_family:NNnN \downarrow \c__fol_delimiter_regex { 3 } #1 }
+% フォント名の基本部分（「 at 10.95pt」を除く）と，末尾の数字を除いたもの
+\cs_new_protected:Npn \fol@basename #1
+  {
+    \str_set:Nx \l__fol_str { \fontname #1 }
+    \regex_replace_once:nnN { [\s\\].* } { } \l__fol_str
+    \tl_set:Nx \fol@fname { \l__fol_str }
+    \regex_replace_once:nnN { [0-9]+\Z } { } \l__fol_str
+    \tl_set:Nx \fol@fnamestem { \l__fol_str }
+  }
+\ExplSyntaxOff
+% データを引く．#1：HかV，#2：フォント．見つかれば\fol@dataに値を入れる．
+\def\fol@lookup#1#2{%
+  \fol@basename{#2}%
+  \expandafter\let\expandafter\fol@data\csname fol@#1@\fol@fname\endcsname
+  \ifx\fol@data\relax
+    \expandafter\let\expandafter\fol@data\csname fol@#1@\fol@fnamestem\endcsname
+  \fi}
+% 表の値の取り出し：\fol@ra（幅），\fol@rb（太さ），\fol@rc（尻の形）
+% \fol@rd：中心のずれ（quadに対する比）
+% \fol@re：直交方向のずれ（quadに対する比）
+\def\fol@hvals#1#2#3#4#5#6\@nil{\def\fol@ra{#1}\def\fol@rb{#2}%
+  \ifnum\fol@hkindnum=\z@\def\fol@rc{#3}\else\def\fol@rc{#4}\fi
+  \edef\fol@rd{\fol@clistitem{#5}{\ifnum\fol@hdir<\z@\ifnum\fol@hkindnum=\z@ 5\else 6\fi
+    \else\ifnum\fol@hkindnum=\z@ 1\else 2\fi\fi}}%
+  \edef\fol@re{\fol@clistitem{#5}{\ifnum\fol@hdir<\z@\ifnum\fol@hkindnum=\z@ 7\else 8\fi
+    \else\ifnum\fol@hkindnum=\z@ 3\else 4\fi\fi}}}
+% 横向きの矢印の向き（1で右向き，-1で左向き）
+\def\fol@hdir{1}
+\def\fol@bigvals#1#2#3#4#5#6#7\@nil{\def\fol@ra{#1}\def\fol@rb{#2}\def\fol@rc{#5}%
+  \edef\fol@rd{\fol@clistitem{#7}{\ifnum\fol@vdir<\z@ 1\else 2\fi}}%
+  \edef\fol@re{\fol@clistitem{#7}{\ifnum\fol@vdir<\z@ 5\else 6\fi}}}
+\def\fol@inlvals#1#2#3#4#5#6#7\@nil{\def\fol@ra{#3}\def\fol@rb{#4}\def\fol@rc{#6}%
+  \edef\fol@rd{\fol@clistitem{#7}{\ifnum\fol@vdir<\z@ 3\else 4\fi}}%
+  \edef\fol@re{\fol@clistitem{#7}{\ifnum\fol@vdir<\z@ 7\else 8\fi}}}
+% 縦向きの矢印の向き（-1で下向き，1で上向き）
+\def\fol@vdir{-1}
+% 横向きの矢印の組み方：0は\longrightarrow（本文の数式），1は伸びる矢印（amscd，\xfolrightarrow）
+\chardef\fol@hkindnum=\z@
+% OpenTypeのフォントの尻の形と中心のずれ：#1は小文字の英数字だけにしたフォント名，
+% #2は尻の形の何番目（1～4），#3は中心のずれの何番目（1～6）か．
+% 結果は\fol@cap（尻の形）と\fol@rd（中心のずれ，quadに対する比）．
+\ExplSyntaxOn
+% コンマ区切りの並びの#2番目．なければ0
+\cs_new:Npn \fol@clistitem #1#2
+  { \exp_args:Ne \tl_if_blank:nTF { \clist_item:nn {#1} {#2} } { 0 } { \clist_item:nn {#1} {#2} } }
+\cs_new_protected:Npn \fol@otfcaplookup #1#2#3
+  {
+    \def\fol@cap{b}
+    \def\fol@rd{0}
+    \def\fol@re{0}
+    \cs_set:Npn \fol@oc ##1##2##3##4##5##6
+      {
+        \str_if_in:nnT {#1} {##1}
+          {
+            \tl_set:Nx \fol@cap { \int_case:nn {#2} { {1}{##2} {2}{##3} {3}{##4} {4}{##5} } }
+            \tl_set:Nx \fol@rd { \fol@clistitem {##6} {#3} }
+            \tl_set:Nx \fol@re { \fol@clistitem {##6}
+              { \int_eval:n { \int_compare:nNnTF {#3} > {12} { #3 + 2 } { #3 + 6 } } } }
+          }
+      }
+    \fol@otfcaps
+    \tl_if_blank:VT \fol@rd { \def\fol@rd{0} }
+    \tl_if_blank:VT \fol@re { \def\fol@re{0} }
+  }
+\ExplSyntaxOff
+
+% 3. 推定（データがないとき）
+% 矢頭の幅：\rightarrowの箱の高さと数式の軸から2×（高さ－軸の高さ）．これが0.35 quad
+% 未満なら，箱の高さが矢頭より低く設定されたフォントとみなして0.5 quadにする．
+% 線の太さ：数式拡張フォントの罫線の太さ．Computer Modernでexscaleを使わない
+% ときのように拡張フォントが拡大されていなければ，記号フォントの大きさに合わせる．
+% いずれも極端な値にならないよう，quadに対する比を制限する．
+\def\fol@guess#1{%
+  \fol@setff#1%
+  \setbox\@tempboxa\hbox{$\m@th#1\rightarrow$}%
+  \@tempdima=\ht\@tempboxa \advance\@tempdima-\fontdimen22\fol@ff\tw@
+  \multiply\@tempdima\tw@
+  \@tempdimb=.35\fontdimen6\fol@ff\tw@
+  \ifdim\@tempdima<\@tempdimb \@tempdima=.5\fontdimen6\fol@ff\tw@ \fi
+  \@tempdimb=\fontdimen6\fol@ff\tw@
+  \edef\fol@b{\fpeval{min(max(\the\@tempdima,0.25*\the\@tempdimb),0.8*\the\@tempdimb)}}%
+  \@tempdima\fontdimen8\textfont3
+  \@tempdimc\fontdimen6\textfont3
+  \ifdim\@tempdimc=\z@ \@tempdimc=\fontdimen6\textfont\tw@ \fi
+  \edef\fol@t{\fpeval{\the\@tempdima*\the\@tempdimb/\the\@tempdimc}}%
+  \edef\fol@t{\fpeval{min(max(\fol@t,0.02*\the\@tempdimb),0.12*\the\@tempdimb)}}}
+
+% 横向き
+\def\fol@hmetrics@calc#1{%
+  \let\fol@glyphmid\@empty
+  \setbox\fol@refbox\hbox{$\m@th#1\rightarrow$}%
+  \fol@luaextent\fol@refbox{false}%
+  \fol@setff#1\fol@hfamily\fol@fam
+  \ifx\fol@lua\@empty
+    \fol@xeextent\fol@fam{"2192}h%
+  \fi
+  \ifx\fol@lua\@empty
+    \fol@lookup H{\fol@ff\fol@fam\relax}%
+    \ifx\fol@data\relax
+      \fol@guess#1\def\fol@cap{b}\def\fol@off{0}\def\fol@acr{0}%
+    \else
+      \expandafter\fol@hvals\fol@data\@nil
+      \@tempdimb=\fontdimen6\fol@ff\fol@fam\relax
+      \edef\fol@b{\fpeval{\fol@ra*\the\@tempdimb}}%
+      \edef\fol@t{\fpeval{\fol@rb*\the\@tempdimb}}%
+      \edef\fol@off{\fpeval{\fol@rd*\the\@tempdimb}}%
+      \edef\fol@acr{\fpeval{\fol@re*\the\@tempdimb}}%
+      \let\fol@cap\fol@rc
+    \fi
+  \else
+    \expandafter\fol@splitlua\fol@lua\@nil
+    \expandafter\fol@otfcaplookup\expandafter{\fol@otfkey}%
+      {\ifnum\fol@hkindnum=\z@ 1\else 2\fi}%
+      {\ifnum\fol@hdir<\z@\ifnum\fol@hkindnum=\z@ 13\else 14\fi\else\ifnum\fol@hkindnum=\z@ 1\else 2\fi\fi}%
+    \@tempdimb=\fontdimen6\fol@ff\fol@fam\relax
+    \edef\fol@off{\fpeval{\fol@rd*\the\@tempdimb}}%
+      \edef\fol@acr{\fpeval{\fol@re*\the\@tempdimb}}%
+  \fi
+  \fol@usethickness}
+% 縦向き
+\def\fol@vmetrics@calc#1#2#3{%
+  \fol@luaextent#2{true}%
+  \fol@setff#1\fol@vfamily\fol@fam
+  \ifx\fol@lua\@empty
+    \fol@xeextent\fol@fam{"2193}v%
+  \fi
+  \def\@tempa{#3}%
+  \ifx\fol@lua\@empty
+    \fol@lookup V{\fol@ff\fol@fam\relax}%
+    \ifx\fol@data\relax
+      % データがなければ横向きと同じ値を，拡張フォントの大きさに合わせて使う
+      \fol@hmetrics#1\fol@getrthree
+      \edef\fol@b{\fpeval{\fol@b*\fol@rthree}}%
+      \edef\fol@t{\fpeval{\fol@t*\fol@rthree}}%
+      \def\fol@cap{b}\def\fol@off{0}\def\fol@acr{0}%
+    \else
+      \ifx\@tempa\fol@kind@inl
+        \expandafter\fol@inlvals\fol@data\@nil
+      \else
+        \expandafter\fol@bigvals\fol@data\@nil
+      \fi
+      \@tempdimb=\fontdimen6\fol@ff\fol@fam\relax
+      \edef\fol@b{\fpeval{\fol@ra*\the\@tempdimb}}%
+      \edef\fol@t{\fpeval{\fol@rb*\the\@tempdimb}}%
+      \edef\fol@off{\fpeval{\fol@rd*\the\@tempdimb}}%
+      \edef\fol@acr{\fpeval{\fol@re*\the\@tempdimb}}%
+      \let\fol@cap\fol@rc
+    \fi
+  \else
+    \expandafter\fol@splitlua\fol@lua\@nil
+    \expandafter\fol@otfcaplookup\expandafter{\fol@otfkey}%
+      {\ifx\@tempa\fol@kind@inl 4\else 3\fi}%
+      {\ifx\@tempa\fol@kind@inl\ifnum\fol@vdir<\z@ 5\else 6\fi\else\ifnum\fol@vdir<\z@ 3\else 4\fi\fi}%
+    \@tempdimb=\fontdimen6\fol@ff\fol@fam\relax
+    \edef\fol@off{\fpeval{\fol@rd*\the\@tempdimb}}%
+      \edef\fol@acr{\fpeval{\fol@re*\the\@tempdimb}}%
+  \fi
+  \fol@usethickness}
+\def\fol@kind@inl{inl}
+% 計算した寸法（\fol@b，\fol@t，\fol@cap，\fol@off，\fol@acr，\fol@glyphmid）は，フォント名，矢印の種類，
+% 向き，thicknessの値ごとに覚えておき，2回目からは計算しない（描く矢印が多い文書で時間がかかるため）
+\def\fol@hmetrics#1{%
+  \fol@setff#1\fol@hfamily\fol@fam
+  \edef\fol@mkey{H\fol@fnm\fol@ff\fol@fam\relax|\number\fol@hkindnum|\fol@hdir|\detokenize\expandafter{\fol@thickness}}%
+  \fol@metricscache{\fol@hmetrics@calc#1}}
+\def\fol@vmetrics#1#2#3{%
+  \fol@setff#1\fol@vfamily\fol@fam
+  \edef\fol@mkey{V\fol@fnm\fol@ff\fol@fam\relax|\fol@fnm\fol@ff\tw@\relax|#3|\fol@vdir|\detokenize\expandafter{\fol@thickness}}%
+  \fol@metricscache{\fol@vmetrics@calc#1#2{#3}}}
+\def\fol@metricscache#1{%
+  \ifcsname fol@MC@\fol@mkey\endcsname
+    \csname fol@MC@\fol@mkey\endcsname
+  \else
+    #1%
+    \expandafter\xdef\csname fol@MC@\fol@mkey\endcsname{%
+      \def\noexpand\fol@b{\fol@b}\def\noexpand\fol@t{\fol@t}\def\noexpand\fol@cap{\fol@cap}%
+      \def\noexpand\fol@off{\fol@off}\def\noexpand\fol@acr{\fol@acr}%
+      \def\noexpand\fol@glyphmid{\fol@glyphmid}}%
+  \fi}
+\def\fol@usethickness{%
+  \ifx\fol@thickness\@empty\else
+    \@tempdima=\fol@thickness\relax
+    \edef\fol@t{\fpeval{\the\@tempdima}}%
+  \fi}
+% 拡張フォント（family 3）が拡大されていなければ（family 3のquad）／（family 2のquad），
+% 拡大されていれば1
+\def\fol@getrthree{%
+  \@tempdima\fontdimen6\textfont3
+  \@tempdimb\fontdimen6\textfont\tw@
+  \edef\fol@rthree{\fpeval{(\the\@tempdima>0pt) ? \the\@tempdima/\the\@tempdimb : 1}}%
+  \edef\fol@rthree{\fpeval{abs(\fol@rthree-1)>0.2 ? \fol@rthree : 1}}}
+% 数式の軸の高さ
+\def\fol@getaxis#1{%
+  \fol@setff#1\@tempdima\fontdimen22\fol@ff\tw@
+  \edef\fol@axis{\fpeval{\the\@tempdima}}}
+% 箱の寸法
+\def\fol@getbox#1{%
+  \edef\fol@wd{\fpeval{\the\wd#1}}%
+  \edef\fol@ht{\fpeval{\the\ht#1}}%
+  \edef\fol@dp{\fpeval{\the\dp#1}}}
+
+%% ---------------------------------------------------------------
+%% 箱に斜線を重ねる
+%%   \fol@overh{style}{box}{dir}：横向きの矢印の箱（dir＝1で右向き，-1で左向き）
+%%   \fol@overv{style}{box}{dir}{kind}：縦向きの矢印の箱（dir＝-1で下向き，1で上向き）
+%% ---------------------------------------------------------------
+\def\fol@overh#1#2#3{%
+  \def\fol@hdir{#3}%
+  \fol@hmetrics#1\fol@getaxis#1\fol@getbox#2%
+  % 3本線の高さ：グリフから矢頭の上下の中心が読めればそれ，読めなければ数式の軸
+  \ifx\fol@glyphmid\@empty\else\let\fol@axis\fol@glyphmid\fi
+  \edef\fol@axis{\fpeval{\fol@axis+\fol@acr}}%
+  \hbox{\fol@strokes
+    {\fpeval{\fol@wd/2-(#3)*(\fol@shift*\fol@b+\fol@off)}}{\fol@axis}{#3}{0}{\fol@b}{\fol@t}%
+    % 斜線の上下の広がりを箱の高さ・深さに入れ，上下のラベルと重ならないようにする
+    \vrule\@width\z@
+      \@height\fpeval{\fol@axis+(0.5*\fol@span*\fol@b+0.5*\fol@t)}pt
+      \@depth\fpeval{max(0,(0.5*\fol@span*\fol@b+0.5*\fol@t)-\fol@axis)}pt
+    \box#2}}
+\def\fol@overv#1#2#3#4{%
+  \def\fol@vdir{#3}%
+  \fol@vmetrics#1#2{#4}\fol@getbox#2%
+  \hbox{\fol@strokes
+    {\fpeval{\fol@wd/2-\fol@acr}}%
+    {\fpeval{(\fol@ht-\fol@dp)/2-(#3)*(\fol@shift*\fol@b+\fol@off)}}%
+    {0}{#3}{\fol@b}{\fol@t}%
+    \box#2}}
+
+%% ---------------------------------------------------------------
+%% 本文の数式用
+%% ---------------------------------------------------------------
+% 長い矢印：unicode-mathで数式フォントにU+27F6，U+27F5がなければ（XITS Math Bold），\LaTeX{}の
+% 元の定義と同じく\relbar\joinrel\rightarrow（\leftarrow\joinrel\relbar）で組む
+\def\fol@longright{\fol@iflongchar{"27F6}\longrightarrow{\relbar\joinrel\rightarrow}}
+\def\fol@longleft{\fol@iflongchar{"27F5}\longleftarrow{\leftarrow\joinrel\relbar}}
+\def\fol@iflongchar#1#2#3{%
+  \ifdefined\Umathcode
+    \fol@hfamily\fol@lfam
+    \iffontchar\textfont\numexpr\fol@lfam\relax#1 \def\fol@tmp{#2}\else\def\fol@tmp{#3}\fi
+  \else
+    \def\fol@tmp{#2}%
+  \fi
+  \fol@tmp}
+\DeclareRobustCommand*\folrightarrow{\mathrel{\mathpalette\fol@rightarrow\relax}}
+\DeclareRobustCommand*\folleftarrow{\mathrel{\mathpalette\fol@leftarrow\relax}}
+\DeclareRobustCommand*\foldownarrow{\mathrel{\mathpalette\fol@downarrow\relax}}
+\DeclareRobustCommand*\foluparrow{\mathrel{\mathpalette\fol@uparrow\relax}}
+\def\fol@rightarrow#1#2{\fol@tryglyph#1\z@{%
+  \setbox\z@\hbox{$\m@th#1\fol@longright$}\fol@overh#1\z@{1}}}
+\def\fol@leftarrow#1#2{\fol@tryglyph#1\@ne{%
+  \setbox\z@\hbox{$\m@th#1\fol@longleft$}\fol@overh#1\z@{-1}}}
+% 縦向きの土台：\right.が空の区切り記号の幅（\nulldelimiterspace）を右に足すと箱の中心が
+% 軸からずれるので，\Bigと同じく0にして組む．高さは記号フォントのquadの1.25倍とする
+% （本文のフォントによらず，数式フォントだけで形が決まるようにするため）．
+% \fol@vbase{style}{\downarrowか\uparrow}：土台を\box\z@に組む．区切り記号の字形の選び方が
+% 文字の大きさによらないよう，\delimiterfactorを1000，\delimitershortfallを0にする．
+\def\fol@vbase#1#2{%
+  \fol@setff#1\@tempdima=1.25\fontdimen6\fol@ff\tw@
+  \setbox\z@\hbox{$\m@th\nulldelimiterspace\z@\delimiterfactor\@m\delimitershortfall\z@
+    #1\left#2\vcenter to\@tempdima{}\right.$}}
+\def\fol@downarrow#1#2{\fol@tryglyph#1\tw@{%
+  \fol@tryrotv#1{-1}{}{%
+    \fol@vbase#1\downarrow
+    \fol@overv#1\z@{-1}{inl}}}}
+\def\fol@uparrow#1#2{\fol@tryglyph#1\thr@@{%
+  \fol@tryrotv#1{1}{}{%
+    \fol@vbase#1\uparrow
+    \fol@overv#1\z@{1}{inl}}}}
+
+%% ---------------------------------------------------------------
+%% 横向きの矢印を回した縦向きの矢印
+%%   ↓↑の伸縮の部品がずれているOpenTypeの数式フォント（Pennstander Math）では，大きな
+%%   区切り記号として組んだ↓↑が崩れる（軸の部品と矢頭の部品の軸の位置が合わない）．
+%%   そのようなフォント（folarrow-otf.defの\fol@otfrotv）では，描いて組む縦向きの矢印の土台を，
+%%   横向きの矢印を90°回したものにする（OTFの字形と同じ作り方）．
+%%   \fol@tryrotv{style}{dir}{長さ}{そうでない場合の処理}：dirは-1で下向き，1で上向き．
+%%   長さが空なら\longrightarrow，空でなければその長さの伸びる矢印（amscd用）を回す．
+%%   3本線は，横向きの矢印の実測値（矢頭の幅，軸の太さ，中心のずれ）を回した位置に描く．
+%% ---------------------------------------------------------------
+\def\fol@tryrotv#1#2#3#4{%
+  \fol@setff#1\fol@vfamily\fol@fam
+  \fol@ifrotv{\fol@ff\fol@fam\relax}{\fol@rotv#1{#2}{#3}}{#4}}
+% \fol@hink{style}{box}：横向きの矢印の箱の字面の左端と右端（pt）を\fol@inkl，\fol@inkrに入れる．
+% 読めなければ\fol@inklを空にする．LuaTeXはfolarrow.hink，XeTeXは\XeTeXglyphboundsで，
+% 最初の字形（\longrightarrowならU+27F6，伸びる矢印ならマイナス記号）の左の余白と，
+% 最後の字形（U+27F6か→）の右の余白から求める．
+\def\fol@hink#1#2#3{\let\fol@inkl\@empty
+  \ifdefined\fol@uselua
+    \edef\@tempa{\directlua{folarrow.hink(\number#2)}}%
+    \ifx\@tempa\@empty\else\expandafter\fol@hink@split\@tempa\@nil\fi
+  \else\ifdefined\XeTeXglyphbounds
+    \fol@setff#1\fol@hfamily\fol@fam
+    \ifnum\XeTeXfonttype\fol@ff\fol@fam=\tw@
+      \begingroup
+        \the\fol@ff\fol@fam\relax
+        \ifx\@empty#3\@empty
+          \count@=\XeTeXcharglyph"27F6 \count@ii=\count@
+        \else
+          \count@=\XeTeXcharglyph"2212 \count@ii=\XeTeXcharglyph"2192
+        \fi
+        \@tempdima=\XeTeXglyphbounds1 \count@
+        \@tempdimb=\wd#2\advance\@tempdimb-\XeTeXglyphbounds3 \count@ii
+        \xdef\fol@hink@tmp{\strip@pt\@tempdima\space\strip@pt\@tempdimb}%
+      \endgroup
+      \expandafter\fol@hink@split\fol@hink@tmp\@nil
+    \fi
+  \fi\fi}
+\def\fol@hink@split#1 #2\@nil{\def\fol@inkl{#1}\def\fol@inkr{#2}}
+\newcount\count@ii
+\def\fol@rotv#1#2#3{%
+  \def\@tempa{#3}%
+  \ifx\@tempa\@empty
+    \setbox\z@\hbox{$\m@th#1\fol@longright$}%
+    \chardef\fol@hkindnum=\z@
+  \else
+    \setbox\z@\hbox to#3{\rightarrowfill@#1}%
+    \chardef\fol@hkindnum=\@ne
+  \fi
+  \def\fol@hdir{1}%
+  \fol@hmetrics#1\fol@getaxis#1\fol@getbox\z@
+  \let\fol@vaxis\fol@axis
+  \ifx\fol@glyphmid\@empty\else\let\fol@axis\fol@glyphmid\fi
+  % 横向きの矢印の字面の中心（箱の基準点から）．字面の左右の端が読めればその中央，
+  % 読めなければ箱の中央から実測の中心のずれを引いたもの
+  \fol@hink#1\z@{#3}%
+  \ifx\fol@inkl\@empty
+    \edef\fol@cx{\fpeval{\fol@wd/2-\fol@off}}%
+  \else
+    \edef\fol@cx{\fpeval{(\fol@inkl+\fol@inkr)/2}}%
+  \fi
+  \edef\fol@cy{\fpeval{\fol@axis+\fol@acr}}%
+  % 回したあと（\rotateboxは回した外接矩形の左端を基準点に置く）の字面の中心の横位置と，
+  % 字面の中心を数式の軸に合わせるための上げ幅
+  \ifnum#2<\z@
+    \edef\fol@x{\fpeval{\fol@cy+\fol@dp}}%
+    \edef\fol@r{\fpeval{\fol@vaxis+\fol@cx}}%
+    \setbox\z@\hbox{\rotatebox{-90}{\box\z@}}%
+  \else
+    \edef\fol@x{\fpeval{\fol@ht-\fol@cy}}%
+    \edef\fol@r{\fpeval{\fol@vaxis-\fol@cx}}%
+    \setbox\z@\hbox{\rotatebox{90}{\box\z@}}%
+  \fi
+  \hbox{\fol@strokes{\fol@x}{\fol@vaxis}{0}{#2}{\fol@b}{\fol@t}%
+    \raise\fol@r\p@\box\z@}}
+
+%% ---------------------------------------------------------------
+%% 本文用の矢印のフォント
+%%   主な数式フォント（CM，Latin Modern，newtx，txfonts，newpx，pxfonts）には，
+%%   記号フォントの→（またはマイナス記号と→）の字形に3本線を加えたType 1フォントを
+%%   用意してある（元のフォントから作成した．文字0から順に→←↓↑）．
+%%   \rightarrowを持つ記号フォントの名前がfolarrow-glyphs.defにあり，形のキーが既定値
+%%   のままなら，本文用の矢印はそのフォントの字形で組む．フォントは記号フォントと同じ
+%%   大きさで読む．そうでなければ（unicode-mathのOpenTypeフォントなど）これまでどおり
+%%   描く．テキストとしては→←↓↑（U+2192，U+2190，U+2193，U+2191）になる．
+%% ---------------------------------------------------------------
+\def\fol@glyphfont#1#2{\@namedef{fol@G@#1}{#2}}
+\iffol@lite\else \InputIfFileExists{folarrow-glyphs.def}{}{}\fi
+% OpenTypeの数式フォント（unicode-math）用のOTF：\fol@otfglyphfont{見分ける文字列}{ファイル名}．
+% 見分ける文字列は，元のフォントのファイル名，PostScript名，フルネーム，ファミリー名を小文字に
+% して英数字だけ残したもの．\fontnameからフォント名の部分（「name:」や「[…]」の中，
+% 「:」や「/OT」の前）を取り出して同じようにしたものと，完全に一致すれば使う．
+% 文字はUnicodeの位置（→U+2192，←U+2190，↓U+2193，↑U+2191）にある．
+\ifdefined\XeTeXrevision\def\fol@otfok{}\fi
+\ifdefined\directlua\def\fol@otfok{}\fi
+\iffol@lite \let\fol@otfok\@undefined \fi
+\ifdefined\fol@otfok
+  \def\fol@otfglyphfont#1#2{\@namedef{fol@O@#1}{#2}}
+  \def\fol@otfrotv#1{\@namedef{fol@RV@#1}{}\def\fol@hasrotv{}}
+  \ifdefined\XeTeXrevision
+    \let\fol@otfrotvxe\fol@otfrotv
+  \else
+    \def\fol@otfrotvxe#1{}
+  \fi
+  \InputIfFileExists{folarrow-otf.def}{}{}
+\fi
+% 番兵：「フォントがない」ことを表す．\protectedなので，見出しなどを書き出すときにも展開されない
+\protected\def\fol@nofont{}
+% \fol@tryglyph{style}{文字の番号}{描く場合の処理}
+\def\fol@tryglyph#1#2#3{%
+  \let\fol@gf\fol@nofont
+  \iffol@glyphs\iffol@defaultshape
+    \fol@setff#1\fol@hfamily\fol@fam
+    \fol@getglyphfont{\fol@ff\fol@fam\relax}%
+  \fi\fi
+  % LuaTeX-jaは水平モードのU+2190〜U+2193を和文文字として和文フォントで組むので，
+  % \ltjalcharで欧文の文字として組む
+  \ifx\fol@gf\fol@nofont #3\else
+    \hbox{\fol@gf\ifdefined\ltjalchar\ltjalchar\else\char\fi\ifx\fol@gkind\fol@gkind@o
+      \ifcase\numexpr#2\relax"2192\or"2190\or"2193\else"2191\fi\else#2\fi}%
+  \fi}
+\def\fol@gkind@o{o}
+\ExplSyntaxOn
+\tl_new:N \l__fol_tl
+\tl_new:N \l__fol_at_tl
+\str_new:N \l__fol_key_str
+% \fol@getglyphfont{フォント}：対応するフォントを（まだなら読んで）\fol@gfにする．
+% 読んだフォントは「fol@F@〈\fontnameの文字列〉」に覚えておく（ないことも覚える）．
+% フォント（TFM）はfolarrow-glyphs.defと一緒に配布するので，あるものとする．
+\def\fol@fnm#1\relax{\fontname#1}
+\cs_new_protected:Npn \fol@getglyphfont #1
+  {
+    \cs_if_exist:cTF { fol@GC@ \fol@fnm #1 }
+      {
+        \cs_set_eq:Nc \fol@gf { fol@GC@ \fol@fnm #1 }
+        \cs_set_eq:Nc \fol@gkind { fol@GK@ \fol@fnm #1 }
+      }
+      {
+        \__fol_getglyphfont:n {#1}
+        \cs_gset_eq:cN { fol@GC@ \fol@fnm #1 } \fol@gf
+        \cs_gset_eq:cN { fol@GK@ \fol@fnm #1 } \fol@gkind
+      }
+  }
+\cs_new_protected:Npn \__fol_getglyphfont:n #1
+  {
+    \str_set:Nx \l__fol_key_str { \fontname #1 }
+    \regex_replace_once:nnN { \\relax.* } { } \l__fol_key_str
+    \cs_if_exist:cF { fol@F@ \l__fol_key_str }
+      {
+        \cs_gset_eq:cN { fol@F@ \l__fol_key_str } \fol@nofont
+        \cs_gset_eq:cN { fol@K@ \l__fol_key_str } \fol@gkind@t
+        \fol@basename {#1}
+        \cs_if_exist:cF { fol@G@ \fol@fname } { \__fol_otfglyphfont: }
+        \cs_if_exist:cT { fol@G@ \fol@fname }
+          {
+            \tl_set:Nx \l__fol_tl { \use:c { fol@G@ \fol@fname } }
+            \regex_extract_once:nVNTF { \sat\s*(\S+) } \l__fol_key_str \l__fol_seq
+              {
+                \tl_set:Nx \l__fol_at_tl
+                  { \c_space_tl at \c_space_tl \seq_item:Nn \l__fol_seq { 2 } }
+              }
+              { \tl_clear:N \l__fol_at_tl }
+            \use:x
+              {
+                \global \font \exp_not:c { fol@F@ \l__fol_key_str }
+                  = \l__fol_tl \l__fol_at_tl \scan_stop:
+              }
+          }
+      }
+    \cs_set_eq:Nc \fol@gf { fol@F@ \l__fol_key_str }
+    \cs_set_eq:Nc \fol@gkind { fol@K@ \l__fol_key_str }
+  }
+\def\fol@gkind@t{t}
+% OpenTypeの数式フォントなら，対応するOTFを元のフォントと同じ大きさ，同じ添字用字形の
+% 指定（+ssty=0など）で読む．
+\cs_new_protected:Npn \__fol_otfglyphfont:
+  {
+    \__fol_namekey:
+    \tl_clear:N \l__fol_tl
+    \cs_if_exist:cT { fol@O@ \l__fol_str }
+      { \tl_set:Nx \l__fol_tl { \use:c { fol@O@ \l__fol_str } } }
+    \tl_if_empty:NF \l__fol_tl
+      {
+        \regex_extract_once:nVNTF { \sat\s*(\S+) } \l__fol_key_str \l__fol_seq
+          { \tl_set:Nx \l__fol_at_tl { \c_space_tl at \c_space_tl \seq_item:Nn \l__fol_seq { 2 } } }
+          { \tl_clear:N \l__fol_at_tl }
+        \regex_extract_once:nVNTF { \+ssty=(\d+) } \l__fol_key_str \l__fol_seq
+          { \tl_set:Nx \l__fol_ssty_tl { \seq_item:Nn \l__fol_seq { 2 } } }
+          { \tl_clear:N \l__fol_ssty_tl }
+        \ifdefined\XeTeXrevision
+          \tl_set:Nx \l__fol_tl
+            { "[\l__fol_tl]\tl_if_empty:NF \l__fol_ssty_tl { /OT:+ssty=\l__fol_ssty_tl ; }" }
+        \else
+          \tl_set:Nx \l__fol_tl
+            { "[\l__fol_tl]:mode=base\tl_if_empty:NF \l__fol_ssty_tl { ;+ssty=\l__fol_ssty_tl }" }
+        \fi
+        \use:x
+          {
+            \global \font \exp_not:c { fol@F@ \l__fol_key_str }
+              = \l__fol_tl \l__fol_at_tl \scan_stop:
+          }
+        \cs_gset_eq:cN { fol@K@ \l__fol_key_str } \fol@gkind@o
+      }
+  }
+\cs_generate_variant:Nn \regex_match:nnTF { nV }
+% \l__fol_key_str（\fontnameの文字列）から，フォント名の部分（「name:」や「[…]」の中，「:」や
+% 「/OT」の前）を取り出し，小文字にして英数字だけ残したものを\l__fol_strに入れる．
+\cs_new_protected:Npn \__fol_namekey:
+  {
+    \str_set_eq:NN \l__fol_str \l__fol_key_str
+    \regex_replace_once:nnN { \A\"? } { } \l__fol_str
+    \regex_replace_once:nnN { \A(name|file): } { } \l__fol_str
+    \regex_match:nVTF { \A\[ } \l__fol_str
+      {
+        \regex_replace_once:nnN { \A\[([^\]]*)\].* } { \1 } \l__fol_str
+        \regex_replace_once:nnN { .*/ } { } \l__fol_str
+      }
+      { \regex_replace_once:nnN { [:/\"].* } { } \l__fol_str }
+    \str_set:Nx \l__fol_str { \str_lowercase:f { \l__fol_str } }
+    \regex_replace_all:nnN { [^a-z0-9] } { } \l__fol_str
+  }
+% \fol@ifrotv{フォント}{真}{偽}：縦向きの矢印を横向きの矢印を回して組むフォントか
+% （folarrow-otf.defの\fol@otfrotv．↓↑の伸縮の部品がずれていて，大きな区切り記号が崩れるもの）
+\cs_new_protected:Npn \fol@ifrotv #1#2#3
+  {
+    \cs_if_exist:NTF \fol@hasrotv
+      {
+        \cs_if_exist:cF { fol@RVC@ \fol@fnm #1 }
+          {
+            \str_set:Nx \l__fol_key_str { \fontname #1 }
+            \__fol_namekey:
+            \cs_if_exist:cTF { fol@RV@ \l__fol_str }
+              { \cs_gset_eq:cN { fol@RVC@ \fol@fnm #1 } \use_i:nn }
+              { \cs_gset_eq:cN { fol@RVC@ \fol@fnm #1 } \use_ii:nn }
+          }
+        \use:c { fol@RVC@ \fol@fnm #1 } {#2} {#3}
+      }
+      {#3}
+  }
+\tl_new:N \l__fol_ssty_tl
+\cs_generate_variant:Nn \regex_extract_once:nnNTF { nV }
+\ExplSyntaxOff
+% マップファイルと，テキストとしての値（ToUnicode）
+\iffol@glyphs
+  \ifdefined\pdfextension % LuaTeX
+    \ifnum\outputmode>\z@
+      \pdfextension mapfile{+folarrow.map}%
+      \pdfvariable gentounicode=\@ne
+      \pdfextension glyphtounicode{arrowright}{2192}%
+      \pdfextension glyphtounicode{arrowleft}{2190}%
+      \pdfextension glyphtounicode{arrowdown}{2193}%
+      \pdfextension glyphtounicode{arrowup}{2191}%
+    \fi
+  \else\ifdefined\pdfoutput % pdfTeX（XeTeXには\pdfoutputがない）
+    \ifnum\pdfoutput>\z@
+      \pdfmapfile{+folarrow.map}%
+      \pdfgentounicode=\@ne
+      \pdfglyphtounicode{arrowright}{2192}%
+      \pdfglyphtounicode{arrowleft}{2190}%
+      \pdfglyphtounicode{arrowdown}{2193}%
+      \pdfglyphtounicode{arrowup}{2191}%
+    \fi
+  \fi\fi
+  % dvipdfmx，xdvipdfmx：字形の名前（arrowrightなど）からToUnicodeを作るので，
+  % マップファイルだけ読ませる．dvipsではupdmapでfolarrow.mapを登録しておく．
+  \AtBeginDocument{%
+    \def\fol@tempa{dvipdfmx.def}\def\fol@tempb{xetex.def}%
+    \ifdefined\Gin@driver
+      \ifx\Gin@driver\fol@tempa\fol@dvipdfmxmap\fi
+      \ifx\Gin@driver\fol@tempb\fol@dvipdfmxmap\fi
+      % dvipsはパッケージからマップファイルを読ませられないので，登録が要ることを知らせる
+      \def\fol@tempa{dvips.def}%
+      \ifx\Gin@driver\fol@tempa
+        \PackageWarningNoLine{folarrow}{%
+          With dvips, the map file folarrow.map must be\MessageBreak
+          enabled (updmap-user --enable Map=folarrow.map,\MessageBreak
+          or dvips -u +folarrow.map). Otherwise the inline\MessageBreak
+          arrows are replaced by other glyphs.\MessageBreak
+          The option glyphs=false avoids the arrow fonts}%
+      \fi
+    \fi}
+  \def\fol@dvipdfmxmap{\AddToHook{shipout/firstpage}{\special{pdf:mapfile folarrow.map}}}
+\fi
+
+%% 伸びる矢印：\xfolrightarrow[下]{上}，\xfolleftarrow[下]{上}
+%% （amsmathの\xrightarrowと同じ組み方で，できた矢印に斜線を重ねる）
+\providecommand\rightarrowfill@{\arrowfill@\relbar\relbar\rightarrow}
+\providecommand\leftarrowfill@{\arrowfill@\leftarrow\relbar\relbar}
+\providecommand\arrowfill@[4]{%
+  $\m@th\thickmuskip0mu\medmuskip\thickmuskip\thinmuskip\thickmuskip
+   \relax#4#1\mkern-7mu%
+   \cleaders\hbox{$#4\mkern-2mu#2\mkern-2mu$}\hfill
+   \mkern-7mu#3$}
+% hyperrefのしおりでは，矢印は→←↓↑の文字にし，伸びる矢印のラベルは捨てる
+% （引数を取る定義は外に置き，\letで置き換える．フックの中に#を書くと二重に処理されるため）
+\def\fol@pdfstr@xr#1#{\textrightarrow\@gobble}
+\def\fol@pdfstr@xl#1#{\textleftarrow\@gobble}
+\AtBeginDocument{%
+  \ifdefined\pdfstringdefDisableCommands
+    \pdfstringdefDisableCommands{%
+      \def\folrightarrow{\textrightarrow}\def\folleftarrow{\textleftarrow}%
+      \def\foldownarrow{\textdownarrow}\def\foluparrow{\textuparrow}%
+      \let\xfolrightarrow\fol@pdfstr@xr \let\xfolleftarrow\fol@pdfstr@xl}%
+  \fi}
+\newcommand*\xfolrightarrow[2][]{\fol@extarrow 0359\rightarrowfill@{1}{#1}{#2}}
+\newcommand*\xfolleftarrow[2][]{\fol@extarrow 3095\leftarrowfill@{-1}{#1}{#2}}
+\def\fol@extarrow#1#2#3#4#5#6#7#8{%
+  \mathrel{\mathop{%
+    \setbox\z@\hbox{#5\displaystyle}%
+    \setbox\tw@\vbox{\m@th
+      \hbox{$\scriptstyle\mkern#3mu{#7}\mkern#4mu$}%
+      \hbox{$\scriptstyle\mkern#3mu{#8}\mkern#4mu$}%
+      \copy\z@}%
+    % 短すぎると斜線が窮屈になるので，\longrightarrowの長さを最小とする
+    \setbox\@ne\hbox{$\m@th\displaystyle\fol@longright$}%
+    \ifdim\wd\tw@<\wd\@ne \setbox\tw@\hbox to\wd\@ne{}\fi
+    \setbox\z@\hbox to\wd\tw@{\unhbox\z@}%
+    \chardef\fol@hkindnum=\@ne
+    \fol@overh\displaystyle\z@{#6}}%
+  \limits
+    \@ifnotempty{#8}{^{\if0#1\else\mkern#1mu\fi
+                       #8\if0#2\else\mkern#2mu\fi}}%
+    \@ifnotempty{#7}{_{\if0#2\else\mkern#2mu\fi
+                       #7\if0#1\else\mkern#1mu\fi}}}}
+
+%% ---------------------------------------------------------------
+%% amscd：@F>>>，@F<<<，@FVVV，@FAAA
+%%   通常の@>>>などの@の直後にFを付けると斜線入りになる．
+%% ---------------------------------------------------------------
+\def\fol@amscd{%
+  % unicode-mathは\begin{document}で@の数式コードを上書きし，amscdの@>>>などが
+  % 使えなくなる．amscdの設定（数式中で@を特別な意味にする）に戻す．unicode-mathを
+  % folarrowより後に読むと，unicode-mathの上書きがこの後になるので，CD環境の始めでも戻す．
+  \mathcode`\@="8000
+  \AddToHook{env/CD/begin}{\mathcode`\@="8000 }%
+  \atdef@ F##1{%
+    \@ifundefined{fol@CD\string##1}%
+      {\PackageError{folarrow}{@F must be followed by >, <, V or A}\@eha}%
+      {\csname fol@CD\string##1\endcsname}}%
+}
+\@namedef{fol@CD>}#1>#2>{\ampersand@
+  \ifCD@ \global\bigaw@\minCDarrowwidth \else \global\bigaw@\minaw@ \fi
+  % 大きな文字では\minCDarrowwidth（既定2.5pc）が短すぎて3本線が矢頭にかかるので，
+  % \longrightarrowの長さより短くしない
+  \setboxz@h{$\m@th\displaystyle\fol@longright$}%
+  \ifdim\wdz@>\bigaw@\global\bigaw@\wdz@\fi
+  \setboxz@h{$\m@th\scriptstyle\;{#1}\;\;$}%
+  \ifdim\wdz@>\bigaw@\global\bigaw@\wdz@\fi
+  \@ifnotempty{#2}{\setbox\@ne\hbox{$\m@th\scriptstyle\;{#2}\;\;$}%
+    \ifdim\wd\@ne>\bigaw@\global\bigaw@\wd\@ne\fi}%
+  \ifCD@\enskip\fi
+  \mathrel{\mathop{%
+      \setbox\z@\hbox to\bigaw@{\rightarrowfill@\displaystyle}%
+      \chardef\fol@hkindnum=\@ne
+      \fol@overh\displaystyle\z@{1}}%
+    \limits^{#1}\@ifnotempty{#2}{_{#2}}}%
+  \ifCD@\enskip\fi \ampersand@}
+\@namedef{fol@CD<}#1<#2<{\ampersand@
+  \ifCD@ \global\bigaw@\minCDarrowwidth \else \global\bigaw@\minaw@ \fi
+  % 大きな文字では\minCDarrowwidth（既定2.5pc）が短すぎて3本線が矢頭にかかるので，
+  % \longrightarrowの長さより短くしない
+  \setboxz@h{$\m@th\displaystyle\fol@longright$}%
+  \ifdim\wdz@>\bigaw@\global\bigaw@\wdz@\fi
+  \setboxz@h{$\m@th\scriptstyle\;\;{#1}\;$}%
+  \ifdim\wdz@>\bigaw@ \global\bigaw@\wdz@ \fi
+  \@ifnotempty{#2}{\setbox\@ne\hbox{$\m@th\scriptstyle\;\;{#2}\;$}%
+    \ifdim\wd\@ne>\bigaw@ \global\bigaw@\wd\@ne \fi}%
+  \ifCD@\enskip\fi
+  \mathrel{\mathop{%
+      \setbox\z@\hbox to\bigaw@{\leftarrowfill@\displaystyle}%
+      \chardef\fol@hkindnum=\@ne
+      \fol@overh\displaystyle\z@{-1}}%
+    \limits^{#1}\@ifnotempty{#2}{_{#2}}}%
+  \ifCD@\enskip\fi \ampersand@}
+\@namedef{fol@CDV}#1V#2V{\CD@check{FV..V..V}{\llap{$\m@th\vcenter{\hbox
+  {$\scriptstyle#1$}}$}\fol@Bigv\downarrow{-1}%
+  \rlap{$\m@th\vcenter{\hbox{$\scriptstyle#2$}}$}&&}}
+\@namedef{fol@CDA}#1A#2A{\CD@check{FA..A..A}{\llap{$\m@th\vcenter{\hbox
+  {$\scriptstyle#1$}}$}\fol@Bigv\uparrow{1}%
+  \rlap{$\m@th\vcenter{\hbox{$\scriptstyle#2$}}$}&&}}
+% 回して組むときの長さは，\Bigの区切り記号に求める高さ（空の区切り記号の\Big.の箱の高さ＋深さ）
+\newdimen\fol@Blen
+\def\fol@Bigv#1#2{%
+  \setbox\z@\hbox{$\m@th\Big.$}\fol@Blen=\dimexpr\ht\z@+\dp\z@\relax
+  \mathord{\fol@tryrotv\textstyle{#2}{\fol@Blen}{%
+    \setbox\z@\hbox{$\m@th\Big#1$}\fol@overv\textstyle\z@{#2}{big}}}}
+
+%% ---------------------------------------------------------------
+%% xy-pic：\ar[d]|@{fol}
+%%   矢印の途中に置く大きさ0の方向付き物体（\newdir）．矢印は切れない．
+%%   斜線の向きはその矢印の向きから決まる．
+%% ---------------------------------------------------------------
+\def\fol@xy{\newdir{fol}{*=0{\fol@xymark}}}
+% \folpad{ラベル}：ラベルの四方に斜線の半分の長さの余白を付ける．xy-picの矢印のラベルが
+% 斜線にかからないようにするときに\ar[r]|@{fol}^{\folpad{f}}のように使う．
+\newcommand*\folpad[1]{\mathpalette\fol@pad{#1}}
+\def\fol@pad#1#2{%
+  \fol@hmetrics#1%
+  \@tempdima=\fpeval{0.5*\fol@span*\fol@b}pt
+  \setbox\z@\hbox{$\m@th#1#2$}%
+  \hbox{\kern\@tempdima
+    \vrule\@width\z@\@height\dimexpr\ht\z@+\@tempdima\relax
+      \@depth\dimexpr\dp\z@+\@tempdima\relax
+    \box\z@\kern\@tempdima}}
+\def\fol@xymark{%
+  \fol@hmetrics\textstyle
+  \def\fol@cap{r}% xy-picの線の端は丸い
+  \fol@strokes
+    {\fpeval{-\fol@shift*\fol@b*(\cosDirection)}}%
+    {\fpeval{-\fol@shift*\fol@b*(\sinDirection)}}%
+    {\cosDirection}{\sinDirection}{\fol@b}{\fol@t}}
+
+%% ---------------------------------------------------------------
+%% tikz-cd：\arrow[d, foliated]
+%% ---------------------------------------------------------------
+\def\fol@tikz{%
+  \usetikzlibrary{decorations.markings}%
+  \tikzset{
+    foliated/.style={
+      postaction={decorate,
+        decoration={markings,
+          mark=at position 0.5 with {\fol@tikzmark}}},
+      % ラベルが斜線にかからないよう，この矢印のラベルだけ余白を斜線の半分の長さだけ増やす
+      % （tikz-cdの既定は0.5ex．矢頭の幅はおよそ0.4～0.55 em）
+      /tikz/commutative diagrams/every label/.append style={
+        inner sep={0.5ex+0.28em*\fol@span}}},
+    commutative diagrams/foliated/.style={/tikz/foliated}}%
+}
+\def\fol@tikzmark{%
+  % マーキングの座標系は矢印の向きに回っている（x軸が矢印の向き）．
+  \fol@hmetrics\textstyle
+  \edef\fol@c{\fpeval{cosd(\pgfdecoratedangle)}}%
+  \edef\fol@si{\fpeval{sind(\pgfdecoratedangle)}}%
+  % 右上がりになる符号（\fol@strokesと同じ判定）
+  \edef\fol@sg{\fpeval{
+      ((\fol@lean*\fol@c-\fol@si)*(\fol@lean*\fol@si+\fol@c) >= 0) ? 1 : -1}}%
+  \edef\fol@s{\fpeval{\fol@span*\fol@b}}%
+  \edef\fol@x{\fpeval{-\fol@shift*\fol@b}}%
+  \ifx\fol@thickness\@empty\else\pgfsetlinewidth{\fol@thickness}\fi
+  % 線の端は矢印の線の設定（line cap）をそのまま使う（tikz-cdの既定は切りっぱなし）
+  \pgfsetarrows{-}%
+  % 破線・点線（dashed，dotted）の模様は3本線には付けない
+  \pgfsetdash{}{0pt}%
+  \foreach \fol@k in {-1,0,1}{%
+    \pgfpathmoveto{\pgfpoint
+      {(\fol@x+\fol@k*\fol@gap*\fol@b-0.5*\fol@sg*\fol@lean*\fol@s)*1pt}
+      {-0.5*\fol@s*1pt}}%
+    \pgfpathlineto{\pgfpoint
+      {(\fol@x+\fol@k*\fol@gap*\fol@b+0.5*\fol@sg*\fol@lean*\fol@s)*1pt}
+      {0.5*\fol@s*1pt}}}%
+  \pgfusepath{stroke}}
+
+\AtBeginDocument{%
+  \@ifpackageloaded{amscd}{\fol@amscd}{}%
+  \@ifpackageloaded{tikz-cd}{\fol@tikz}{}%
+  \@ifpackageloaded{xy}{\fol@xy}{}%
+}
+\endinput

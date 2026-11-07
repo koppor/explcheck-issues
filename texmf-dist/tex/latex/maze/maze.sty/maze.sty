@@ -1,0 +1,314 @@
+% Copyright (C) 2026 by Sicheng Du <siddsc@foxmail.com>
+% This project is distributed under the LaTeX Project Public License, version 1.3c.
+%-------------------------%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{maze}[1.4]
+\RequirePackage{xcolor}
+\ExplSyntaxOn
+\int_new:N\l_maze_rand_int
+\int_new:N\l_maze_old_int
+\int_new:N\l_maze_new_int
+\int_new:N\l_maze_size_int
+\tl_new:N\l_maze_cell_tl
+\dim_const:Nn\g_maze_size_dim{\linewidth}
+\intarray_new:Nn\g_maze_map_intarray{10000}
+\intarray_new:Nn\g_walls_v_intarray{9900}
+\intarray_new:Nn\g_walls_h_intarray{9900}
+\intarray_new:Nn\g_maze_parent_intarray{10000}
+\box_new:N\l_maze_store_box
+\bool_new:N\l_maze_size_valid_bool
+\bool_new:N\l_maze_solution_found_bool
+\bool_new:N\l_maze_solution_first_bool
+\bool_new:N\l_maze_use_solution_bool
+\seq_new:N\l_maze_solution_seq
+\seq_new:N\l_maze_stack_seq
+\tl_new:N\l_maze_solution_view_tl
+\int_new:N\l_maze_previous_index_int
+\msg_new:nnn{maze}{undefined-maze}{Maze~`#1'~has~not~been~stored.}
+\msg_new:nnn{maze}{invalid-size}{Maze~size~`#1'~must~be~an~integer~in~the~range~2--99.}
+\cs_new_protected:Npn\maze_validate_size:n#1{
+  \bool_set_true:N\l_maze_size_valid_bool
+  \int_compare:nNnTF{#1}<{2}{
+    \bool_set_false:N\l_maze_size_valid_bool
+    \msg_error:nnn{maze}{invalid-size}{#1}
+  }{
+    \int_compare:nNnTF{#1}>{99}{
+      \bool_set_false:N\l_maze_size_valid_bool
+      \msg_error:nnn{maze}{invalid-size}{#1}
+    }{}
+  }
+}
+\cs_new_protected:Npn\maze_generate:nn #1#2{
+  \sys_gset_rand_seed:n{#2}
+  \intarray_gzero:N\g_maze_map_intarray
+  \intarray_gzero:N\g_walls_v_intarray
+  \intarray_gzero:N\g_walls_h_intarray
+  \int_step_inline:nn{#1*#1}{
+    \intarray_gset:Nnn\g_maze_map_intarray{##1}{##1}
+  }
+  \int_step_inline:nn{#1*(#1-1)}{
+    \intarray_gset:Nnn\g_walls_v_intarray{##1}{1}
+    \intarray_gset:Nnn\g_walls_h_intarray{##1}{1}
+  }
+  \bool_do_until:nn{
+    \int_compare_p:nNn{\intarray_item:Nn\g_maze_map_intarray{1}}
+    ={\intarray_item:Nn\g_maze_map_intarray{#1*#1}}
+  }{
+    \int_set:Nn\l_maze_rand_int{\int_rand:n{#1*(#1-1)}}
+    \int_compare:nNnTF{0}={\intarray_item:Nn\g_walls_v_intarray{\l_maze_rand_int}}{}{
+      \int_compare:nNnTF{
+        \intarray_item:Nn\g_maze_map_intarray{
+          \l_maze_rand_int+\int_div_truncate:nn{\l_maze_rand_int-1}{#1-1}
+        }
+      }={
+        \intarray_item:Nn\g_maze_map_intarray{
+          1+\l_maze_rand_int+\int_div_truncate:nn{\l_maze_rand_int-1}{#1-1}
+        }
+      }{}{
+        \int_set:Nn\l_maze_new_int{
+          \intarray_item:Nn\g_maze_map_intarray{
+            1+\l_maze_rand_int+\int_div_truncate:nn{\l_maze_rand_int-1}{#1-1}
+          }
+        }
+        \int_set:Nn\l_maze_old_int{
+          \intarray_item:Nn\g_maze_map_intarray{
+            \l_maze_rand_int+\int_div_truncate:nn{\l_maze_rand_int-1}{#1-1}
+          }
+        }
+        \intarray_gset:Nnn\g_walls_v_intarray{\l_maze_rand_int}{0}
+        \int_step_inline:nn{#1*#1}{
+          \int_compare:nNnTF{\l_maze_old_int}={\intarray_item:Nn\g_maze_map_intarray{##1}}
+          {\intarray_gset:Nnn\g_maze_map_intarray{##1}{\l_maze_new_int}}{}
+        }
+      }
+    }
+    \int_set:Nn\l_maze_rand_int{\int_rand:n{#1*(#1-1)}}
+    \int_compare:nNnTF{0}={\intarray_item:Nn\g_walls_h_intarray{\l_maze_rand_int}}{}{
+      \int_compare:nNnTF{\intarray_item:Nn\g_maze_map_intarray{\l_maze_rand_int}}
+      ={\intarray_item:Nn\g_maze_map_intarray{#1+\l_maze_rand_int}}{}{
+        \int_set:Nn\l_maze_new_int{
+          \intarray_item:Nn\g_maze_map_intarray{#1+\l_maze_rand_int}
+        }
+        \int_set:Nn\l_maze_old_int{
+          \intarray_item:Nn\g_maze_map_intarray{\l_maze_rand_int}
+        }
+        \intarray_gset:Nnn\g_walls_h_intarray{\l_maze_rand_int}{0}
+        \int_step_inline:nn{#1*#1}{
+          \int_compare:nNnTF{\l_maze_old_int}={\intarray_item:Nn\g_maze_map_intarray{##1}}
+          {\intarray_gset:Nnn\g_maze_map_intarray{##1}{\l_maze_new_int}}{}
+        }
+      }
+    }
+  }
+}
+\cs_new_protected:Npn\maze_draw_picture:nn#1#2{
+  \setlength{\unitlength}{\fp_eval:n{.4/#1}\g_maze_size_dim}
+  \begin{picture}(#1,#1)(0,0)
+  \put(0,0){\line(0,1){#1}} \put(#1,#1){\line(0,-1){#1}}
+  \put(\int_eval:n{#1-1},#1){\line(-1,0){\int_eval:n{#1-1}}}
+  \put(1,0){\line(1,0){\int_eval:n{#1-1}}}
+  \int_step_inline:nn{#1*(#1-1)}{
+    \int_compare:nNnTF{0}={\intarray_item:Nn\g_walls_h_intarray{##1}}{}{
+      \put(
+        \int_mod:nn{##1-1}{#1},
+        \int_eval:n{1+\int_div_truncate:nn{##1-1}{#1}}
+      ){\line(1,0){1}}
+    }
+    \int_compare:nNnTF{0}={\intarray_item:Nn\g_walls_v_intarray{##1}}{}{
+      \put(
+        \int_mod:nn{##1}{#1-1},
+        \int_div_truncate:nn{##1-1}{#1-1}
+      ){\line(0,1){1}}
+    }
+  }
+  #2
+  \end{picture}
+}
+\cs_new_protected:Npn\maze_draw:nn#1#2{
+  \maze_generate:nn{#1}{#2}
+  \maze_draw_picture:nn{#1}{}
+}
+\cs_new_protected:Npn\maze_find_solution:n#1{
+  \int_set:Nn\l_maze_size_int{#1}
+  \intarray_gzero:N\g_maze_parent_intarray
+  \seq_clear:N\l_maze_solution_seq
+  \seq_clear:N\l_maze_stack_seq
+  \bool_set_false:N\l_maze_solution_found_bool
+  \seq_put_right:Nn\l_maze_stack_seq{1}
+  \intarray_gset:Nnn\g_maze_parent_intarray{1}{0}
+  \bool_do_until:nn{\seq_if_empty_p:N\l_maze_stack_seq}{
+    \seq_pop_right:NN\l_maze_stack_seq\l_maze_cell_tl
+    \int_set:Nn\l_maze_old_int{\l_maze_cell_tl}
+    \int_compare:nNnTF{\l_maze_old_int}={#1*#1}{
+      \bool_set_true:N\l_maze_solution_found_bool
+      \seq_clear:N\l_maze_stack_seq
+    }{
+      \int_set:Nn\l_maze_rand_int{\int_div_truncate:nn{\l_maze_old_int-1}{#1}}
+      \int_compare:nNnT{\int_mod:nn{\l_maze_old_int-1}{#1}}>{0}{
+        \int_set:Nn\l_maze_new_int{\l_maze_old_int-1}
+        \int_compare:nNnT{0}={\intarray_item:Nn\g_walls_v_intarray{\l_maze_old_int-\l_maze_rand_int-1}}{
+          \int_compare:nNnT{0}={\intarray_item:Nn\g_maze_parent_intarray{\l_maze_new_int}}{
+            \intarray_gset:Nnn\g_maze_parent_intarray{\l_maze_new_int}{\l_maze_old_int}
+            \seq_put_right:Nx\l_maze_stack_seq{\int_use:N\l_maze_new_int}
+          }
+        }
+      }
+      \int_compare:nNnT{\int_mod:nn{\l_maze_old_int}{#1}}>{0}{
+        \int_set:Nn\l_maze_new_int{\l_maze_old_int+1}
+        \int_compare:nNnT{0}={\intarray_item:Nn\g_walls_v_intarray{\l_maze_old_int-\l_maze_rand_int}}{
+          \int_compare:nNnT{0}={\intarray_item:Nn\g_maze_parent_intarray{\l_maze_new_int}}{
+            \intarray_gset:Nnn\g_maze_parent_intarray{\l_maze_new_int}{\l_maze_old_int}
+            \seq_put_right:Nx\l_maze_stack_seq{\int_use:N\l_maze_new_int}
+          }
+        }
+      }
+      \int_compare:nNnT{\l_maze_old_int}>{#1}{
+        \int_set:Nn\l_maze_new_int{\l_maze_old_int-#1}
+        \int_compare:nNnT{0}={\intarray_item:Nn\g_walls_h_intarray{\l_maze_new_int}}{
+          \int_compare:nNnT{0}={\intarray_item:Nn\g_maze_parent_intarray{\l_maze_new_int}}{
+            \intarray_gset:Nnn\g_maze_parent_intarray{\l_maze_new_int}{\l_maze_old_int}
+            \seq_put_right:Nx\l_maze_stack_seq{\int_use:N\l_maze_new_int}
+          }
+        }
+      }
+      \int_compare:nNnT{\l_maze_old_int}<{#1*(#1-1)+1}{
+        \int_set:Nn\l_maze_new_int{\l_maze_old_int+#1}
+        \int_compare:nNnT{0}={\intarray_item:Nn\g_walls_h_intarray{\l_maze_old_int}}{
+          \int_compare:nNnT{0}={\intarray_item:Nn\g_maze_parent_intarray{\l_maze_new_int}}{
+            \intarray_gset:Nnn\g_maze_parent_intarray{\l_maze_new_int}{\l_maze_old_int}
+            \seq_put_right:Nx\l_maze_stack_seq{\int_use:N\l_maze_new_int}
+          }
+        }
+      }
+    }
+  }
+  \bool_if:NT\l_maze_solution_found_bool{
+    \int_set:Nn\l_maze_old_int{#1*#1}
+    \seq_put_right:Nx\l_maze_solution_seq{\int_use:N\l_maze_old_int}
+    \bool_do_until:nn{\int_compare_p:nNn{\l_maze_old_int}={1}}{
+      \int_set:Nn\l_maze_old_int{\intarray_item:Nn\g_maze_parent_intarray{\l_maze_old_int}}
+      \seq_put_right:Nx\l_maze_solution_seq{\int_use:N\l_maze_old_int}
+    }
+  }
+}
+\cs_new_protected:Npn\maze_draw_solution_segment:nn#1#2{
+  \int_set:Nn\l_maze_new_int{\int_min:nn{#1}{#2}}
+  \group_begin:\color{green!50!black}
+  \int_compare:nNnTF{\int_abs:n{#2-#1}}={1}{
+    \put(
+      \fp_eval:n{\int_mod:nn{\l_maze_new_int-1}{\l_maze_size_int}+0.5},
+      \fp_eval:n{\int_div_truncate:nn{\l_maze_new_int-1}{\l_maze_size_int}+0.5}
+    ){\line(1,0){1}}
+  }{
+    \put(
+      \fp_eval:n{\int_mod:nn{\l_maze_new_int-1}{\l_maze_size_int}+0.5},
+      \fp_eval:n{\int_div_truncate:nn{\l_maze_new_int-1}{\l_maze_size_int}+0.5}
+    ){\line(0,1){1}}
+  }
+  \group_end:
+}
+\cs_new_protected:Npn\maze_draw_solution_path:n#1{
+  \maze_find_solution:n{#1}
+  \bool_if:NT\l_maze_solution_found_bool{
+    \seq_map_indexed_inline:Nn\l_maze_solution_seq{
+      \int_compare:nNnTF{##1}>{1}{
+        \maze_draw_solution_segment:nn{##2}{\l_maze_previous_index_int}
+      }{}
+      \int_set:Nn\l_maze_previous_index_int{##2}
+    }
+  }
+}
+\cs_new_protected:Npn\maze_mark_solution_cells:n#1{
+  \maze_find_solution:n{#1}
+  \bool_if:NT\l_maze_solution_found_bool{
+    \group_begin:\color{green!50!black}
+    \seq_map_inline:Nn\l_maze_solution_seq{
+      \int_set:Nn\l_maze_old_int{##1}
+      \put(
+        \fp_eval:n{\int_mod:nn{\l_maze_old_int-1}{\l_maze_size_int}+0.5},
+        \fp_eval:n{\int_div_truncate:nn{\l_maze_old_int-1}{\l_maze_size_int}+0.5}
+      ){\circle*{0.25}}
+    }
+    \group_end:
+  }
+}
+\cs_new_protected:Npn\maze_draw_solution:nn#1#2{
+  \maze_generate:nn{#1}{#2}
+  \maze_draw_picture:nn{#1}{\maze_draw_solution_path:n{#1}}
+}
+\cs_new_protected:Npn\maze_save:nnn#1#2#3{
+  \maze_validate_size:n{#2}
+  \bool_if:NT\l_maze_size_valid_bool{
+    \maze_generate:nn{#2}{#3}
+    \hbox_set:Nn\l_maze_store_box{\maze_draw_picture:nn{#2}{}}
+    \cs_if_exist:cF{maze_saved_#1}{\box_new:c{maze_saved_#1}}
+    \box_gset_eq:cN{maze_saved_#1}\l_maze_store_box
+    \hbox_set:Nn\l_maze_store_box{\maze_draw_picture:nn{#2}{\maze_draw_solution_path:n{#2}}}
+    \cs_if_exist:cF{maze_saved_#1_solution}{\box_new:c{maze_saved_#1_solution}}
+    \box_gset_eq:cN{maze_saved_#1_solution}\l_maze_store_box
+    \hbox_set:Nn\l_maze_store_box{\maze_draw_picture:nn{#2}{\maze_mark_solution_cells:n{#2}}}
+    \cs_if_exist:cF{maze_saved_#1_solution_cells}{\box_new:c{maze_saved_#1_solution_cells}}
+    \box_gset_eq:cN{maze_saved_#1_solution_cells}\l_maze_store_box
+  }
+}
+\cs_new_protected:Npn\maze_use:n#1{
+  \cs_if_exist:cTF{maze_saved_#1}{\box_use:c{maze_saved_#1}}{
+    \msg_error:nnn{maze}{undefined-maze}{#1}
+  }
+}
+\cs_new_protected:Npn\maze_use_solution_line:n#1{
+  \cs_if_exist:cTF{maze_saved_#1_solution}{\box_use:c{maze_saved_#1_solution}}{
+    \maze_use:n{#1}
+  }
+}
+\cs_new_protected:Npn\maze_use_solution_cells:n#1{
+  \cs_if_exist:cTF{maze_saved_#1_solution_cells}{\box_use:c{maze_saved_#1_solution_cells}}{
+    \maze_use:n{#1}
+  }
+}
+\keys_define:nn{maze/use}{
+  solution .choice:,
+  solution / line .code:n={
+    \bool_set_true:N\l_maze_use_solution_bool
+    \tl_set:Nn\l_maze_solution_view_tl{line}
+  },
+  solution / cells .code:n={
+    \bool_set_true:N\l_maze_use_solution_bool
+    \tl_set:Nn\l_maze_solution_view_tl{cells}
+  },
+  solution .default:n=line
+}
+\cs_new_protected:Npn\maze_use_with_view:nn#1#2{
+  \bool_set_false:N\l_maze_use_solution_bool
+  \tl_clear:N\l_maze_solution_view_tl
+  \keys_set:nn{maze/use}{#1}
+  \bool_if:NTF\l_maze_use_solution_bool{
+    \tl_if_eq:NnTF\l_maze_solution_view_tl{cells}{
+      \maze_use_solution_cells:n{#2}
+    }{
+      \maze_use_solution_line:n{#2}
+    }
+  }{
+    \maze_use:n{#2}
+  }
+}
+\NewDocumentCommand\maze{mO{\c_sys_minute_int}}{
+  \maze_validate_size:n{#1}
+  \bool_if:NT\l_maze_size_valid_bool{
+    \maze_draw:nn{#1}{#2}
+  }
+}
+\NewDocumentCommand\mazesave{m m O{\c_sys_minute_int}}{
+  \maze_save:nnn{#1}{#2}{#3}
+}
+\NewDocumentCommand\mazeuse{o m}{
+  \mode_leave_vertical:
+  \IfNoValueTF{#1}{
+    \maze_use:n{#2}
+  }{
+    \maze_use_with_view:nn{#1}{#2}
+  }
+  \tex_ignorespaces:D
+}
+\ExplSyntaxOff
+% End of package code

@@ -1,0 +1,70 @@
+\ProvidesFile{pgf-go-pages.sty}[2026/10/30 v0.2026.10.30 pgf-go: one goban per page]
+\ExplSyntaxOn
+
+%\usepackage[pages]{pgf-go}: EL DOCUMENTO SALE CON UN goban POR PAGINA, CADA UNA DEL TAMANO DE SU TABLERO, Y
+%NADA MAS (LAS PAGINAS DEL DOCUMENTO SE DESCARTAN). LAS VISTAS (\pgfgoview) NO SALEN. AL TERMINAR SE ESCRIBE
+%<jobname>-pages.lua, QUE PASA CADA PAGINA A UN ARCHIVO CON pgf-go-pages.lua. LOS TABLEROS SE BUSCAN EN
+%CADA PAGINA DESDE Lua (VER pgfgo.pages_collect EN pgf-go.lua): SOLO CON kernel = lua.
+\msg_new:nnn {pgfgo} {pages-kernel} {The~option~pages~needs~LuaLaTeX~and~kernel~=~lua.~It~is~ignored.}
+\cs_new_protected:Npn \pgfgo_pages_begin: {}
+\cs_new_protected:Npn \pgfgo_pages_end: {}
+
+\bool_if:NT \g_pgfgo_pages_bool {
+	\str_if_eq:VnF \g_pgfgo_kernel_tl {lua} {
+		\msg_warning:nn {pgfgo} {pages-kernel}
+		\bool_gset_false:N \g_pgfgo_pages_bool
+	}
+}
+
+\bool_if:NT \g_pgfgo_pages_bool {
+	\int_new:N \g__pgfgo_pages_int
+	\int_const:Nn \c__pgfgo_pages_attr_int {\lua_now:n {pgfgo.pages_init()}}
+	\box_new:N \l__pgfgo_pages_box
+	\iow_new:N \g__pgfgo_pages_iow
+	\tl_new:N \l__pgfgo_pages_script_tl
+
+	%AL EMPEZAR UN goban (QUE NO SEA UNA VISTA): SU NUMERO EN EL ATRIBUTO. AL TERMINAR: SU NOMBRE.
+	\cs_gset_protected:Npn \pgfgo_pages_begin: {
+		\tl_if_empty:NT \l_pgfgo_goban_view_tl {
+			\int_gincr:N \g__pgfgo_pages_int
+			\tex_attribute:D \c__pgfgo_pages_attr_int = \g__pgfgo_pages_int
+		}
+	}
+	\cs_gset_protected:Npn \pgfgo_pages_end: {
+		\tl_if_empty:NT \l_pgfgo_goban_view_tl {
+			\lua_now:e {
+				pgfgo.pages_name(\int_use:N \g__pgfgo_pages_int,
+					"\lua_escape:e {\tl_to_str:N \l_pgfgo_goban_name_tl}")
+			}
+		}
+	}
+
+	%CADA PAGINA DEL DOCUMENTO: SUS TABLEROS VAN CADA UNO EN SU PAGINA (DIRECTO CON \shipout, SIN LOS GANCHOS
+	%DE LaTeX), Y ELLA SE DESCARTA.
+	\hook_gput_code:nnn {shipout/before} {pgfgo} {
+		\int_set:Nn \l_tmpa_int {\lua_now:e {pgfgo.pages_collect(\int_eval:n {\ShipoutBox})}}
+		\int_step_inline:nn {\l_tmpa_int} {
+			\lua_now:e {pgfgo.pages_put(#1, \int_eval:n {\l__pgfgo_pages_box})}
+			\group_begin:
+				\dim_set:Nn \tex_hoffset:D {-1in}
+				\dim_set:Nn \tex_voffset:D {-1in}
+				\dim_set:Nn \tex_pagewidth:D {\box_wd:N \l__pgfgo_pages_box}
+				\dim_set:Nn \tex_pageheight:D {\box_ht:N \l__pgfgo_pages_box + \box_dp:N \l__pgfgo_pages_box}
+				\tex_shipout:D \box_use_drop:N \l__pgfgo_pages_box
+			\group_end:
+		}
+		\DiscardShipoutBox
+	}
+
+	\hook_gput_code:nnn {enddocument/afterlastpage} {pgfgo} {
+		\__pgfgo_kernel_lua_find:Nn \l__pgfgo_pages_script_tl {pgf-go-pages.lua}
+		\iow_open:Nn \g__pgfgo_pages_iow {\c_sys_jobname_str -pages.lua}
+		\lua_now:e {
+			pgfgo.pages_write("\lua_escape:n {\g__pgfgo_pages_iow}",
+				"\lua_escape:e {\c_sys_jobname_str .pdf}", "\lua_escape:e {\l__pgfgo_pages_script_tl}")
+		}
+		\iow_close:N \g__pgfgo_pages_iow
+	}
+}
+
+\ExplSyntaxOff

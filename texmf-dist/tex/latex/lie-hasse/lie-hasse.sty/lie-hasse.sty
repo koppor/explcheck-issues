@@ -1,0 +1,2571 @@
+%	The Lie Hasse package.
+%	Version 1.02
+%
+%
+%	This package draws Hasse diagrams of root system posets of simple 
+%	Lie algebraS, in LaTeX documents, using the TikZ package.
+%
+%	Benjamin McKay
+%	b.mckay@ucc.ie
+%
+%	Released under the LaTeX Project Public License v1.3c or later, see 
+%               http://www.latex-project.org/lppl.txt
+\NeedsTeXFormat{LaTeX2e}[1994/06/01]
+\ProvidesPackage{lie-hasse}[2024/12/04 Lie Hasse]
+\RequirePackage[rgb]{xcolor}
+\RequirePackage{dynkin-diagrams}
+\RequirePackage[outline]{contour}
+\usetikzlibrary{
+	positioning,
+	fadings,
+	quotes}
+%%%
+%%% Application programming interface: 
+%%%
+\NewDocumentCommand\edgeQuote{m}{\contour{white}{\(#1\)}}
+\newif\iflie@hasse@threeD
+\lie@hasse@threeDtrue
+\xdef\lie@hasse@three@D@shift{.3}%
+\newif\iflie@hasse@show@ordering
+\lie@hasse@show@orderingfalse
+\newif\iflie@hasse@show@name
+\lie@hasse@show@namefalse
+\newif\iflie@hasse@show@widths
+\lie@hasse@show@widthsfalse
+\newif\iflie@hasse@show@height
+\lie@hasse@show@heightfalse
+\newif\iflie@hasse@attach@dynkin@diagram
+\lie@hasse@attach@dynkin@diagramfalse
+\newif\iflie@hasse@show@levi
+\lie@hasse@show@levitrue
+\newif\iflie@hasse@show@unipotent@radical
+\lie@hasse@show@unipotent@radicaltrue
+\pgfkeys{ 
+	/Lie Hasse diagram/.is family,
+	/Lie Hasse diagram,
+	attach Dynkin diagram/.is if 
+		= lie@hasse@attach@dynkin@diagram,
+	attach Dynkin diagram/.default = false,
+	edge/.style = {
+		ultra thick
+	},
+	edge length/.estore in 
+		= \lie@hasse@edge@length,
+	edge length = 1cm,
+	edge quotes/.style={
+		/Dynkin diagram/text style,
+		auto,
+		inner sep=2pt
+	},
+	compact edge/.style={},
+	noncompact edge/.style={opacity=0},
+	compact root/.code={\dynkinDrawSolidRootMark{#1}},
+	noncompact root/.code={\dynkinDrawCrossRootMark{#1}},
+	embedded Dynkin diagram/.style={
+		edge length=.5cm,
+		root radius=.05cm
+	},
+	for all roots/.code 2 args={},
+	three D/.is if = lie@hasse@threeD,
+	three D/.default = true,
+	show ordering/.is if = lie@hasse@show@ordering,
+	show ordering/.default = false,
+	show name/.is if = lie@hasse@show@name,
+	show name/.default = false,
+	show widths/.is if = lie@hasse@show@widths,
+	show widths/.default = false,
+	show height/.is if = lie@hasse@show@height,
+	show height/.default = false,
+	show Levi/.is if = lie@hasse@show@levi,
+	show Levi/.default = true,
+	show unipotent radical/.is if 
+		= lie@hasse@show@unipotent@radical,
+	show unipotent radical/.default = true,
+	z shift/.estore in 
+		= \lie@hasse@three@D@shift,
+	z shift/.default = .3,
+	top/.style={black!20,opacity=.4},
+	left/.style={black!20,opacity=.9},
+	right/.style={black!20,opacity=.6},
+	.search also={/Dynkin diagram},
+}
+\NewDocumentCommand\studyHasseDiagramOfRootSystem{O{}mm}%
+{%
+	\xdef\dynkin@parabolic{0}%
+	\pgfkeys{/Lie Hasse diagram,#1}%
+	\xdef\dynkin@user@series{#2}%
+	\xdef\dynkin@user@string{#3}%
+	\global\dynkin@ply=\dynkin@ply@value\relax%
+	\xdef\dynkin@series{#2}%
+	\dynkin@grok@series%
+	\IfSubStr{ABCDEFGHI}{\dynkin@series}{}{\dynkin@error@series}%
+	\xdef\dynkin@string{#3}%
+	\IfInteger{\dynkin@string}%
+	{%
+		\dynkin@integer@rank%
+	}%
+	{%
+		% Turn Satake codes into Dynkin diagram 
+		% expressions in \dynkin@string.
+		\dynkin@grok@Satake@codes%
+	}%
+	% Expand out any digits in \dynkin@string 
+	% into multiples of the various root marks.
+	\expand@Dynkin@Roots@Digits%
+	% Assign to \dynkin@roots the input string 
+	% \dynkin@string with all . symbols removed,
+	% so we only get the symbols representing 
+	% the marks for the various roots.
+	\StrDel{\dynkin@string}{.}[\temp]%
+	\xdef\dynkin@roots{\temp}%
+	\StrLen{\dynkin@roots}[\temp]%
+	\global\dynkin@nodes=\temp\relax%
+	\dynkin@grok@indefinite@edges%
+	\dynkin@find@rank{}%
+	\dynkin@cross@out@parabolics{}%
+	\dynkin@set@default@label@directions{}%
+	\check@Dynkin@diagram{}%
+	\xdef\lie@hasse@compact@roots{}%
+	\initialize@roots@as@sums@table{}%
+}%
+\newcount\lie@hasse@height%
+\newcount\lie@hasse@width%
+\NewDocumentCommand\doRootThing{mm}%
+{%
+	\pgfkeys{/Lie Hasse diagram/for all roots={#1}{#2}}%
+}%
+\newif\iflie@hasse@B
+\newcount\dynkin@rank@plus@one%
+\NewDocumentCommand\hasse{O{}mm}%
+{%
+	\ifdefined\filldraw%
+		\ifx#1\empty\relax%
+			\studyHasseDiagramOfRootSystem{#2}{#3}%
+		\else%
+			\studyHasseDiagramOfRootSystem[#1]{#2}{#3}%
+		\fi%
+		\label@item@count 0\relax%
+		\expandafter\forcsvlist%
+			\expandafter\lie@hasse@add@label%
+			\expandafter{\dynkin@label@list}%
+		\ifnum\dynkin@rank=1%
+			\dynkin{A}{1}%
+		\else%
+			\global\dynkin@rank@plus@one\the\dynkin@rank\relax%
+			\global\advance\dynkin@rank@plus@one by 1\relax%
+			\add@compact@simple@roots@to@compact@roots{}%
+			\IfStrEqCase{#2}%
+			{%%
+				{A}{\hasse@A}%
+				{B}{\global\lie@hasse@Btrue\hasse@BC}%
+				{C}{\global\lie@hasse@Bfalse\hasse@BC}%
+				{D}{\hasse@D}%
+				{E}{\hasse@E@series}%
+				{F}%
+				{%
+					\ifnum\dynkin@rank=4%
+						\hasse@F%
+					\else%
+						\ClassError%
+							{Lie Hasse}%
+							{Rank of F series Hasse diagram: #3{} not 4}%
+							{}%
+					\fi%
+				}%
+				{G}%
+				{%
+					\ifnum\dynkin@rank=2%
+						\hasse@G%
+					\else%
+						\ClassError%
+							{Lie Hasse}%
+							{Rank of G series Hasse diagram: #3{} not 2}%
+							{}%
+					\fi%
+				}%
+			}%%
+			[\ClassError%
+				{Lie Hasse}%
+				{Lie algebra series #2{} not A,B,C,D,E,F or G}%
+				{}]%
+			\forAllPositiveRoots{\draw@lie@hasse@root}%
+			\draw@simple@root@labels%
+		\fi%
+		\lie@hasse@write@widths{}%
+		\forAllPositiveRoots{\doRootThing}%
+		\iflie@hasse@attach@dynkin@diagram%
+			\attachDynkin%
+		\fi%
+	\else%
+		\begin{tikzpicture}\hasse[#1]{#2}{#3}\end{tikzpicture}%
+	\fi%
+}%
+\NewDocumentCommand\hasse@E@series{}%
+{%
+	\ifnum\dynkin@rank=6%
+		\hasse@E@six%
+	\else%
+		\ifnum\dynkin@rank=7%
+			\hasse@E@seven%
+		\else%
+			\ifnum\dynkin@rank=8%
+				\hasse@E@eight%
+			\else%
+				\ifnum\dynkin@rank>8%
+					\ClassError%
+						{Lie Hasse}%
+						{Rank of E series Hasse diagram: \the\dynkin@rank{}%
+						exceeds 8; not defined yet}%
+						{}%
+				\fi%
+				\ifnum\dynkin@rank<6%
+					\ClassError%
+						{Lie Hasse}%
+						{Rank of E series Hasse diagram: \the\dynkin@rank{}%
+						less than 6; not define yet}%
+						{}%
+				\fi%
+			\fi%
+		\fi%	
+	\fi%
+}%
+\NewDocumentCommand\drawRootAsDynkinSum{mm}%
+{%
+	\rootSum{#1}{#2}{\rs}%
+	\node at (#1;#2) 
+		{%
+			\dynkin[%
+				expand labels=\rs,%
+				/Lie Hasse diagram/embedded Dynkin diagram]%
+				{\dynkin@series}{\the\dynkin@rank}%
+		};%
+}%
+\NewDocumentCommand\drawRootDecomp{mm}%
+{%
+	\rootSum{#1}{#2}{\rs}%
+	\StrSubstitute{\rs}{,}{}[\rss]%
+	\node[above,/Dynkin diagram/text style] at (#1;#2) {$\rss$};%
+}%
+\NewDocumentCommand\lie@hasse@write@widths{}%
+{%
+	\iflie@hasse@show@widths%
+		\rootSystemHeight{\lie@hasse@height}%
+		\foreach \lie@hasse@i in {1,...,\the\lie@hasse@height}%
+		{%
+			\rootSystemWidthAtGrade{\lie@hasse@i}{\lie@hasse@width}%
+			\path 
+				let \p1 = (\lie@hasse@i;1) 
+				in
+				node[left]  
+				at 
+				(0,\y1) 
+				{\(\the\lie@hasse@width\)};%
+		}%
+	\fi%
+}%
+%\NewDocumentCommand\hasseAttachGtwoBackwards{}%
+%{%
+%	\dynkin[vertical shift=0,%
+%			edge length=\lie@hasse@edge@length,%
+%			reverse arrows]{G}{\dynkin@roots}%
+%}%
+%\NewDocumentCommand\hasseAttachGtwoForwards{}%
+%{%
+%	\dynkin[vertical shift=0,%
+%			edge length=\lie@hasse@edge@length]{G}{\dynkin@roots}%
+%}%
+\NewDocumentCommand\hasseAttachGtwo{}%
+{%
+	\dynkin[vertical shift=0,%
+			edge length=\lie@hasse@edge@length]{G}{\dynkin@roots}%
+%\IfStrEqCase{\dynkin@ordering}{%
+%	{Adams}{\hasseAttachGtwoForwards}%
+%	{Bourbaki}{\hasseAttachGtwoForwards}%
+%	{Carter}{\hasseAttachGtwoBackwards}%
+%	{Dynkin}{\hasseAttachGtwoBackwards}%
+%	{Kac}{\hasseAttachGtwoBackwards}%
+%}%
+%[\ClassError%
+%		{Lie Hasse}%
+%		{Root ordering \dynkin@ordering{} %
+%		not Adams, Bourbaki, Carter, Dynkin or Kac when attaching G2 Dynkin diagram}%
+%		{}]%
+}%
+\newcount\lie@hasse@E@shift%
+\NewDocumentCommand\attachDynkin{}%
+{%
+	\IfStrEqCase{\dynkin@series}{%
+		{A}{\dynkin[vertical shift=0,%
+					edge length=\lie@hasse@edge@length]%
+					{A}{\dynkin@roots}}%
+		{B}{\dynkin[vertical shift=0,%
+					edge length=\lie@hasse@edge@length]%
+					{B}{\dynkin@roots}}%
+		{C}{\dynkin[vertical shift=0,%
+					edge length=\lie@hasse@edge@length]%
+					{C}{\dynkin@roots}}%
+		{D}{\dynkin[vertical shift=0,%
+					edge length=\lie@hasse@edge@length,%
+					y shift in edge lengths=-1.5,label]%
+					{D}{\dynkin@roots}}%
+		{E}%
+		{%%
+			\ifnum\dynkin@rank=6%
+				\dynkin[%
+					vertical shift=0,%
+					edge length=\lie@hasse@edge@length,%
+					upsidedown,%
+					labels*={1,...,6},%
+					y shift in edge lengths=.5]%
+					{E}{\dynkin@roots}%
+			\else%
+				\lie@hasse@E@shift\the\dynkin@rank\relax%
+				\advance\lie@hasse@E@shift by -2\relax%
+				\dynkin[%
+					vertical shift=0,%
+					edge length=\lie@hasse@edge@length,%
+					backwards,%
+					upsidedown,%
+					label,%
+					x shift in edge lengths=-\the\lie@hasse@E@shift,%
+					y shift in edge lengths=1]%
+					{E}{\dynkin@roots}%
+			\fi%
+		}%%
+		{F}{\dynkin[vertical shift=0,%
+					edge length=\lie@hasse@edge@length]%
+					{F}{\dynkin@roots}}%
+		{G}{\hasseAttachGtwo}%
+	}%
+	[\ClassError%
+		{Lie Hasse}%
+		{Lie algebra series \dynkin@series{} %
+		not A,B,C,D,E,F or G when attaching Dynkin diagram}%
+		{}]%
+}%
+\newif\iflie@hasse@multiple@diagrams
+\newcommand\doHasseDiagram[1]%%
+{%
+	\iflie@hasse@multiple@diagrams%
+		\ %
+	\fi%
+	\begin{tikzpicture}%
+		[show background rectangle,baseline=(current bounding box.east)]%
+		\hasse#1%
+		\iflie@hasse@show@height%
+			\rootSystemHeight{\lie@hasse@height}%
+		\fi%
+		\iflie@hasse@show@name%
+			\xdef\label@text{$\dynkinName{\dynkin@series}{\the\dynkin@rank}$}%
+			\iflie@hasse@show@ordering%
+				\xdef\label@text{\label@text{} in \currentDynkinOrdering{} ordering}%
+			\fi%
+			\iflie@hasse@show@height%
+				\xdef\label@text{\label@text: height$=\the\lie@hasse@height$}%
+			\fi%
+			\node[anchor=north,yshift=1.5em] 
+				at 
+				(current bounding box.north) 
+				{\label@text};%
+		\fi%
+	\end{tikzpicture}%
+	\iflie@hasse@multiple@diagrams%
+		\ %
+	\fi%
+}%
+\DeclareListParser*{\forscsvlist}{;}%
+\newcommand\hasseDiagrams[1]%
+{%
+	\IfSubStr{#1}{;}%
+	{%
+		\global\lie@hasse@multiple@diagramstrue%
+	}%
+	{%
+		\global\lie@hasse@multiple@diagramsfalse%
+	}%
+	\begin{center}%
+		\expandafter\forscsvlist%
+			\expandafter\doHasseDiagram\expandafter{#1}%
+	\end{center}%
+}%
+%%%
+%%% Package internals:
+%%%
+\tikzset{/Dynkin diagram/ordering=Carter}
+\pgfdeclarelayer{Dynkin middle}
+\pgfdeclarelayer{Dynkin above}
+\pgfsetlayers{background,Dynkin behind,Dynkin middle,Dynkin above,main}
+\newcommand*\label@list@at[1]{\csname FOOBAR-#1\endcsname}
+\newcommand*\defn@label@list@entry[1]{\expandafter\def\csname FOOBAR-#1\endcsname}
+\def\add@to@label@list#1#2{\global\defn@label@list@entry{#1}{#2}}%
+\newcount\label@item@count%
+\label@item@count 0\relax%
+\newcommand\lie@hasse@add@label[1]%
+{%
+	\global\advance\label@item@count by 1\relax%
+	\global\add@to@label@list{\the\label@item@count}{#1}%
+}%
+\xdef\lie@hasse@compact@roots{}%
+\NewDocumentCommand\if@compact@root{mmm}%
+{%
+\IfSubStr{\lie@hasse@compact@roots}{(#1)}{#2}{#3}%
+}%
+\newcount\current@simple@root%
+\NewDocumentCommand\if@compact@simple@root{mmm}%
+{%
+% #1 is the index of a root, in the internal root ordering of
+% this Lie Hasse package, which is the Carter root ordering.
+% So first we need to convert it to the current root ordering
+% of the Dynkin diagram we are working on.
+\dynkinOrder{\dynkin@series}{\the\dynkin@rank}.Carter::#1->\dynkin@ordering.%
+{\current@simple@root}%
+\StrChar{\dynkin@roots}{\current@simple@root}[\lie@hasse@root@marker]%
+\IfStrEq{x}{\lie@hasse@root@marker}{#3}{#2}%
+}%
+\NewDocumentCommand\add@compact@root{m}%
+{%
+	\if@compact@root{#1}%
+	{%do nothing
+	}
+	{%else
+		\edef\temp@lie@hasse@compact@roots{\lie@hasse@compact@roots}%
+		\xdef\lie@hasse@compact@roots{\temp@lie@hasse@compact@roots{  }(#1)}%
+	}%
+}%
+\newcount\lie@hasse@sr%
+\NewDocumentCommand\add@compact@simple@roots@to@compact@roots{}%
+{%
+	\lie@hasse@sr 1\relax%
+	\loop%
+		\if@compact@simple@root{\the\lie@hasse@sr}%
+		{%%
+			\add@compact@root{1;\the\lie@hasse@sr}%
+		}%%
+		{%%	
+		}%%
+		\advance\lie@hasse@sr by 1\relax%
+	\ifnum\lie@hasse@sr<\the\dynkin@rank@plus@one%
+	\repeat%
+}%
+\newcount\lie@hasse@root@count%
+\newcount\lie@hasse@root@count@b%
+\newcount\max@lie@hasse@root@count%
+\newcount\lie@hasse@reorder
+\NewDocumentCommand\lie@hasse@fix@order{mm}%
+{%
+	\dynkinOrder{\dynkin@series}{\dynkin@rank}.Carter::{#1}->\dynkin@ordering.{#2}%
+}%
+\NewDocumentCommand\draw@one@simple@root@label{mm}%
+%% \draw@one@simple@root@label{r}{s}, draw at Carter number r
+%% the root with text s.
+{%
+	\if@compact@simple@root{#1}%
+	{%
+		\iflie@hasse@show@levi%
+			\global\lie@hasse@ok@roottrue%
+		\else%
+			\global\lie@hasse@ok@rootfalse%
+		\fi%
+	}%
+	{%
+		\iflie@hasse@show@unipotent@radical%
+			\global\lie@hasse@ok@roottrue%
+		\else%
+			\global\lie@hasse@ok@rootfalse%
+		\fi%
+	}%
+	\iflie@hasse@ok@root%
+		\node[%
+			below,%
+			label=%
+			{%
+				[%
+				below,%
+				lie@hasse@color,%
+				/Lie Hasse diagram/edge quotes%
+				]%
+				\(\pgfkeys{/Dynkin diagram/label macro={\edgeQuote{#2}}}\)%
+			}%
+		]% 
+		at%
+		(1;#1)%
+		{};%
+	\fi%
+}%
+\NewDocumentCommand\draw@simple@root@labels{}%
+{%
+	\lie@hasse@root@count 1\relax%
+	\max@lie@hasse@root@count \the\dynkin@rank\relax%
+	\advance\max@lie@hasse@root@count 1\relax%
+	\IfStrEq{\dynkin@label@list\dynkin@label@list@star}{}%
+	{%
+		\loop%
+			\set@lie@hasse@color{\the\lie@hasse@root@count}%
+			\lie@hasse@fix@order%
+				{\the\lie@hasse@root@count}%
+				{\lie@hasse@root@count@b}%
+			\edef\label@text{\the\lie@hasse@root@count@b}%
+			\draw@one@simple@root@label%
+				{\the\lie@hasse@root@count}%
+				{\label@text}%
+			\global\advance\lie@hasse@root@count by 1\relax%
+		\ifnum\lie@hasse@root@count<\the\max@lie@hasse@root@count%
+		\repeat%
+	}%
+	{%
+		\edef\lie@hasse@XXX{\dynkin@label@list}%
+		\foreach \lie@hasse@i in \lie@hasse@XXX%
+		{%
+			\set@lie@hasse@color{\the\lie@hasse@root@count}%
+			\lie@hasse@fix@order%
+				{\the\lie@hasse@root@count}%
+				{\lie@hasse@root@count@b}%
+			\draw@one@simple@root@label%
+				{\the\lie@hasse@root@count@b}%
+				{\lie@hasse@i}%
+			\global\advance\lie@hasse@root@count by 1\relax%
+		}%
+	}%
+}%
+\definecolor{lie@hasse@color}{hsb}{0,0,0}
+\NewDocumentCommand\set@lie@hasse@color{m}%
+{%
+\pgfmathsetmacro{\lie@hasse@huenum}{#1/\the\dynkin@rank}%
+\global\definecolor{lie@hasse@color}{hsb}{\lie@hasse@huenum,1,.6}%
+}%
+\NewDocumentCommand\draw@lie@hasse@root{mm}%
+{%
+	\if@compact@root{#1;#2}%
+	{%%
+		\iflie@hasse@show@levi%
+			\pgfkeys{/Lie Hasse diagram/compact root={#1;#2}}%
+		\fi%
+	}%%
+	{%%
+		\iflie@hasse@show@unipotent@radical%
+			\pgfkeys{/Lie Hasse diagram/noncompact root={#1;#2}}%
+		\fi%
+	}%%
+}%
+\newcount\root@gpo%
+\xdef\label@text{}%
+\newif\iflie@hasse@is@levi
+\newif\iflie@hasse@ok@root
+\NewDocumentCommand\draw@lie@hasse@edge{O{}mmmm}%
+%[edge label options]{from grade}{from index}{to index}{simple root}
+{%
+	\root@gpo #2\relax%
+	\advance\root@gpo by 1\relax%
+	\if@compact@root{#2;#3}%
+	{%
+		\if@compact@simple@root{#5}%
+		{%
+			\global\lie@hasse@is@levitrue%
+			\add@compact@root{\the\root@gpo;#4}%
+		}%
+		{%
+			\global\lie@hasse@is@levifalse%
+		}%
+	}%
+	{%
+		\global\lie@hasse@is@levifalse%
+	}%
+	\iflie@hasse@is@levi%
+		\iflie@hasse@show@levi%
+			\global\lie@hasse@ok@roottrue%
+		\else%			
+			\global\lie@hasse@ok@rootfalse%
+		\fi%
+	\else%
+		\iflie@hasse@show@unipotent@radical%
+			\global\lie@hasse@ok@roottrue%
+		\else%			
+			\global\lie@hasse@ok@rootfalse%
+		\fi%
+	\fi%
+	\set@lie@hasse@color{#5}%
+	\lie@hasse@fix@order{#5}{\lie@hasse@root@count@b}%
+	\IfStrEq{\dynkin@label@list}{}%
+	{%
+		\xdef\label@text{\the\lie@hasse@root@count@b}%
+	}%
+	{%
+		\xdef\label@text%
+		{%
+			\label@list@at{\the\lie@hasse@root@count@b}%
+		}%
+	}%
+	\if@compact@simple@root{#5}%
+	{%%% Compact simple root, i.e. edge
+		\iflie@hasse@ok@root%
+			\draw[%
+				lie@hasse@color,%
+				/Lie Hasse diagram/edge,%
+				/Lie Hasse diagram/compact edge]%
+				(#2;#3)--%
+					node[lie@hasse@color,/Lie Hasse diagram/edge quotes,#1]%
+					{\(\pgfkeys{/Dynkin diagram/label macro={\edgeQuote{\label@text}}}\)}%
+				(\the\root@gpo;#4);%
+		\fi%
+		\iflie@hasse@is@levi%
+		\fi%
+	}%%%
+	{%%% Noncompact
+		\iflie@hasse@ok@root%
+			\draw
+			[%
+				lie@hasse@color,%
+				/Lie Hasse diagram/edge,%
+				/Lie Hasse diagram/noncompact edge%
+			]%
+			(#2;#3)--%
+				node[lie@hasse@color,/Lie Hasse diagram/edge quotes,#1]%
+				{\(\pgfkeys{/Dynkin diagram/label macro={\edgeQuote{\label@text}}}\)}%
+			(\the\root@gpo;#4);%
+		\fi%
+	}%%%
+}%
+\newcount\A@series@grade%
+\newcount\max@A@series@grade%
+\newcount\A@series@x%
+\newcount\A@series@y%
+\newcount\max@A@series@j%
+\newcount\A@series@j%
+\NewDocumentCommand\place@A@roots{}%
+{%
+	\A@series@grade 1\relax%
+	\max@A@series@grade \the\dynkin@rank\relax%
+	\advance\max@A@series@grade by 1\relax%
+	\A@series@x 0\relax%
+	\A@series@y 0\relax%
+	\loop%
+		\max@A@series@j\the\dynkin@rank\relax%
+		\advance\max@A@series@j by -\the\A@series@grade\relax%
+		\advance\max@A@series@j by 2\relax%
+		\A@series@j 1\relax%
+		{%
+		\loop%
+			\coordinate 
+				(\the\A@series@grade;\the\A@series@j) 
+				at 
+				({.5*\the\A@series@x*\lie@hasse@edge@length},
+				{.25*\the\A@series@y*\lie@hasse@edge@length})
+				{};%
+			\advance\A@series@j by 1\relax%
+			\advance\A@series@x by 2\relax%
+			\ifnum\A@series@j<\the\max@A@series@j%
+		\repeat%
+		}%
+		\advance\A@series@grade by 1\relax%
+		\advance\A@series@x by 1\relax%
+		\advance\A@series@y by 2\relax%
+	\ifnum\A@series@grade<\the\max@A@series@grade%
+	\repeat%
+}%
+\newcount\maxA@i%
+\newcount\maxA@j%
+\newcount\A@lbl%
+\newcount\lie@hasse@i%
+\newcount\lie@hasse@j%
+\newcount\lie@hasse@ipo%
+\newcount\A@rj%
+\newcount\A@rjmo%
+\NewDocumentCommand\draw@A@edges{}%
+{%
+	\maxA@i\the\dynkin@rank\relax%
+	\lie@hasse@i 1\relax%
+	\loop%
+		\maxA@j \the\dynkin@rank\relax%
+		\advance\maxA@j by -\the\lie@hasse@i\relax%
+		\advance\maxA@j by 1\relax%
+		\ifnum\maxA@j>-1%
+			\lie@hasse@j 1\relax%
+			{%
+			\loop%
+				\A@lbl\the\lie@hasse@i\relax%
+				\advance\A@lbl by \the\lie@hasse@j\relax%
+				\lie@hasse@ipo \lie@hasse@i\relax%
+				\advance\lie@hasse@ipo by 1\relax%
+				\draw@lie@hasse@edge[left]%
+					{\the\lie@hasse@i}{\the\lie@hasse@j}%
+					{\the\lie@hasse@j}{\the\A@lbl}%
+				\A@rj\the\maxA@j\relax%
+				\advance\A@rj by -\the\lie@hasse@j\relax%
+				\advance\A@rj by 1\relax%
+				\A@rjmo\the\A@rj\relax%
+				\advance\A@rjmo by -1\relax%
+				\A@lbl-\A@lbl\relax%
+				\advance\A@lbl by \the\dynkin@rank%
+				\advance\A@lbl by 1%
+				\draw@lie@hasse@edge[right]%
+					{\the\lie@hasse@i}{\the\A@rj}%
+					{\the\A@rjmo}{\the\A@lbl}%
+				\advance\lie@hasse@j by 1\relax%
+			\ifnum\lie@hasse@j<\the\maxA@j%
+			\repeat%
+			}%
+		\fi%
+	\advance\lie@hasse@i by 1\relax%
+	\ifnum\lie@hasse@i<\the\maxA@i%
+	\repeat%
+}%
+%% \hasse@A@width@at@grade{g}{\w} sets the counter \w to
+%% the value of the width (number of roots) at grade g of
+%% the A root system with rank \the\dynkin@rank
+\NewDocumentCommand\hasse@A@width@at@grade{mm}%
+{%
+	\global#2\the\dynkin@rank\relax%
+	\global\advance#2 by -#1\relax%
+	\global\advance#2 by 1\relax%
+}%
+\NewDocumentCommand\hasse@A{}%
+{%
+	\place@A@roots%
+	\draw@A@edges%
+}%
+%% \hasse@BC@width@at@grade{g}{\w} sets the counter \w to
+%% the value of the width (number of roots) at grade g of
+%% the B or C root system with rank \the\dynkin@rank
+\NewDocumentCommand\hasse@BC@width@at@grade{mm}%
+{%
+	\global#2\the\dynkin@rank\relax%
+	\global\advance#2 by \the\dynkin@rank\relax%
+	\global\advance#2 by -#1\relax%
+	\global\advance#2 by 1\relax%
+	\global\divide#2 by 2\relax%
+}%
+\newcount\twice@dynkin@rank@minus@one%
+\newcount\max@BC@r%
+\newcount\BC@r%
+\newcount\BC@series@x%
+\newcount\BC@series@y%
+\NewDocumentCommand\place@BC@roots{}%
+{%
+	\twice@dynkin@rank@minus@one \the\dynkin@rank\relax%
+	\advance\twice@dynkin@rank@minus@one by \the\dynkin@rank\relax%
+	\advance\twice@dynkin@rank@minus@one by -1\relax%
+	\max@BC@r \the\dynkin@rank\relax%
+	\advance\max@BC@r by 1\relax%
+	\BC@r 1\relax%
+	\loop%
+		\BC@series@x \the\BC@r\relax%
+		\advance\BC@series@x by -1\relax%
+		\advance\BC@series@x by \the\BC@series@x\relax%
+		\BC@series@y 1\relax%
+		{%%
+		\loop%
+			\coordinate 
+				(\the\BC@series@y;\the\BC@r) 
+				at 
+				({.5*\the\BC@series@x*\lie@hasse@edge@length},
+				{.5*(\the\BC@series@y-1)*\lie@hasse@edge@length})
+				{};%
+			\advance\BC@series@y by 1\relax%
+			\advance\BC@series@x by 1\relax%
+		\ifnum\BC@series@x<\the\twice@dynkin@rank@minus@one\repeat%
+		}%%
+		\advance\BC@r by 1\relax%
+		\ifnum\BC@r<\the\max@BC@r%
+	\repeat%
+}%
+\newcount\BC@height%
+\newcount\BC@g%
+\NewDocumentCommand\draw@BC@edges{}%
+{%
+	\rootSystemHeight{\BC@height}%
+	\ifnum\BC@height>1%
+		\BC@g 1\relax%
+		\loop%
+			\draw@BC@edges@at@grade{\the\BC@g}%
+			\global\advance\BC@g by 1\relax%
+		\ifnum\BC@g<\BC@height%
+		\repeat%
+	\fi%
+}%
+\newcount\BC@i%
+\newcount\BC@width%
+\newcount\BC@width@plus@one%
+\NewDocumentCommand\draw@BC@edges@at@grade{m}%
+{%
+	\rootSystemWidthAtGrade{#1}{\BC@width}%
+	\BC@width@plus@one \BC@width\relax%
+	\advance \BC@width@plus@one by 1\relax%
+	\BC@i 1\relax%
+	{%
+	\loop%
+		\draw@BC@edges@at@root{#1}{\the\BC@i}%
+			\global\advance\BC@i by 1\relax%
+	\ifnum\BC@i<\BC@width@plus@one\repeat%
+	}%
+}%
+\newcount\BC@height%
+\newcount\BC@ii%
+\newif\ifBC@draw%
+\newcount\lie@hasse@lbl%
+\newcount\temp@lbl%
+\NewDocumentCommand\draw@BC@edges@at@root{mm}%
+{%
+	\ifnum#2>1%
+		% draw an edge upward to the left
+		\BC@ii #2\relax%
+		\advance\BC@ii by -1\relax%
+		\draw@lie@hasse@edge[right]%
+			{#1}{#2}%
+			{\the\BC@ii}
+			{\the\BC@ii}%
+	\fi%
+	\BC@drawtrue%
+	\ifodd#1
+		\ifnum#2=\the\BC@width%
+			\global\BC@drawfalse%
+		\fi%
+	\fi%	
+	\ifBC@draw%
+		% draw an edge upward to the right
+		\lie@hasse@lbl #2\relax%
+		\advance\lie@hasse@lbl by #1\relax%
+		\ifnum\dynkin@rank<\the\lie@hasse@lbl%
+			\temp@lbl \the\lie@hasse@lbl\relax%
+			\lie@hasse@lbl \the\dynkin@rank\relax%
+			\advance\lie@hasse@lbl by \the\dynkin@rank%
+			\advance\lie@hasse@lbl by -\the\temp@lbl%
+%% For the B series:
+			\iflie@hasse@B%
+				\global\advance\lie@hasse@lbl by 1\relax%
+			\fi%
+			\draw@lie@hasse@edge[left]%
+				{#1}{#2}%
+				{#2}%
+				{\the\lie@hasse@lbl}%
+		\else%
+			\draw@lie@hasse@edge[left]%
+				{#1}{#2}%
+				{#2}%
+				{\the\lie@hasse@lbl}%
+		\fi%
+	\fi%
+}%
+\NewDocumentCommand\hasse@BC{s}% star for C:
+{%
+	\place@BC@roots%
+	\IfBooleanTF{#1}%
+	{%
+		\draw@BC@edges*%
+	}%
+	{%
+		\draw@BC@edges%
+	}%
+}%
+\NewDocumentCommand\hasse@D{}%
+{%
+	\place@D@roots%
+	\draw@D@edges%
+	\iflie@hasse@threeD%
+		\draw@D@hasse@three@D%
+	\fi%
+}%
+\NewDocumentCommand\draw@D@hasse@three@D{}%
+{%
+		\begin{pgfonlayer}{Dynkin middle}%
+			\fill[/Lie Hasse diagram/left] 
+				(\the\dynkin@rank@minus@two;1) -- 
+				(\the\dynkin@rank@minus@one;1) -- 
+				(\the\dynkin@rank;1) -- 
+				(\the\dynkin@rank@minus@one;2) --
+				cycle;%
+			\fill[/Lie Hasse diagram/top] 
+				(\the\dynkin@rank@minus@two;1) -- 
+				(1;\the\dynkin@rank@minus@two) -- 
+				(2;\the\dynkin@rank@minus@one) -- 
+				(\the\dynkin@rank@minus@one;2) --
+				cycle;%
+			\fill[/Lie Hasse diagram/top] 
+				(\the\dynkin@rank@minus@one;2) -- 
+				(\the\dynkin@rank;1) -- 
+				(3;\the\dynkin@rank@minus@one) -- 
+				(2;\the\dynkin@rank@minus@one) --
+				cycle;%
+			\fill[/Lie Hasse diagram/top] 
+				(\the\dynkin@rank@minus@one;1) -- 
+				(\the\dynkin@rank;1) -- 
+				(3;\the\dynkin@rank@minus@one) -- 
+				(2;\the\dynkin@rank@minus@two) --
+				cycle;%
+			\fill[/Lie Hasse diagram/top]
+				(\the\dynkin@rank@minus@two;1) -- 
+				(\the\dynkin@rank@minus@one;1) -- 
+				(2;\the\dynkin@rank@minus@two) -- 
+				(1;\the\dynkin@rank@minus@two) --
+				cycle;%
+			\fill[/Lie Hasse diagram/left]
+				(1;\the\dynkin@rank@minus@two) -- 
+				(2;\the\dynkin@rank@minus@two) -- 
+				(3;\the\dynkin@rank@minus@one) -- 
+				(2;\the\dynkin@rank@minus@one) --
+				cycle;%
+		\end{pgfonlayer}%
+}%
+\NewDocumentCommand\hasse@D@width@at@grade{mm}%
+{%
+	\global#2\the\dynkin@rank\relax%
+	\global\advance#2 by\the\dynkin@rank\relax%
+	\global\advance#2 by -#1\relax%
+	\ifnum#1<\the\dynkin@rank%
+		\global\advance#2 by 1\relax%
+	\else%
+		\global\advance#2 by -1\relax%
+	\fi%
+	\global\divide#2 by 2\relax%
+}%
+\newcount\max@D@grades%
+\newcount\max@D@grades@plus@one%
+\newcount\D@g%
+\newcount\maxD@grd%
+\newcount\D@grd%
+\newcount\lie@hasse@D@x%
+\newcount\sum@D%
+\NewDocumentCommand\place@D@roots{}%
+{%
+	\global\max@D@grades \the\dynkin@rank\relax%
+	\global\advance\max@D@grades \the\dynkin@rank\relax%
+	\global\advance\max@D@grades -3\relax%
+	\max@D@grades@plus@one \the\max@D@grades\relax%
+	\advance\max@D@grades@plus@one 1\relax%
+	\D@g 1\relax%
+	{%
+	\loop%
+		\place@D@roots@at@grade{\the\D@g}%
+		\advance\D@g by 1\relax%
+	\ifnum\D@g<\the\max@D@grades@plus@one%
+	\repeat%
+	}%
+}%
+\newcount\D@r%
+\NewDocumentCommand\place@D@roots@at@grade{m}%
+{%
+	\hasse@D@width@at@grade{#1}{\max@D@roots}%
+	\max@D@roots@plus@one \the\max@D@roots\relax%
+	\advance\max@D@roots@plus@one 1\relax%
+	\D@r 1\relax%
+	{%
+	\loop%
+		\place@D@root@at{#1}{\the\D@r}%
+		\advance\D@r by 1\relax%
+	\ifnum\D@r<\the\max@D@roots@plus@one%
+	\repeat%
+	}%
+}%
+\NewDocumentCommand\place@D@root@at{mm}%
+{%
+	\lie@hasse@D@x #1\relax%
+	\advance\lie@hasse@D@x by #2\relax%
+	\advance\lie@hasse@D@x by #2\relax%
+	\advance\lie@hasse@D@x by -3\relax%
+	\sum@D #1\relax%
+	\advance\sum@D by #2\relax%
+	\ifnum\sum@D=\the\dynkin@rank%
+		\global\def\D@root@x%
+			{\the\lie@hasse@D@x-\lie@hasse@three@D@shift}%
+	\else%
+		\ifnum\sum@D=\the\dynkin@rank@plus@one%
+			\ifnum#1<\the\dynkin@rank%
+			\global\def\D@root@x%
+				{\the\lie@hasse@D@x-2+\lie@hasse@three@D@shift}%
+			\else%
+				\global\def\D@root@x{\the\lie@hasse@D@x}%
+			\fi%
+		\else%
+			\ifnum\sum@D<\the\dynkin@rank%
+				\global\def\D@root@x{\the\lie@hasse@D@x}%
+			\else%
+%					if \sum@D exceeds rank+1
+				\ifnum#1<\the\dynkin@rank%
+					\global\def\D@root@x{\the\lie@hasse@D@x-2}%
+				\else%
+					\global\def\D@root@x{\the\lie@hasse@D@x}%
+				\fi%
+			\fi%
+		\fi%
+	\fi%	
+	\coordinate 
+		(#1;#2)
+		at 
+		({(\D@root@x)*\lie@hasse@edge@length/2},{(#1-1)*\lie@hasse@edge@length/2})
+		{};%
+}%
+\NewDocumentCommand\draw@D@edges{}%
+{%
+	\global\max@D@grades \the\dynkin@rank\relax%
+	\global\advance\max@D@grades \the\dynkin@rank\relax%
+	\global\advance\max@D@grades -3\relax%
+	\D@g 1\relax%
+	{%
+	\loop%
+		\draw@D@edges@at@grade{\the\D@g}%
+		\advance\D@g by 1\relax%
+	\ifnum\D@g<\the\max@D@grades%
+	\repeat%
+	}%
+}%
+\newcount\max@D@roots%
+\newcount\max@D@roots@plus@one%
+\NewDocumentCommand\draw@D@edges@at@grade{m}%
+{%
+	\hasse@D@width@at@grade{#1}{\max@D@roots}%
+	\max@D@roots@plus@one \the\max@D@roots\relax%
+	\advance\max@D@roots@plus@one 1\relax%
+	\D@r 1\relax%
+	{%
+	\loop%
+%%%		\draw@D@edges@at{#1}{\the\D@r}{\the\max@D@roots}%
+		\draw@D@edges@at{#1}{\the\D@r}%
+		\advance\D@r by 1\relax%
+	\ifnum\D@r<\the\max@D@roots@plus@one%
+	\repeat%
+	}%	
+}%
+\newcount\hasse@D@gpo%
+\newcount\hasse@D@imo%
+\newcount\hasse@D@w%
+\newcount\hasse@D@gpi%
+\newcount\hasse@D@target%
+\newif\ifhasse@D%
+\xdef\hasse@D@layer{}%
+\xdef\hasse@D@LR{}%
+\newcount\hasse@D@label%
+\NewDocumentCommand\draw@D@edges@at{mm}%
+{%
+	\hasse@D@gpo#1\relax%
+	\advance\hasse@D@gpo by 1\relax%
+	\hasse@D@gpi#1\relax%
+	\advance\hasse@D@gpi #2\relax%
+	\hasse@D@imo#2\relax%
+	\advance\hasse@D@imo by -1\relax%
+	\hasse@Dfalse%
+	\xdef\hasse@D@layer{Dynkin middle}%
+	\xdef\hasse@D@LR{left}%
+	\hasse@D@width@at@grade{#1}{\hasse@D@w}%
+	\ifnum#2>1%
+		% Not at the left edge, so draw an edge going up to the left
+		\global\hasse@D@label#2\relax%
+		\advance\hasse@D@label -1\relax%
+		\ifnum\hasse@D@gpo=\the\dynkin@rank%
+			\ifnum\hasse@D@imo=1%
+				% (g;i)=(r-1;2) doesn't go anywhere up to the left.
+			\else%
+				% connect g;i to g+1;i-2
+				\global\hasse@Dtrue%
+				\global\hasse@D@target \hasse@D@imo\relax
+				\global\advance\hasse@D@target by -1\relax%
+			\fi%
+		\else%
+			% connect g;i to g+1;i-1
+			\global\hasse@Dtrue%
+			\global\hasse@D@target \hasse@D@imo\relax%
+			\ifnum\hasse@D@gpi=\the\dynkin@rank%
+				\xdef\hasse@D@layer{Dynkin above}%
+			\else%
+					% below or middle.
+				\ifnum\hasse@D@gpi=\the\dynkin@rank@plus@one%
+					\xdef\hasse@D@layer{Dynkin behind}%
+				\fi%
+			\fi%
+		\fi%
+		\ifnum\hasse@D@w=#2%
+			\xdef\hasse@D@LR{right}%
+		\fi%
+	\fi%
+	\ifnum\dynkin@rank>#1%
+		\ifnum\hasse@D@gpi<\the\dynkin@rank@plus@one%
+		\else%
+			\global\advance\hasse@D@label -1\relax%
+		\fi%
+	\fi%
+	\ifhasse@D%
+		\begin{pgfonlayer}{\hasse@D@layer}
+			\draw@lie@hasse@edge%
+				[\hasse@D@LR]%
+				{#1}{#2}%
+				{\the\hasse@D@target}{\the\hasse@D@label}%
+		\end{pgfonlayer}%
+	\fi%
+	\hasse@Dtrue%
+	\xdef\hasse@D@LR{left}%
+	\ifnum\hasse@D@w=#2%
+		\ifodd#1%
+			% not enough room to draw an edge going rightward.
+			\global\hasse@Dfalse\relax%
+		\else%
+			\xdef\hasse@D@LR{right}%
+		\fi%
+	\fi%
+	\ifnum#1=1%
+		\ifnum\dynkin@rank@minus@one=#2%
+			\global\hasse@Dfalse\relax%
+		\else%
+			\xdef\hasse@D@LR{right}%
+		\fi%
+	\fi%
+	\ifhasse@D%
+		\global\hasse@D@label \hasse@D@gpi\relax%
+		\ifnum\hasse@D@label>\the\dynkin@rank%
+			\hasse@D@label -\hasse@D@label\relax%
+			\advance\hasse@D@label \the\dynkin@rank\relax%
+			\advance\hasse@D@label \the\dynkin@rank@minus@one\relax%
+		\fi%
+		\ifnum\dynkin@rank@minus@one<#1%
+		\else%
+			\ifnum#2=1%
+			\else%
+				\ifnum\hasse@D@gpi<\the\dynkin@rank@plus@one%
+				\else%
+					\advance\hasse@D@label 1\relax%
+				\fi%
+			\fi%
+		\fi%
+		\global\hasse@D@target #2\relax%
+		\ifnum\hasse@D@gpi=\the\dynkin@rank%
+			\ifnum#2=1%
+			\else%
+				\global\advance\hasse@D@target by 1\relax%
+			\fi%
+		\else%
+			\ifnum\dynkin@rank@minus@one=#1%
+				\global\advance\hasse@D@target by -1\relax%
+			\fi%
+		\fi%
+		\ifnum\hasse@D@gpi=\the\dynkin@rank@plus@one%
+			\ifnum#2>1%
+				\xdef\hasse@D@layer{Dynkin behind}%
+				\xdef\hasse@D@LR{right}%
+			\fi%
+		\else%
+			\ifnum\hasse@D@gpi=\the\dynkin@rank%
+				\xdef\hasse@D@layer{Dynkin above}%
+			\else%
+				\ifnum\hasse@D@gpi=\the\dynkin@rank@minus@one%
+					\xdef\hasse@D@layer{Dynkin above}%
+				\else%
+					\xdef\hasse@D@layer{Dynkin middle}%
+				\fi%
+			\fi%
+		\fi%
+	\fi%
+	\ifhasse@D%
+		\begin{pgfonlayer}{\hasse@D@layer}
+				\draw@lie@hasse@edge%
+					[\hasse@D@LR]%
+					{#1}{#2}%
+					{\the\hasse@D@target}{\the\hasse@D@label}%
+		\end{pgfonlayer}%
+	\fi%
+%	% Draw any other edges.
+	\ifnum\hasse@D@gpi=\the\dynkin@rank@minus@one%
+		\hasse@D@target#2\relax%
+		\advance\hasse@D@target by 1\relax%
+		\begin{pgfonlayer}{Dynkin behind}
+			\draw@lie@hasse@edge%
+				[right,near start]%
+				{#1}{#2}%
+				{\the\hasse@D@target}{\the\dynkin@rank}%
+		\end{pgfonlayer}%
+	\fi%
+}%
+\newcount\maxD@grd%
+\newcount\D@grd%
+\newcount\sum@D%
+\newcount\lie@hasse@grade@no
+\newcount\lie@hasse@root@no
+\def\lie@hasse@XX{}
+\def\lie@hasse@ZZ{}
+\NewDocumentCommand\lie@hasse@read@root@pair{m}%
+{%
+	\IfSubStr{#1}{:}%
+	{%
+		\StrBefore{#1}{:}[\lie@hasse@XX]%
+		\StrBehind{#1}{:}[\lie@hasse@ZZ]%
+	}%
+	{%
+		\xdef\lie@hasse@XX{#1}%
+		\xdef\lie@hasse@ZZ{0}%
+	}%
+	\IfStrEq{\dynkin@series}{G}%
+	{%
+	\pgfmathsetmacro\lie@hasse@XX%
+		{\lie@hasse@XX}%
+	}%
+	{% else
+	\pgfmathsetmacro\lie@hasse@XX%
+		{\lie@hasse@XX+\lie@hasse@three@D@shift*(\the\lie@hasse@grade@no-\lie@hasse@ZZ-1)}%
+	}%
+}%
+\NewDocumentCommand\lie@hasse@place@root{m}%
+{%
+	\lie@hasse@read@root@pair{#1}%
+	\coordinate 
+		(\the\lie@hasse@grade@no;\the\lie@hasse@root@no) 
+		at 
+		({\lie@hasse@XX*\lie@hasse@edge@length/2},
+		{(\the\lie@hasse@grade@no-1)*\lie@hasse@edge@length/2}) {};%
+	\global\advance\lie@hasse@root@no by 1%
+}%
+\NewDocumentCommand\lie@hasse@place@root@list{m}%
+{%
+	\global\lie@hasse@root@no 1\relax%
+	\expandafter\forcsvlist\expandafter\lie@hasse@place@root{#1}%
+	\global\advance\lie@hasse@grade@no by 1%
+}%
+\NewDocumentCommand\lie@hasse@place@roots{m}%
+{%
+	\global\lie@hasse@grade@no 1\relax%
+	\renewcommand*{\do}[1]%
+	{%
+		\lie@hasse@place@root@list{##1}%
+	}%
+	\expandafter\docsvlist\expandafter{#1}%
+}%
+\newcount\lie@hasse@grade@no@plus@one%
+\newcount\lie@hasse@edge@count%
+\def\lie@hasse@edge@go{%
+\@ifstar\lie@hasse@process@edge@above\lie@hasse@process@edge@behind}%
+\NewDocumentCommand\lie@hasse@process@edge{m}%
+{%
+	\lie@hasse@edge@go#1!%
+}%
+\def\lie@hasse@process@edge@above#1!%
+{%
+	\global\advance\lie@hasse@edge@count  by 1\relax%
+	\begin{pgfonlayer}{Dynkin above}%
+%%?	\lie@hasse@finish@edge#1!%
+	\lie@hasse@finish@edge#1\relax%
+	\end{pgfonlayer}%
+}%
+\def\lie@hasse@process@edge@behind#1!%
+{%
+	\global\advance\lie@hasse@edge@count  by 1\relax%
+	\begin{pgfonlayer}{Dynkin behind}%
+	\lie@hasse@finish@edge#1\relax%
+	\end{pgfonlayer}%
+}%
+\def\lie@hasse@finish@edge#1+#2#3#4%
+{%
+	\ifx#3<\relax%
+		\draw@lie@hasse@edge[left]%
+			{\the\lie@hasse@grade@no}{#1}%
+			{#4}%
+			{#2}%
+	\else%
+		\draw@lie@hasse@edge[right]%
+			{\the\lie@hasse@grade@no}{#1}%
+			{#4}%
+			{#2}%
+	\fi%
+}%
+\NewDocumentCommand\lie@hasse@process@edge@list{m}%
+{%
+	\global\lie@hasse@edge@count 0\relax%
+	\expandafter\forcsvlist\expandafter\lie@hasse@process@edge{#1}%
+	\global\advance\lie@hasse@grade@no by 1\relax%
+}%
+\NewDocumentCommand\lie@hasse@process@edge@lists{m}%
+{%
+	\global\lie@hasse@grade@no 1\relax%
+	\expandafter\forcsvlist\expandafter\lie@hasse@process@edge@list{#1}%
+}%
+\NewDocumentCommand\hasse@X{mm}%
+{%
+	\lie@hasse@place@roots{#1}%
+	\lie@hasse@process@edge@lists{#2}%
+}%
+\NewDocumentCommand\hasse@E@six@width@at@grade{mm}%
+{%
+	\ifnum#1=1%
+		#2 6%
+	\else\ifnum#1=2%
+		#2 5%
+	\else\ifnum#1=3%
+		#2 5%
+	\else\ifnum#1=4%
+		#2 5%
+	\else\ifnum#1=5%
+		#2 4%
+	\else\ifnum#1=6%
+		#2 3%
+	\else\ifnum#1=7%
+		#2 3%
+	\else\ifnum#1=8%
+		#2 2%
+	\else\ifnum#1<1%
+		#2 0%
+	\else\ifnum#1>11%
+		#2 0%
+	\else%
+		#2 1%
+	\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi%
+}%
+% In the following code, edges are described by grade: 
+% in grade g, the expression i+r<j. means an edge from 
+% g;i to (g+1);j labelled by root r, with a label on 
+% the left; use > instead of < to get the right. Use a 
+% star in front to get this edge on the higher layer.
+\NewDocumentCommand\hasse@E@six{}%
+{%
+\hasse@X%
+{{0,2,4,5:1,6,8},{1,3,4:1,5,7},{2,3:1,4,5:1,6},{2:1,3,4:1,5,6:1},%
+{3:1,4:2,4,5:1},{3:2,4:1,5:2},{2:2,4:2,6:2},{3:2,5:2},{4:2},{4:3},{4:4}}%
+{%%% grades:
+{% 1
+1+2<1,*2+3>2,*3+4<3,*5+6>5,*2+1<1,*3+2<2,*3+5>4,*4+3>3,*5+3<4,6+5>5},
+{% 2 
+*1+3<1,*2+4<2,*3+5<4,4+2<3,*4+4<4,*4+6<5,*2+1<1,2+5>3,*3+2>2,*5+3>5},
+{% 3
+*1+4<1,3+1<2,*2+5<3,*2+1<1,3+4<3,3+6<4,*4+2<3,*4+6<5,1+5>2,5+2>4,*5+4>5},
+{% 4
+*1+5<1,2+4<1,2+6<3,*3+1<1,*3+3>2,4+1<3,4+4<4,*3+6<4,*5+2>4},
+{% 5
+*1+3<1,1+6<2,3+4<2,4+1>2,*2+1<1,*2+6>3,*4+3>3},
+{% 6
+*1+2<1,*1+6<2,2+3<2,*3+1<2,*3+5>3},
+{% 7
+*1+6<1,*2+5<2,*2+2<1,*3+1>2},
+{% 8
+*1+5<1,*2+2>1},
+{% 9
+1+3<1},
+{% 10
+1+4<1}
+}%%%
+\iflie@hasse@threeD%
+\begin{pgfonlayer}{Dynkin middle}%
+	\fill[/Lie Hasse diagram/top] 
+		(2;1) -- 
+		(5;3) -- 
+		(2;5) -- 
+		(1;5) -- 
+		(2;4) -- 
+		(1;3) -- 
+		(2;2) -- 
+		(1;2) -- cycle;%
+	\fill[/Lie Hasse diagram/top] 
+		(2;3) -- 
+		(4;1) -- 
+		(6;2) -- 
+		(4;5) -- cycle;%
+	\fill[/Lie Hasse diagram/right] 
+		(1;3) -- 
+		(2;3) -- 
+		(4;5) -- 
+		(3;5) -- cycle;%
+	\fill[/Lie Hasse diagram/left] 
+		(3;1) -- 
+		(4;1) -- 
+		(2;3) -- 
+		(1;3) -- cycle;%
+	\fill[/Lie Hasse diagram/left] 
+		(4;3) -- 
+		(5;1) -- 
+		(6;1) -- 
+		(5;2) -- cycle;%
+	\fill[/Lie Hasse diagram/right] 
+		(4;3) -- 
+		(5;2) -- 
+		(6;3) -- 
+		(5;4) -- cycle;%
+	\fill[/Lie Hasse diagram/top] 
+		(5;2) -- 
+		(7;1) -- 
+		(9;1) -- 
+		(7;3) -- cycle;%
+\end{pgfonlayer}%
+\fi%
+}%
+\NewDocumentCommand\hasse@E@seven@width@at@grade{mm}%
+{%
+	\ifnum#1=1%
+		#2 7%
+	\else\ifnum#1=2%
+		#2 6%
+	\else\ifnum#1=3%
+		#2 6%
+	\else\ifnum#1=4%
+		#2 6%
+	\else\ifnum#1=5%
+		#2 6%
+	\else\ifnum#1=6%
+		#2 5%
+	\else\ifnum#1=7%
+		#2 5%
+	\else\ifnum#1=8%
+		#2 4%
+	\else\ifnum#1=9%
+		#2 4%
+	\else\ifnum#1=10%
+		#2 3%
+	\else\ifnum#1=11%
+		#2 3%
+	\else\ifnum#1=12%
+		#2 2%
+	\else\ifnum#1=13%
+		#2 2%
+	\else\ifnum#1<1%
+		#2 0%
+	\else\ifnum#1>17%
+		#2 0%
+	\else%
+		#2 1%
+	\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi%
+}%
+\NewDocumentCommand\hasse@E@seven{}%
+{%
+\hasse@X%
+{{0,2,4,6,7:1,8,10},%1
+{1,3,5,6:1,7,9},%2
+{2,4,5:1,6,7:1,8},%3
+{3,4:1,5,6:1,7,8:1},%4
+{3:1,4,5:1,6:2,6,7:1},%5
+{4:1,5:2,5,6:1,7:2},%6
+{4:2,5:3,5:1,6:2,8:2},%7
+{4:3,5:2,6:3,7:2},%8
+{3:3,5:3,6:2,7:3},%9
+{4:3,6:3,8:3},%10
+{5:3,7:3,9:3},%11
+{6:3,8:3},%12
+{5:3,7:3},%13
+{6:3},%14
+{6:4},%15
+{6:5},%16
+{6:6}%17
+}
+{%%% grades:
+{% 1
+*1+2<1,*2+1<1,*2+3>2,*3+2<2,*3+4>3,*4+3<3,*4+5<4,4+6>5,*5+4<4,*6+4<5,*6+7>6,*7+6>6},
+{% 2 
+*1+3<1,*2+1<1,*2+4<2,*3+2<2,*3+5<3,3+6<4,*4+3<3,*4+6>5,5+3>4,*5+5>5,*5+7>6,*6+4>6},
+{% 3
+*1+4<1,*2+1<1,*2+5<2,2+6<3,*3+2<2,*3+6<4,4+2<3,4+5<4,4+7<5,*5+3<4,*5+7>6,6+3>5,*6+5>6},
+{% 4
+*1+5<1,1+6<2,*2+1<1,*2+6<3,3+1<2,3+5<3,3+7<5,*4+2<3,*4+4>4,5+2<5,*4+7<6,5+5<6,*6+3>6},
+{% 5
+*1+6<1,2+5<1,2+7>3,*3+1<1,*3+4<2,5+1<3,3+7<4,*4+2<2,*4+7>5,5+5<4,6+2>4,*6+4>5},
+{% 6
+*1+4<1,1+7<3,*2+1<1,*2+3>2,*2+7>4,3+5<3,4+1>3,4+4>4,*5+2>4,*5+6>5},
+{% 7
+*1+3<1,1+7<2,*2+1<1,3+4<2,4+1>2,*4+3>3,*2+7>3,*4+6>4,*5+2>4},
+{% 8
+*1+2<1,*1+7<2,2+3<2,2+6<3,*3+1<2,*3+6<4,4+1>3,*4+3>4},
+{% 9
+*1+7<1,*2+2<1,*2+6<2,3+3<2,*4+1>2,*4+4>3},
+{% 10
+*1+6<1,*2+2<1,*2+4<2,*3+1<2,*3+5>3},
+{% 11
+*1+4<1,*2+2<1,*2+5<2,*3+1<2},
+{% 12
+*1+3<1,*1+5<2,*2+2<2},
+{% 13
+*1+5<1,*2+3<1},
+{% 14
+1+4<1},
+{% 15
+1+6<1},
+{% 16
+1+7<1},
+}%%%
+\iflie@hasse@threeD%
+\begin{pgfonlayer}{Dynkin middle}%
+	\fill[/Lie Hasse diagram/top] 
+		(2;1) -- 
+		(6;3) -- 
+		(2;6) -- 
+		(1;6) -- 
+		(2;5) -- 
+		(1;4) -- 
+		(2;3) -- 
+		(1;3) -- 
+		(2;2) -- 
+		(1;2) -- cycle;%
+	\fill[/Lie Hasse diagram/top] 
+		(5;1) -- 
+		(7;3) -- 
+		(4;6) -- 
+		(2;4) -- cycle;%
+	\fill[/Lie Hasse diagram/top] 
+		(7;1) -- 
+		(9;3) -- 
+		(7;5) -- 
+		(5;4) -- cycle;%
+	\fill[/Lie Hasse diagram/top] 
+		(9;1) -- 
+		(12;1) -- 
+		(13;1) -- 
+		(14;1) -- 
+		(11;3) -- 
+		(7;2) -- cycle;%
+	\fill[/Lie Hasse diagram/right] 
+		(1;4) -- 
+		(2;4) -- 
+		(4;6) -- 
+		(3;6) -- cycle;%
+	\fill[/Lie Hasse diagram/left] 
+		(4;1) -- 
+		(5;1) -- 
+		(2;4) -- 
+		(1;4) -- cycle;%
+	\fill[/Lie Hasse diagram/left] 
+		(4;4) -- 
+		(6;1) -- 
+		(8;1) -- 
+		(7;2) -- 
+		(6;2) -- 
+		(5;4) -- cycle;%
+	\fill[/Lie Hasse diagram/right] 
+		(4;4) -- 
+		(5;4) -- 
+		(6;5) -- 
+		(5;6) -- cycle;%
+	\fill[/Lie Hasse diagram/right] 
+		(6;2) -- 
+		(7;2) -- 
+		(9;4) -- 
+		(8;4) -- cycle;%
+\end{pgfonlayer}%
+\fi%
+}%
+\NewDocumentCommand\hasse@E@eight@width@at@grade{mm}%
+{%
+	\ifnum#1=1%
+		#2 8%
+	\else\ifnum#1=2%
+		#2 7%
+	\else\ifnum#1=3%
+		#2 7%
+	\else\ifnum#1=4%
+		#2 7%
+	\else\ifnum#1=5%
+		#2 7%
+	\else\ifnum#1=6%
+		#2 7%
+	\else\ifnum#1=7%
+		#2 7%
+	\else\ifnum#1=8%
+		#2 6%
+	\else\ifnum#1=9%
+		#2 6%
+	\else\ifnum#1=10%
+		#2 6%
+	\else\ifnum#1=11%
+		#2 6%
+	\else\ifnum#1=12%
+		#2 5%
+	\else\ifnum#1=13%
+		#2 5%
+	\else\ifnum#1=14%
+		#2 4%
+	\else\ifnum#1=15%
+		#2 4%
+	\else\ifnum#1=16%
+		#2 4%
+	\else\ifnum#1=17%
+		#2 4%
+	\else\ifnum#1=18%
+		#2 3%
+	\else\ifnum#1=19%
+		#2 3%
+	\else\ifnum#1=20%
+		#2 2%
+	\else\ifnum#1=21%
+		#2 2%
+	\else\ifnum#1=22%
+		#2 2%
+	\else\ifnum#1=23%
+		#2 2%
+	\else\ifnum#1<1%
+		#2 0%
+	\else\ifnum#1>29%
+		#2 0%
+	\else%
+		#2 1%
+	\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi%
+}%
+\NewDocumentCommand\hasse@E@eight{}%
+{%
+\hasse@X{%
+{0,2,4,6,8,9:1,10,12},%1
+{1,3,5,7,8:1,9,11},%2
+{2,4,6,7:1,8,9:1,10},%3
+{3,5,6:1,7,8:1,9,10:1},%4
+{4,5:1,6,7:1,8:2,8,9:1},%5
+{4:1,5,6:1,7:2,7,8:1,9:2},%6
+{5:1,6:2,6,7:3,7:1,8:2,10:2},%7
+{5:2,6:3,6:1,7:2,8:3,9:2},%8
+{5:3,6:4,6:2,7:3,8:2,9:3},%9
+{5:4,6:3,7:4,7:2,8:3,10:3},%10
+{4:4,6:4,7:3,8:4,9:3,11:3},%11
+{5:4,7:4,8:3,9:4,10:3},%12
+{6:4,8:4,9:5,9:3,10:4},%13
+{7:4,8:5,9:4,10:5},%14
+{7:5,8:4,9:5,11:5},%15
+{6:5,8:5,10:5,12:5},%16
+{7:5,9:5,11:5,13:5},%17
+{8:5,10:5,12:5},%18
+{7:5,9:5,11:5},%19
+{8:5,10:5},%20
+{7:5,9:5},%21
+{6:5,8:5},%22
+{7:5,9:5},%23
+{8:5},%24
+{8:6},%25
+{8:7},%26
+{8:8},%27
+{8:9},%28
+{8:10}%29
+}%
+{%%% grades:
+{% 1
+*1+2<1,*2+1<1,*2+3>2,*3+2<2,*3+4>3,*4+3<3,*4+5>4,*5+4<4,*5+6<5,5+7>6,*6+5>5,*7+5<6,*7+8>7,8+7>7},
+{% 2 
+*1+3<1,*2+1<1,*2+4<2,*3+2<2,*3+5<3,*4+3<3,*4+6<4,4+7>5,*5+4<4,*5+7<6,6+4<5,*6+6>6,*6+8>7,*7+5>7},
+{% 3
+*1+4<1,*2+1<1,*2+5<2,*3+2<2,*3+6<3,3+7>4,*4+3<3,*4+7<5,5+3<4,5+6>5,5+8>6,*6+4>5,*6+8<7,7+4>6,*7+6>7},
+{% 4
+*1+5<1,*2+1<1,*2+6<2,2+7>3,*3+2<2,*3+7<4,4+2<3,4+6<4,4+8<6,*5+3<4,*5+5>5,*5+8<7,6+3>6,6+6>7,*7+4>7},
+{% 5
+6+2<5,*1+6<1,1+7<2,*2+1<1,*2+7<3,3+1<2,3+6<3,3+8<5,*4+2<3,*4+5<4,4+8<6,*5+3<4,*5+8>7,6+6<6,7+3>6,*7+5>7},
+{% 6
+*1+7<1,2+6<1,2+8<3,*3+1<1,*3+5<2,*4+2<2,3+8<5,*4+4<4,*4+8>6,5+1<3,5+6<5,6+2>5,6+5>6,*7+3>6,*7+7>7},
+{% 7
+5+1<3,*1+5<1,1+8<3,*2+1<1,*2+4<2,2+8<4,3+6<3,*4+2<2,*4+8>5,5+5<4,6+2>4,*6+4>5,*6+7>6,*7+3>6},
+{% 8
+*1+4<1,1+8<3,*2+1<1,*2+3>2,*2+8>4,3+5<3,4+1<3,4+4<4,4+7<5,*5+2<4,*5+7<6,*6+4>6,6+2>5},
+{% 9
+*1+3<1,1+8<2,*2+1<1,*2+8<3,3+4<2,3+7<4,*4+3>3,4+1<2,*4+7<5,5+1>4,5+4>5,*6+2>5,*6+5>6},
+{% 10
+*1+2<1,*1+8<2,2+3<2,2+7<3,*3+1<2,*3+7>4,4+4<3,5+1>3,*5+3>4,*5+5>5,*6+2<5,*6+6>6},
+{% 11
+*1+8<1,*2+2<1,*2+7<2,3+3<2,3+5>3,*4+1<2,*4+5<4,*5+3>4,5+1>3,*5+6>5,*6+2>5},
+{% 12
+*1+7<1,*2+2<1,*2+5<2,3+3<2,3+6<4,*4+1<2,*4+4>3,*4+6<5,5+1>4,*5+3>5},
+{% 13
+*1+5<1,*2+2<1,*2+4<2,2+6<3,*3+1<2,*3+6>4,4+3<3,5+1>3,*5+4>4},
+{% 14
+*1+4<1,1+6<2,*2+2<1,*2+6<3,3+2<2,3+4<3,*4+1<3,*4+5>4},
+{% 15
+*1+3<1,*1+6<2,2+4<2,*3+2>2,*3+5<3,*4+1<3,*4+7>4},
+{% 16
+*1+6<1,*2+3<1,*2+5<2,*3+2<2,*3+7<3,*4+1<3,*4+8>4},
+{% 17
+*1+5<1,*2+3<1,*2+7<2,*3+2<2,*3+8<3,*4+1>3},
+{% 18
+*1+4<1,*1+7<2,*2+3<2,*2+8<3,*3+2>3},
+{% 19
+*1+7<1,*2+4<1,*2+8<2,*3+3>2},
+{% 20
+*1+5<1,*1+8<2,*2+4>2},
+{% 21
+*1+6<1,*1+8<2,*2+5>2,},
+{% 22
+*1+8<1,*2+6<1,*2+7>2},
+{% 23
+*1+7<1,*2+6>1},
+{% 24
+1+5>1},
+{% 25
+1+4>1},
+{% 26
+1+3>1},
+{% 27
+1+2>1},
+{% 28
+1+1>1}
+}%%%
+\iflie@hasse@threeD%
+\begin{pgfonlayer}{Dynkin middle}%
+\fill[/Lie Hasse diagram/top] 
+	(2;1) --
+	(7;3) -- 
+	(2;7) --
+	(1;7) --
+	(2;6) --
+	(1;5) --
+	(2;4) --
+	(1;4) --
+	(2;3) --
+	(1;3) --
+	(2;2) -- 
+	(1;2) --
+	cycle;%
+\fill[/Lie Hasse diagram/left]
+	(5;1) --
+	(6;1) --
+	(2;5) --
+	(1;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/right]
+	(2;5) --
+	(4;7) --
+	(3;7) --
+	(1;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/left]
+	(7;1) --
+	(10;1) --
+	(9;2) --
+	(8;2) --
+	(7;4) --
+	(6;4) --
+	(5;5) --
+	(4;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/right]
+	(4;5) -- 
+	(5;5) --
+	(6;7) --
+	(5;7) --
+	cycle;%
+\fill[/Lie Hasse diagram/right]
+	(6;4) --
+	(7;4) --
+	(9;6) --
+	(8;6) --
+	cycle;%
+\fill[/Lie Hasse diagram/right] 
+	(8;2) --
+	(9;2) --
+	(12;4) --
+	(13;3) --
+	(14;4) --
+	(12;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/top] 
+	(6;1) --
+	(8;3) --
+	(4;7) --
+	(2;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/left]
+	(12;4) --
+	(14;1) --
+	(15;1) --
+	(13;3) --
+	cycle;%
+\fill[/Lie Hasse diagram/top] 
+	(5;5) --
+	(8;1) --
+	(10;4) --
+	(7;7) --
+	cycle;%
+\fill[/Lie Hasse diagram/top] 
+	(7;4) --
+	(9;1) --
+	(13;4) --
+	(11;6) --
+	cycle;%
+\fill[/Lie Hasse diagram/top] 
+	(9;2) --
+	(11;1) --
+	(15;2) --
+	(13;5) --
+	cycle;%
+\fill[/Lie Hasse diagram/top] 
+	(13;3) -- 
+	(16;1) -- 
+	(18;1) -- 
+	(19;1) -- 
+	(20;1) -- 
+	(22;1) -- 
+	(24;1) -- 
+	(23;2) -- 
+	(22;2) -- 
+	(17;4) -- 
+	cycle;%
+\end{pgfonlayer}%
+\fi%
+}%
+
+\NewDocumentCommand\hasse@F@width@at@grade{mm}%
+{%
+	\ifnum#1=1%
+		#2 4%
+	\else\ifnum#1=2%
+		#2 3%
+	\else\ifnum#1=3%
+		#2 3%
+	\else\ifnum#1=4%
+		#2 3%
+	\else\ifnum#1=5%
+		#2 3%
+	\else\ifnum#1=6%
+		#2 2%
+	\else\ifnum#1=7%
+		#2 2%
+	\else\ifnum#1<1%
+		#2 0%
+	\else\ifnum#1>11%
+		#2 0%
+	\else%
+		#2 1%
+	\fi\fi\fi\fi\fi\fi\fi\fi\fi%
+}%
+
+\NewDocumentCommand\hasse@F{}%
+{%
+\hasse@X%
+{{0,2,4,6},{1,3,5},{2,3:1,4},{2:1,3,4:1},{1:1,3:1,5:1},{2:1,4:1},{1:1,3:1},{2:1},{2:2},{2:3},{2:4}}%
+{% grades:
+{% 1
+1+2<1,*2+3>2,*3+4>3,*2+1<1,*3+2<2,4+3>3},
+{% 2
+*1+3<1,*2+4>3,*2+1<1,*2+3>2,3+2>3},
+{% 3
+*1+3<1,1+4>2,*2+4>3,*2+1<1,3+1>2,*3+3>3},
+{% 4
+*1+2<1,*1+4<2,2+3<2,*3+1>2,*3+4>3},
+{% 5
+*1+4<1,*2+4<2,*2+2>1,*3+1>2},
+{% 6
+*1+3<1,*1+4<2,*2+2>2},
+{% 7
+*1+4<1,*2+3>1},
+{% 8
+1+3<1},
+{% 9
+1+2<1},
+{% 10
+1+1<1}
+}%
+\iflie@hasse@threeD%
+\begin{pgfonlayer}{Dynkin middle}%
+\fill[/Lie Hasse diagram/top] (2;1) -- (4;2) -- (2;3) -- (1;3) -- (2;2) -- (1;2) -- cycle;%
+\fill[/Lie Hasse diagram/left] (2;2) -- (3;1) -- (4;1) -- (3;2) -- cycle;%
+\fill[/Lie Hasse diagram/right] (2;2) -- (3;2) -- (4;3) -- (3;3) -- cycle;%
+\fill[/Lie Hasse diagram/top] (3;2) -- (5;1) -- (6;1) -- (7;1) -- (8;1) -- (5;3) -- cycle;%
+\end{pgfonlayer}%
+\fi%
+}%
+\NewDocumentCommand\hasse@G@width@at@grade{mm}%
+{%
+	\ifnum#1=1%
+		#2 2%
+	\else\ifnum#1<1%
+		#2 0%
+	\else\ifnum#1>5%
+		#2 0%
+	\else%
+		#2 1%
+	\fi\fi\fi%
+}%
+\NewDocumentCommand\hasse@G@AB{}%
+{%
+\hasse@X{{0,2},{1},{1},{1},{1}}{{1+2<1,2+1>1},{1+1<1},{1+1<1},{1+2<1}}%AB
+}%
+\NewDocumentCommand\hasse@G@CDK{}%
+{%
+\hasse@X{{0,2},{1},{1},{1},{1}}{{1+2<1,2+1>1},{1+2<1},{1+2<1},{1+1<1}}%CDK
+}%
+\NewDocumentCommand\hasse@G{}%
+{%
+\IfStrEqCase{\dynkin@ordering}%
+{%
+	{Adams}{\hasse@G@AB}%
+	{Bourbaki}{\hasse@G@AB}%
+	{Carter}{\hasse@G@CDK}%
+	{Dynkin}{\hasse@G@CDK}%
+	{Kac}{\hasse@G@CDK}%
+}%
+[\ClassError%
+		{Lie Hasse}%
+		{Root ordering ``\dynkin@ordering'' %
+		not Adams, Bourbaki, Carter, Dynkin or Kac when attaching G2 Dynkin diagram}%
+		{}]%
+}%
+\ExplSyntaxOn
+\DeclareExpandableDocumentCommand{\lie@hasse@repeat@string}{O{}mm}
+{
+	\int_compare:nT { #2 > 0 }
+	{
+	#3 \prg_replicate:nn { #2 - 1 } { #1#3 }
+	}
+ }
+\ExplSyntaxOff
+\newcommand*\exceptional@root@sum[1]{\csname FOO-#1\endcsname}
+\newcommand*\defn@root@sum[1]{\expandafter\def\csname FOO-#1\endcsname}
+\def\@root@sum#1=#2!{\global\defn@root@sum{#1}{#2}}%
+\newcount\left@part@length%
+\newcount\middle@part@length%
+\newcount\right@part@length%
+\NewDocumentCommand\hasse@A@root@sum{mmm}%
+{%
+	\left@part@length#2\relax%
+	\advance\left@part@length by -1\relax%
+	\middle@part@length#1\relax%
+	\right@part@length\the\dynkin@rank\relax%
+	\advance\right@part@length by -#1\relax%
+	\advance\right@part@length by -#2\relax%
+	\advance\right@part@length by 1\relax%
+	\ifnum\left@part@length=0%
+		\ifnum\right@part@length=0%
+			\xdef#3{\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}}%
+		\else%
+			\xdef#3{\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}.\lie@hasse@repeat@string[.]{\the\right@part@length}{0}}%
+		\fi%
+	\else%
+		\ifnum\right@part@length=0%
+			\xdef#3{\lie@hasse@repeat@string[.]{\the\left@part@length}{0}.\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}}%
+		\else%
+			\xdef#3{\lie@hasse@repeat@string[.]{\the\left@part@length}{0}.\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}.\lie@hasse@repeat@string[.]{\the\right@part@length}{0}}%
+		\fi%
+	\fi%
+}%
+\NewDocumentCommand\hasse@B@root@sum{mmm}%
+{%
+	\right@part@length#1\relax%
+	\advance\right@part@length by -\the\dynkin@rank\relax%
+	\advance\right@part@length by #2\relax%
+	\advance\right@part@length by -1\relax%
+	\ifnum\right@part@length>0%
+		\left@part@length#2\relax%
+		\advance\left@part@length by -1\relax%
+		\middle@part@length\the\dynkin@rank\relax%
+		\advance\middle@part@length by\the\dynkin@rank\relax%
+		\advance\middle@part@length by -#2\relax%
+		\advance\middle@part@length by -#2\relax%
+		\advance\middle@part@length by 2\relax%
+		\advance\middle@part@length by -#1\relax%
+		\ifnum\left@part@length=0%
+			\ifnum\middle@part@length=0%
+				\xdef#3{\lie@hasse@repeat@string[.]{\the\right@part@length}{2}}%
+			\else%
+				\xdef#3{\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}.\lie@hasse@repeat@string[.]{\the\right@part@length}{2}}%
+			\fi%
+		\else%
+			\ifnum\middle@part@length=0%
+				\xdef#3{\lie@hasse@repeat@string[.]{\the\left@part@length}{0}.\lie@hasse@repeat@string[.]{\the\right@part@length}{2}}%
+			\else%
+				\xdef#3{\lie@hasse@repeat@string[.]{\the\left@part@length}{0}.\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}.\lie@hasse@repeat@string[.]{\the\right@part@length}{2}}%
+			\fi%
+		\fi%
+	\else%
+		\hasse@A@root@sum{#1}{#2}{#3}%
+	\fi%
+}%
+\newcount\hasse@C@len%
+\NewDocumentCommand\hasse@C@root@sum{mmm}%
+{%
+	\hasse@B@root@sum{#1}{#2}{\hasse@C@root@tmp}%
+	\StrRight{\hasse@C@root@tmp}{1}[\hasse@C@last@char]%
+	\IfStrEq{\hasse@C@last@char}{2}%
+	{%
+		\StrGobbleRight{\hasse@C@root@tmp}{1}[\hasse@C@left@chunk]%
+		\xdef#3{\hasse@C@left@chunk{}1}%
+	}%
+	{%
+	}%
+}%
+\newcount\hasse@D@len%
+\NewDocumentCommand\hasse@D@root@sum{mmm}%
+{%
+	\hasse@D@len#1\relax%
+	\advance\hasse@D@len by #2\relax%
+	\advance\hasse@D@len by -1\relax%
+	\ifnum\hasse@D@len<\the\dynkin@rank%
+		\hasse@A@root@sum{#1}{#2}{#3}%
+	\else%
+		\ifnum\hasse@D@len=\the\dynkin@rank%
+			\ifnum#2=1%
+				\xdef#3{\lie@hasse@repeat@string[.]{\the\dynkin@rank}{1}}%
+			\else%
+				\left@part@length#2\relax%
+				\advance\left@part@length by -1\relax%
+				\right@part@length#1\relax%
+				\advance\right@part@length by -1\relax%
+				\if\left@part@length>0%
+					\xdef#3%
+						{%%
+							\lie@hasse@repeat@string[.]%
+								{\the\left@part@length}{0}.%
+							\lie@hasse@repeat@string[.]%
+								{\the\right@part@length}{1}.0.1%
+						}%%
+				\else%
+					\xdef#3%
+						{%%
+							\lie@hasse@repeat@string[.]%
+								{\the\right@part@length}{1}.0.1%
+						}%%
+				\fi%
+			\fi%
+		\else%
+			\ifnum#1<\the\dynkin@rank%	
+				% i-2 zeroes
+				\left@part@length#2\relax%
+				\advance\left@part@length by -2\relax%
+				% 2r-g-2i+2 ones
+				\middle@part@length\the\dynkin@rank\relax%
+				\advance\middle@part@length by \the\dynkin@rank\relax%
+				\advance\middle@part@length by-#1\relax%
+				\advance\middle@part@length by-#2\relax%
+				\advance\middle@part@length by-#2\relax%
+				\advance\middle@part@length by 2\relax%
+				% g+i-r-2 twos
+				\right@part@length#1\relax%
+				\advance\right@part@length by #2\relax%
+				\advance\right@part@length by -\the\dynkin@rank\relax%
+				\advance\right@part@length by -2\relax%
+				\ifnum\left@part@length>0%
+					\ifnum\right@part@length>0%
+						\xdef#3%
+							{%%
+								\lie@hasse@repeat@string[.]%
+									{\the\left@part@length}{0}.%
+								\lie@hasse@repeat@string[.]%
+									{\the\middle@part@length}{1}.%
+								\lie@hasse@repeat@string[.]%
+									{\the\right@part@length}{2}.1.1%
+							}%%
+					\else%
+						\xdef#3%
+							{%%
+								\lie@hasse@repeat@string[.]%
+									{\the\left@part@length}{0}.%
+								\lie@hasse@repeat@string[.]%
+									{\the\middle@part@length}{1}.1.1%
+							}%%
+					\fi%
+				\else%
+					\ifnum\right@part@length>0%
+						\xdef#3%
+							{%%
+								\lie@hasse@repeat@string[.]%
+									{\the\middle@part@length}{1}.%
+								\lie@hasse@repeat@string[.]%
+									{\the\right@part@length}{2}.1.1%
+							}%%
+					\else%
+						\xdef#3{\lie@hasse@repeat@string[.]{\the\middle@part@length}{1}.1.1}%
+					\fi%
+				\fi%
+			\else%
+				% i-1 zeroes
+				\left@part@length#2\relax%
+				\advance\left@part@length by -1\relax%
+				% 2r-g-2i ones
+				\middle@part@length\the\dynkin@rank\relax%
+				\advance\middle@part@length by \the\dynkin@rank\relax%
+				\advance\middle@part@length by-#1\relax%
+				\advance\middle@part@length by-#2\relax%
+				\advance\middle@part@length by-#2\relax%
+				% g+i-r-1 twos
+				\right@part@length#1\relax%
+				\advance\right@part@length by #2\relax%
+				\advance\right@part@length by -\the\dynkin@rank\relax%
+				\advance\right@part@length by -1\relax%
+				\ifnum\left@part@length>0%
+					\xdef#3%
+						{%%
+							\lie@hasse@repeat@string[.]%
+								{\the\left@part@length}{0}.%
+							\lie@hasse@repeat@string[.]%
+								{\the\middle@part@length}{1}.%
+							\lie@hasse@repeat@string[.]%
+								{\the\right@part@length}{2}.1.1%
+						}%%
+				\else%
+					\xdef#3%
+						{%%
+							\lie@hasse@repeat@string[.]%
+								{\the\middle@part@length}{1}.%
+							\lie@hasse@repeat@string[.]%
+								{\the\right@part@length}{2}.1.1%
+						}%%
+				\fi%
+			\fi%
+		\fi%
+	\fi%
+}%
+\newif\ifroot@sum@reset%
+\root@sum@resettrue%
+\NewDocumentCommand\initialize@roots@as@sums@table{}%
+{%
+	\IfStrEqCase{\dynkin@series}%
+	{%
+		{E}%
+			{%
+				\ifnum\dynkin@rank=6%
+					\hasse@set@E@six@root@sums%
+				\else%
+					\ifnum\dynkin@rank=7%
+						\hasse@set@E@seven@root@sums%
+					\else%
+						\hasse@set@E@eight@root@sums%
+					\fi%
+				\fi%
+			}%
+		{F}{\hasse@set@F@root@sums}%
+		{G}{\hasse@set@G@root@sums}%
+	}%
+	\global\root@sum@resetfalse%
+}%
+\xdef\lie@hasse@root@sum{}%
+\xdef\lie@hasse@fixed@root@sum{}%
+\NewDocumentCommand\rootSum{oommm}%
+{%
+	\IfValueT{#1}%
+	{%
+		\IfStrEq{\dynkin@series}{#1}%
+		{%
+		}%
+		{%
+			\global\root@sum@resettrue%
+		}%
+	}%
+	\IfValueT{#2}%
+	{%
+		\ifnum\dynkin@rank=#2%
+		\else%
+			\global\root@sum@resettrue%
+		\fi%
+	}%
+	\ifroot@sum@reset%
+		\xdef\dynkin@series{#1}%
+		\global\dynkin@rank #2\relax%
+		\initialize@roots@as@sums@table%	
+	\fi%
+	\IfStrEqCase{\dynkin@series}%
+	{%
+		{A}{\hasse@A@root@sum{#3}{#4}{\lie@hasse@root@sum}}%
+		{B}{\hasse@B@root@sum{#3}{#4}{\lie@hasse@root@sum}}%
+		{C}{\hasse@C@root@sum{#3}{#4}{\lie@hasse@root@sum}}%
+		{D}{\hasse@D@root@sum{#3}{#4}{\lie@hasse@root@sum}}%
+		{E}{\xdef\lie@hasse@root@sum{\exceptional@root@sum{#3;#4}}}%
+		{F}{\xdef\lie@hasse@root@sum{\exceptional@root@sum{#3;#4}}}%
+		{G}{\xdef\lie@hasse@root@sum{\exceptional@root@sum{#3;#4}}}%
+	}%
+	\StrSubstitute{\lie@hasse@root@sum}{.}{,}[#5]%
+}%
+%% \rootSystemHeight[G][2]{\h} sets the counter \h to the height of the poset
+%% of the root system G2. \rootSystemHeight{\h} uses the current root system.
+\NewDocumentCommand\rootSystemHeight{oom}%
+{%
+	\global\root@sum@resetfalse%
+	\IfValueT{#1}%
+	{%
+		\IfStrEq{\dynkin@series}{#1}%
+		{%
+		}%
+		{%
+			\global\root@sum@resettrue%
+		}%
+	}%
+	\IfValueT{#2}%
+	{%
+		\ifnum\dynkin@rank=#2%
+		\else%
+			\global\root@sum@resettrue%
+		\fi%
+	}%
+	\ifroot@sum@reset%
+		\xdef\dynkin@series{#1}%
+		\global\dynkin@rank #2\relax%
+		\initialize@roots@as@sums@table%	
+	\fi%
+	\IfStrEqCase{\dynkin@series}%
+	{%
+		{A}{\global#3\the\dynkin@rank}%
+		{B}%
+		{%%
+			\global#3\the\dynkin@rank\relax%
+			\global\advance#3 by \the\dynkin@rank\relax%
+			\global\advance#3 by -1\relax%
+		}%%
+		{C}%
+		{%%
+			\global#3\the\dynkin@rank\relax%
+			\global\advance#3 by \the\dynkin@rank\relax%
+			\global\advance#3 by -1\relax%
+		}%%
+		{D}%
+		{%%
+			\global#3\the\dynkin@rank\relax%
+			\global\advance#3 by \the\dynkin@rank\relax%
+			\global\advance#3 by -3\relax%
+		}%%
+		{E}%
+		{%%
+			\ifnum\dynkin@rank=6%
+				\global#3 11%
+			\else%
+				\ifnum\dynkin@rank=7%
+					\global#3 17%
+				\else%
+					\global#3 29%
+				\fi%
+			\fi%
+		}%%
+		{F}{\global#3 11}%
+		{G}{\global#3 5}%
+	}%
+}%
+%% \rootSystemWidthAtGrade[G][2]{5}{\w} sets the counter \w to the width 
+%% of the 5th grade of the poset of the root system G2. 
+%% \rootSystemWidth{5}{\w} uses the current root system.
+\NewDocumentCommand\rootSystemWidthAtGrade{oomm}%
+{%
+	\global\root@sum@resetfalse%
+	\IfValueT{#1}%
+	{%
+		\IfStrEq{\dynkin@series}{#1}%
+		{%
+		}%
+		{%
+			\global\root@sum@resettrue%
+		}%
+	}%
+	\IfValueT{#2}%
+	{%
+		\ifnum\dynkin@rank=#2%
+		\else%
+			\global\root@sum@resettrue%
+		\fi%
+	}%
+	\ifroot@sum@reset%
+		\xdef\dynkin@series{#1}%
+		\global\dynkin@rank #2\relax%
+		\initialize@roots@as@sums@table%	
+	\fi%
+	\IfStrEqCase{\dynkin@series}%
+	{%
+		{A}{\hasse@A@width@at@grade{#3}{#4}}%
+		{B}{\hasse@BC@width@at@grade{#3}{#4}}%
+		{C}{\hasse@BC@width@at@grade{#3}{#4}}%
+		{D}{\hasse@D@width@at@grade{#3}{#4}}%
+		{E}%
+		{%%
+			\ifnum\dynkin@rank=6%
+				\hasse@E@six@width@at@grade{#3}{#4}%
+			\else%
+				\ifnum\dynkin@rank=7%
+					\hasse@E@seven@width@at@grade{#3}{#4}%
+				\else%
+					\hasse@E@eight@width@at@grade{#3}{#4}%
+				\fi%
+			\fi%
+		}%%
+		{F}%
+			{%
+				\hasse@F@width@at@grade{#3}{#4}%
+			}%
+		{G}%
+			{%
+				\hasse@G@width@at@grade{#3}{#4}%
+			}%
+	}%
+}%
+\NewDocumentCommand\do@hasse@list{m}{\expandafter\@root@sum#1!}%
+\NewDocumentCommand\hasse@set@E@six@root@sums{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0.0.0.0.0,%
+1;2=0.1.0.0.0.0,%
+1;3=0.0.1.0.0.0,%
+1;4=0.0.0.1.0.0,%
+1;5=0.0.0.0.1.0,%
+1;6=0.0.0.0.0.1,%
+2;1=1.1.0.0.0.0,%
+2;2=0.1.1.0.0.0,%
+2;3=0.0.1.1.0.0,%
+2;4=0.0.1.0.1.0,%
+2;5=0.0.0.0.1.1,%
+3;1=1.1.1.0.0.0,%
+3;2=0.1.1.1.0.0,%
+3;3=0.1.1.0.1.0,%
+3;4=0.0.1.1.1.0,%
+3;5=0.0.1.0.1.1,%
+4;1=1.1.1.1.0.0,%
+4;2=1.1.1.0.1.0,%
+4;3=0.1.1.1.1.0,%
+4;4=0.1.1.0.1.1,%
+4;5=0.0.1.1.1.1,%
+5;1=1.1.1.1.1.0,%
+5;2=0.1.2.1.1.0,%
+5;3=1.1.1.0.1.1,%
+5;4=0.1.1.1.1.1,%
+6;1=1.1.2.1.1.0,%
+6;2=1.1.1.1.1.1,%
+6;3=0.1.2.1.1.1,%
+7;1=1.2.2.1.1.0,%
+7;2=1.1.2.1.1.1,%
+7;3=0.1.2.1.2.1,%
+8;1=1.2.2.1.1.1,%
+8;2=1.1.2.1.2.1,%
+9;1=1.2.2.1.2.1,%
+10;1=1.2.3.1.2.1,%
+11;1=1.2.3.2.2.1}%
+}%
+\NewDocumentCommand\hasse@set@E@seven@root@sums{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0.0.0.0.0.0,%
+1;2=0.1.0.0.0.0.0,%
+1;3=0.0.1.0.0.0.0,%
+1;4=0.0.0.1.0.0.0,%
+1;5=0.0.0.0.1.0.0,%
+1;6=0.0.0.0.0.1.0,%
+1;7=0.0.0.0.0.0.1,%
+2;1=1.1.0.0.0.0.0,%
+2;2=0.1.1.0.0.0.0,%
+2;3=0.0.1.1.0.0.0,%
+2;4=0.0.0.1.1.0.0,%
+2;5=0.0.0.1.0.1.0,%
+2;6=0.0.0.0.0.1.1,%
+3;1=1.1.1.0.0.0.0,%
+3;2=0.1.1.1.0.0.0,%
+3;3=0.0.1.1.1.0.0,%
+3;4=0.0.1.1.0.1.0,%
+3;5=0.0.0.1.1.1.0,%
+3;6=0.0.0.1.0.1.1,%
+4;1=1.1.1.1.0.0.0,%
+4;2=0.1.1.1.1.0.0,%
+4;3=0.1.1.1.0.1.0,%
+4;4=0.0.1.1.1.1.0,%
+4;5=0.0.1.1.0.1.1,%
+4;6=0.0.0.1.1.1.1,%
+5;1=1.1.1.1.1.0.0,%
+5;2=1.1.1.1.0.1.0,%
+5;3=0.1.1.1.1.1.0,%
+5;5=0.1.1.1.0.1.1,%
+5;4=0.0.1.2.1.1.0,%
+5;6=0.0.1.1.1.1.1,%
+6;1=1.1.1.1.1.1.0,%
+6;3=1.1.1.1.0.1.1,%
+6;2=0.1.1.2.1.1.0,%
+6;4=0.1.1.1.1.1.1,%
+6;5=0.0.1.2.1.1.1,%
+7;1=1.1.1.2.1.1.0,%
+7;3=1.1.1.1.1.1.1,%
+7;2=0.1.2.2.1.1.0,%
+7;4=0.1.1.2.1.1.1,%
+7;5=0.0.1.2.1.2.1,%
+8;1=1.1.2.2.1.1.0,%
+8;2=1.1.1.2.1.1.1,%
+8;3=0.1.2.2.1.1.1,%
+8;4=0.1.1.2.1.2.1,%
+9;1=1.2.2.2.1.1.0,%
+9;2=1.1.2.2.1.1.1,%
+9;3=1.1.1.2.1.2.1,%
+9;4=0.1.2.2.1.2.1,%
+10;1=1.2.2.2.1.1.1,%
+10;2=1.1.2.2.1.2.1,%
+10;3=0.1.2.3.1.2.1,%
+11;1=1.2.2.2.1.2.1,%
+11;2=1.1.2.3.1.2.1,%
+11;3=0.1.2.3.2.2.1,%
+12;1=1.2.2.3.1.2.1,%
+12;2=1.1.2.3.2.2.1,%
+13;1=1.2.3.3.1.2.1,%
+13;2=1.2.2.3.2.2.1,%
+14;1=1.2.3.3.2.2.1,%
+15;1=1.2.3.4.2.2.1,%
+16;1=1.2.3.4.2.3.1,%
+17;1=1.2.3.4.2.3.2}%
+}%
+\NewDocumentCommand\hasse@set@E@eight@root@sums{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0.0.0.0.0.0.0,%
+1;2=0.1.0.0.0.0.0.0,%
+1;3=0.0.1.0.0.0.0.0,%
+1;4=0.0.0.1.0.0.0.0,%
+1;5=0.0.0.0.1.0.0.0,%
+1;6=0.0.0.0.0.1.0.0,%
+1;7=0.0.0.0.0.0.1.0,%
+1;8=0.0.0.0.0.0.0.1,%
+2;1=1.1.0.0.0.0.0.0,%
+2;2=0.1.1.0.0.0.0.0,%
+2;3=0.0.1.1.0.0.0.0,%
+2;4=0.0.0.1.1.0.0.0,%
+2;5=0.0.0.0.1.1.0.0,%
+2;6=0.0.0.0.1.0.1.0,%
+2;7=0.0.0.0.0.0.1.1,%
+3;1=1.1.1.0.0.0.0.0,%
+3;2=0.1.1.1.0.0.0.0,%
+3;3=0.0.1.1.1.0.0.0,%
+3;4=0.0.0.1.1.1.0.0,%
+3;5=0.0.0.1.1.0.1.0,%
+3;6=0.0.0.0.1.1.1.0,%
+3;7=0.0.0.0.1.0.1.1,%
+4;1=1.1.1.1.0.0.0.0,%
+4;2=0.1.1.1.1.0.0.0,%
+4;3=0.0.1.1.1.1.0.0,%
+4;4=0.0.1.1.1.0.1.0,%
+4;5=0.0.0.1.1.1.1.0,%
+4;6=0.0.0.1.1.0.1.1,%
+4;7=0.0.0.0.1.1.1.1,%
+5;1=1.1.1.1.1.0.0.0,%
+5;2=0.1.1.1.1.1.0.0,%
+5;3=0.1.1.1.1.0.1.0,%
+5;4=0.0.1.1.1.1.1.0,%
+5;5=0.0.0.1.2.1.1.0,%
+5;6=0.0.1.1.1.0.1.1,%
+5;7=0.0.0.1.1.1.1.1,%
+6;1=1.1.1.1.1.1.0.0,%
+6;2=1.1.1.1.1.0.1.0,%
+6;3=0.1.1.1.1.1.1.0,%
+6;4=0.0.1.1.2.1.1.0,%
+6;5=0.1.1.1.1.0.1.1,%
+6;6=0.0.1.1.1.1.1.1,%
+6;7=0.0.0.1.2.1.1.1,%
+7;1=1.1.1.1.1.1.1.0,%
+7;2=0.1.1.1.2.1.1.0,%
+7;3=1.1.1.1.1.0.1.1,%
+7;4=0.0.1.2.2.1.1.0,%
+7;5=0.1.1.1.1.1.1.1,%
+7;6=0.0.1.1.2.1.1.1,%
+7;7=0.0.0.1.2.1.2.1,%
+8;1=1.1.1.1.2.1.1.0,%
+8;2=0.1.1.2.2.1.1.0,%
+8;3=1.1.1.1.1.1.1.1,%
+8;4=0.1.1.1.2.1.1.1,%
+8;5=0.0.1.2.2.1.1.1,%
+8;6=0.0.1.1.2.1.2.1,%
+9;1=1.1.1.2.2.1.1.0,%
+9;2=0.1.2.2.2.1.1.0,%
+9;3=1.1.1.1.2.1.1.1,%
+9;4=0.1.1.2.2.1.1.1,%
+9;5=0.1.1.1.2.1.2.1,%
+9;6=0.0.1.2.2.1.2.1,%
+10;1=1.1.2.2.2.1.1.0,%
+10;2=1.1.1.2.2.1.1.1,%
+10;3=0.1.2.2.2.1.1.1,%
+10;4=1.1.1.1.2.1.2.1,%
+10;5=0.1.1.2.2.1.2.1,%
+10;6=0.0.1.2.3.1.2.1,%
+11;1=1.2.2.2.2.1.1.0,%
+11;2=1.1.2.2.2.1.1.1,%
+11;3=1.1.1.2.2.1.2.1,%
+11;4=0.1.2.2.2.1.2.1,%
+11;5=0.1.1.2.3.1.2.1,%
+11;6=0.0.1.2.3.2.2.1,%
+12;1=1.2.2.2.2.1.1.1,%
+12;2=1.1.2.2.2.1.2.1,%
+12;3=1.1.1.2.3.1.2.1,%
+12;4=0.1.2.2.3.1.2.1,%
+12;5=0.1.1.2.3.2.2.1,%
+13;1=1.2.2.2.2.1.2.1,%
+13;2=1.1.2.2.3.1.2.1,%
+13;3=0.1.2.3.3.1.2.1,%
+13;4=1.1.1.2.3.2.2.1,%
+13;5=0.1.2.2.3.2.2.1,%
+14;1=1.2.2.2.3.1.2.1,%
+14;2=1.1.2.3.3.1.2.1,%
+14;3=1.1.2.2.3.2.2.1,%
+14;4=0.1.2.3.3.2.2.1,%
+15;1=1.2.2.3.3.1.2.1,%
+15;2=1.2.2.2.3.2.2.1,%
+15;3=1.1.2.3.3.2.2.1,%
+15;4=0.1.2.3.4.2.2.1,%
+16;1=1.2.3.3.3.1.2.1,%
+16;2=1.2.2.3.3.2.2.1,%
+16;3=1.1.2.3.4.2.2.1,%
+16;4=0.1.2.3.4.2.3.1,%
+17;1=1.2.3.3.3.2.2.1,%
+17;2=1.2.2.3.4.2.2.1,%
+17;3=1.1.2.3.4.2.3.1,%
+17;4=0.1.2.3.4.2.3.2,%
+18;1=1.2.3.3.4.2.2.1,%
+18;2=1.2.2.3.4.2.3.1,%
+18;3=1.1.2.3.4.2.3.2,%
+19;1=1.2.3.4.4.2.2.1,%
+19;2=1.2.3.3.4.2.3.1,%
+19;3=1.2.2.3.4.2.3.2,%
+20;1=1.2.3.4.4.2.3.1,%
+20;2=1.2.3.3.4.2.3.2,%
+21;1=1.2.3.4.5.2.3.1,%
+21;2=1.2.3.4.4.2.3.2,%
+22;1=1.2.3.4.5.3.3.1,%
+22;2=1.2.3.4.5.2.3.2,%
+23;1=1.2.3.4.5.3.3.2,%
+23;2=1.2.3.4.5.2.4.2,%
+24;1=1.2.3.4.5.3.4.2,%
+25;1=1.2.3.4.6.3.4.2,%
+26;1=1.2.3.5.6.3.4.2,%
+27;1=1.2.4.5.6.3.4.2,%
+28;1=1.3.4.5.6.3.4.2,%
+29;1=2.3.4.5.6.3.4.2}%
+}%
+\NewDocumentCommand\hasse@set@F@root@sums{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0.0.0,%
+1;2=0.1.0.0,%
+1;3=0.0.1.0,%
+1;4=0.0.0.1,%
+2;1=1.1.0.0,%
+2;2=0.1.1.0,%
+2;3=0.0.1.1,%
+3;1=1.1.1.0,%
+3;2=0.1.2.0,%
+3;3=0.1.1.1,%
+4;1=1.1.2.0,%
+4;2=1.1.1.1,%
+4;3=0.1.2.1,%
+5;1=1.2.2.0,%
+5;2=1.1.2.1,%
+5;3=0.1.2.2,%
+6;1=1.2.2.1,%
+6;2=1.1.2.2,%
+7;1=1.2.3.1,%
+7;2=1.2.2.2,%
+8;1=1.2.3.2,%
+9;1=1.2.4.2,%
+10;1=1.3.4.2,%
+11;1=2.3.4.2}%
+}%
+\NewDocumentCommand\hasse@set@G@root@sums@AB{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0,%
+1;2=0.1,%
+2;1=1.1,%
+3;1=2.1,%
+4;1=3.1,%
+5;1=3.2}%
+}%
+\NewDocumentCommand\hasse@set@G@root@sums@CDK{}%
+{%
+\forcsvlist{\do@hasse@list}{%
+1;1=1.0,%
+1;2=0.1,%
+2;1=1.1,%
+3;1=1.2,%
+4;1=1.3,%
+5;1=2.3}%
+}%
+\NewDocumentCommand\hasse@set@G@root@sums{}%
+{%
+\IfStrEqCase{\dynkin@ordering}%
+{%
+	{Adams}{\hasse@set@G@root@sums@AB}%
+	{Bourbaki}{\hasse@set@G@root@sums@AB}%
+	{Carter}{\hasse@set@G@root@sums@CDK}%
+	{Dynkin}{\hasse@set@G@root@sums@CDK}%
+	{Kac}{\hasse@set@G@root@sums@CDK}%
+}%
+[\ClassError%
+		{Lie Hasse}%
+		{Root ordering ``\dynkin@ordering'' %
+		not Adams, Bourbaki, Carter, Dynkin or Kac when setting root sums for G2 Dynkin diagram}%
+		{}]%
+}%
+\NewDocumentCommand\forAllPositiveRoots{m}%
+{%
+	\rootSystemHeight{\lie@hasse@height}%
+	\foreach \root@grady in {1,...,\the\lie@hasse@height}%
+	{%
+		\rootSystemWidthAtGrade{\root@grady}{\lie@hasse@width}%
+		{%
+			\foreach \root@indexy in {1,...,\the\lie@hasse@width}%
+			{%
+				#1{\root@grady}{\root@indexy}%
+			}%
+		}%
+	}%
+}%

@@ -1,0 +1,369 @@
+%%% ----------------------------------------------------------------------------
+%%% joinbox: Join figures to same height or width with LaTeX3
+%%% Author    : Nan Geng <nangeng@nwafu.edu.cn>
+%%% Repository: https://gitee.com/nwafu_nan/joinfigs
+%%% License   : The LaTeX Project Public License 1.3c
+%%% ----------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}
+\RequirePackage{expl3}
+\ProvidesExplPackage{joinbox}{2026-06-26}{v1.0.5}
+  {Join figures to same height or width with LaTeX3}
+
+\RequirePackage{xparse}
+\RequirePackage{graphicx}
+
+%% \tl_if_eq:NnTF 与texlive 2020的兼容性设置
+\cs_if_exist:NF \tl_if_eq:NnTF
+  {
+    \tl_new:N \l__tblr_backport_b_tl
+    \prg_new_protected_conditional:Npnn \tl_if_eq:Nn #1 #2 { T, F, TF }
+      {
+        \group_begin:
+          \tl_set:Nn \l__tblr_backport_b_tl { #2 }
+          \exp_after:wN
+        \group_end:
+        \if_meaning:w #1 \l__tblr_backport_b_tl
+          \prg_return_true:
+        \else:
+          \prg_return_false:
+        \fi:
+      }
+    \prg_generate_conditional_variant:Nnn \tl_if_eq:Nn { c } { TF, T, F }
+  }
+
+\cs_if_exist:NF \seq_map_indexed_function:NN
+  {
+    \cs_set_eq:NN \seq_map_indexed_function:NN \seq_indexed_map_function:NN
+  }
+
+% 错误信息输出函数
+\cs_new:Npn \__joinbox_error:n { \msg_error:nn { joinbox } }
+
+% 空盒子对象列表出错信息
+\msg_new:nnn { joinbox } { empty-contents }
+  { The~contents~list~is~empty. }
+
+% 被拼接对象同时为空，无需拼接
+\msg_new:nnn { joinbox } { empty-objs }
+  { The~two~objects~which~were~joined~are~empty. }
+
+% 空图像文件名列表出错信息
+\msg_new:nnn { joinbox } { empty-fignames }
+  { The~figure~namelist~is~empty. }
+
+% 函数变体
+\cs_generate_variant:Nn \hcoffin_set:Nn { Nx }
+
+% 定义变量
+\bool_new:N   \l__joinbox_vertical_bool    % 是否为垂直拼接模式
+\bool_new:N   \l__joinbox_out_scale_bool   % 是否缩放
+
+\int_new:N    \l__joinbox_baseline_int     % 基线位置(1-t, 2-vc, 3-H, 4-b)
+
+\clist_new:N  \l__joinbox_name_clist       % 图片文件名列表(可带路径)
+\clist_new:N  \l__joinbox_contents_clist   % 拼接内容列表
+
+\coffin_new:N \l__joinbox_out_coffin       % 结果盒子
+\coffin_new:N \l__joinbox_tmp_coffin       % 临时盒子
+
+\dim_new:N \l__joinbox_out_length_dim      % 实际输出尺寸
+\dim_new:N \l__joinbox_sep_dim             % 间隔尺寸
+\dim_new:N \l__joinbox_min_width_dim       % 最小宽度
+\dim_new:N \l__joinbox_min_height_dim      % 最小高度
+\dim_new:N \l__joinbox_target_dim          % 缩放目标尺寸
+
+\dim_new:N \l__joinbox_tmpa_dim            % 临时尺寸a
+\dim_new:N \l__joinbox_tmpb_dim            % 临时尺寸b
+
+% 设置outlen选项值的辅助函数（必须在keys_define之前定义）
+% #1: 输出实际尺寸，>0则缩放，<=0则不作处理
+\cs_new_protected:Npn \__joinbox_set_outlen:n #1
+  {
+    \dim_compare:nNnTF { \dim_eval:n { #1 } } > \c_zero_dim
+      {
+        \bool_set_true:N \l__joinbox_out_scale_bool
+        \dim_set:Nn \l__joinbox_out_length_dim { \dim_eval:n { #1 } }
+      }
+      {
+        \bool_set_false:N \l__joinbox_out_scale_bool
+      }
+  }
+
+%% 选项设计
+\keys_define:nn { joinbox }
+  {
+    % 输出结果基线位置
+    baseline .choice:,
+    baseline .value_required:n = true,
+    baseline .choices:nn = { t, vc, H, b }
+                           {
+                             \int_set_eq:NN \l__joinbox_baseline_int
+                                            \l_keys_choice_int
+                           },
+    baseline .default:n = b,
+    baseline .initial:n = b,
+
+    % 输出尺寸(垂直拼接：宽度，水平拼接：高度)
+    outlen   .code:n = { \__joinbox_set_outlen:n { #1 } },
+    outlen   .default:n = 0pt,
+    outlen   .initial:n = 0pt,
+
+    % 拼接间距
+    sep      .dim_set:N  = \l__joinbox_sep_dim,
+    sep      .default:n = 0pt,
+    sep      .initial:n = 0pt,
+
+    unknown .code:n = \__joinbox_unknown_key:V \l_keys_key_str,
+  }
+
+% 默认参数处理
+\cs_new_protected:Npn \__joinbox_unknown_key:n #1
+  {
+    \str_case:nnF { #1 }
+      {
+          { t  } { \int_set:Nn \l__joinbox_baseline_int { 1 } } % 盒子顶端对齐
+          { vc } { \int_set:Nn \l__joinbox_baseline_int { 2 } } % 盒子中心对齐
+          { H  } { \int_set:Nn \l__joinbox_baseline_int { 3 } } % 盒子内容基线对齐
+          { b  } { \int_set:Nn \l__joinbox_baseline_int { 4 } } % 盒子底端对齐
+      }{
+        % 其它参数默认为输出尺寸，转换为token
+        \tl_set_rescan:Nnn \l_tmpa_tl {} { #1 }
+        \__joinbox_set_outlen:n { \l_tmpa_tl }
+      }
+  }
+\cs_generate_variant:Nn \__joinbox_unknown_key:n { V }
+
+%% 参数设置用户接口
+\NewDocumentCommand \joinset { m }
+  { \keys_set:nn { joinbox } { #1 } }
+
+% 计算box盒子的总高度
+% #1: 盒子变量
+\cs_if_free:NT \box_ht_plus_dp:N
+  {
+    \cs_new_protected:Npn \box_ht_plus_dp:N #1
+      { \tex_dimexpr:D \box_ht:N #1 + \box_dp:N #1 \scan_stop: }
+  }
+
+% 计算coffin盒子的总高度
+% #1: coffin变量
+\cs_new_nopar:Npn \__joinbox_coffin_ht_plus_dp:N #1
+  {
+    \coffin_ht:N #1 + \coffin_dp:N #1
+  }
+
+% 输出盒子
+% #1: 需要输出的coffin变量
+\cs_new_protected:Npn \__joinbox_typeout_coffin:N #1
+  {
+    \int_case:nn { \l__joinbox_baseline_int }
+      {
+        { 1 } { \coffin_typeset:Nnnnn #1 { l } { t  } { 0pt } { 0pt } } % 顶端对齐
+        { 2 } { \coffin_typeset:Nnnnn #1 { l } { vc } { 0pt } { 0pt } } % 中心对齐
+        { 3 } { \coffin_typeset:Nnnnn #1 { l } { H  } { 0pt } { 0pt } } % 基线对齐
+        { 4 } { \coffin_typeset:Nnnnn #1 { l } { b  } { 0pt } { 0pt } } % 底端对齐
+      }
+  }
+
+% 缩放coffin盒子的辅助函数
+% #1: coffin变量
+% #2: 目标尺寸
+\cs_new_protected:Npn \__joinbox_scale_coffin:Nn #1#2
+  {
+    \dim_compare:nNnF { #2 } = \c_zero_dim
+      {
+        \bool_if:NTF \l__joinbox_vertical_bool
+          {
+            % 垂直拼接
+            \coffin_scale:Nnn #1
+              { \dim_ratio:nn { #2 } { \coffin_wd:N #1 } }
+              { \dim_ratio:nn { #2 } { \coffin_wd:N #1 } }
+          }
+          {
+            % 水平拼接
+            \coffin_scale:Nnn #1
+              { \dim_ratio:nn { #2 } { \__joinbox_coffin_ht_plus_dp:N #1 } }
+              { \dim_ratio:nn { #2 } { \__joinbox_coffin_ht_plus_dp:N #1 } }
+          }
+      }
+  }
+
+% 多个对象拼接的通用核心函数
+% #1: 内容输出命令（如 \includegraphics 或 \use:n）
+% #2: 对象列表（clist变量）
+\cs_new_protected:Npn \__joinbox_join_multiple:Nn #1#2
+  {
+    % 是否指定了输出尺寸
+    \bool_if:NTF \l__joinbox_out_scale_bool
+      { % 如果指定了输出尺寸，使用 outlen 作为目标尺寸
+        \dim_set_eq:NN \l__joinbox_target_dim \l__joinbox_out_length_dim
+      }
+      { % 否则使用最小尺寸
+        % 置为最大值
+        \dim_set:Nn \l__joinbox_min_width_dim  { \c_max_dim }
+        \dim_set:Nn \l__joinbox_min_height_dim { \c_max_dim }
+
+        % 计算所有对象中的最小宽度和高度尺寸(不一定是同一个对象)
+        \clist_map_inline:Nn #2
+          {
+            % 构造对象盒子
+            \hcoffin_set:Nn \l__joinbox_tmp_coffin { #1 { ##1 } }
+
+            % 计算对象宽度和高度
+            \dim_set:Nn \l__joinbox_tmpa_dim
+              { \coffin_wd:N \l__joinbox_tmp_coffin }
+            \dim_set:Nn \l__joinbox_tmpb_dim
+              { \__joinbox_coffin_ht_plus_dp:N \l__joinbox_tmp_coffin }
+
+            % 比较并记录最小尺寸
+            \dim_compare:nNnT { \l__joinbox_tmpa_dim } < { \l__joinbox_min_width_dim }
+              { \dim_set_eq:NN \l__joinbox_min_width_dim \l__joinbox_tmpa_dim }
+            \dim_compare:nNnT { \l__joinbox_tmpb_dim } < { \l__joinbox_min_height_dim }
+              { \dim_set_eq:NN \l__joinbox_min_height_dim \l__joinbox_tmpb_dim }
+          }
+
+        % 设置目标尺寸
+        \bool_if:NTF \l__joinbox_vertical_bool
+          { \dim_set_eq:NN \l__joinbox_target_dim \l__joinbox_min_width_dim  } % 垂直拼接
+          { \dim_set_eq:NN \l__joinbox_target_dim \l__joinbox_min_height_dim } % 水平拼接
+      }
+
+    % 弹出第1个对象
+    \clist_pop:NN #2 \l_tmpa_tl
+    % 构造第1个对象盒子
+    \hcoffin_set:Nn \l__joinbox_out_coffin { #1 { \l_tmpa_tl } }
+    % 缩放到目标尺寸
+    \__joinbox_scale_coffin:Nn \l__joinbox_out_coffin { \l__joinbox_target_dim }
+
+    % 将其它对象拼接到第1个对象
+    \clist_map_inline:Nn #2
+      {
+        % 构造对象盒子
+        \hcoffin_set:Nn \l__joinbox_tmp_coffin { #1 { ##1 } }
+        % 缩放到目标尺寸
+        \__joinbox_scale_coffin:Nn \l__joinbox_tmp_coffin { \l__joinbox_target_dim }
+
+        % 拼接方向判断
+        \bool_if:NTF \l__joinbox_vertical_bool
+          {
+            % 垂直拼接到结果盒子(将tmp盒子顶端中点拼接到out盒子底端中点)
+            \coffin_join:NnnNnnnn \l__joinbox_out_coffin { hc  } { b }
+              \l__joinbox_tmp_coffin { hc } { t } { 0pt } { -\l__joinbox_sep_dim }
+          }
+          {
+            % 水平拼接到结果盒子(将tmp盒子左边中点拼接到out盒子右边中点)
+            \coffin_join:NnnNnnnn \l__joinbox_out_coffin { vc } { r }
+              \l__joinbox_tmp_coffin { vc } { l } { \l__joinbox_sep_dim } { 0pt }
+          }
+      }
+
+    % 按指定的参考点(由基线选项指定)输出盒子
+    \__joinbox_typeout_coffin:N \l__joinbox_out_coffin
+  }
+
+% 多个盒子拼接函数(用\use:n命令输出盒子内容)
+\cs_new_protected:Npn \__joinbox_boxes:
+  {
+    \__joinbox_join_multiple:Nn \use:n \l__joinbox_contents_clist
+  }
+
+% 多个图像拼接函数(用\includegraphics命令输出图像)
+\cs_new_protected:Npn \__joinbox_figs:
+  {
+    \__joinbox_join_multiple:Nn \includegraphics \l__joinbox_name_clist
+  }
+
+% 盒子拼接用户接口
+% 将两个盒子按指定方式拼接成一个盒子并将基线调整为选项设定的基线位置
+% #1: 是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2: 可选参数，用key-value选项指定拼接参数
+% #3: 第1个盒子的内容
+% #4: 第2个盒子的内容
+\NewDocumentCommand{\joinbox}{ s O{} +m +m}
+  {
+    % 处理*命令
+    \IfBooleanTF{ #1 }
+      { \bool_set_false:N \l__joinbox_vertical_bool }
+      { \bool_set_true:N  \l__joinbox_vertical_bool }
+
+    \group_begin:
+      % key-val选项处理
+      \keys_set:nn { joinbox } { #2 }
+
+      % 清空clist
+      \clist_clear:N \l__joinbox_contents_clist
+
+      % 第1个对象不为空则加入clist(需要用{}包裹)
+      \tl_if_empty:nF  { #3 }
+        { \clist_put_right:Nn \l__joinbox_contents_clist { { #3 } } }
+
+      % 第2个对象不为空则加入clist(需要用{}包裹)
+      \tl_if_empty:nF  { #4 }
+        { \clist_put_right:Nn \l__joinbox_contents_clist { { #4 } } }
+
+      % 如果clist为空，则报错
+      \clist_if_empty:NT \l__joinbox_contents_clist
+        { \__joinbox_error:n { empty-objs } }
+
+      % 调用包装器函数进行拼接
+      \__joinbox_boxes:
+    \group_end:
+  }
+
+% 两个以上盒子拼接用户接口
+% 将逗号分隔的内容构成的各个盒子拼接成一个盒子
+% #1: 是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2: 可选参数，用key-value选项指定拼接参数
+% #3: 必选参数，用逗号分隔的，需要拼接的内容（各个内容应该置于大括号内）
+\NewDocumentCommand{\joinboxes}{ s O{} +m}
+  {
+    % 处理*命令
+    \IfBooleanTF{ #1 }
+      { \bool_set_false:N \l__joinbox_vertical_bool }
+      { \bool_set_true:N  \l__joinbox_vertical_bool }
+
+    \group_begin:
+      % key-val选项处理
+      \keys_set:nn { joinbox } { #2 }
+
+      % 设置对象clist
+      \clist_set:Nn \l__joinbox_contents_clist { #3 }
+
+      % 如果clist为空，则报错
+      \clist_if_empty:NT \l__joinbox_contents_clist
+        { \__joinbox_error:n { empty-contents } }
+
+      % 调用包装器函数进行拼接
+      \__joinbox_boxes:
+    \group_end:
+  }
+
+% 图像拼接用户接口
+% 将指定文件名列表中的图像拼接成一个盒子
+% #1: 是否为*命令，如有*则采用水平拼接，无*则采用垂直拼接
+% #2: 可选参数，用key-value选项指定拼接参数
+% #3: 必选参数，用逗号分隔的，需要拼接的图像文件名称(可以带有路径)
+\NewDocumentCommand{\joinfigs}{ s O{} m}
+  {
+    % 处理*命令
+    \IfBooleanTF{#1}
+      { \bool_set_false:N \l__joinbox_vertical_bool }
+      { \bool_set_true:N  \l__joinbox_vertical_bool }
+
+    \group_begin:
+      % key-val选项处理
+      \keys_set:nn { joinbox } { #2 }
+
+      % 设置图像文件名称clist
+      \clist_set:Nn \l__joinbox_name_clist { #3 }
+
+      % 如果clist为空，则报错
+      \clist_if_empty:NT \l__joinbox_name_clist
+        { \__joinbox_error:n { empty-fignames } }
+
+      % 调用包装器函数进行拼接
+      \__joinbox_figs:
+    \group_end:
+  }
+\endinput
