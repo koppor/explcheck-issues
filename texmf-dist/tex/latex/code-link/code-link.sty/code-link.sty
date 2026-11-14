@@ -1,0 +1,819 @@
+% code-link.sty
+% Collect definitions while typesetting and link every occurrence of them in
+% code listings (listings, xlistings, minted). It works without xlistings.
+%
+% Copyright (C) 2026 Florian Sihler
+%
+% This work may be distributed and/or modified under the conditions of
+% the LaTeX Project Public License, either version 1.3c of this license
+% or (at your option) any later version. The latest version of this
+% license is in https://www.latex-project.org/lppl.txt and version 1.3c
+% or later is part of all distributions of LaTeX version 2008 or later.
+%
+% This work has the LPPL maintenance status 'maintained'.
+% The Current Maintainer of this work is Florian Sihler.
+%
+% This work consists of the file code-link.sty and the documentation
+% code-link-doc.tex.
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{code-link}{2026/11/11}{v1.1.0}
+  {Collect, link and typeset code definitions in listings and minted}
+
+\RequirePackage{l3keys2e}
+\ExplSyntaxOn
+
+\msg_new:nnn { codelink } { debug } { #1 }
+\msg_new:nnn { codelink } { unknown-group }
+  { Unknown~group~'#1'.~Using~the~default~group. }
+\msg_new:nnn { codelink } { empty-string } { Ignoring~an~empty~string. }
+\msg_new:nnn { codelink } { no-backend }
+  { Backend~'#1'~requested~but~the~package~is~not~loaded. }
+
+% package options
+\bool_new:N \g__codelink_debug_bool
+\bool_new:N \g__codelink_underline_bool
+\bool_new:N \g__codelink_hyper_bool
+\bool_new:N \g__codelink_customlink_bool
+\tl_new:N \g__codelink_backend_tl
+\tl_new:N \g__codelink_hyper_tl
+\tl_gset:Nn \g__codelink_backend_tl { auto }
+\tl_gset:Nn \g__codelink_hyper_tl { auto }
+\tl_new:N \g__codelink_ul_offset_tl
+\tl_new:N \g__codelink_ul_thick_tl
+\tl_new:N \g__codelink_ul_color_tl
+\tl_gset:Nn \g__codelink_ul_offset_tl { 1.2pt }
+\tl_gset:Nn \g__codelink_ul_thick_tl { .3pt }
+\tl_gset:Nn \g__codelink_ul_color_tl { black!15 }
+\tl_new:N \g__codelink_ul_text_color_tl
+\tl_gset:Nn \g__codelink_ul_text_color_tl { black!8 }
+\bool_new:N \g__codelink_ul_text_bool
+\bool_gset_true:N \g__codelink_ul_text_bool
+\bool_new:N \l__codelink_ul_bool   % false: no underline for this link
+\bool_set_true:N \l__codelink_ul_bool
+\keys_define:nn { codelink / package }
+  {
+    backend .choices:nn = { auto, listings, minted, none }
+      { \tl_gset_eq:NN \g__codelink_backend_tl \l_keys_choice_tl },
+    backend .default:n = auto,
+    hyper .choices:nn = { auto, true, false }
+      { \tl_gset_eq:NN \g__codelink_hyper_tl \l_keys_choice_tl },
+    hyper .default:n = true,
+    underline .bool_gset:N = \g__codelink_underline_bool,
+    underline .default:n = true,
+    underline-offset .tl_gset:N = \g__codelink_ul_offset_tl,
+    underline-thickness .tl_gset:N = \g__codelink_ul_thick_tl,
+    underline-color .tl_gset:N = \g__codelink_ul_color_tl,
+    underline-text-color .tl_gset:N = \g__codelink_ul_text_color_tl,
+    underline-text .bool_gset:N = \g__codelink_ul_text_bool,
+    underline-text .default:n = true,
+    debug .bool_gset:N = \g__codelink_debug_bool,
+    debug .default:n = true,
+  }
+\ProcessKeysOptions { codelink / package }
+\NewDocumentCommand \CodeLinkSetup { m } { \keys_set:nn { codelink / package } {#1} }
+
+% The .aux file is tokenized again, so a string cannot be written as it is:
+% every character becomes \codelink@c{<charcode>}, which expands to it again.
+\cs_new:Npn \__codelink_enc:n #1
+  { \str_map_function:nN {#1} \__codelink_enc_char:N }
+\cs_new:Npn \__codelink_enc_char:N #1
+  { \exp_not:N \codelink@c { \int_eval:n { `#1 } } }
+\cs_generate_variant:Nn \__codelink_enc:n { V }
+\cs_new_protected:cpn { codelink@c } #1 { \char_generate:nn {#1} { 12 } }
+
+% Character renderers. listings replace the matched characters by what we give
+% them, so each one is typeset literally. The same shape serves the spelling of
+% a string for listings (spec), for Pygments (pyg) and in labels (sanitize).
+% A table holds one control sequence per special character, which is much
+% faster than a case distinction per character.
+% #1 table, then pairs of a character code and its replacement
+\cs_new_protected:Npn \__codelink_table:nnn #1#2#3
+  {
+    \quark_if_recursion_tail_stop:n {#2}
+    \cs_gset:cpn { c__codelink_ #1 _ \char_generate:nn {#2} { 12 } } { \exp_not:n {#3} }
+    \__codelink_table:nnn {#1}
+  }
+% the character is passed in braces: an undelimited argument would skip a space
+\cs_new:Npn \__codelink_lookup:nn #1#2 { \cs_if_exist_use:cF { c__codelink_ #1 _ #2 } {#2} }
+\__codelink_table:nnn { disp }
+  { 92 } { \textbackslash { } } { 95 } { \_ } { 123 } { \{ } { 125 } { \} }
+  { 36 } { \$ } { 35 } { \# } { 37 } { \% } { 38 } { \& }
+  { 126 } { \textasciitilde { } } { 94 } { \textasciicircum { } }
+  { 60 } { \textless { } } { 62 } { \textgreater { } }
+  { 34 } { \textquotedbl { } } { 124 } { \textbar { } } { 32 } { \  }
+  { 45 } { {-} } { 39 } { {'} } { 96 } { {`} } { 44 } { {,} } { 33 } { {!} } { 63 } { {?} }
+  \q_recursion_tail { } \q_recursion_stop
+\__codelink_table:nnn { spec } { 92 } { \\ } { 32 } { \  } \q_recursion_tail { } \q_recursion_stop
+\__codelink_table:nnn { pyg }
+  { 92 } { \PYGZbs { } } { 123 } { \PYGZob { } } { 125 } { \PYGZcb { } } { 94 } { \PYGZca { } }
+  { 95 } { \PYGZus { } } { 38 } { \PYGZam { } } { 60 } { \PYGZlt { } } { 62 } { \PYGZgt { } }
+  { 35 } { \PYGZsh { } } { 37 } { \PYGZpc { } } { 36 } { \PYGZdl { } } { 45 } { \PYGZhy { } }
+  { 39 } { \PYGZsq { } } { 34 } { \PYGZdq { } } { 126 } { \PYGZti { } }
+  \q_recursion_tail { } \q_recursion_stop
+\__codelink_table:nnn { san }
+  { 92 } { :bs: } { 32 } { - } { 37 } { :pc: } { 35 } { :hs: } { 126 } { :ti: } { 123 } { :ob: }
+  { 125 } { :cb: } { 94 } { :ca: } { 38 } { :am: } { 36 } { :dl: } { 34 } { :dq: }
+  \q_recursion_tail { } \q_recursion_stop
+\cs_new:Npn \__codelink_disp:n #1 { \str_map_function:nN {#1} \__codelink_disp_char:N }
+\cs_new:Npn \__codelink_disp_char:N #1 { \__codelink_lookup:nn { disp } {#1} }
+\cs_new:Npn \__codelink_spec:n #1 { \str_map_function:nN {#1} \__codelink_spec_char:N }
+\cs_new:Npn \__codelink_spec_char:N #1 { \__codelink_lookup:nn { spec } {#1} }
+\cs_new:Npn \__codelink_pyg:n #1 { \str_map_function:nN {#1} \__codelink_pyg_char:N }
+\cs_new:Npn \__codelink_pyg_char:N #1 { \__codelink_lookup:nn { pyg } {#1} }
+\cs_new:Npn \__codelink_sanitize:n #1 { \str_map_function:nN {#1} \__codelink_sanitize_char:N }
+\cs_generate_variant:Nn \__codelink_sanitize:n { V, e }
+\cs_new:Npn \__codelink_sanitize_char:N #1 { \__codelink_lookup:nn { san } {#1} }
+
+% Languages are compared lowercased and without the dialect, like listings
+% stores \lst@language.
+% Results are cached, as this runs for every string and every minted environment.
+\regex_const:Nn \c__codelink_dialect_regex { \A \[ [^\]]* \] }
+\cs_new_protected:Npn \__codelink_scope:Nn #1#2
+  {
+    \str_set:Nx #1 {#2}
+    \cs_if_exist:cTF { g__codelink_sc_ #1 }
+      { \tl_set_eq:Nc #1 { g__codelink_sc_ #1 } }
+      {
+        \str_set_eq:NN \l__codelink_scope_in_str #1
+        \str_set:Nx #1 { \str_foldcase:V #1 }
+        \str_if_eq:eeT { \str_head:N #1 } { [ }
+          { \regex_replace_once:NnN \c__codelink_dialect_regex { } #1 }
+        \tl_gset_eq:cN { g__codelink_sc_ \l__codelink_scope_in_str } #1
+      }
+  }
+\str_new:N \l__codelink_scope_in_str
+% Is #1 a name of letters, with an optional backslash in front? (l3regex is too
+% slow for a test that runs once per string)
+\bool_new:N \l__codelink_isword_bool
+\cs_new_protected:Npn \__codelink_if_word:nT #1#2
+  {
+    \str_set:Nn \l_tmpb_str {#1}
+    \str_if_eq:eeT { \str_head:N \l_tmpb_str } { \c_backslash_str }
+      { \str_set:Nx \l_tmpb_str { \str_tail:N \l_tmpb_str } }
+    \bool_set:Nn \l__codelink_isword_bool { ! \str_if_empty_p:N \l_tmpb_str }
+    \str_map_inline:Nn \l_tmpb_str
+      {
+        \__codelink_if_letter:nF {##1}
+          { \bool_set_false:N \l__codelink_isword_bool \str_map_break: }
+      }
+    \bool_if:NT \l__codelink_isword_bool {#2}
+  }
+\prg_new_conditional:Npnn \__codelink_if_letter:n #1 { F }
+  {
+    \bool_lazy_or:nnTF
+      { \int_compare_p:n { `A <= `#1 <= `Z } }
+      { \int_compare_p:n { `a <= `#1 <= `z } }
+      \prg_return_true: \prg_return_false:
+  }
+% Does #1 end with a letter, a digit or an underscore?
+\cs_new_protected:Npn \__codelink_if_wordend:nT #1
+  { \exp_args:Nx \__codelink_if_wordchar:nT { \str_item:nn {#1} { -1 } } }
+\cs_new_protected:Npn \__codelink_if_wordchar:nT #1#2
+  {
+    \bool_lazy_any:nT
+      {
+        { \int_compare_p:n { `A <= `#1 <= `Z } }
+        { \int_compare_p:n { `a <= `#1 <= `z } }
+        { \int_compare_p:n { `0 <= `#1 <= `9 } }
+        { \int_compare_p:nNn { `#1 } = { `_ } }
+      }
+      {#2}
+  }
+
+% Styles are code which runs in the group that typesets a link.
+\NewDocumentCommand \CodeLinkStyle { m m }
+  { \cs_set_protected:cpn { codelink@style@ \tl_to_str:n {#1} } {#2} }
+\CodeLinkStyle { none } { }
+
+% Options of a string: its own, else those of its group, else the defaults.
+% A group is the entries "<name>/<key>" of one property list.
+\prop_new:N \g__codelink_groups_prop
+\cs_generate_variant:Nn \prop_get:NnNTF { Nx }
+\cs_generate_variant:Nn \prop_if_in:NnTF { Nx }
+\prop_new:N \l__codelink_opts_prop
+\prop_const_from_keyval:Nn \c__codelink_defaults_prop
+  { prefix = cl:, style = none, language = , links = true, highlight = true, boundary = true }
+\tl_new:N \l__codelink_group_tl
+\tl_new:N \l__codelink_label_tl
+\tl_new:N \l__codelink_display_tl
+\tl_new:N \l__codelink_style_tl
+\tl_new:N \l__codelink_astyle_tl   % written to the .aux file
+\tl_new:N \l__codelink_prefix_tl
+\tl_new:N \l__codelink_lang_tl
+\tl_new:N \l__codelink_links_tl
+\tl_new:N \l__codelink_hl_tl
+\tl_new:N \l__codelink_bd_tl
+\str_new:N \l__codelink_str       % the string, with the backslash of a command
+\str_new:N \l__codelink_scope_str
+\bool_new:N \l__codelink_command_bool
+\bool_new:N \l__codelink_links_bool
+\keys_define:nn { codelink / entry }
+  {
+    group .tl_set:N = \l__codelink_group_tl,
+    label .tl_set:N = \l__codelink_label_tl,
+    display .tl_set:N = \l__codelink_display_tl,
+    command .bool_set:N = \l__codelink_command_bool,
+    command .default:n = true,
+    prefix .code:n = { \prop_put:Nnn \l__codelink_opts_prop { prefix } {#1} },
+    style .code:n = { \prop_put:Nnn \l__codelink_opts_prop { style } {#1} },
+    language .code:n = { \prop_put:Nnn \l__codelink_opts_prop { language } {#1} },
+    links .code:n = { \prop_put:Nnn \l__codelink_opts_prop { links } {#1} },
+    highlight .code:n = { \prop_put:Nnn \l__codelink_opts_prop { highlight } {#1} },
+    boundary .code:n = { \prop_put:Nnn \l__codelink_opts_prop { boundary } {#1} },
+  }
+\NewDocumentCommand \CodeLinkGroup { m m }
+  {
+    \group_begin:
+      \prop_clear:N \l__codelink_opts_prop
+      \keys_set:nn { codelink / entry } {#2}
+      \prop_map_inline:Nn \l__codelink_opts_prop
+        { \prop_gput:Nnn \g__codelink_groups_prop { #1 / ##1 } {##2} }
+    \group_end:
+    \prop_gput:Nnn \g__codelink_groups_prop { #1 / } { }
+    \cs_undefine:c { g__codelink_gc_ #1 }
+  }
+\CodeLinkGroup { default } { }
+\cs_new_protected:Npn \__codelink_opt:nN #1#2
+  {
+    \prop_get:NnNTF \l__codelink_opts_prop {#1} #2 { }
+      {
+        \prop_get:NxNTF \g__codelink_groups_prop { \l__codelink_group_tl / #1 } #2 { }
+          { \prop_get:NnN \c__codelink_defaults_prop {#1} #2 }
+      }
+  }
+
+\cs_new_protected:Npn \__codelink_resolve:
+  {
+    \__codelink_opt:nN { prefix } \l__codelink_prefix_tl
+    \__codelink_opt:nN { style } \l__codelink_style_tl
+    \__codelink_opt:nN { language } \l__codelink_lang_tl
+    \__codelink_opt:nN { links } \l__codelink_links_tl
+    \__codelink_opt:nN { highlight } \l__codelink_hl_tl
+    \__codelink_opt:nN { boundary } \l__codelink_bd_tl
+  }
+% Resolves the options of the string #2 given #1.
+\cs_new_protected:Npn \__codelink_prepare:nn #1#2
+  {
+    \tl_set:Nn \l__codelink_group_tl { default }
+    \tl_clear:N \l__codelink_label_tl
+    \tl_clear:N \l__codelink_display_tl
+    \bool_set_false:N \l__codelink_command_bool
+    \prop_clear:N \l__codelink_opts_prop
+    \keys_set:nn { codelink / entry } {#1}
+    \prop_if_in:NxTF \g__codelink_groups_prop { \l__codelink_group_tl / } { }
+      {
+        \msg_warning:nnx { codelink } { unknown-group } { \l__codelink_group_tl }
+        \tl_set:Nn \l__codelink_group_tl { default }
+      }
+    \str_set:Nx \l__codelink_str
+      { \bool_if:NT \l__codelink_command_bool { \c_backslash_str } \tl_to_str:n {#2} }
+    % without keys of its own, a string takes the options of its group, which
+    % are resolved once (\CodeLinkGroup drops the cache)
+    \prop_if_empty:NTF \l__codelink_opts_prop
+      {
+        \cs_if_exist:cF { g__codelink_gc_ \l__codelink_group_tl }
+          {
+            \__codelink_resolve:
+            \cs_gset:cpx { g__codelink_gc_ \l__codelink_group_tl }
+              {
+                \tl_set:Nn \exp_not:N \l__codelink_prefix_tl { \exp_not:V \l__codelink_prefix_tl }
+                \tl_set:Nn \exp_not:N \l__codelink_style_tl { \exp_not:V \l__codelink_style_tl }
+                \tl_set:Nn \exp_not:N \l__codelink_lang_tl { \exp_not:V \l__codelink_lang_tl }
+                \tl_set:Nn \exp_not:N \l__codelink_links_tl { \exp_not:V \l__codelink_links_tl }
+                \tl_set:Nn \exp_not:N \l__codelink_hl_tl { \exp_not:V \l__codelink_hl_tl }
+                \tl_set:Nn \exp_not:N \l__codelink_bd_tl { \exp_not:V \l__codelink_bd_tl }
+              }
+          }
+        \use:c { g__codelink_gc_ \l__codelink_group_tl }
+      }
+      { \__codelink_resolve: }
+    \bool_set:Nn \l__codelink_links_bool { ! \str_if_eq_p:ee { \l__codelink_links_tl } { false } }
+    % highlight=false: listings keep the colors of their own highlighting
+    \tl_set_eq:NN \l__codelink_astyle_tl \l__codelink_style_tl
+    \str_if_eq:eeT { \l__codelink_hl_tl } { false } { \tl_set:Nn \l__codelink_astyle_tl { none } }
+    \tl_if_empty:NT \l__codelink_label_tl
+      { \tl_set:Nx \l__codelink_label_tl { \l__codelink_prefix_tl \__codelink_sanitize:V \l__codelink_str } }
+    \tl_if_empty:NT \l__codelink_display_tl
+      { \tl_set:Nx \l__codelink_display_tl { \l__codelink_str } }
+    \__codelink_scope:Nn \l__codelink_scope_str { \l__codelink_lang_tl }
+  }
+
+% Registering: one line per string in the .aux file; before \begin{document}
+% they wait, as the file is only open then. A group with links=false registers
+% nothing, its strings are plain text.
+\seq_new:N \g__codelink_pending_seq
+\bool_new:N \g__codelink_document_bool
+\cs_new_protected:Npn \__codelink_write:n #1 { \iow_now:Nx \@mainaux {#1} }
+\cs_generate_variant:Nn \__codelink_write:n { V }
+\cs_generate_variant:Nn \seq_gput_right:Nn { NV }
+\cs_new_protected:Npn \__codelink_register:n #1
+  {
+    \bool_if:NT \l__codelink_links_bool
+      {
+        \str_if_empty:NTF \l__codelink_str
+          { \msg_warning:nn { codelink } { empty-string } }
+          {
+            \str_set:Nx \l_tmpa_str
+              { g__codelink_w_ #1 / \l__codelink_scope_str / \__codelink_enc:V \l__codelink_str }
+            \cs_if_exist:cF { \l_tmpa_str }
+              {
+                \cs_gset_nopar:cpn { \l_tmpa_str } { }
+                \tl_set:Nx \l_tmpa_tl
+                  {
+                    \exp_not:N \codelink@in
+                      { \__codelink_enc:V \l__codelink_str }
+                      { \__codelink_enc:V \l__codelink_label_tl }
+                      { \__codelink_enc:V \l__codelink_display_tl }
+                      { \tl_to_str:N \l__codelink_astyle_tl }
+                      { \__codelink_enc:V \l__codelink_scope_str }
+                      {#1}
+                      { \l__codelink_bd_tl }
+                  }
+                \bool_if:NTF \g__codelink_document_bool
+                  { \__codelink_write:V \l_tmpa_tl }
+                  { \seq_gput_right:NV \g__codelink_pending_seq \l_tmpa_tl }
+              }
+          }
+      }
+  }
+\cs_new_protected:Npn \__codelink_anchor_hook:nn #1#2 { }
+\cs_generate_variant:Nn \__codelink_anchor_hook:nn { VV }
+\NewDocumentCommand \CodeLinkAnchorHook { m }
+  { \cs_set_protected:Npn \__codelink_anchor_hook:nn ##1##2 {#1} }
+\NewDocumentCommand \CodeLinkAnchor { O{} m }
+  {
+    \group_begin:
+      \__codelink_prepare:nn {#1} {#2}
+      \__codelink_register:n { link }
+      \cs_if_exist:NT \phantomsection { \phantomsection }
+      \exp_args:NV \label \l__codelink_label_tl
+      \__codelink_anchor_hook:VV \l__codelink_str \l__codelink_label_tl
+    \group_end:
+  }
+\NewDocumentCommand \CodeLinkRegister { O{} m }
+  { \group_begin: \__codelink_prepare:nn {#1} {#2} \__codelink_register:n { link } \group_end: }
+\NewDocumentCommand \CodeLinkBlock { O{} m }
+  { \group_begin: \__codelink_prepare:nn {#1} {#2} \__codelink_register:n { block } \group_end: }
+
+% Typesetting a link. The underline is a light rule at a fixed distance below
+% the baseline, whatever the depth of the text is.
+\box_new:N \l__codelink_ul_box
+\box_new:N \l__codelink_ul_out_box
+\tl_new:N \l__codelink_ul_color_tl   % the color of the line in a listing or in the text
+\tl_set_eq:NN \l__codelink_ul_color_tl \g__codelink_ul_color_tl
+\bool_new:N \l__codelink_hook_bool   % set inside of the Output hook of listings
+\cs_new_protected:Npn \__codelink_ul_draw:N #1
+  {
+    \hbox_set:Nn \l__codelink_ul_out_box
+      {
+        \box_use:N #1
+        \skip_horizontal:n { - \box_wd:N #1 }
+        \tl_if_empty:NF \l__codelink_ul_color_tl
+          { \@ifpackageloaded { xcolor } { \exp_args:NV \color \l__codelink_ul_color_tl } { } }
+        \vrule width \box_wd:N #1
+          height \dim_eval:n { \g__codelink_ul_thick_tl - \g__codelink_ul_offset_tl }
+          depth \dim_eval:n { \g__codelink_ul_offset_tl } \scan_stop:
+      }
+    \box_set_dp:Nn \l__codelink_ul_out_box { \box_dp:N #1 }
+    \box_use_drop:N \l__codelink_ul_out_box
+  }
+% #1 label (empty: no link), #2 style name, #3 text
+\cs_new_protected:Npn \__codelink_format:nnn #1#2#3
+  {
+    \group_begin:
+      \cs_if_exist_use:c { codelink@style@ #2 }
+      \bool_lazy_all:nTF { { \g__codelink_underline_bool } { \l__codelink_ul_bool } { ! \tl_if_empty_p:n {#1} } }
+        {
+          % in the Output hook, #3 is the output of the whole token: the box
+          % is only known once listings has made it
+          \bool_if:NTF \l__codelink_hook_bool
+            { \cs_set_protected:Npn \lst@OutputBox ##1 { \__codelink_ul_draw:N ##1 } #3 }
+            { \hbox_set:Nn \l__codelink_ul_box {#3} \__codelink_ul_draw:N \l__codelink_ul_box }
+        }
+        {#3}
+    \group_end:
+  }
+% How a text becomes a link to a label (#1 label, #2 text): hyperref, or any
+% package which provides \hyperref, or the command of the user.
+\cs_new_protected:Npn \__codelink_linkcmd:nn #1#2 { \hyperref [#1] {#2} }
+\NewDocumentCommand \CodeLinkLinkCommand { m }
+  {
+    \cs_set_protected:Npn \__codelink_linkcmd:nn ##1##2 {#1}
+    \bool_gset_true:N \g__codelink_customlink_bool
+  }
+\NewDocumentCommand \CodeLinkFormat { m m m }
+  {
+    \bool_lazy_and:nnTF { \g__codelink_hyper_bool } { ! \tl_if_empty_p:n {#1} }
+      { \__codelink_linkcmd:nn {#1} { \__codelink_format:nnn {#1} {#2} {#3} } }
+      { \__codelink_format:nnn {#1} {#2} {#3} }
+  }
+\NewDocumentCommand \CodeLinkTextFont { } { \ttfamily }
+\NewDocumentCommand \CodeLinkRef { O{} m }
+  {
+    \group_begin:
+      \__codelink_prepare:nn {#1} {#2}
+      \tl_set_eq:NN \l__codelink_ul_color_tl \g__codelink_ul_text_color_tl
+      \bool_set_eq:NN \l__codelink_ul_bool \g__codelink_ul_text_bool
+      \bool_if:NF \l__codelink_links_bool { \tl_clear:N \l__codelink_label_tl }
+      \use:e
+        {
+          \exp_not:N \CodeLinkTextFont
+          \exp_not:N \CodeLinkFormat
+            { \exp_not:V \l__codelink_label_tl }
+            { \exp_not:V \l__codelink_style_tl }
+            { \__codelink_disp:V \l__codelink_display_tl }
+        }
+    \group_end:
+  }
+\cs_generate_variant:Nn \__codelink_disp:n { V }
+% the label of a string, to be used in \ref and \pageref (starred: a command)
+\NewExpandableDocumentCommand \CodeLinkLabel { s O{default} m }
+  {
+    \prop_if_in:NnTF \g__codelink_groups_prop { #2 / prefix }
+      { \prop_item:Nn \g__codelink_groups_prop { #2 / prefix } }
+      { \prop_item:Nn \c__codelink_defaults_prop { prefix } }
+    \__codelink_sanitize:e { \IfBooleanT {#1} { \c_backslash_str } \tl_to_str:n {#3} }
+  }
+
+% Reading the .aux file: the entries wait until a listing needs them.
+% #1 string, #2 label, #3 display, #4 style, #5 language, #6 kind, #7 boundary
+\seq_new:N \g__codelink_new_seq
+\bool_new:N \g__codelink_dirty_bool
+\cs_new_protected:Npn \__codelink_in:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \group_begin:
+      \cs_set:cpn { codelink@c } ##1 { \char_generate:nn {##1} { 12 } }
+      \seq_gput_right:Nx \g__codelink_new_seq
+        { { #1 } { #2 } { #3 } { \tl_to_str:n {#4} } { #5 } { \tl_to_str:n {#6} } { \tl_to_str:n {#7} } }
+    \group_end:
+    \bool_gset_true:N \g__codelink_dirty_bool
+  }
+\cs_set_eq:cN { codelink@in } \__codelink_in:nnnnnnn
+
+% Assembling: entries which have not been seen yet become rules. The first one
+% of a string (per kind and language) counts.
+\bool_new:N \g__codelink_listings_bool
+\bool_new:N \g__codelink_minted_bool
+\cs_new_protected:Npn \__codelink_assemble:
+  {
+    \bool_gset_false:N \g__codelink_dirty_bool
+    \seq_map_inline:Nn \g__codelink_new_seq { \__codelink_assemble_entry:nnnnnnn ##1 }
+    \seq_gclear:N \g__codelink_new_seq
+    \bool_if:NT \g__codelink_listings_bool { \__codelink_lst_sort: }
+  }
+% #1 string, #2 label, #3 display, #4 style, #5 language, #6 kind, #7 boundary
+\cs_new_protected:Npn \__codelink_assemble_entry:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \cs_if_exist:cF { g__codelink_s_ #6 / #5 / #1 }
+      {
+        \cs_gset_nopar:cpn { g__codelink_s_ #6 / #5 / #1 } { }
+        \str_if_eq:nnTF {#6} { block }
+          { \tl_clear:N \l__codelink_label_tl }
+          { \tl_set:Nn \l__codelink_label_tl {#2} }
+        \tl_set:Nn \l__codelink_style_tl {#4}
+        \str_if_empty:nTF {#3}
+          { \tl_set:Nn \l__codelink_display_tl {#1} }
+          { \tl_set:Nn \l__codelink_display_tl {#3} }
+        \bool_if:NT \g__codelink_listings_bool
+          {
+            % a single word is matched by the Output hook as a whole: cheaper
+            % than a rule, and never found inside of a longer word
+            \bool_set_false:N \l__codelink_word_bool
+            \str_if_eq:nnT {#6} { link }
+              {
+                \str_if_eq:nnT {#1} {#3}
+                  {
+                    \__codelink_if_word:nT {#1}
+                      { \bool_set_true:N \l__codelink_word_bool }
+                  }
+              }
+            \bool_if:NTF \l__codelink_word_bool
+              { \__codelink_lst_word:nn {#5} {#1} }
+              { \__codelink_lst_rule:nnn {#5} {#1} {#7} }
+          }
+        \bool_if:NT \g__codelink_minted_bool
+          {
+            \__codelink_mt_rule:nn {#5} {#1}
+            \str_if_eq:nnT {#6} { block } { \__codelink_mt_block:nn {#5} {#1} }
+          }
+      }
+  }
+
+% listings: a word is looked up when listings outputs an identifier. All other
+% strings are 'literate' rules, sorted by language and length (longest first).
+\clist_new:N \g__codelink_scopes_clist
+\int_new:N \g__codelink_minlen_int
+\int_new:N \g__codelink_maxlen_int
+\int_gset:Nn \g__codelink_minlen_int { 1000000 }
+\bool_new:N \g__codelink_words_bool
+\bool_new:N \l__codelink_word_bool
+\cs_new_protected:Npn \__codelink_lst_word:nn #1#2
+  {
+    \tl_gset:cx { g__codelink_h_ x #1 _ #2 }
+      { { \exp_not:V \l__codelink_label_tl } { \exp_not:V \l__codelink_style_tl } }
+    \bool_gset_true:N \g__codelink_words_bool
+    \str_if_eq:eeT { \str_item:nn {#2} { 1 } } { \c_backslash_str } { \bool_gset_true:N \g__codelink_cmdwords_bool }
+  }
+% stores one literate rule: #1 language, #2 what to find, #3 the replacement
+\cs_new_protected:Npn \__codelink_lst_put:nnn #1#2#3
+  {
+    \int_gincr:N \g__codelink_rule_int
+    \tl_gset:cx { g__codelink_r_ \int_use:N \g__codelink_rule_int _tl }
+      { { \__codelink_spec:n {#2} } { {#3} } { \str_count:n {#2} } }
+    \int_gset:Nn \g__codelink_minlen_int { \int_min:nn { \g__codelink_minlen_int } { \str_count:n {#2} } }
+    \int_gset:Nn \g__codelink_maxlen_int { \int_max:nn { \g__codelink_maxlen_int } { \str_count:n {#2} } }
+    \clist_if_in:NnF \g__codelink_scopes_clist { x #1 }
+      { \clist_gput_right:Nn \g__codelink_scopes_clist { x #1 } }
+    \clist_if_exist:cF { g__codelink_b_ x #1 _ \str_count:n {#2} _clist }
+      { \clist_new:c { g__codelink_b_ x #1 _ \str_count:n {#2} _clist } }
+    \clist_gput_right:cx { g__codelink_b_ x #1 _ \str_count:n {#2} _clist }
+      { \int_use:N \g__codelink_rule_int }
+  }
+\int_new:N \g__codelink_rule_int
+% A rule matches characters, so it also fires inside of a longer word. With a
+% boundary, the string followed by a word character is a rule of its own which
+% keeps the text as it is, and the longer rule wins.
+\cs_new_protected:Npn \__codelink_lst_rule:nnn #1#2#3
+  {
+    \__codelink_lst_put:nnn {#1} {#2}
+      {
+        \exp_not:N \CodeLinkFormat
+          { \exp_not:V \l__codelink_label_tl } { \exp_not:V \l__codelink_style_tl }
+          { \__codelink_disp:V \l__codelink_display_tl }
+      }
+    \str_if_eq:nnF {#3} { false }
+      {
+        \__codelink_if_wordend:nT {#2}
+          {
+            \str_map_inline:nn { abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ }
+              { \__codelink_lst_put:nnn {#1} { #2 ##1 } { \__codelink_disp:n { #2 ##1 } } }
+          }
+      }
+  }
+\cs_new_protected:Npn \__codelink_lst_sort:
+  {
+    \clist_map_inline:Nn \g__codelink_scopes_clist
+      {
+        \str_set:Nn \l__codelink_bucket_str {##1}
+        \tl_gset:cx { g__codelink_lit_ ##1 _tl }
+          {
+            \int_step_function:nnN { \g__codelink_minlen_int } { \g__codelink_maxlen_int }
+              \__codelink_lst_bucket:n
+          }
+      }
+  }
+% the rules of one length in the scope ##1 of \__codelink_lst_sort:
+\cs_new:Npn \__codelink_lst_bucket:n #1
+  {
+    \clist_if_exist:cT { g__codelink_b_ \l__codelink_bucket_str _ #1 _clist }
+      { \clist_map_function:cN { g__codelink_b_ \l__codelink_bucket_str _ #1 _clist } \__codelink_lst_id:n }
+  }
+\cs_new:Npn \__codelink_lst_id:n #1 { \exp_not:v { g__codelink_r_ #1 _tl } }
+\str_new:N \l__codelink_bucket_str
+
+% Word lookup, just before listings outputs an identifier: the style of the
+% token is wrapped into the link.
+\cs_new_protected:Npn \__codelink_lst_found:N #1
+  {
+    \cs_set_eq:NN \__codelink_old_style:n \lst@thestyle
+    \exp_after:wN \__codelink_lst_found:nn #1
+  }
+\cs_new_protected:Npn \__codelink_lst_found:nn #1#2
+  {
+    \cs_set:Npx \lst@thestyle ##1
+      {
+        \exp_not:N \bool_set_true:N \exp_not:N \l__codelink_hook_bool
+        \exp_not:N \CodeLinkFormat {#1} {#2} { \exp_not:N \__codelink_old_style:n { ##1 } }
+      }
+  }
+\cs_new_protected:Npn \__codelink_lst_try:n #1
+  {
+    \cs_if_exist:cT { g__codelink_h_ x #1 _ \l_tmpa_str }
+      {
+        \exp_args:Nc \__codelink_lst_found:N { g__codelink_h_ x #1 _ \l_tmpa_str }
+        \bool_set_true:N \l__codelink_word_bool
+      }
+  }
+% Did the last non-letter token end with a backslash? Then a command word is
+% looked up with the backslash in front of it. (listings spells the character
+% as the control sequence \lst@um\ , hence the second test.)
+\bool_new:N \g__codelink_afterbs_bool
+\bool_new:N \g__codelink_cmdwords_bool
+\tl_new:N \l__codelink_last_tl
+% the end of the token, followed by a marker: a delimited search is much faster
+% than taking the last characters of a string
+\tl_const:Nx \c__codelink_bs_tl { \c_backslash_str \exp_not:N \q_mark }
+\tl_const:Nx \c__codelink_bssp_tl { \c_backslash_str \c_space_tl \exp_not:N \q_mark }
+\cs_generate_variant:Nn \tl_if_in:nnTF { Vo }
+\cs_new_protected:Npn \__codelink_lst_other:
+  {
+    \bool_if:NT \g__codelink_cmdwords_bool
+      {
+        \tl_set:Nx \l__codelink_last_tl { \tl_to_str:o { \the \lst@token } \exp_not:N \q_mark }
+        \tl_if_in:VoTF \l__codelink_last_tl { \c__codelink_bs_tl }
+          { \bool_gset_true:N \g__codelink_afterbs_bool }
+          {
+            \tl_if_in:VoTF \l__codelink_last_tl { \c__codelink_bssp_tl }
+              { \bool_gset_true:N \g__codelink_afterbs_bool }
+              { \bool_gset_false:N \g__codelink_afterbs_bool }
+          }
+      }
+  }
+\NewDocumentCommand \CodeLinkMarkBackslash { } { \bool_gset_true:N \g__codelink_afterbs_bool }
+\cs_new_protected:Npn \__codelink_lst_lookup:
+  {
+    \bool_set_false:N \l__codelink_word_bool
+    \cs_if_exist:NT \lst@language { \exp_args:NV \__codelink_lst_try:n \lst@language }
+    \bool_if:NF \l__codelink_word_bool { \__codelink_lst_try:n { } }
+  }
+% A language that makes the backslash a letter (as the LaTeX one of xlistings)
+% spells it \lst@um\ inside of the word: that is a backslash again.
+% (\tl_to_str:n puts a space behind a control sequence, \token_to_str:N does not)
+\str_const:Nx \c__codelink_um_str { \exp_args:Nc \token_to_str:N { lst@um \c_backslash_str } \c_space_tl }
+\cs_new_protected:Npn \__codelink_lst_um_define:n #1
+  {
+    \cs_new_protected:Npn \__codelink_lst_um:w ##1 #1 ##2 \q_mark ##3 \q_stop
+      { \tl_if_empty:nT {##1} { \str_set:Nx \l_tmpa_str { \c_backslash_str ##2 } } }
+  }
+\exp_args:NV \__codelink_lst_um_define:n \c__codelink_um_str
+\cs_new_protected:Npn \__codelink_lst_output:
+  {
+    \bool_lazy_and:nnT { \g__codelink_words_bool } { ! \str_if_eq_p:Vn \lst@codelink { false } }
+      {
+        \str_set:Nx \l_tmpa_str { \tl_to_str:o { \the \lst@token } }
+        \use:x
+          {
+            \exp_not:N \__codelink_lst_um:w \l_tmpa_str
+            \exp_not:N \q_mark \c__codelink_um_str \exp_not:N \q_mark \exp_not:N \q_stop
+          }
+        \__codelink_lst_lookup:
+        \bool_if:NF \l__codelink_word_bool
+          {
+            \bool_if:NT \g__codelink_afterbs_bool
+              {
+                \str_put_left:Nx \l_tmpa_str { \c_backslash_str }
+                \__codelink_lst_lookup:
+              }
+          }
+        \bool_gset_false:N \g__codelink_afterbs_bool
+      }
+  }
+
+% The rules, handed to listings when it selects its character table.
+\cs_new_protected:Npn \__codelink_lst_run:N #1
+  { \exp_after:wN \lst@Literate #1 { } \relax \z@ }
+\cs_new_protected:Npn \__codelink_lst_run:n #1
+  { \cs_if_exist:cT { g__codelink_lit_ x #1 _tl } { \exp_args:Nc \__codelink_lst_run:N { g__codelink_lit_ x #1 _tl } } }
+\cs_new_protected:Npn \__codelink_lst_hook:
+  {
+    \str_if_eq:VnF \lst@codelink { false }
+      {
+        \bool_if:NT \g__codelink_dirty_bool { \__codelink_assemble: }
+        \__codelink_lst_run:n { }
+        \cs_if_exist:NT \lst@language { \tl_if_empty:NF \lst@language { \exp_args:NV \__codelink_lst_run:n \lst@language } }
+      }
+  }
+
+% minted: one control sequence per string, named like Pygments writes it
+\str_new:N \l__codelink_lexer_str
+\cs_new_protected:Npn \__codelink_mt_rule:nn #1#2
+  {
+    \tl_set:Nx \l_tmpa_tl { \__codelink_pyg:n {#2} }
+    \cs_gset_nopar:cpx { codelink@mt@ #1 @ \tl_to_str:N \l_tmpa_tl }
+      { { \exp_not:V \l__codelink_label_tl } { \exp_not:V \l__codelink_style_tl } }
+  }
+\cs_new_protected:Npn \__codelink_PYG_orig:nn #1#2 { }
+\cs_new_protected:Npn \__codelink_mt_found:nnn #1#2#3
+  { \__codelink_mt_found:nnnnn #1 {#2} {#3} }
+\cs_new_protected:Npn \__codelink_mt_found:nnnnn #1#2#3#4
+  { \CodeLinkFormat {#1} {#2} { \__codelink_PYG_orig:nn {#3} {#4} } }
+% A block of several tokens, such as System.out: the text of the last tokens is
+% kept, and a token that would be linked stays plain if this text ends with a block.
+\bool_new:N \g__codelink_mtblock_bool
+\bool_new:N \l__codelink_mtblocked_bool
+\int_new:N \g__codelink_mtblock_int
+\str_new:N \g__codelink_mt_tail_str
+\cs_new_protected:Npn \__codelink_mt_block:nn #1#2
+  {
+    \str_set:Nx \l_tmpa_str { \__codelink_pyg:n {#2} }
+    \seq_if_exist:cF { g__codelink_mtb_ #1 _seq } { \seq_new:c { g__codelink_mtb_ #1 _seq } }
+    \seq_gput_right:cV { g__codelink_mtb_ #1 _seq } \l_tmpa_str
+    \int_gset:Nn \g__codelink_mtblock_int
+      { \int_max:nn { \g__codelink_mtblock_int } { \str_count:N \l_tmpa_str } }
+    \bool_gset_true:N \g__codelink_mtblock_bool
+  }
+\cs_new_protected:Npn \__codelink_mt_blocked:n #1
+  {
+    \seq_if_exist:cT { g__codelink_mtb_ #1 _seq }
+      {
+        \seq_map_inline:cn { g__codelink_mtb_ #1 _seq }
+          {
+            \str_if_eq:eeT
+              { \str_range:Nnn \g__codelink_mt_tail_str { - \str_count:n {##1} } { -1 } } {##1}
+              { \bool_set_true:N \l__codelink_mtblocked_bool \seq_map_break: }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__codelink_mt_blocked:n { V }
+% #1 the control sequence that holds label and style, #2 and #3 the arguments of \PYG
+\cs_new_protected:Npn \__codelink_mt_link:nnn #1#2#3
+  {
+    \bool_set_false:N \l__codelink_mtblocked_bool
+    \bool_if:NT \g__codelink_mtblock_bool
+      {
+        \__codelink_mt_blocked:V \l__codelink_lexer_str
+        \bool_if:NF \l__codelink_mtblocked_bool { \__codelink_mt_blocked:n { } }
+      }
+    \bool_if:NTF \l__codelink_mtblocked_bool
+      { \__codelink_PYG_orig:nn {#2} {#3} }
+      { \exp_args:Nv \__codelink_mt_found:nnn {#1} {#2} {#3} }
+  }
+\cs_new_protected:Npn \__codelink_PYG:nn #1#2
+  {
+    \bool_if:NT \g__codelink_mtblock_bool
+      {
+        \str_gput_right:Nx \g__codelink_mt_tail_str { \detokenize {#2} }
+        \int_compare:nNnT { \str_count:N \g__codelink_mt_tail_str } > { 2 * \g__codelink_mtblock_int }
+          {
+            \str_gset:Nx \g__codelink_mt_tail_str
+              { \str_range:Nnn \g__codelink_mt_tail_str { - \g__codelink_mtblock_int } { -1 } }
+          }
+      }
+    \cs_if_exist:cTF { codelink@mt@ \l__codelink_lexer_str @ \detokenize {#2} }
+      { \__codelink_mt_link:nnn { codelink@mt@ \l__codelink_lexer_str @ \detokenize {#2} } {#1} {#2} }
+      {
+        \cs_if_exist:cTF { codelink@mt@ @ \detokenize {#2} }
+          { \__codelink_mt_link:nnn { codelink@mt@ @ \detokenize {#2} } {#1} {#2} }
+          { \__codelink_PYG_orig:nn {#1} {#2} }
+      }
+  }
+% at the start of every minted environment
+\cs_new_protected:Npn \__codelink_minted_patch:
+  {
+    \bool_if:NT \g__codelink_dirty_bool { \__codelink_assemble: }
+    \cs_if_exist:NT \PYG
+      {
+        \cs_if_eq:NNF \PYG \__codelink_PYG:nn
+          {
+            \cs_set_eq:NN \__codelink_PYG_orig:nn \PYG
+            \cs_set_eq:NN \PYG \__codelink_PYG:nn
+          }
+      }
+    \__codelink_scope:Nn \l__codelink_lexer_str { \minted@lexer }
+    \str_gclear:N \g__codelink_mt_tail_str
+  }
+
+% what is loaded decides about the backends
+\cs_new_protected:Npn \__codelink_begin_document:
+  {
+    \bool_gset_true:N \g__codelink_document_bool
+    \iow_now:Nx \@mainaux { \exp_not:N \providecommand \exp_not:N \codelink@in [7] { } }
+    \seq_map_function:NN \g__codelink_pending_seq \__codelink_write:n
+    \seq_gclear:N \g__codelink_pending_seq
+    \bool_gset:Nn \g__codelink_hyper_bool
+      {
+        \str_if_eq_p:Vn \g__codelink_hyper_tl { true }
+        || ( \str_if_eq_p:Vn \g__codelink_hyper_tl { auto }
+             && ( \cs_if_exist_p:N \hyperref || \g__codelink_customlink_bool ) )
+      }
+    \str_if_in:nVT { auto listings } \g__codelink_backend_tl
+      {
+        \@ifpackageloaded { listings }
+          {
+            \bool_gset_true:N \g__codelink_listings_bool
+            \def \lst@codelink { true }
+            \lst@Key { codelink } { true } { \def \lst@codelink { ##1 } }
+            \lst@AddToHook { SelectCharTable } { \__codelink_lst_hook: }
+            \lst@AddToHook { Output } { \__codelink_lst_output: }
+            \lst@AddToHook { OutputOther } { \__codelink_lst_other: }
+          }
+          {
+            \str_if_eq:VnT \g__codelink_backend_tl { listings }
+              { \msg_warning:nnn { codelink } { no-backend } { listings } }
+          }
+      }
+    \str_if_in:nVT { auto minted } \g__codelink_backend_tl
+      {
+        \@ifpackageloaded { minted }
+          {
+            \bool_gset_true:N \g__codelink_minted_bool
+            \AddToHook { env/MintedVerbatim/begin } { \__codelink_minted_patch: }
+          }
+          {
+            \str_if_eq:VnT \g__codelink_backend_tl { minted }
+              { \msg_warning:nnn { codelink } { no-backend } { minted } }
+          }
+      }
+    \bool_if:NT \g__codelink_debug_bool
+      {
+        \msg_term:nnx { codelink } { debug }
+          { listings=\bool_to_str:N \g__codelink_listings_bool,~
+            minted=\bool_to_str:N \g__codelink_minted_bool,~
+            links=\bool_to_str:N \g__codelink_hyper_bool }
+      }
+  }
+\cs_generate_variant:Nn \str_if_in:nnT { nV }
+\cs_generate_variant:Nn \str_if_eq:nnT { V }
+\AddToHook { begindocument } [ code-link ] { \__codelink_begin_document: }
+
+\ExplSyntaxOff

@@ -1,0 +1,132 @@
+%% OpenGlyph LaTeX -- named, font-backed historical glyphs.
+%% Copyright 2026 OpenGlyph contributors. MIT; see LICENSE.
+\NeedsTeXFormat{LaTeX2e}[2020-10-01]
+\ProvidesExplPackage{openglyph}{2026-10-28}{0.2.1}{Named font-backed glyphs for historical texts}
+\RequirePackage{iftex}
+\ifXeTeX\else\ifLuaTeX\else
+  \PackageError{openglyph}{XeLaTeX or LuaLaTeX is required}{Use XeLaTeX, LuaLaTeX, or Tectonic, not pdfLaTeX.}
+  \expandafter\endinput
+\fi\fi
+\RequirePackage{fontspec}
+\RequirePackage{xparse}
+\ExplSyntaxOn
+\tl_new:N \l__openglyph_base_tl
+\tl_new:N \l__openglyph_path_tl
+\tl_new:N \l__openglyph_catalog_tl
+\prop_new:N \g__openglyph_loaded_prop
+\msg_new:nnn {openglyph}{unknown}{Unknown~glyph~'#1'.~Load~its~catalogue~and~check~the~ASCII~ID.}
+\msg_new:nnn {openglyph}{duplicate}{Glyph~or~font~ID~'#1'~is~already~defined;~use~a~different~namespace.}
+\msg_new:nnn {openglyph}{missing-file}{Cannot~find~'#1'.~Keep~the~catalogue~and~font~files~together.}
+\msg_new:nnn {openglyph}{missing-char}{The~selected~font~does~not~contain~glyph~'#1'.~Check~the~bundle~version.}
+\msg_new:nnn {openglyph}{invalid}{Invalid~ASCII~identifier~'#1'.~Use~letters,~digits,~colon,~dot,~underscore,~or~hyphen.}
+\cs_new_protected:Npn \__openglyph_validate:n #1
+  {\regex_match:nnF {\A[A-Za-z]([A-Za-z0-9:._]|-)*\Z}{#1}{\msg_fatal:nnn{openglyph}{invalid}{#1}}}
+\NewDocumentCommand \OpenGlyphLoad {m}
+  {
+    \prop_if_in:NnF \g__openglyph_loaded_prop {#1}
+      {
+        \file_if_exist:nTF {#1/catalog.tex}
+          {\file_get_full_name:nN{#1/catalog.tex}\l__openglyph_catalog_tl
+           \exp_args:NV\filename@parse\l__openglyph_catalog_tl
+           \tl_set:Nx\l__openglyph_base_tl{\filename@area}
+           \exp_args:NV\file_input:n\l__openglyph_catalog_tl
+           \tl_clear:N\l__openglyph_base_tl
+           \prop_gput:Nnn\g__openglyph_loaded_prop{#1}{loaded}}
+          {\str_if_eq:nnTF{#1}{ebag}
+             {\file_if_exist:nTF{openglyph-ebag.def}
+                {\tl_clear:N\l__openglyph_base_tl
+                 \file_input:n{openglyph-ebag.def}
+                 \prop_gput:Nnn\g__openglyph_loaded_prop{#1}{loaded}}
+                {\msg_fatal:nnn{openglyph}{missing-file}{openglyph-ebag.def}}}
+             {\msg_fatal:nnn{openglyph}{missing-file}{#1/catalog.tex}}}
+      }
+  }
+\NewDocumentCommand \OpenGlyphDeclareFont {m m}
+  {
+    \__openglyph_validate:n{#1}
+    \cs_if_exist:cTF{__openglyph_font_#1:}
+      {\msg_fatal:nnn{openglyph}{duplicate}{#1}}
+      {
+        \tl_set:Nx\l__openglyph_path_tl{\l__openglyph_base_tl#2}
+        % LuaTeX caches font data across documents. Keep concrete paths so a
+        % relative custom-font filename never refers to a later document's cwd.
+        \sys_if_engine_luatex:T
+          {\directlua{
+             local~p=token.get_macro("l__openglyph_path_tl");~
+             if~token.get_macro("l__openglyph_base_tl")==""~then~
+               p=kpse.find_file(p,"opentype~fonts")~or~p;~
+             end;~
+             if~not(p:sub(1,1)=="/")~and~not~p:match("^[A-Za-z]:")~then~
+               p=lfs.currentdir().."/"..p;~
+             end;~
+             if~lfs.attributes(p,"mode")=="file"~then~
+               token.set_macro("l__openglyph_path_tl",p);~
+             end;~
+           }}
+        \exp_args:NV\file_if_exist:nTF\l__openglyph_path_tl
+          {\exp_args:NV\file_get_full_name:nN\l__openglyph_path_tl\l__openglyph_path_tl
+           \exp_args:NV\filename@parse\l__openglyph_path_tl
+           \use:x{\exp_not:N\newfontfamily\exp_not:c{__openglyph_font_#1:}
+             [Path={\filename@area}]{\filename@base.\filename@ext}}}
+          {\tl_if_empty:NTF\l__openglyph_base_tl
+             {% An installed OTF is found by the engine's font search, not
+              % necessarily by LaTeX's tex-file search. Keep filename lookup.
+              \IfFontExistsTF{#2}
+                {\exp_args:Nc\newfontfamily{__openglyph_font_#1:}{#2}}
+                {\msg_fatal:nnn{openglyph}{missing-file}{#2}}}
+             {% A project bundle must not borrow a different installed font.
+              \msg_fatal:nnn{openglyph}{missing-file}{#2}}}
+      }
+  }
+\NewDocumentCommand \OpenGlyphDeclare {m m m}
+  {
+    \__openglyph_validate:n{#1}
+    \regex_match:nnF{\A[0-9A-Fa-f]{4,6}\Z}{#3}{\msg_fatal:nnn{openglyph}{invalid}{#3}}
+    \OpenGlyphDeclareEntry{#1}{#2}{#3}
+  }
+% Generated catalogues have already validated every ID and scalar in Python.
+% Retain runtime collision/font checks without 45,000 regular-expression runs.
+\cs_new_protected:Npn \OpenGlyphDeclareEntry #1#2#3
+  {
+    \cs_if_exist:cTF{__openglyph_glyph_#1:}
+      {\msg_fatal:nnn{openglyph}{duplicate}{#1}}
+      {
+        \cs_if_exist:cF{__openglyph_font_#2:}{\msg_fatal:nnn{openglyph}{unknown}{font:#2}}
+        \cs_gset_protected:cpn{__openglyph_glyph_#1:}{\__openglyph_render:nnn{#1}{#2}{#3}}
+      }
+  }
+\cs_new_protected:Npn \__openglyph_render:nnn #1#2#3
+  {
+    \mode_leave_vertical:
+    \hbox:n
+      {
+        \ifXeTeX\XeTeXinterchartokenstate=0\relax\fi
+        \cs_if_exist:NT\ltjsetparameter{\ltjsetparameter{autospacing=false,autoxspacing=false}}
+        \cs:w __openglyph_font_#2:\cs_end:
+        \tex_iffontchar:D\tex_font:D"#3\scan_stop:
+          \tex_char:D"#3\scan_stop:
+        \else:\msg_error:nnn{openglyph}{missing-char}{#1}\texttt{[#1]}\fi:
+      }
+  }
+\NewDocumentCommand \OpenGlyph {m}
+  {\cs_if_exist:cTF{__openglyph_glyph_#1:}{\use:c{__openglyph_glyph_#1:}}
+    {\msg_error:nnn{openglyph}{unknown}{#1}\texttt{[#1]}}}
+\ProvideDocumentCommand \gwglyph {m}{\OpenGlyph{#1}}
+\NewDocumentCommand \ebag {m}{\OpenGlyph{ebag:#1}}
+\NewDocumentCommand \OpenGlyphAlias {m m}
+  {\__openglyph_validate:n{#1}
+   \cs_if_exist:cT{__openglyph_glyph_#1:}{\msg_fatal:nnn{openglyph}{duplicate}{#1}}
+   \cs_if_exist:cTF{__openglyph_glyph_#2:}
+     {\cs_gset_eq:cc{__openglyph_glyph_#1:}{__openglyph_glyph_#2:}}
+     {\msg_fatal:nnn{openglyph}{unknown}{#2}}}
+\NewDocumentCommand \OpenGlyphIfExistsTF {m m m}
+  {\cs_if_exist:cTF{__openglyph_glyph_#1:}{#2}{#3}}
+\NewDocumentCommand \OpenGlyphSequence {m}
+  {\clist_map_inline:nn{#1}{\OpenGlyph{##1}}}
+\AtBeginDocument{
+  \cs_if_exist:NT\pdfstringdefDisableCommands{
+    \pdfstringdefDisableCommands{\def\OpenGlyph#1{[#1]}\def\gwglyph#1{[#1]}\def\ebag#1{[ebag:#1]}}
+  }
+}
+\ExplSyntaxOff
+\endinput

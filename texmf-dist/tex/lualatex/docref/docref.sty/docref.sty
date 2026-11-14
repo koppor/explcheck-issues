@@ -1,0 +1,187 @@
+% docref: References to labels in package documentation.
+%
+% Copyright (C) 2026 Amer Amikhteh
+%
+% This package is free software: you may redistribute it and/or modify
+% it under the terms of the LaTeX Project Public License as published
+% by the LaTeX Project, either version 1.3c of the License, or
+% (at your option) any later version.
+%
+% This package is distributed in the hope that it will be useful,
+% but WITHOUT ANY WARRANTY; without even the implied warranty
+% of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+%
+% The full license text is available at:
+% https://www.latex-project.org/lppl/
+%
+% This work is "maintained" by Amer Amikhteh.
+%
+% The current maintainer of this work is Amer Amikhteh.
+%
+% This package consists of the file docref.sty and the file docref.lua.
+
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{docref}[2026/10/26 v0.2 Package documentation references]
+
+\RequirePackage{iftex}
+
+\ifLuaTeX\else
+    \PackageError{docref}
+    {This package requires LuaLaTeX}
+    {Compile this document with LuaLaTeX.}
+    \expandafter\endinput
+\fi
+
+\makeatletter
+
+\directlua{
+    docref = dofile(kpse.find_file("docref.lua"))
+}
+
+% Dotted counters follow the surrounding direction. Decorated reference
+% values stay together so parentheses and prefixes retain their positions.
+\ExplSyntaxOn
+\cs_new_protected:Npn \docref@number #1
+{
+    \leavevmode\hbox{
+        \regex_match:nnTF {\A [a-zA-Z0-9٠-٩۰-۹]+ (\.[a-zA-Z0-9٠-٩۰-۹]+)* \Z} {#1}
+            {\docref@part#1.\@nil}
+            {\hbox~dir~TLT{#1}}
+    }
+}
+\ExplSyntaxOff
+\def\docref@part#1.#2\@nil{%
+    \hbox dir TLT{#1}%
+    \if\relax\detokenize{#2}\relax
+    \else
+        .\docref@part#2\@nil
+    \fi
+}
+
+\let\docref@format@number\docref@number
+\let\docref@format@page\docref@number
+\long\def\docref@format@name#1{#1}
+\def\docref@render#1#2#3#4{%
+    \if\relax\detokenize{#3}\relax
+        \csname docref@format@#1\endcsname{#2}%
+    \else
+        \hyper@link@[link]{#3}{#4}{\csname docref@format@#1\endcsname{#2}}%
+    \fi
+}
+
+% Bookmarks need plain text, without boxes or nested links. Both starred and
+% ordinary references must remain expandable while hyperref builds PDF strings.
+\ExplSyntaxOn
+\cs_new:Npn \docref@pdfstring #1#2
+{
+    \str_if_eq:nnTF {#2} {*}
+    { \docref@pdfvalue {#1} }
+    { \docref@pdfvalue {#1} {#2} }
+}
+\ExplSyntaxOff
+\def\docref@pdfvalue#1#2#3{%
+    \directlua{
+        local ok, result = pcall(docref.reference,
+        "\luaescapestring{#2}", "\luaescapestring{#3}", "#1")
+        % Use hyperref's character commands for TeX-special characters so
+        % bookmarks remain safe to write and read through the .out file.
+        local escaped = {
+                [35] = "textnumbersign", [36] = "textdollar",
+                [37] = "textpercent", [38] = "textampersand",
+                [92] = "textbackslash", [94] = "textasciicircum",
+                [95] = "textunderscore", [123] = "textbraceleft",
+                [125] = "textbraceright", [126] = "textasciitilde"
+            }
+        for _, char in utf8.codes(ok and result or "??") do
+        if escaped[char] then
+        tex.sprint(string.char(92) .. escaped[char] .. "{}")
+        else
+        tex.sprint(-2, utf8.char(char))
+        end
+        end
+    }%
+}
+\AddToHook{package/hyperref/after}{%
+    \pdfstringdefDisableCommands{%
+        \def\docref{\docref@pdfstring{number}}%
+        \def\docnameref{\docref@pdfstring{name}}%
+        \def\docpageref{\docref@pdfstring{page}}%
+    }%
+}
+
+\NewDocumentCommand{\docref}{s m m}{\docref@reference{number}{#1}{#2}{#3}}
+\NewDocumentCommand{\docnameref}{s m m}{\docref@reference{name}{#1}{#2}{#3}}
+\NewDocumentCommand{\docpageref}{s m m}{\docref@reference{page}{#1}{#2}{#3}}
+
+\def\docref@reference#1#2#3#4{%
+    \begingroup
+    \IfBooleanTF{#2}{\def\docref@hyper{false}}{%
+        \@ifpackageloaded{hyperref}
+        {\def\docref@hyper{true}}{\def\docref@hyper{false}}%
+    }%
+    \expandafter\docref@render\expanded{%
+        {#1}%
+        \directlua{
+            local package = "\luaescapestring{#3}"
+            local label   = "\luaescapestring{#4}"
+            local ok, result = pcall(docref.reference, package, label, "#1")
+            local document, anchor = "", ""
+
+            if ok then
+            if (\docref@hyper) then
+            local linked, file, destination = pcall(docref.link_target, package, label)
+            if linked and file then document, anchor = file, destination end
+            end
+            else
+            local detail = tostring(result)
+            local registration = string.char(92) .. "DocRefSource" ..
+            "{" .. package .. "}{<source>}"
+            local message
+            if detail:find("Cannot find documentation source", 1, true) then
+            message = "No documentation source was found automatically for package '" ..
+            package .. "'. Add " .. registration .. " to the preamble."
+            elseif detail:find("Cannot locate label", 1, true) then
+            message = "Label '" .. label .. "' was not found for package '" ..
+            package .. "'. Add " .. registration ..
+            " to the preamble, using the correct source file."
+            elseif detail:find("Cannot determine number", 1, true) or
+            detail:find("Cannot determine page", 1, true) or
+            detail:find("Cannot determine name", 1, true) then
+            message = "No #1 information is available for label '" .. label ..
+            "' in package '" .. package ..
+            "'. Make the built manual's auxiliary file available."
+            else
+            message = "Could not resolve label '" .. label .. "' for package '" ..
+            package .. "'. Add " .. registration .. " to the preamble."
+            end
+            texio.write_nl("term and log", "")
+            texio.write_nl("term and log", "Package docref Warning:")
+            texio.write_nl("term and log", "  " .. message)
+            texio.write_nl("term and log", "")
+            end
+            tex.sprint("{")
+                tex.sprint(-2, ok and result or "??")
+                tex.sprint("}{")
+                tex.sprint(-2, document)
+                tex.sprint("}{")
+                tex.sprint(-2, anchor)
+                tex.sprint("}")
+        }}%
+    \endgroup
+}
+
+% Optional registration when the documentation source is not found automatically.
+% Usage: \DocRefSource{package}{source-file}[PDF file or URL]
+\NewDocumentCommand{\DocRefSource}{m m O{}}{%
+    \directlua{
+        docref.register(
+        "\luaescapestring{#1}",
+        "\luaescapestring{#2}",
+        "\luaescapestring{#3}"
+        )
+    }%
+}
+
+\makeatother
+\endinput

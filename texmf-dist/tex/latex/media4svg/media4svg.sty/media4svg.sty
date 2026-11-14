@@ -1,0 +1,946 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% media4svg.sty
+%
+% multimedia inclusion package for the `dvisvgm' backend
+%
+% Supported workflows:
+%
+%   [dvilua | p | up]latex + dvisvgm
+%   xelatex --no-pdf + dvisvgm
+%
+% Copyright 2020--\today, Alexander Grahn
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License.
+%
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+%
+% This work has the LPPL maintenance status `maintained'.
+%
+% The Current Maintainer of this work is A. Grahn.
+
+\def\g@msvg@date@tl{2022/10/12}
+\def\g@msvg@version@tl{0.13}
+
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{media4svg}{\g@msvg@date@tl}{\g@msvg@version@tl}
+{multimedia inclusion with dvisvgm}
+
+\tl_gset_eq:NN\g_msvg_date_tl\g@msvg@date@tl
+\tl_gset_eq:NN\g_msvg_version_tl\g@msvg@version@tl
+
+%package options
+\msg_set:nnnn{media4svg}{unknown~package~option}{Unknown~package~option~`#1'.}{
+  Package option~`#1'~is~unknown;\\
+  perhaps~it~is~spelled~incorrectly.
+}
+
+\group_begin:
+\char_set_catcode_other:N\%
+\cs_new_nopar:Nn\msvg_percent:{%}
+\char_set_catcode_other:N\&
+\cs_new_nopar:Nn\msvg_amp:{&amp;}
+\char_set_catcode_other:N\#
+\cs_new_nopar:Nn\msvg_hashtag:{#}
+\group_end:
+
+\bool_new:N\g_msvg_pkgdraft_bool
+\bool_new:N\g_msvg_pkgembed_bool
+\bool_gset_true:N\g_msvg_pkgembed_bool
+\bool_new:N\g_msvg_pkgyt_bool
+\bool_new:N\g_msvg_pkgvmo_bool
+\int_new:N\g_msvg_pkgresizeflag_int% resizing flag according to options given
+\tl_gset:Nn\g_msvg_pkgwdarg_tl{\width}
+\tl_gset:Nn\g_msvg_pkghtarg_tl{\height}
+\tl_gset:Nn\g_msvg_pkgttarg_tl{\totalheight}
+\bool_new:N\g_msvg_pkgiso_bool
+\tl_gset:Nn\g_msvg_pkgscalearg_tl{1.0}
+\tl_new:N\g_msvg_pkgcontrols_tl
+\tl_gset:Nx\g_msvg_pkgcontrolsyt_tl{\msvg_amp: controls=1}
+\tl_new:N\g_msvg_pkgautoplay_tl
+\tl_new:N\g_msvg_pkgautoplayyt_tl
+\tl_new:N\g_msvg_pkgloop_tl
+\tl_new:N\g_msvg_pkgloopyt_tl
+\tl_new:N\g_msvg_pkgtime_tl
+\tl_new:N\g_msvg_pkgtimeyt_tl
+\tl_new:N\g_msvg_pkgtimevmo_tl
+\tl_new:N\g_msvg_pkgmuted_tl
+\tl_new:N\g_msvg_pkgmutedyt_tl
+\tl_new:N\g_msvg_pkgmutedvmo_tl
+\tl_gset:Nn\g_msvg_pkgmtype_tl{audio/mpeg}
+
+\keys_define:nn{media4svg}{
+  dvisvgm .code:n = {
+    \PassOptionsToPackage{dvisvgm}{pdfbase}
+  },
+  dvisvgm .value_forbidden:n = true,
+
+  draft .bool_gset:N = \g_msvg_pkgdraft_bool,
+
+  final .bool_gset_inverse:N = \g_msvg_pkgdraft_bool,
+
+  autoplay .choice:,
+  autoplay / true .code:n = {
+    \tl_gset:Nn\g_msvg_pkgautoplay_tl{autoplay=''~}
+    \tl_gset:Nn\g_msvg_pkgautoplayyt_tl{\msvg_amp: autoplay=1}
+  },
+  autoplay / false .code:n = {
+    \tl_gclear:N\g_msvg_pkgautoplay_tl
+    \tl_gclear:N\g_msvg_pkgautoplayyt_tl
+  },
+  autoplay .default:n = {true},
+
+  loop .choice:,
+  loop / true .code:n = {
+    \tl_gset:Nn\g_msvg_pkgloop_tl{loop=''~}
+    \tl_gset:Nn\g_msvg_pkgloopyt_tl{\msvg_amp: loop=1}
+  },
+  loop / false .code:n = {
+    \tl_gclear:N\g_msvg_pkgloop_tl
+    \tl_gclear:N\g_msvg_pkgloopyt_tl
+  },
+  loop .default:n = {true},
+
+  controls .choice:,
+  controls / true .code:n = {
+    \tl_gset:Nn\g_msvg_pkgcontrols_tl{controls=''~}
+    \tl_gset:Nn\g_msvg_pkgcontrolsyt_tl{\msvg_amp: controls=1}
+  },
+  controls / false .code:n = {
+    \tl_gclear:N\g_msvg_pkgcontrols_tl
+    \tl_gset:Nn\g_msvg_pkgcontrolsyt_tl{\msvg_amp: controls=0}
+  },
+  controls .default:n = {true},
+
+  muted .choice:,
+  muted / true .code:n = {
+    \tl_gset:Nn\g_msvg_pkgmuted_tl{muted=''~}
+    \tl_gset:Nn\g_msvg_pkgmutedyt_tl{\msvg_amp: mute=1}
+    \tl_gset:Nn\g_msvg_pkgmutedvmo_tl{\msvg_amp: muted=1}
+  },
+  muted / false .code:n = {
+    \tl_gclear:N\g_msvg_pkgmuted_tl
+    \tl_gclear:N\g_msvg_pkgmutedyt_tl
+    \tl_gclear:N\g_msvg_pkgmutedvmo_tl
+  },
+  muted .default:n = {true},
+
+  time .code:n = {
+    \tl_gset:Nn\g_msvg_pkgtime_tl{currentTime='#1'~}
+    \tl_gset:Nn\g_msvg_pkgtimeyt_tl{\msvg_amp: start=#1}
+    \tl_gset:Nn\g_msvg_pkgtimevmo_tl{\msvg_hashtag: t=#1}
+  },
+  time .value_required:n = {true},
+
+  mimetype .tl_gset:N = \g_msvg_pkgmtype_tl,
+
+  url .bool_gset_inverse:N = \g_msvg_pkgembed_bool,
+
+  embed .bool_gset:N = \g_msvg_pkgembed_bool,
+
+  youtube .bool_gset:N = \g_msvg_pkgyt_bool,
+
+  vimeo .bool_gset:N = \g_msvg_pkgvmo_bool,
+
+  width .code:n = {
+    \tl_gset:Nn\g_msvg_pkgwdarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_pkgwd_tl{
+      \int_gadd:Nn\g_msvg_pkgresizeflag_int{4}
+      \tl_set:Nn\l_msvg_pkgwd_tl{}
+    }
+  },
+  width .value_required:n = {true},
+
+  height .code:n = {
+    \tl_gset:Nn\g_msvg_pkghtarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_pkght_tl{
+      \int_gadd:Nn\g_msvg_pkgresizeflag_int{2}
+      \tl_set:Nn\l_msvg_pkght_tl{}
+    }
+  },
+  height .value_required:n = {true},
+
+  totalheight .code:n = {
+    \tl_gset:Nn\g_msvg_pkgttarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_pkgtt_tl{
+      \int_gadd:Nn\g_msvg_pkgresizeflag_int{\c_one_int}
+      \tl_set:Nn\l_msvg_pkgtt_tl{}
+    }
+  },
+  totalheight .value_required:n = {true},
+
+  keepaspectratio .bool_gset:N = \g_msvg_pkgiso_bool,
+
+  scale .code:n = {\tl_gset:Nx\g_msvg_pkgscalearg_tl{#1}},
+  scale .value_required:n = {true},
+
+  unknown .code:n = {
+    \msg_error:nnx{media4svg}{unknown~package~option}{\l_keys_key_tl}
+  }
+}
+\ProcessKeyOptions[media4svg]
+
+\RequirePackage{pdfbase}
+
+\sys_if_output_pdf:T{
+  \PackageError{media4svg}{
+    Wrong~output~format~(PDF).\MessageBreak
+    This~package~only~works~with~the~`dvisvgm'~backend.\MessageBreak
+    A~TeX~engine~must~be~used~that~produces\MessageBreak
+    DVI~or~XDV~output
+  }{}
+}
+
+\msg_set:nnnn{media4svg}{missing~driver~option}{Global~option~`dvisvgm'~no~set.}{
+  This~package~only~works~with~the~`dvisvgm'~backend.\\
+  Set~`dvisvgm'~as~a~package~or~documentclass~option.
+}
+
+\bool_if:NF\g_pbs_dvisvgm_bool{
+  \msg_error:nn{media4svg}{missing~driver~option}
+}
+
+\seq_new:N\l_msvg_ytids_seq % takes list of yt video ids
+
+% assumed vert. screen resolution, for setting  <svg> viewBox dimensions
+% and to sensibly scale video player controls
+\tl_const:Nn\g_msvg_screen_px_tl{1080} % Full HD
+\tl_const:Nx\g_msvg_px_per_bp_tl{
+  \fp_eval:n{\g_msvg_screen_px_tl/\dim_to_decimal_in_bp:n{\paperheight}}
+}
+
+\NewDocumentCommand\includemedia{O{}mm}{% #1 options, #2 text/image,
+  \msvg_uriend:   % #3 media file/url or (comma-sep'd list of) yt ids
+  \group_begin:
+  \msvg_beginLTR:
+  \leavevmode
+  \msvg_reset:
+  \keys_set:nn{media4svg/user}{#1}
+  \tl_set:Nx\l_msvg_media_arg_tl{#3}
+  \bool_if:NT\g_msvg_yt_bool{
+    \bool_gset_false:N\g_msvg_embed_bool
+    \seq_set_split:NnV\l_msvg_ytids_seq{,}\l_msvg_media_arg_tl
+  }
+  \bool_if:NT\g_msvg_vmo_bool{
+    \bool_gset_false:N\g_msvg_embed_bool
+    \seq_set_split:NnV\l_msvg_ytids_seq{,}\l_msvg_media_arg_tl
+  }
+  \sbox\l_msvg_poster_box{#2}
+  \msvg_scale:n{\l_msvg_poster_box}
+  \special{dvisvgm:bbox~\g_msvg_wd_tl~\g_msvg_ht_tl~\g_msvg_dp_tl~transform}
+  \bool_if:NTF\g_msvg_draft_bool{
+    \tl_if_blank:oTF{#2}{
+      \msvg_draftbox:n{\l_msvg_media_arg_tl}
+    }{
+      \hbox_to_wd:nn{\g_msvg_wd_tl}{
+        \vrule~width~\c_zero_dim~height~\g_msvg_ht_tl~depth~\g_msvg_dp_tl
+        \box_use:N\l_msvg_poster_box\hss
+      }
+    }
+  }{
+    \hbox_overlap_right:n{\box_use:N\l_msvg_poster_box}
+    \tl_gclear_new:N\g_msvg_media_blob_tl
+    \bool_if:NT\g_msvg_embed_bool{
+      \file_get_full_name:VNTF\l_msvg_media_arg_tl\l_msvg_full_name_tl{
+        \sys_if_engine_luatex:T{\message{<\l_msvg_full_name_tl}}
+      }{
+        \msg_error:nnx{media4svg}{file~not~found}{\l_msvg_media_arg_tl}
+      }
+      % base64-encode (non-Lua way) the media file
+      \sys_if_engine_luatex:F{
+        \msvg_convert_file_to_blob:nnnN{
+          \l_msvg_full_name_tl}{72}{{?nl}}\g_msvg_media_blob_tl
+      }
+    }
+    \tl_set:Nx\l_msvg_viewbox_wd_tl{\fp_eval:n{
+      \g_msvg_px_per_bp_tl*\dim_to_decimal_in_bp:n{\g_msvg_wd_tl}}}
+    \tl_set:Nx\l_msvg_viewbox_tt_tl{
+      \fp_eval:n{\g_msvg_px_per_bp_tl*\dim_to_decimal_in_bp:n{\g_msvg_tt_tl}}}
+    \special{dvisvgm:raw
+      \bool_if:nT{
+        \tl_if_blank_p:V\g_msvg_controls_tl&&
+        !\bool_if_p:N\g_msvg_yt_bool&&!\bool_if_p:N\g_msvg_vmo_bool
+      }{
+        % In Chrome, with controls disabled, <video> cannot get the focus, which is
+        % necessary for keyboard interaction. As a fix, we insert a zero-size <svg>
+        % that receives the keyboard events instead.
+        <svg~
+          id='msvg_kbdCtrl_\g_msvg_id_tl'~ % rec
+          width='0'~height='0'~onfocus=''~
+          onkeydown='
+            event.preventDefault();
+            if(!(event.key==="PageDown"||event.key==="PageUp")){
+              event.stopPropagation();
+            }
+            switch(event.key){
+              case "~":
+                if($("\g_msvg_id_tl").paused){
+                  $("\g_msvg_id_tl").play();
+                }else{
+                  $("\g_msvg_id_tl").pause();
+                }
+                break;
+              case "ArrowUp":
+                if(event.ctrlKey){$("\g_msvg_id_tl").muted=false;}else{
+                  try{$("\g_msvg_id_tl").volume+=0.02;}catch(e){}}
+                break;
+              case "ArrowDown":
+                if(event.ctrlKey){$("\g_msvg_id_tl").muted=true;}else{
+                  try{$("\g_msvg_id_tl").volume-=0.02;}catch(e){}}
+                break;
+              case "ArrowLeft":
+                if(event.ctrlKey){
+                  $("\g_msvg_id_tl").currentTime-=$("\g_msvg_id_tl").duration/10;
+                }else{
+                  $("\g_msvg_id_tl").currentTime-=$("\g_msvg_id_tl").duration/100;
+                }
+                break;
+              case "ArrowRight":
+                if(event.ctrlKey){
+                  $("\g_msvg_id_tl").currentTime+=$("\g_msvg_id_tl").duration/10;
+                }else{
+                  $("\g_msvg_id_tl").currentTime+=$("\g_msvg_id_tl").duration/100;
+                }
+                break;
+              case "Home":
+                $("\g_msvg_id_tl").currentTime=0;
+                break;
+              case "End":
+                $("\g_msvg_id_tl").currentTime=$("\g_msvg_id_tl").duration;
+                break;
+              case "F11":
+                if ($("\g_msvg_id_tl").requestFullscreen){
+                  $("\g_msvg_id_tl").requestFullscreen();
+                }
+                break;
+              case "Tab":
+                event.target.blur();
+                break;
+            }
+          '
+        />
+      }
+      <g~transform='translate({?x},{?(y-(\dim_to_decimal_in_bp:n{\g_msvg_ht_tl}))})'>
+      <svg~
+        width='\dim_to_decimal_in_bp:n{\g_msvg_wd_tl}'~
+        height='\dim_to_decimal_in_bp:n{\g_msvg_tt_tl}'~
+        viewBox='0~0~\l_msvg_viewbox_wd_tl\space\l_msvg_viewbox_tt_tl'
+      >
+      <foreignObject~
+        width='\l_msvg_viewbox_wd_tl'~height='\l_msvg_viewbox_tt_tl'~
+        style='cursor:~pointer;'~
+        \bool_if:nT{
+          \tl_if_blank_p:V\g_msvg_controls_tl&&
+          !\bool_if_p:N\g_msvg_yt_bool&&!\bool_if_p:N\g_msvg_vmo_bool
+        }{
+          ontouchstart='
+            event.preventDefault();event.stopPropagation();
+            if($("\g_msvg_id_tl").paused){
+              $("\g_msvg_id_tl").play();
+            }else{
+              $("\g_msvg_id_tl").pause();
+            }
+            return;% <-- this prevents download-video-? dialogue in Chrome
+          '
+        }
+      >
+        \bool_if:nTF{\bool_if_p:N\g_msvg_yt_bool||\bool_if_p:N\g_msvg_vmo_bool}{
+          <g~xmlns='http://www.w3.org/1999/xhtml'>
+          <iframe~
+          width='100\msvg_percent:'~height='100\msvg_percent:'~
+          frameborder='0'~
+          allow='fullscreen;autoplay;clipboard-write;encrypted-media;gyroscope;accelerometer'~
+          \bool_if:NTF\g_msvg_yt_bool{
+            title='YouTube~video~player'~
+            src='https://www.youtube-nocookie.com/embed/\seq_item:Nn\l_msvg_ytids_seq{1}?
+              modestbranding=1\msvg_amp: rel=0
+              \int_compare:nNnT{\seq_count:N\l_msvg_ytids_seq}>{1}{
+                \msvg_amp: playlist=\seq_use:Nn\l_msvg_ytids_seq{,}
+              }
+              \g_msvg_controlsyt_tl\g_msvg_autoplayyt_tl\g_msvg_loopyt_tl
+              \g_msvg_mutedyt_tl\g_msvg_timeyt_tl'
+          }{
+            title='Vimeo~video~player'~
+            src='https://player.vimeo.com/video/\seq_item:Nn\l_msvg_ytids_seq{1}?
+              autopause=0\msvg_amp: dnt=1 //do not track
+              \g_msvg_controlsyt_tl\g_msvg_autoplayyt_tl\g_msvg_loopyt_tl
+              \g_msvg_mutedvmo_tl\g_msvg_timevmo_tl'
+          }
+          />
+          </g>
+        }{
+          <video~
+            width='100\msvg_percent:'~height='100\msvg_percent:'~
+            id='msvg_\g_msvg_id_tl'~
+            \g_msvg_controls_tl\g_msvg_autoplay_tl\g_msvg_loop_tl\g_msvg_muted_tl
+            \tl_if_blank:VT\g_msvg_controls_tl{
+              onplay='                             % in Chrome, keyboard control
+                $("kbdCtrl_\g_msvg_id_tl").focus();% via separate <svg> element
+                event.target.focus(); % Firefox
+              '~
+              onkeydown='
+                event.preventDefault();
+                if(!(event.key==="PageDown"||event.key==="PageUp")){
+                  event.stopPropagation();
+                }
+                switch(event.key){
+                  case "~":
+                    if(event.target.paused){
+                      event.target.play();
+                    }else{
+                      event.target.pause();
+                    }
+                    break;
+                  case "ArrowUp":
+                    if(event.ctrlKey){event.target.muted=false;}else{
+                      try{event.target.volume+=0.02;}catch(e){}}
+                    break;
+                  case "ArrowDown":
+                    if(event.ctrlKey){event.target.muted=true;}else{
+                      try{event.target.volume-=0.02;}catch(e){}}
+                    break;
+                  case "ArrowLeft":
+                    if(event.ctrlKey){
+                      event.target.currentTime-=event.target.duration/10;
+                    }else{
+                      event.target.currentTime-=event.target.duration/100;
+                    }
+                    break;
+                  case "ArrowRight":
+                    if(event.ctrlKey){
+                      event.target.currentTime+=event.target.duration/10;
+                    }else{
+                      event.target.currentTime+=event.target.duration/100;
+                    }
+                    break;
+                  case "Home":
+                    event.target.currentTime=0;
+                    break;
+                  case "End":
+                    event.target.currentTime=event.target.duration;
+                    break;
+                  case "F11":
+                    if (event.target.requestFullscreen){
+                      event.target.requestFullscreen();
+                    }
+                    break;
+                  case "Tab":
+                    event.target.blur();
+                    break;
+                  }
+              '~
+              onclick='event.stopPropagation();'~
+              oncontextmenu='event.stopPropagation();'~
+              onmouseup='event.preventDefault();event.stopPropagation();
+                if(event.button==0) event.target.play();'~
+              onmousedown='event.preventDefault();event.stopPropagation();
+                $("kbdCtrl_\g_msvg_id_tl").focus();% for Chrome, again
+                event.target.focus();
+                if(event.button==0) event.target.pause();'~
+            }
+            \tl_if_blank:VF\g_msvg_time_tl{
+              onloadstart='event.target.currentTime=\g_msvg_time_tl;'~
+            }
+            xmlns='http://www.w3.org/1999/xhtml'
+          >
+          \bool_if:NTF\g_msvg_embed_bool{
+            \sys_if_engine_luatex:TF{
+              <source~src='data:\g_msvg_mtype_tl;base64,{?nl}
+                \directlua{media4svg.base64("\l_msvg_full_name_tl",72,"{?nl}")}'~
+                type='\g_msvg_mtype_tl'/>
+            }{
+              <source~src='data:\g_msvg_mtype_tl;base64,{?nl}
+                \g_msvg_media_blob_tl'~type='\g_msvg_mtype_tl'/>
+            }
+          }{
+            <source~src='\l_msvg_media_arg_tl'~type='\g_msvg_mtype_tl'/>
+          }
+          </video>
+        }
+      </foreignObject>
+      </svg>
+      </g>
+    }
+    \bool_if:NT\g_msvg_embed_bool{\sys_if_engine_luatex:T{\message{>}}}
+    \hbox_to_wd:nn{\g_msvg_wd_tl}{
+      \vrule~width~\c_zero_dim~height~\g_msvg_ht_tl~depth~\g_msvg_dp_tl\hss
+    }
+    \int_gincr:N\g_msvg_mmcnt_int
+  }
+  \msvg_endLTR:
+  \group_end:
+}
+\tl_set_eq:NN\l_msvg_includemedia_tl\includemedia
+\tl_set:Nn\includemedia{\msvg_uribegin:\l_msvg_includemedia_tl}
+
+%environment \msvg_uribegin: ... \msvg_uriend: to sanitize possibly
+%active chars in URLs (RFC 2396), path specifications and JavaScript
+\group_begin:
+\char_set_catcode_other:n{`\~}
+\cs_new_protected_nopar:Npn\msvg_uribegin:{
+  \group_begin:
+  %code contributed by J. Wright
+  \tl_map_inline:nn{.:;?!/''*+,->=<$@([])^_`|~}{
+    \cs_set_nopar:Npx\__msvg_tmp:w{\token_to_str:N##1}
+    \char_set_active_eq:NN##1\__msvg_tmp:w
+  }
+  \tl_map_inline:nn{\#\&\%\\\{\}}{
+    \cs_set_nopar:Npx##1{\token_to_str:N##1}
+  }
+}
+\group_end:
+\cs_set_eq:NN\msvg_uriend:\group_end:
+
+%calculates widget dimensions from natural ones, taking resizing options
+%into account
+\int_new:N\g_msvg_resizeflag_int% resizing flags according to options given
+\cs_new:Nn\msvg_scale:n{% #1 box number
+  %totalheight overrides height if both height & totalheight options were given
+  \bool_if:nT{
+    \int_compare_p:n{\g_msvg_resizeflag_int=3} ||
+    \int_compare_p:n{\g_msvg_resizeflag_int=7}
+  }{\int_gsub:Nn\g_msvg_resizeflag_int{2}}
+  \group_begin:
+    %natural dimensions \width, \height, \depth, \totalheight
+    \tl_set:Nn\width {\box_wd:N#1}
+    \tl_set:Nn\height{\box_ht:N#1}
+    \tl_set:Nn\depth {\box_dp:N#1}
+    \tl_set:Nn\totalheight{\dimexpr\height+\depth\relax}
+    \tl_gset:Nx\g_tmpa_tl{\dim_eval:n{\width}}
+    \tl_gset:Nx\g_tmpb_tl{\dim_eval:n{\totalheight}}
+    %evaluate width/height/totalheight options
+    \tl_gset:Nx\g_msvg_wd_tl{\dim_abs:n{\g_msvg_wdarg_tl}}
+    \tl_gset:Nx\g_msvg_ht_tl{\dim_abs:n{\g_msvg_htarg_tl}}
+    \tl_gset:Nx\g_msvg_tt_tl{\dim_abs:n{\g_msvg_ttarg_tl}}
+    \dim_compare:nT{\width=\c_zero_dim}{\box_gset_wd:Nn#1{\g_msvg_wd_tl}}
+    \dim_compare:nT{\totalheight=\c_zero_dim}{
+      \bool_if:nT{ %height option given
+        \int_compare_p:n{\g_msvg_resizeflag_int=6}||
+        \int_compare_p:n{\g_msvg_resizeflag_int=2}
+      }{\box_gset_ht:Nn#1{\g_msvg_ht_tl}}
+      \bool_if:nT{ %totalheight option given
+        \int_compare_p:n{\g_msvg_resizeflag_int=5}||
+        \int_compare_p:n{\g_msvg_resizeflag_int=\c_one_int}
+      }{\box_gset_ht:Nn#1{\g_msvg_tt_tl}}
+    }
+  \group_end:
+  \tl_gset:Nn\g_msvg_dp_tl{\c_zero_dim} %to be initialised here
+  %now resize (originally non-zero size) poster box according to the
+  %options given
+  \bool_if:nF{
+    \dim_compare_p:n{\g_tmpa_tl=\c_zero_dim}||
+    \dim_compare_p:n{\g_tmpb_tl=\c_zero_dim}
+  }{
+    %bit 2^2=width, 2^1=height, 2^0=totalhight given
+    \int_case:nn{\g_msvg_resizeflag_int}{
+      {\c_one_int}{
+        \box_resize_to_ht_plus_dp:Nn#1{\g_msvg_tt_tl}
+      }
+      {2}{
+        \box_resize_to_ht:Nn#1{\g_msvg_ht_tl}
+      }
+      {4}{
+        \box_resize_to_wd:Nn#1{\g_msvg_wd_tl}
+      }
+      {5}{
+        \bool_if:NTF\g_msvg_iso_bool{
+          \dim_set:Nn\l_tmpa_dim{
+            (\box_ht:N#1+\box_dp:N#1)*\dim_ratio:nn{\g_msvg_wd_tl}{\box_wd:N#1}
+          }
+          \dim_set:Nn\l_tmpa_dim{\dim_abs:n{\l_tmpa_dim}}
+          \dim_set:Nn\l_tmpb_dim{\dim_abs:n{\g_msvg_tt_tl}}
+          \dim_compare:nTF{\l_tmpa_dim<\l_tmpb_dim}{
+            \box_resize_to_wd:Nn#1{\g_msvg_wd_tl}
+          }{
+            \box_resize_to_ht_plus_dp:Nn#1{\g_msvg_tt_tl}
+          }
+        }{
+          \box_resize_to_wd_and_ht_plus_dp:Nnn#1{\g_msvg_wd_tl}{\g_msvg_tt_tl}
+        }
+      }
+      {6}{
+        \bool_if:NTF\g_msvg_iso_bool{
+          \dim_set:Nn\l_tmpa_dim{
+            \box_ht:N#1*\dim_ratio:nn{\g_msvg_wd_tl}{\box_wd:N#1}
+          }
+          \dim_set:Nn\l_tmpa_dim{\dim_abs:n{\l_tmpa_dim}}
+          \dim_set:Nn\l_tmpb_dim{\dim_abs:n{\g_msvg_ht_tl}}
+          \dim_compare:nTF{\l_tmpa_dim<\l_tmpb_dim}{
+            \box_resize_to_wd:Nn#1{\g_msvg_wd_tl}
+          }{
+            \box_resize_to_ht:Nn#1{\g_msvg_ht_tl}
+          }
+        }{
+          \box_resize_to_wd_and_ht:Nnn#1{\g_msvg_wd_tl}{\g_msvg_ht_tl}
+        }
+      }
+    }
+  }
+  %apply scaling factor
+  \box_scale:Nnn#1{\g_msvg_scalearg_tl}{\g_msvg_scalearg_tl}
+  %dimensions after resizing
+  \tl_gset:Nx\g_msvg_wd_tl{\dim_use:N\box_wd:N#1}
+  \tl_gset:Nx\g_msvg_ht_tl{\dim_use:N\box_ht:N#1}
+  \tl_gset:Nx\g_msvg_dp_tl{\dim_use:N\box_dp:N#1}
+  \tl_gset:Nx\g_msvg_tt_tl{\dim_eval:n{\box_ht:N#1+\box_dp:N#1}}
+  \dim_compare:nT{\g_msvg_wd_tl=\c_zero_dim}{\msg_warning:nn{media4svg}{zero~width}}
+  \dim_compare:nT{\g_msvg_tt_tl=\c_zero_dim}{
+      \msg_warning:nn{media4svg}{zero~height}}
+}
+
+%environment for setting LTR typesetting direction with e-TeX based engines
+\cs_new:Nn\msvg_beginLTR:{
+  \cs_if_exist:NT\TeXXeTstate{
+    \int_compare:nT{\TeXXeTstate>\c_zero_int}{\beginL}
+  }
+}
+\cs_new:Nn\msvg_endLTR:{
+  \cs_if_exist:NT\TeXXeTstate{
+    \int_compare:nT{\TeXXeTstate>\c_zero_int}{\endL}
+  }
+}
+
+\cs_new:Nn\msvg_draftbox:n{ %#1 text string to be shown
+  \hbox_overlap_right:n{
+    \hbox_to_wd:nn{\g_msvg_wd_tl}{
+      \vrule~height~\g_msvg_ht_tl~depth~\g_msvg_dp_tl\hss
+      \vrule
+    }
+  }
+  \box_move_down:nn{\g_msvg_dp_tl}{
+    \hbox_to_wd:nn{\g_msvg_wd_tl}{
+      \vbox_to_ht:nn{\g_msvg_tt_tl}{
+        \hrule~width~\g_msvg_wd_tl\vss
+        \hbox_to_wd:nn{\g_msvg_wd_tl}{\hss\ttfamily{\tiny#1}\hss}\vss
+        \hrule
+      }
+    }
+  }
+}
+
+\box_new:N\l_msvg_poster_box
+\dim_new:N\g_msvg_wd_dim
+\dim_new:N\g_msvg_ht_dim
+\dim_new:N\g_msvg_dp_dim
+
+\int_new:N\g_msvg_mmcnt_int
+
+\msg_set:nnn{media4svg}{zero~width}{
+  Media~widget~\msg_line_context:\ has~zero~width.
+}
+
+\msg_set:nnn{media4svg}{zero~height}{
+  Media~widget~\msg_line_context:\ has~zero~height.
+}
+
+%missing package error message
+\msg_set:nnn{media4svg}{missing~package}{
+  Package~`#1'~has~not~been~loaded~yet.\\
+  Put~the~line\\
+  ~~\string\usepackage#2{#1}\\
+  to~the~preamble~of~your~document.
+}
+
+\msg_set:nnn{media4svg}{incompatible~package}{
+  Packages~`media4svg'~and~`#1'~are~incompatible.\\
+  Remove~`#1'~from~the~document~preamble.
+}
+
+%creating global definitions
+\cs_new:Npn\msvg@newkey#1#2{\tl_gset:cx{#1}{#2}}
+
+\AtBeginDocument{
+  \iow_now:Nx\@mainaux{
+    \token_to_str:N\providecommand\token_to_str:N\msvg@newkey[2]{}}
+  \@ifpackageloaded{media9}{
+    \msg_error:nnn{media4svg}{incompatible~package}{media9}}{}
+}
+
+%macros for writing global defs to \jobname.aux
+\msg_set:nnn{media4svg}{rerun}{Rerun~to~get~internal~references~right!}
+\msg_set:nnn{media4svg}{undefined~reference}{
+  Line~\msg_line_number: :~Media~reference~`#1'~not~defined.
+}
+\msg_set:nnn{media4svg}{undefined~references}{
+  There~were~undefined~media~references!}
+\msg_set:nnn{media4svg}{same~id}{
+  Line~\msg_line_number: :~Label~`#1'~multiply~defined.
+}
+\msg_set:nnn{media4svg}{multiple~ids}{There~were~multiply-defined~ids!}
+
+\cs_new_nopar:Nn\msvg_keytoaux_now:nn{
+  \iow_now:Nx\@mainaux{\token_to_str:N\msvg@newkey{#1}{#2}}
+  \bool_if:nT{
+    !\cs_if_exist:cTF{#1}{
+      \str_if_eq_p:ee{\tl_use:c{#1}}{#2}
+    }{
+      \c_false_bool
+    }
+  }{
+    \cs_if_exist:NF\g_msvg_rerunwarned_tl{
+      \tl_new:N\g_msvg_rerunwarned_tl
+      \AtEndDocument{\msg_warning:nn{media4svg}{rerun}}
+    }
+  }
+}
+\cs_new_nopar:Nn\msvg_keytoaux_shipout:nn{
+  \iow_shipout_x:Nx\@mainaux{\token_to_str:N\msvg@newkey{#1}{#2}}
+  \cs_if_exist:cF{#1}{
+    \cs_if_exist:NF\g_msvg_rerunwarned_tl{
+      \tl_new:N\g_msvg_rerunwarned_tl
+      \AtEndDocument{\msg_warning:nn{media4svg}{rerun}}
+    }
+  }
+}
+
+%reset various variables for every new media inclusion
+\cs_new:Nn\msvg_reset:{
+  \tl_gset:Nx\g_msvg_id_tl{\int_use:N\g_msvg_mmcnt_int}
+  \bool_gset_eq:NN\g_msvg_draft_bool\g_msvg_pkgdraft_bool
+  \tl_gset_eq:NN\g_msvg_autoplay_tl\g_msvg_pkgautoplay_tl
+  \tl_gset_eq:NN\g_msvg_autoplayyt_tl\g_msvg_pkgautoplayyt_tl
+  \tl_gset_eq:NN\g_msvg_loop_tl\g_msvg_pkgloop_tl
+  \tl_gset_eq:NN\g_msvg_loopyt_tl\g_msvg_pkgloopyt_tl
+  \tl_gset_eq:NN\g_msvg_controls_tl\g_msvg_pkgcontrols_tl
+  \tl_gset_eq:NN\g_msvg_controlsyt_tl\g_msvg_pkgcontrolsyt_tl
+  \tl_gset_eq:NN\g_msvg_mtype_tl\g_msvg_pkgmtype_tl
+  \bool_gset_eq:NN\g_msvg_embed_bool\g_msvg_pkgembed_bool
+  \tl_gset_eq:NN\g_msvg_time_tl\g_msvg_pkgtime_tl
+  \tl_gset_eq:NN\g_msvg_timeyt_tl\g_msvg_pkgtimeyt_tl
+  \tl_gset_eq:NN\g_msvg_timevmo_tl\g_msvg_pkgtimevmo_tl
+  \tl_gset_eq:NN\g_msvg_muted_tl\g_msvg_pkgmuted_tl
+  \tl_gset_eq:NN\g_msvg_mutedyt_tl\g_msvg_pkgmutedyt_tl
+  \tl_gset_eq:NN\g_msvg_mutedvmo_tl\g_msvg_pkgmutedvmo_tl
+  \tl_set_eq:NN\l_msvg_wd_tl\l_msvg_pkgwd_tl
+  \tl_set_eq:NN\l_msvg_ht_tl\l_msvg_pkght_tl
+  \tl_set_eq:NN\l_msvg_tt_tl\l_msvg_pkgtt_tl
+  \tl_gset_eq:NN\g_msvg_wdarg_tl\g_msvg_pkgwdarg_tl
+  \tl_gset_eq:NN\g_msvg_htarg_tl\g_msvg_pkghtarg_tl
+  \tl_gset_eq:NN\g_msvg_ttarg_tl\g_msvg_pkgttarg_tl
+  \bool_gset_eq:NN\g_msvg_iso_bool\g_msvg_pkgiso_bool
+  \tl_gset_eq:NN\g_msvg_scalearg_tl\g_msvg_pkgscalearg_tl
+  \int_gset_eq:NN\g_msvg_resizeflag_int\g_msvg_pkgresizeflag_int
+  \box_clear:N\l_msvg_poster_box
+  \bool_gset_eq:NN\g_msvg_yt_bool\g_msvg_pkgyt_bool
+  \bool_gset_eq:NN\g_msvg_vmo_bool\g_msvg_pkgvmo_bool
+}
+
+%document command options
+
+\msg_set:nnnn{media4svg}{unknown~option}{
+  Line~\msg_line_number: :~Unknown~option~`#1'.
+}{
+  Option~`#1'~is~not~known~by~media4svg:\\
+  perhaps~it~is~spelled~incorrectly.
+}
+
+\bool_new:N\g_msvg_draft_bool
+\bool_new:N\g_msvg_iso_bool
+\bool_new:N\g_msvg_embed_bool
+\bool_new:N\g_msvg_yt_bool
+\bool_new:N\g_msvg_vmo_bool
+
+\keys_define:nn{media4svg/user}{
+  %user override automatic id
+  id .code:n = {
+    \tl_gset:Nx\g_msvg_id_tl{#1}
+    \tl_gtrim_spaces:N\g_msvg_id_tl
+    \cs_if_exist:cTF{msvg@\g_msvg_id_tl}{
+      \msg_warning:nnx{media4svg}{same~id}{#1}
+      \cs_if_exist:NF\g_msvg_sameid_tl{
+        \tl_new:N\g_msvg_sameid_tl
+        \AtEndDocument{\msg_warning:nn{media4svg}{multiple~ids}}
+      }
+    }{
+      \tl_new:c{msvg@\g_msvg_id_tl}
+    }
+  },
+  id .value_required:n = {true},
+
+  draft .bool_gset:N = \g_msvg_draft_bool,
+
+  final .bool_gset_inverse:N = \g_msvg_draft_bool,
+
+  autoplay .choice:,
+  autoplay / true .code:n = {
+    \tl_gset:Nn\g_msvg_autoplay_tl{autoplay=''~}
+    \tl_gset:Nn\g_msvg_autoplayyt_tl{\msvg_amp: autoplay=1}
+  },
+  autoplay / false .code:n = {
+    \tl_gclear:N\g_msvg_autoplay_tl
+    \tl_gclear:N\g_msvg_autoplayyt_tl
+  },
+  autoplay .default:n = {true},
+
+  loop .choice:,
+  loop / true .code:n = {
+    \tl_gset:Nn\g_msvg_loop_tl{loop=''~}
+    \tl_gset:Nn\g_msvg_loopyt_tl{\msvg_amp: loop=1}
+  },
+  loop / false .code:n = {
+    \tl_gclear:N\g_msvg_loop_tl
+    \tl_gclear:N\g_msvg_loopyt_tl
+  },
+  loop .default:n = {true},
+
+  controls .choice:,
+  controls / true .code:n = {
+    \tl_gset:Nn\g_msvg_controls_tl{controls=''~}
+    \tl_gset:Nn\g_msvg_controlsyt_tl{\msvg_amp: controls=1}
+  },
+  controls / false .code:n = {
+    \tl_gclear:N\g_msvg_controls_tl
+    \tl_gset:Nn\g_msvg_controlsyt_tl{\msvg_amp: controls=0}
+  },
+  controls .default:n = {true},
+
+  muted .choice:,
+  muted / true .code:n = {
+    \tl_gset:Nn\g_msvg_muted_tl{muted=''~}
+    \tl_gset:Nn\g_msvg_mutedyt_tl{\msvg_amp: mute=1}
+    \tl_gset:Nn\g_msvg_mutedvmo_tl{\msvg_amp: muted=1}
+  },
+  muted / false .code:n = {
+    \tl_gclear:N\g_msvg_muted_tl
+    \tl_gclear:N\g_msvg_mutedyt_tl
+    \tl_gclear:N\g_msvg_mutedvmo_tl
+  },
+  muted .default:n = {true},
+
+  time .code:n = {
+    \tl_gset:Nn\g_msvg_time_tl{currentTime='#1'~}
+    \tl_gset:Nn\g_msvg_timeyt_tl{\msvg_amp: start=#1}
+    \tl_gset:Nn\g_msvg_timevmo_tl{\msvg_hashtag: t=#1}
+  },
+  time .value_required:n = {true},
+
+  mimetype .tl_gset:N = \g_msvg_mtype_tl,
+
+  url .bool_gset_inverse:N = \g_msvg_embed_bool,
+
+  embed .bool_gset:N = \g_msvg_embed_bool,
+
+  youtube .bool_gset:N = \g_msvg_yt_bool,
+
+  vimeo .bool_gset:N = \g_msvg_vmo_bool,
+
+  width .code:n = {
+    \tl_gset:Nn\g_msvg_wdarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_wd_tl{
+      \int_gadd:Nn\g_msvg_resizeflag_int{4}
+      \tl_set:Nn\l_msvg_wd_tl{}
+    }
+  },
+  width .value_required:n = {true},
+
+  height .code:n = {
+    \tl_gset:Nn\g_msvg_htarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_ht_tl{
+      \int_gadd:Nn\g_msvg_resizeflag_int{2}
+      \tl_set:Nn\l_msvg_ht_tl{}
+    }
+  },
+  height .value_required:n = {true},
+
+  totalheight .code:n = {
+    \tl_gset:Nn\g_msvg_ttarg_tl{#1}
+    \tl_if_exist:NF\l_msvg_tt_tl{
+      \int_gadd:Nn\g_msvg_resizeflag_int{\c_one_int}
+      \tl_set:Nn\l_msvg_tt_tl{}
+    }
+  },
+  totalheight .value_required:n = {true},
+
+  keepaspectratio .bool_gset:N = \g_msvg_iso_bool,
+
+  scale .code:n = {\tl_gset:Nx\g_msvg_scalearg_tl{#1}},
+  scale .value_required:n = {true},
+
+  unknown .code:n = {
+    \msg_error:nnx{media4svg}{unknown~option}{\l_keys_key_tl}
+  }
+}
+
+\NewDocumentCommand\addmediapath{m}{
+  \str_set:Nn\l_tmpa_str{#1}
+  \seq_put_right:NV\l_file_search_path_seq\l_tmpa_str
+}
+
+% external Lua script `media4svg.lua' defines
+% media4svg.base64("<file name>", <chunk size>, "<end-of-line string>")
+\sys_if_engine_luatex:T{\directlua{require('media4svg')}}
+
+% base64-encodes external binary file into tl variable;
+% non-LuaTeX version, running media4svg.lua via shell-escape
+% (very slow!)
+\cs_set_eq:NN\ior_msvg_shell_open:Nn\ior_shell_open:Nn
+\cs_generate_variant:Nn\ior_msvg_shell_open:Nn{Nx}
+\cs_new_protected_nopar:Nn\msvg_convert_file_to_blob:nnnN{
+  % #1 filename, #2 chunk size, #3 endline marker, #4 tlvar
+  \sys_if_shell_unrestricted:F{
+    \msg_error:nnx{media4svg}{unrestricted~shell~required}{#1}
+  }
+  % get path to media4svg.lua
+  \ior_shell_open:Nn\g_tmpa_ior{kpsewhich~media4svg.lua}
+  \ior_str_get:NN\g_tmpa_ior\l_tmpa_tl
+  \tl_if_blank:VT\l_tmpa_tl{
+    \msg_error:nnxx{media4svg}{missing~script}{media4svg.lua}{#1}
+  }
+  \ior_close:N\g_tmpa_ior
+  % encode
+  \ior_msvg_shell_open:Nx\g_tmpa_ior{texlua~\l_tmpa_tl\space #1\space #2}
+  \message{<#1}
+  \tl_gclear_new:N#4
+  \ior_str_map_inline:Nn\g_tmpa_ior{
+    \tl_gput_right:Nn#4{##1#3}\message{.}}\message{>}
+  \ior_close:N\g_tmpa_ior
+}
+
+\msg_set:nnnn{media4svg}{file~not~found}{
+  Line~\msg_line_number:\\
+  File\\
+  `#1'\\
+  not~found.
+}{
+  Make~sure~file\\
+  `#1'\\
+  exists~and~is~readable,~or~set~command~option~`url'~if~it~is~a~remote~file!
+}
+
+\msg_set:nnnn{media4svg}{unrestricted~shell~required}{
+  Line~\msg_line_number: :~In~order~to~embed~file~`#1',\\
+  LaTeX~must~be~invoked~with~the~--shell-escape~option.
+}{
+  Alternatively,~use~one~of~the~package/command~options\\
+  `url'~or~`embed=false'~to~prevent~embedding.
+}
+
+\msg_set:nnnn{media4svg}{missing~script}{
+  Line~\msg_line_number: :~Script~`#1'~couldn't~be~found.\\
+  In~order~to~embed~file~`#2',~it~must~be~present~on~the~system.
+}{
+  File~`#2'~is~part~of~the~`media4svg'~package.\\
+  Make~sure~the~package~was~correctly~installed.
+}
+
+\int_new:N\g@msvg@page@int %abs. page counter (zero based)
+\int_gset:Nn\g@msvg@page@int{-1}
+
+\AddToHook{shipout/before}{\int_gincr:N\g@msvg@page@int}
+\AddToHook{shipout/background}{
+  \put(0,0){
+    \special{dvisvgm:rawdef
+      <script~type="text/javascript">
+        <![CDATA[
+          function~$(id)~{
+            return~document.getElementById("msvg_"+id.toString().trim());
+          };
+        ]]>
+      </script>
+    }
+  }
+}

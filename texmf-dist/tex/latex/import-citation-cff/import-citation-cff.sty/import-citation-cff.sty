@@ -1,0 +1,1305 @@
+% SPDX-License-Identifier: MIT
+% Copyright (c) 2026 import-citation-cff contributors
+% Supports TeX Live 2025 and later; 2024-11-01 is the LaTeX release that
+% TeX Live 2025 shipped with. CI tests TeX Live 2025 and 2026.
+\NeedsTeXFormat{LaTeX2e}[2024-11-01]
+\ProvidesExplPackage{import-citation-cff}{2026-11-09}{0.4.0}
+  {Import Citation File Format metadata into LaTeX}
+\RequirePackage{lt3luabridge}
+\tl_const:Ne \c__cfflatex_package_path_tl { \@currpath }
+
+% check (default true): warn unless the title page uses the fields of the
+% citation that the author style of the document checks, by default the title
+% and every author in \maketitle. See "Checking the title page".
+% style: the author style of the document. \cffsetauthors uses it by default,
+% and the check uses its check-fields and check-region keys.
+\bool_new:N \g__cfflatex_check_bool
+\tl_new:N \g__cfflatex_document_style_tl
+\keys_define:nn { import-citation-cff }
+  {
+    check .bool_gset:N = \g__cfflatex_check_bool,
+    check .initial:n = true,
+    style .tl_gset:N = \g__cfflatex_document_style_tl,
+    style .value_required:n = true,
+  }
+\ProcessKeyOptions [import-citation-cff]
+
+\msg_new:nnn { import-citation-cff } { missing-file }
+  { CFF~file~'#1'~was~not~found. }
+\msg_new:nnn { import-citation-cff } { missing-helper }
+  { Install~cfflatex.lua~alongside~import-citation-cff.sty. }
+\msg_new:nnn { import-citation-cff } { invalid } { Cannot~read~CFF~file:~#1. }
+\msg_new:nnn { import-citation-cff } { not-loaded }
+  { Call~\iow_char:N\\includecff~first. }
+\msg_new:nnn { import-citation-cff } { include-once }
+  { \iow_char:N\\includecff~can~be~used~only~once. }
+\msg_new:nnn { import-citation-cff } { author-index }
+  { Author~index~'#1'~is~out~of~range. }
+\msg_new:nnn { import-citation-cff } { affiliation-index }
+  { Affiliation~'#1'~is~out~of~range. }
+\msg_new:nnn { import-citation-cff } { not-a-value } { Not~a~value:~#1. }
+\msg_new:nnn { import-citation-cff } { not-a-list } { Not~a~list:~#1. }
+\msg_new:nnn { import-citation-cff } { contact-index }
+  { Contact~'#1'~is~out~of~range. }
+\msg_new:nnn { import-citation-cff } { not-in-contact-loop }
+  { Not~inside~\iow_char:N\\cffforeachcontact. }
+\msg_new:nnn { import-citation-cff } { not-in-loop }
+  { Not~inside~\iow_char:N\\cffforeachauthor. }
+\msg_new:nnn { import-citation-cff } { not-in-affiliation-loop }
+  { Not~inside~an~affiliation~loop. }
+\msg_new:nnn { import-citation-cff } { not-in-author-affiliation-loop }
+  { Not~in~an~author~affiliation~loop. }
+\msg_new:nnn { import-citation-cff } { title-unused }
+  {
+    \iow_char:N\\title~does~not~use~the~title~of~the~citation.~
+    Load~import-citation-cff~with~check=false~to~skip~this~check.
+  }
+\msg_new:nnn { import-citation-cff } { authors-unused }
+  {
+    \iow_char:N\\author~does~not~use~author(s)~#1~of~the~citation.~
+    Load~import-citation-cff~with~check=false~to~skip~this~check.
+  }
+\msg_new:nnn { import-citation-cff } { field-unused }
+  {
+    The~title~page~does~not~use~'#1'~of~the~citation.~
+    Load~import-citation-cff~with~check=false~to~skip~this~check.
+  }
+\msg_new:nnn { import-citation-cff } { region-authors-unused }
+  {
+    The~title~page~does~not~use~author(s)~#1~of~the~citation.~
+    Load~import-citation-cff~with~check=false~to~skip~this~check.
+  }
+\msg_new:nnn { import-citation-cff } { check-fallback }
+  {
+    No~check~region~of~author~style~'#1'~was~found;~
+    the~whole~document~was~checked.
+  }
+\msg_new:nnn { import-citation-cff } { check-region }
+  { Invalid~check~region~'#1'. }
+\msg_new:nnn { import-citation-cff } { style-only-key }
+  { The~key~'#1'~is~only~allowed~in~an~author~style~definition. }
+\msg_new:nnn { import-citation-cff } { style-package-missing }
+  { style=#1~needs~the~#2~package. }
+\msg_new:nnn { import-citation-cff } { style-name }
+  { Invalid~author~style~name~'#1'. }
+\msg_new:nnn { import-citation-cff } { style-duplicate }
+  { Author~style~'#1'~is~already~registered. }
+\msg_new:nnn { import-citation-cff } { style-missing }
+  { Author~style~'#1'~is~not~registered;~cannot~find~cfflatex-style-#1.def. }
+\msg_new:nnn { import-citation-cff } { style-not-registered }
+  { Author~style~'#1'~was~not~registered~by~its~file. }
+\msg_new:nnn { import-citation-cff } { shell-escape }
+  {
+    pdfLaTeX~requires~unrestricted~shell~escape~to~read~CFF~files.~
+    Compile~with~--shell-escape,~or~use~LuaLaTeX.
+  }
+
+\prop_new:N \g__cfflatex_values_prop
+% Every value of the citation by its path, such as "authors/1/name", and the
+% kind of each mapping ("map") and sequence (its length) by its path, for \cff.
+\prop_new:N \g__cfflatex_fields_prop
+\prop_new:N \g__cfflatex_kinds_prop
+\int_new:N \g__cfflatex_author_count_int
+% The index of the current author in \cffforeachauthor; 0 outside the loop.
+\int_new:N \g__cfflatex_author_index_int
+% The number of the current affiliation in \cffforeachaffiliation, and the
+% index of the current affiliation of the author in
+% \cffforeachauthoraffiliation; 0 outside these loops.
+\int_new:N \g__cfflatex_affiliation_index_int
+\int_new:N \g__cfflatex_author_affiliation_index_int
+% The index of the current contact in \cffforeachcontact; 0 outside the loop.
+\int_new:N \g__cfflatex_contact_index_int
+\bool_new:N \g__cfflatex_loaded_bool
+\tl_new:N \l__cfflatex_source_tl
+\tl_new:N \l__cfflatex_filename_tl
+\tl_new:N \g__cfflatex_helper_tl
+\str_new:N \l__cfflatex_file_lua_str
+\str_new:N \l__cfflatex_helper_lua_str
+\str_new:N \l__cfflatex_source_lua_str
+\ior_new:N \g__cfflatex_dependency_ior
+% For the check: whether a check region is open, the part of the title page
+% being typeset (1: \title, 2: \author, 0: neither), the uses recorded as
+% "<region>/<part>/<use>" and "<region>/*/<use>", and missing authors. <use>
+% is <i> for author <i>, and the negative number of another checked field.
+\bool_new:N \g__cfflatex_recording_bool
+\tl_new:N \g__cfflatex_part_tl
+\prop_new:N \g__cfflatex_used_prop
+\clist_new:N \l__cfflatex_missing_clist
+% The check of the document: the author style that gives it, the fields it
+% checks and their numbers, its regions (maketitle and hooks<n>) and whether
+% the whole document is the fallback region, the open regions, and whether a
+% region has been checked.
+\tl_new:N \g__cfflatex_check_style_tl
+\clist_new:N \g__cfflatex_check_fields_clist
+\prop_new:N \g__cfflatex_check_ids_prop
+\seq_new:N \g__cfflatex_check_regions_seq
+\bool_new:N \g__cfflatex_check_document_bool
+\clist_new:N \g__cfflatex_check_open_clist
+\bool_new:N \g__cfflatex_check_done_bool
+\cs_generate_variant:Nn \ior_open:Nn { NV }
+
+% Prefer the helper next to this package so both files share a version.
+\file_get_full_name:nNF { \@currpath cfflatex.lua } \g__cfflatex_helper_tl
+  {
+    \file_get_full_name:nNF { cfflatex.lua } \g__cfflatex_helper_tl
+      { \msg_fatal:nn { import-citation-cff } { missing-helper } }
+  }
+
+\keys_define:nn { import-citation-cff / include }
+  {
+    source .tl_set:N = \l__cfflatex_source_tl,
+    source .value_required:n = true,
+  }
+
+% Quote a file name or a source key as a Lua string literal; the file contents
+% are parsed as YAML and never become Lua source.
+\cs_new_protected:Npn \__cfflatex_lua_quote:NN #1#2
+  {
+    \str_set:Ne #2 { \tl_to_str:V #1 }
+    \regex_replace_all:nnN { [\\"] } { \\\0 } #2
+    \regex_replace_all:nnN { \r } { \\r } #2
+    \regex_replace_all:nnN { \n } { \\n } #2
+    \str_put_left:Nn #2 { " }
+    \str_put_right:Nn #2 { " }
+  }
+
+% Called by the TeX code that cfflatex.lua returns; explcheck cannot see these
+% uses, so it would report the functions as unused (W401).
+\cs_new_protected:Npn \__cfflatex_store:nn #1#2 % noqa: w401
+  { \prop_gput:Nnn \g__cfflatex_values_prop {#1} {#2} }
+\cs_new_protected:Npn \__cfflatex_store_field:nn #1#2 % noqa: w401
+  { \prop_gput:Nnn \g__cfflatex_fields_prop {#1} {#2} }
+\cs_new_protected:Npn \__cfflatex_store_kind:nn #1#2 % noqa: w401
+  { \prop_gput:Nnn \g__cfflatex_kinds_prop {#1} {#2} }
+\cs_new_protected:Npn \__cfflatex_finish:n #1 % noqa: w401
+  {
+    \int_gset:Nn \g__cfflatex_author_count_int {#1}
+    \bool_gset_true:N \g__cfflatex_loaded_bool
+  }
+\cs_new_protected:Npn \__cfflatex_fail:n #1 % noqa: w401
+  { \msg_fatal:nnn { import-citation-cff } { invalid } {#1} }
+
+% \includecff[source=<key>]{<file>}
+% Reads the top level of <file>, or the mapping under its top-level <key>, such
+% as preferred-citation. A document reads one CFF file: \title and similar
+% commands store \cff and expand it later, so reading another file would
+% change values given before it. A second call is an error and is ignored.
+\NewDocumentCommand \includecff {O{} m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      { \msg_error:nn { import-citation-cff } { include-once } }
+      { \__cfflatex_include:nn {#1} {#2} }
+  }
+\cs_new_protected:Npn \__cfflatex_include:nn #1#2
+  {
+    \group_begin:
+    \tl_clear:N \l__cfflatex_source_tl
+    \keys_set:nn { import-citation-cff / include } {#1}
+    \file_get_full_name:nNF {#2} \l__cfflatex_filename_tl
+      { \msg_fatal:nnn { import-citation-cff } { missing-file } {#2} }
+    \sys_if_engine_luatex:F
+      {
+        \sys_if_shell_unrestricted:F
+          { \msg_fatal:nn { import-citation-cff } { shell-escape } }
+      }
+    % cfflatex.lua reads the file outside TeX. Opening it once through TeX
+    % lists it in the .fls file of the -recorder option, which latexmk and
+    % LaTeX Workshop use to rebuild when a dependency changes. Finding the file
+    % above does not always do so: LuaLaTeX with shell escape does not record
+    % it.
+    \ior_open:NV \g__cfflatex_dependency_ior \l__cfflatex_filename_tl
+    \ior_close:N \g__cfflatex_dependency_ior
+    \bool_gset_false:N \g__cfflatex_loaded_bool
+    \int_gzero:N \g__cfflatex_author_count_int
+    \prop_gclear:N \g__cfflatex_values_prop
+    \prop_gclear:N \g__cfflatex_fields_prop
+    \prop_gclear:N \g__cfflatex_kinds_prop
+    \__cfflatex_lua_quote:NN \l__cfflatex_filename_tl \l__cfflatex_file_lua_str
+    \__cfflatex_lua_quote:NN \g__cfflatex_helper_tl \l__cfflatex_helper_lua_str
+    \__cfflatex_lua_quote:NN \l__cfflatex_source_tl \l__cfflatex_source_lua_str
+    \luabridge_now:e
+      {
+        local~kpse = require("kpse");
+        local~helper = \exp_not:V \l__cfflatex_helper_lua_str;
+        local~cfflatex = assert(loadfile(
+        kpse.find_file(helper,~"tex")~or~helper))(helper);
+        print(cfflatex.read(
+        \exp_not:V \l__cfflatex_file_lua_str,
+        \exp_not:V \l__cfflatex_source_lua_str
+        ));
+      }
+    \group_end:
+  }
+
+% Checking the title page ----------------------------------------------------
+%
+% The author style of the document gives the fields to check and the regions
+% of the document to check them in (see "Author styles" below). While a region
+% is open, \cff and \cffauthor leave a record marker before the values of these
+% fields. In the maketitle region, markers around the contents of \@title and
+% \@author also tell which part of the title page is being typeset. The
+% markers record when they are executed, which is when the title page is
+% typeset; this sees uses in loops such as \cffforeachauthor and \foreach, whose
+% indices are known only then, and in macros of the document. The markers carry
+% only digits and "-", so case changes such as \MakeUppercase keep them intact,
+% and their names contain no "_" or ":", so they stay readable if a class
+% writes the title page to a file.
+%
+% The first region that closes is checked, and no region is checked after it.
+% If the whole document is the fallback region, it is checked at its end when
+% no other region has closed.
+
+% <use> is <i> for author <i>, and the number of another checked field.
+\cs_new_protected:cpn { cfflatex@mark } #1
+  {
+    \bool_if:NT \g__cfflatex_recording_bool
+      {
+        \clist_map_inline:Nn \g__cfflatex_check_open_clist
+          {
+            \prop_gput:Nen \g__cfflatex_used_prop
+              { ##1 / \g__cfflatex_part_tl / #1 }
+              {}
+            \prop_gput:Nnn \g__cfflatex_used_prop { ##1 / * / #1 } {}
+          }
+      }
+  }
+% <part> is 1 for \title, 2 for \author, and 0 after them.
+\cs_new_protected:cpn { cfflatex@part } #1
+  { \tl_gset:Nn \g__cfflatex_part_tl {#1} }
+\cs_new:Npn \__cfflatex_mark:n #1
+  {
+    % The marker is protected, so it stays a marker in expansion contexts.
+    \bool_if:NT \g__cfflatex_recording_bool
+      { \use:c { cfflatex@mark } {#1} }
+  }
+\cs_generate_variant:Nn \__cfflatex_mark:n { e }
+\cs_generate_variant:Nn \prop_gput:Nnn { Nen }
+\prg_generate_conditional_variant:Nnn \prop_if_in:Nn { Ne } { F }
+
+% Opens the region #1, unless a region has already been checked.
+\cs_new_protected:Npn \__cfflatex_region_begin:n #1
+  {
+    \bool_if:NF \g__cfflatex_check_done_bool
+      {
+        \clist_if_in:NnF \g__cfflatex_check_open_clist {#1}
+          { \clist_gput_right:Nn \g__cfflatex_check_open_clist {#1} }
+        \bool_gset_true:N \g__cfflatex_recording_bool
+      }
+  }
+% Closes the region #1 if it is open, and checks it.
+\cs_new_protected:Npn \__cfflatex_region_end:n #1
+  {
+    \clist_if_in:NnT \g__cfflatex_check_open_clist {#1}
+      {
+        \bool_gset_true:N \g__cfflatex_check_done_bool
+        \bool_gset_false:N \g__cfflatex_recording_bool
+        \clist_gclear:N \g__cfflatex_check_open_clist
+        \bool_if:NT \g__cfflatex_loaded_bool
+          {
+            \clist_map_inline:Nn \g__cfflatex_check_fields_clist
+              {
+                \str_if_eq:nnTF {##1} { authors }
+                  { \__cfflatex_check_authors:n {#1} }
+                  { \__cfflatex_check_field:nn {#1} {##1} }
+              }
+          }
+      }
+  }
+% Warns unless the region #1 uses the field #2. A field that the citation does
+% not have cannot be used. In \maketitle, \title must use the title.
+\cs_new_protected:Npn \__cfflatex_check_field:nn #1#2
+  {
+    \prop_if_in:NnT \g__cfflatex_fields_prop {#2}
+      {
+        \bool_lazy_and:nnTF { \str_if_eq_p:nn {#1} { maketitle } }
+          { \str_if_eq_p:nn {#2} { title } }
+          {
+            \prop_if_in:NeF \g__cfflatex_used_prop
+              { #1 / 1 / \prop_item:Nn \g__cfflatex_check_ids_prop {#2} }
+              { \msg_warning:nn { import-citation-cff } { title-unused } }
+          }
+          {
+            \prop_if_in:NeF \g__cfflatex_used_prop
+              { #1 / * / \prop_item:Nn \g__cfflatex_check_ids_prop {#2} }
+              { \msg_warning:nnn { import-citation-cff } { field-unused } {#2} }
+          }
+      }
+  }
+% Warns unless the region #1 uses every author. In \maketitle, \author must
+% use them.
+\cs_new_protected:Npn \__cfflatex_check_authors:n #1
+  {
+    \clist_clear:N \l__cfflatex_missing_clist
+    \int_step_inline:nn { \g__cfflatex_author_count_int }
+      {
+        \prop_if_in:NeF \g__cfflatex_used_prop
+          { #1 / \str_if_eq:nnTF {#1} { maketitle } { 2 } { * } / ##1 }
+          { \clist_put_right:Nn \l__cfflatex_missing_clist {##1} }
+      }
+    \clist_if_empty:NF \l__cfflatex_missing_clist
+      {
+        \str_if_eq:nnTF {#1} { maketitle }
+          {
+            \msg_warning:nne { import-citation-cff } { authors-unused }
+              { \clist_use:Nn \l__cfflatex_missing_clist { ,~ } }
+          }
+          {
+            \msg_warning:nne { import-citation-cff } { region-authors-unused }
+              { \clist_use:Nn \l__cfflatex_missing_clist { ,~ } }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__cfflatex_check_begin:
+  {
+    \seq_if_in:NnT \g__cfflatex_check_regions_seq { maketitle }
+      {
+        \bool_lazy_and:nnT { \g__cfflatex_loaded_bool }
+          { ! \g__cfflatex_check_done_bool }
+          {
+            \tl_gset:Nn \g__cfflatex_part_tl { 0 }
+            \__cfflatex_wrap_part:Nn \@title { 1 }
+            \__cfflatex_wrap_part:Nn \@author { 2 }
+            \__cfflatex_region_begin:n { maketitle }
+          }
+      }
+  }
+\cs_new_protected:Npn \__cfflatex_wrap_part:Nn #1#2
+  {
+    \cs_gset:Npe #1
+      {
+        \exp_not:c { cfflatex@part } {#2}
+        \exp_not:o {#1}
+        \exp_not:c { cfflatex@part } { 0 }
+      }
+  }
+\AddToHook {cmd/maketitle/before} [import-citation-cff]
+  {\__cfflatex_check_begin:}
+\AddToHook {cmd/maketitle/after} [import-citation-cff]
+  {\__cfflatex_region_end:n { maketitle }}
+% The whole document is checked at its end, if no other region was checked.
+\cs_new_protected:Npn \__cfflatex_check_fallback:
+  {
+    \bool_lazy_and:nnT { \g__cfflatex_check_document_bool }
+      { ! \g__cfflatex_check_done_bool }
+      {
+        \bool_lazy_and:nnT { \g__cfflatex_loaded_bool }
+          { ! \seq_if_empty_p:N \g__cfflatex_check_regions_seq }
+          {
+            \msg_info:nne { import-citation-cff } { check-fallback }
+              { \tl_use:N \g__cfflatex_check_style_tl }
+          }
+        \__cfflatex_region_end:n { document }
+      }
+  }
+\AddToHook {enddocument} [import-citation-cff] {\__cfflatex_check_fallback:}
+% hyperref drops the markers from PDF strings, such as bookmarks.
+\AddToHook {begindocument} [import-citation-cff]
+  {
+    \cs_if_exist:NT \pdfstringdefDisableCommands
+      {
+        \pdfstringdefDisableCommands
+          {
+            \cs_set_eq:cN { cfflatex@mark } \use_none:n
+            \cs_set_eq:cN { cfflatex@part } \use_none:n
+          }
+      }
+  }
+
+% Getters --------------------------------------------------------------------
+
+% Expands to the value stored under the key #1, or to nothing if it is absent.
+\cs_new:Npn \__cfflatex_value:n #1
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      { \prop_item:Nn \g__cfflatex_values_prop {#1} }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% Expands to #2 if a CFF file is loaded and #1 is the index of an author, and
+% reports an error otherwise.
+\cs_new:Npn \__cfflatex_if_author:nT #1#2
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \bool_lazy_or:nnTF { \int_compare_p:nNn {#1} < { 1 } }
+          { \int_compare_p:nNn {#1} > { \g__cfflatex_author_count_int } }
+          {
+            \msg_expandable_error:nnn { import-citation-cff } { author-index }
+              {#1}
+          }
+          {#2}
+      }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% \cffauthor{<index>}{<field>} expands to a field of the <index>-th author,
+% counting from 1. An absent field expands to nothing.
+\cs_generate_variant:Nn \prop_item:Nn { Ne }
+\NewExpandableDocumentCommand \cffauthor {m m}
+  {
+    \__cfflatex_if_author:nT {#1}
+      {
+        \__cfflatex_mark:e { \int_eval:n {#1} }
+        \prop_item:Ne \g__cfflatex_values_prop
+          { authors / \int_eval:n {#1} / \tl_to_str:n {#2} }
+      }
+  }
+
+% Any field ------------------------------------------------------------------
+%
+% \cff{<path>} expands to the value at <path>, the keys and indices that lead
+% to it from the citation, separated by slashes, such as authors/1/name. A
+% missing path expands to nothing, and a mapping or a sequence is an error.
+% \cffcount{<path>} expands to the length of the sequence at <path>, 0 if it
+% is missing; a value or a mapping is an error. \cff{<path>} counts for the
+% check as a use of <path>, such as title, and \cff{authors/<i>/<field>} as a
+% use of author <i>, like \cffauthor.
+% The path is expanded first, so that it may contain \cffauthorindex.
+\NewExpandableDocumentCommand \cff {m} {\exp_args:Ne \__cfflatex_cff:n {#1}}
+\NewExpandableDocumentCommand \cffcount {m}
+  {\exp_args:Ne \__cfflatex_cffcount:n {#1}}
+\cs_new:Npn \__cfflatex_cff:n #1
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \prop_if_in:NnTF \g__cfflatex_fields_prop {#1}
+          {
+            \__cfflatex_path_mark:n {#1}
+            \prop_item:Nn \g__cfflatex_fields_prop {#1}
+          }
+          {
+            \prop_if_in:NnT \g__cfflatex_kinds_prop {#1}
+              {
+                \msg_expandable_error:nnn { import-citation-cff }
+                  { not-a-value }
+                  {#1}
+              }
+          }
+      }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+\cs_new:Npn \__cfflatex_cffcount:n #1
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \prop_if_in:NnTF \g__cfflatex_kinds_prop {#1}
+          {
+            \str_if_eq:eeTF { \prop_item:Nn \g__cfflatex_kinds_prop {#1} }
+              { map }
+              {
+                \msg_expandable_error:nnn { import-citation-cff } { not-a-list }
+                  {#1}
+              }
+              { \prop_item:Nn \g__cfflatex_kinds_prop {#1} }
+          }
+          {
+            \prop_if_in:NnTF \g__cfflatex_fields_prop {#1}
+              {
+                \msg_expandable_error:nnn { import-citation-cff } { not-a-list }
+                  {#1}
+              }
+              { 0 }
+          }
+      }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+% Marks the use of the value at the path #1 for the check: a checked field,
+% such as title, or a field of an author.
+\cs_new:Npn \__cfflatex_path_mark:n #1
+  {
+    \prop_if_in:NnTF \g__cfflatex_check_ids_prop {#1}
+      { \__cfflatex_mark:e { \prop_item:Nn \g__cfflatex_check_ids_prop {#1} } }
+      { \__cfflatex_author_mark:w #1 / / \s__cfflatex_stop }
+  }
+% The index #2 of an author is a number since the value at #1/#2/#3 exists.
+\scan_new:N \s__cfflatex_stop
+\cs_new:Npn \__cfflatex_author_mark:w #1 / #2 / #3 \s__cfflatex_stop
+  {
+    \str_if_eq:nnT {#1} { authors }
+      {
+        \tl_if_blank:nF {#3}
+          { \__cfflatex_mark:e { \int_eval:n {#2} } }
+      }
+  }
+
+% Affiliations ---------------------------------------------------------------
+%
+% cfflatex.lua splits each affiliation string at semicolons and numbers the
+% distinct affiliations of the citation in the order they first appear.
+
+% Expands to the number stored under the key #1, or to 0 if it is absent.
+\prg_generate_conditional_variant:Nnn \prop_if_in:Nn { Ne } { TF }
+\cs_new:Npn \__cfflatex_count:n #1
+  {
+    \prop_if_in:NeTF \g__cfflatex_values_prop {#1}
+      { \prop_item:Ne \g__cfflatex_values_prop {#1} }
+      { 0 }
+  }
+% Expands to #3 if #1 is between 1 and #2, and reports an error otherwise.
+\cs_new:Npn \__cfflatex_if_affiliation:nnT #1#2#3
+  {
+    \bool_lazy_or:nnTF { \int_compare_p:nNn {#1} < { 1 } }
+      { \int_compare_p:nNn {#1} > {#2} }
+      {
+        \msg_expandable_error:nnn { import-citation-cff } { affiliation-index }
+          {#1}
+      }
+      {#3}
+  }
+% Expands to the item of author #1 under "affiliation-#3/#2".
+\cs_new:Npn \__cfflatex_author_affiliation:nnn #1#2#3
+  {
+    \__cfflatex_if_author:nT {#1}
+      {
+        \__cfflatex_if_affiliation:nnT {#2}
+          {
+            \__cfflatex_count:n
+              { authors / \int_eval:n {#1} / affiliation-count }
+          }
+          {
+            \prop_item:Ne \g__cfflatex_values_prop
+              {
+                authors / \int_eval:n {#1} / affiliation- #3 / \int_eval:n {#2}
+              }
+          }
+      }
+  }
+
+% \cffauthoraffiliationcount{<i>} expands to the number of affiliations of
+% author <i>, which is 0 if the author has none.
+\NewExpandableDocumentCommand \cffauthoraffiliationcount {m}
+  {
+    \__cfflatex_if_author:nT {#1}
+      { \__cfflatex_count:n { authors / \int_eval:n {#1} / affiliation-count } }
+  }
+
+% \cffauthoraffiliation{<i>}{<k>} expands to the <k>-th affiliation of author
+% <i>.
+\NewExpandableDocumentCommand \cffauthoraffiliation {m m}
+  {\__cfflatex_author_affiliation:nnn {#1} {#2} { names }}
+
+% \cffconvertaffiliationindex{<i>}{<k>} expands to the number of the <k>-th
+% affiliation of author <i> among the distinct affiliations of the citation,
+% the index that \cffforeachaffiliation and \cffaffiliation use.
+\NewExpandableDocumentCommand \cffconvertaffiliationindex {m m}
+  {\__cfflatex_author_affiliation:nnn {#1} {#2} { indices }}
+
+% \cffaffiliationcount expands to the number of distinct affiliations of the
+% citation, and \cffaffiliation{<n>} to the <n>-th of them.
+\NewExpandableDocumentCommand \cffaffiliationcount {}
+  {\__cfflatex_value:n { affiliation-count }}
+\NewExpandableDocumentCommand \cffaffiliation {m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \__cfflatex_if_affiliation:nnT {#1}
+          { \__cfflatex_count:n { affiliation-count } }
+          {
+            \prop_item:Ne \g__cfflatex_values_prop
+              { affiliations / \int_eval:n {#1} }
+          }
+      }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% Contacts -------------------------------------------------------------------
+%
+% The contacts of the citation are optional; like the authors, each is a person
+% or an entity.
+
+% \cffcontact{<index>}{<field>} expands to a field of the <index>-th contact,
+% counting from 1. An absent field expands to nothing.
+\NewExpandableDocumentCommand \cffcontact {m m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \bool_lazy_or:nnTF { \int_compare_p:nNn {#1} < { 1 } }
+          {
+            \int_compare_p:nNn {#1} > { \__cfflatex_count:n { contact-count } }
+          }
+          {
+            \msg_expandable_error:nnn { import-citation-cff } { contact-index }
+              {#1}
+          }
+          {
+            \prop_item:Ne \g__cfflatex_values_prop
+              { contact / \int_eval:n {#1} / \tl_to_str:n {#2} }
+          }
+      }
+      { \msg_expandable_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% Loops ----------------------------------------------------------------------
+%
+% \__cfflatex_loop:nnnnn {<first>} {<last>} {<set>} {<code>} {<restore>} runs
+% <set>{<value>} and then <code> for each <value> from <first> to <last>, and
+% then <restore>. The loops below keep their state in global variables, set by
+% <set> and restored by <restore> to that of an enclosing loop, and in the
+% arguments of this function. They add no group, so <code> may close and
+% reopen groups, as \and does between the authors in \author.
+\cs_new_protected:Npn \__cfflatex_loop:nnnnn #1#2#3#4#5
+  {
+    \int_compare:nNnTF {#1} > {#2}
+      {#5}
+      {
+        #3 {#1}
+        #4
+        \exp_args:Nf \__cfflatex_loop:nnnnn { \int_eval:n { #1 + 1 } } {#2} {#3}
+          {#4}
+          {#5}
+      }
+  }
+
+% \cffforeachauthor{<code>} runs <code> once for each author, in order, with
+% \cffauthorindex expanding to the index of the author.
+\NewDocumentCommand \cffforeachauthor {+m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \use:e
+          {
+            \__cfflatex_loop:nnnnn { 1 }
+              { \int_use:N \g__cfflatex_author_count_int }
+              { \int_gset:Nn \exp_not:N \g__cfflatex_author_index_int }
+              { \exp_not:n {#1} }
+              {
+                \int_gset:Nn \exp_not:N \g__cfflatex_author_index_int
+                  { \int_use:N \g__cfflatex_author_index_int }
+              }
+          }
+      }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% \cffauthorindex expands to the index of the current author in
+% \cffforeachauthor.
+\NewExpandableDocumentCommand \cffauthorindex {}
+  {
+    \int_compare:nNnTF { \g__cfflatex_author_index_int } = { 0 }
+      { \msg_expandable_error:nn { import-citation-cff } { not-in-loop } }
+      { \int_use:N \g__cfflatex_author_index_int }
+  }
+
+% \cffforeachaffiliation{<code>} runs <code> once for each distinct affiliation
+% of the citation, in order, with \cffaffiliationindex expanding to the number
+% of the affiliation.
+\NewDocumentCommand \cffforeachaffiliation {+m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \use:e
+          {
+            \__cfflatex_loop:nnnnn { 1 }
+              { \__cfflatex_count:n { affiliation-count } }
+              { \int_gset:Nn \exp_not:N \g__cfflatex_affiliation_index_int }
+              { \exp_not:n {#1} }
+              {
+                \int_gset:Nn \exp_not:N \g__cfflatex_affiliation_index_int
+                  { \int_use:N \g__cfflatex_affiliation_index_int }
+              }
+          }
+      }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+% \cffforeachauthoraffiliation{<index>}{<code>} runs <code> once for each
+% affiliation of the <index>-th author, in order, with
+% \cffauthoraffiliationindex expanding to the index of the affiliation among
+% those of the author, counting from 1.
+\NewDocumentCommand \cffforeachauthoraffiliation {m +m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \bool_lazy_or:nnTF { \int_compare_p:nNn {#1} < { 1 } }
+          { \int_compare_p:nNn {#1} > { \g__cfflatex_author_count_int } }
+          {
+            \msg_error:nne { import-citation-cff } { author-index }
+              { \int_eval:n {#1} }
+          }
+          {
+            \exp_args:Ne \__cfflatex_foreach_author_affiliation:nn
+              { \int_eval:n {#1} }
+              {#2}
+          }
+      }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+% #1 is the index of the author, and #2 the code.
+\cs_new_protected:Npn \__cfflatex_foreach_author_affiliation:nn #1#2
+  {
+    \use:e
+      {
+        \__cfflatex_loop:nnnnn { 1 }
+          { \__cfflatex_count:n { authors / #1 / affiliation-count } }
+          { \int_gset:Nn \exp_not:N \g__cfflatex_author_affiliation_index_int }
+          { \exp_not:n {#2} }
+          {
+            \int_gset:Nn \exp_not:N \g__cfflatex_author_affiliation_index_int
+              { \int_use:N \g__cfflatex_author_affiliation_index_int }
+          }
+      }
+  }
+
+% \cffaffiliationindex and \cffauthoraffiliationindex expand to the number of
+% the current affiliation in \cffforeachaffiliation and to the index of the
+% current affiliation of the author in \cffforeachauthoraffiliation.
+% Expands to the value of the counter #1 if it is not 0, and to the code #2,
+% an error, otherwise.
+\cs_new:Npn \__cfflatex_loop_state:Nn #1#2
+  {
+    \int_compare:nNnTF {#1} = { 0 }
+      {#2}
+      { \int_use:N #1 }
+  }
+% \cffforeachcontact{<code>} runs <code> once for each contact of the citation,
+% in order, with \cffcontactindex expanding to the index of the contact.
+\NewDocumentCommand \cffforeachcontact {+m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \use:e
+          {
+            \__cfflatex_loop:nnnnn { 1 }
+              { \__cfflatex_count:n { contact-count } }
+              { \int_gset:Nn \exp_not:N \g__cfflatex_contact_index_int }
+              { \exp_not:n {#1} }
+              {
+                \int_gset:Nn \exp_not:N \g__cfflatex_contact_index_int
+                  { \int_use:N \g__cfflatex_contact_index_int }
+              }
+          }
+      }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+
+\NewExpandableDocumentCommand \cffaffiliationindex {}
+  {
+    \__cfflatex_loop_state:Nn \g__cfflatex_affiliation_index_int
+      {
+        \msg_expandable_error:nn { import-citation-cff }
+          { not-in-affiliation-loop }
+      }
+  }
+\NewExpandableDocumentCommand \cffauthoraffiliationindex {}
+  {
+    \__cfflatex_loop_state:Nn \g__cfflatex_author_affiliation_index_int
+      {
+        \msg_expandable_error:nn { import-citation-cff }
+          { not-in-author-affiliation-loop }
+      }
+  }
+
+% \cffcontactindex expands to the index of the current contact in
+% \cffforeachcontact.
+\NewExpandableDocumentCommand \cffcontactindex {}
+  {
+    \__cfflatex_loop_state:Nn \g__cfflatex_contact_index_int
+      {
+        \msg_expandable_error:nn { import-citation-cff } { not-in-contact-loop }
+      }
+  }
+
+% Title page authors ---------------------------------------------------------
+%
+% \cffsetauthors[<keys>] declares the authors of the citation for \maketitle.
+% Each author gets marks: the marks of their affiliations, numbered among the
+% distinct affiliations of the citation, a footnote for each contact of the
+% citation with the same names, and a footnote for each of their notes, given
+% by the note key. The other keys give templates for the name, the footnote of
+% a contact, and the commands that declare an author and an affiliation.
+
+% Templates set by the keys; #1 of \__cfflatex_name:n and \__cfflatex_contact:n
+% is a field getter, such as \cffauthor{2}, which takes a field.
+\cs_new:Npn \__cfflatex_name:n #1 {}
+\cs_new:Npn \__cfflatex_contact:n #1 {}
+\cs_new:Npn \__cfflatex_affiliation_mark:n #1 {}
+\cs_new_protected:Npn \__cfflatex_put_author:nn #1#2 {}
+\cs_new_protected:Npn \__cfflatex_put_affiliation:nn #1#2 {}
+% Styles perform their own preparation, then send declarations through this
+% function. The exporter replaces only this output operation.
+\cs_new_protected:Npn \__cfflatex_emit:n #1 {#1}
+\NewDocumentCommand \cffemit {+m} {\__cfflatex_emit:n {#1}}
+\tl_new:N \l__cfflatex_separator_tl
+\bool_new:N \l__cfflatex_affiliations_bool
+\bool_new:N \l__cfflatex_contacts_bool
+\bool_new:N \l__cfflatex_style_valid_bool
+\bool_new:N \g__cfflatex_export_bool
+\prop_new:N \g__cfflatex_author_styles_prop
+\tl_new:N \l__cfflatex_style_tl
+\tl_new:N \l__cfflatex_style_keys_tl
+\tl_new:N \l__cfflatex_style_file_tl
+\tl_new:N \l__cfflatex_author_options_tl
+\clist_new:N \l__cfflatex_style_requires_clist
+\tl_new:N \l__cfflatex_style_validate_tl
+\tl_new:N \l__cfflatex_style_begin_tl
+\tl_new:N \l__cfflatex_style_end_tl
+\tl_new:N \l__cfflatex_style_render_tl
+\int_new:N \l__cfflatex_style_match_int
+% Whether the keys being set come from a style definition, and the style that
+% the last \cffsetauthors used.
+\bool_new:N \l__cfflatex_style_keys_bool
+\tl_new:N \g__cfflatex_last_style_tl
+\regex_const:Nn \c__cfflatex_style_regex { \A [A-Za-z0-9] [-A-Za-z0-9_]* \Z }
+\cs_new_protected:Npn \__cfflatex_prepare_author:n #1 {}
+
+% Literal names are also used in filenames: do not accept paths or macros.
+\prg_new_protected_conditional:Npnn \__cfflatex_if_style_name:n #1 { TF }
+  {
+    \regex_count:NnN \c__cfflatex_style_regex {#1} \l__cfflatex_style_match_int
+    \int_compare:nNnTF { \l__cfflatex_style_match_int } = { 1 }
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+\NewDocumentCommand \cffdeclareauthorstyle {m +m}
+  {
+    \__cfflatex_if_style_name:nTF {#1}
+      {
+        \prop_if_in:NnTF \g__cfflatex_author_styles_prop {#1}
+          { \msg_error:nnn { import-citation-cff } { style-duplicate } {#1} }
+          { \prop_gput:Nnn \g__cfflatex_author_styles_prop {#1} {#2} }
+      }
+      { \msg_error:nnn { import-citation-cff } { style-name } {#1} }
+  }
+% Read definition files with normal document catcodes, restoring the caller's
+% expl3 syntax afterwards. Plugins may turn expl3 syntax on for their helpers.
+\cs_new_protected:Npn \__cfflatex_input_style:n #1
+  {
+    \exp_args:Ne \__cfflatex_input_style:nn { \char_value_catcode:n { 58 } }
+      {#1}
+  }
+\cs_new_protected:Npn \__cfflatex_input_style:nn #1#2
+  {
+    \ExplSyntaxOff
+    \file_input:n {#2}
+    \int_compare:nNnTF {#1} = { 11 }
+      { \ExplSyntaxOn } { \ExplSyntaxOff }
+  }
+\cs_new_protected:Npn \__cfflatex_load_style:n #1
+  {
+    \__cfflatex_if_style_name:nTF {#1}
+      {
+        \prop_if_in:NnF \g__cfflatex_author_styles_prop {#1}
+          {
+            \file_get_full_name:nNF
+              { \c__cfflatex_package_path_tl cfflatex-style-#1.def }
+            \l__cfflatex_style_file_tl
+              {
+                \file_get_full_name:nNF { cfflatex-style-#1.def }
+                \l__cfflatex_style_file_tl
+                  { \tl_clear:N \l__cfflatex_style_file_tl }
+              }
+            \tl_if_empty:NTF \l__cfflatex_style_file_tl
+              { \msg_error:nnn { import-citation-cff } { style-missing } {#1} }
+              {
+                \exp_args:NV \__cfflatex_input_style:n
+                \l__cfflatex_style_file_tl
+                \prop_if_in:NnF \g__cfflatex_author_styles_prop {#1}
+                  {
+                    \msg_error:nnn { import-citation-cff }
+                      { style-not-registered } {#1}
+                  }
+              }
+          }
+      }
+      { \msg_error:nnn { import-citation-cff } { style-name } {#1} }
+  }
+\keys_define:nn { import-citation-cff / author-style }
+  {
+    style .tl_set:N = \l__cfflatex_style_tl,
+    style .value_required:n = true,
+  }
+\cs_new_protected:Npn \__cfflatex_style_only:n #1
+  {
+    \bool_if:NF \l__cfflatex_style_keys_bool
+      { \msg_error:nnn { import-citation-cff } { style-only-key } {#1} }
+  }
+\keys_define:nn { import-citation-cff / authors }
+  {
+    % The check reads these keys from the style definition by itself.
+    check-fields .code:n = { \__cfflatex_style_only:n { check-fields } },
+    check-region .code:n = { \__cfflatex_style_only:n { check-region } },
+    requires .clist_set:N = \l__cfflatex_style_requires_clist,
+    validate .tl_set:N = \l__cfflatex_style_validate_tl,
+    begin .tl_set:N = \l__cfflatex_style_begin_tl,
+    end .tl_set:N = \l__cfflatex_style_end_tl,
+    render .tl_set:N = \l__cfflatex_style_render_tl,
+    prepare-author .code:n =
+      { \cs_set_protected:Npn \__cfflatex_prepare_author:n ##1 {#1} },
+    name .code:n = { \cs_set:Npn \__cfflatex_name:n ##1 {#1} },
+    note .code:n = { \__cfflatex_add_note:nn #1 },
+    contact .code:n =
+      {
+        \tl_if_blank:nTF {#1}
+          { \bool_set_false:N \l__cfflatex_contacts_bool }
+          {
+            \bool_set_true:N \l__cfflatex_contacts_bool
+            \cs_set:Npn \__cfflatex_contact:n ##1 {#1}
+          }
+      },
+    separator .tl_set:N = \l__cfflatex_separator_tl,
+    affiliation-mark .choice:,
+    affiliation-mark / alph .code:n =
+      { \cs_set_eq:NN \__cfflatex_affiliation_mark:n \int_to_alph:n },
+    affiliation-mark / Alph .code:n =
+      { \cs_set_eq:NN \__cfflatex_affiliation_mark:n \int_to_Alph:n },
+    affiliation-mark / arabic .code:n =
+      { \cs_set:Npn \__cfflatex_affiliation_mark:n ##1 { \int_eval:n {##1} } },
+    affiliation-mark / roman .code:n =
+      { \cs_set_eq:NN \__cfflatex_affiliation_mark:n \int_to_roman:n },
+    affiliation-mark / Roman .code:n =
+      { \cs_set_eq:NN \__cfflatex_affiliation_mark:n \int_to_Roman:n },
+    author .code:n =
+      {
+        \cs_set_protected:Npn \__cfflatex_put_author:nn ##1##2
+          { \cffemit {#1} }
+      },
+    author-code .code:n =
+      { \cs_set_protected:Npn \__cfflatex_put_author:nn ##1##2 {#1} },
+    affiliation .code:n =
+      {
+        \keys_set:nn { import-citation-cff / authors }
+          { affiliation-code = { \cffemit {#1} } }
+        \tl_if_blank:nT {#1}
+          { \bool_set_false:N \l__cfflatex_affiliations_bool }
+      },
+    affiliation-code .code:n =
+      {
+        \bool_set:Nn \l__cfflatex_affiliations_bool { ! \tl_if_blank_p:n {#1} }
+        \cs_set_protected:Npn \__cfflatex_put_affiliation:nn ##1##2 {#1}
+      },
+  }
+% Reset every setting before applying a style and the user's overrides.
+\tl_const:Nn \c__cfflatex_author_defaults_tl
+  {
+    requires = {}, validate = {}, begin = {}, end = {}, render = {},
+    prepare-author = {}, author = {}, affiliation = {},
+    name = { #1 { given-names } \nobreakspace #1 { family-names } },
+    contact = { E-mail:~#1 { email } },
+    separator = { , },
+    affiliation-mark = alph,
+  }
+
+% Like \thanks in \maketitle, but typesets the footnote symbol as text among
+% the marks of an author, so that it does not overlap them.
+\cs_new_protected:Npn \__cfflatex_thanks:n #1
+  {
+    \stepcounter {footnote}
+    \protected@xdef \@thefnmark {\thefootnote}
+    \@thefnmark
+    \protected@xdef \@thanks
+      {\@thanks \protect \footnotetext [\int_use:N \c@footnote] {#1}}
+  }
+
+% The names of the #2-th entry of the authors or the contacts #1, which
+% identify a contact with an author.
+\cs_new:Npn \__cfflatex_names:nn #1#2
+  {
+    \prop_item:Nn \g__cfflatex_values_prop { #1 / #2 / given-names } |
+    \prop_item:Nn \g__cfflatex_values_prop { #1 / #2 / family-names } |
+    \prop_item:Nn \g__cfflatex_values_prop { #1 / #2 / name }
+  }
+
+\tl_new:N \g__cfflatex_author_names_tl
+\cs_generate_variant:Nn \seq_use:Nn { NV }
+\seq_new:N \l__cfflatex_marks_seq
+\seq_new:N \l__cfflatex_names_seq
+% The notes of the note key, as {<author>}{<text>} items.
+\seq_new:N \l__cfflatex_notes_seq
+\cs_new_protected:Npn \__cfflatex_add_note:nn #1#2
+  {
+    \bool_lazy_or:nnTF { \int_compare_p:nNn {#1} < { 1 } }
+      { \int_compare_p:nNn {#1} > { \g__cfflatex_author_count_int } }
+      {
+        \msg_error:nne { import-citation-cff }
+          { author-index } { \int_eval:n {#1} }
+      }
+      {
+        \seq_put_right:Ne \l__cfflatex_notes_seq
+          { { \int_eval:n {#1} } { \exp_not:n {#2} } }
+      }
+  }
+% Adds a footnote with the text #3 to the marks of the #1-th author if the note
+% is for the #2-th author.
+\cs_new_protected:Npn \__cfflatex_add_note_mark:nnn #1#2#3
+  {
+    \int_compare:nNnT {#1} = {#2}
+      { \seq_put_right:Nn \l__cfflatex_marks_seq { \__cfflatex_thanks:n {#3} } }
+  }
+\tl_new:N \l__cfflatex_marks_tl
+\tl_new:N \l__cfflatex_name_tl
+\tl_new:N \l__cfflatex_author_who_tl
+\tl_new:N \l__cfflatex_contact_who_tl
+\tl_new:N \l__cfflatex_contact_tl
+
+\NewDocumentCommand \cffsetauthors {O{}}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      { \__cfflatex_setup_authors:n {#1} }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+\cs_new_protected:Npn \__cfflatex_setup_authors:n #1
+  {
+    \seq_clear:N \l__cfflatex_notes_seq
+    \keys_set:nV { import-citation-cff / authors }
+    \c__cfflatex_author_defaults_tl
+    % The style of the document is the default, or else standard.
+    \tl_if_empty:NTF \g__cfflatex_document_style_tl
+      { \tl_set:Nn \l__cfflatex_style_tl { standard } }
+      { \tl_set_eq:NN \l__cfflatex_style_tl \g__cfflatex_document_style_tl }
+    % Select the style first, regardless of where style= occurs in the list.
+    \keys_set_known:nnN { import-citation-cff / author-style } {#1}
+    \l__cfflatex_author_options_tl
+    \exp_args:NV \__cfflatex_load_style:n \l__cfflatex_style_tl
+    \prop_get:NVNT \g__cfflatex_author_styles_prop \l__cfflatex_style_tl
+    \l__cfflatex_style_keys_tl
+      {
+        \tl_gset_eq:NN \g__cfflatex_last_style_tl \l__cfflatex_style_tl
+        \bool_set_true:N \l__cfflatex_style_keys_bool
+        \keys_set:nV { import-citation-cff / authors }
+        \l__cfflatex_style_keys_tl
+        \bool_set_false:N \l__cfflatex_style_keys_bool
+        \keys_set:nV { import-citation-cff / authors }
+        \l__cfflatex_author_options_tl
+        \bool_set_true:N \l__cfflatex_style_valid_bool
+        \bool_if:NF \g__cfflatex_export_bool
+          {
+            \clist_map_inline:Nn \l__cfflatex_style_requires_clist
+              {
+                \IfPackageLoadedTF {##1} {}
+                  {
+                    \bool_set_false:N \l__cfflatex_style_valid_bool
+                    \msg_error:nnee { import-citation-cff }
+                      { style-package-missing }
+                      { \l__cfflatex_style_tl } {##1}
+                  }
+              }
+            \bool_if:NT \l__cfflatex_style_valid_bool
+              { \tl_use:N \l__cfflatex_style_validate_tl }
+          }
+        \bool_if:NT \l__cfflatex_style_valid_bool { \__cfflatex_set_authors: }
+      }
+  }
+\cs_new_protected:Npn \__cfflatex_set_authors:
+  {
+    % Name collection is independent of the renderer and declaration order.
+    \seq_clear:N \l__cfflatex_names_seq
+    \int_step_inline:nn { \g__cfflatex_author_count_int }
+      {
+        \tl_set:No \l__cfflatex_name_tl
+          { \__cfflatex_name:n { \cffauthor {##1} } }
+        \seq_put_right:NV \l__cfflatex_names_seq \l__cfflatex_name_tl
+      }
+    \__cfflatex_store_author_names:
+    \tl_use:N \l__cfflatex_style_begin_tl
+    \tl_if_empty:NTF \l__cfflatex_style_render_tl
+      {
+        \cffforeachauthor {\cffrenderauthor {\cffauthorindex}}
+        \bool_if:NT \l__cfflatex_affiliations_bool
+          {
+            \cffforeachaffiliation
+              {\cffrenderaffiliation {\cffaffiliationindex}}
+          }
+      }
+      { \tl_use:N \l__cfflatex_style_render_tl }
+    \tl_use:N \l__cfflatex_style_end_tl
+  }
+% A custom renderer can reuse the configured templates in another order.
+\NewDocumentCommand \cffrenderauthor {m}
+  {
+    \__cfflatex_if_author:nT {#1}
+      { \exp_args:Ne \__cfflatex_set_author:n { \int_eval:n {#1} } }
+  }
+\NewDocumentCommand \cffrenderaffiliation {m}
+  {
+    \bool_if:NTF \g__cfflatex_loaded_bool
+      {
+        \__cfflatex_if_affiliation:nnT {#1}
+          { \__cfflatex_count:n { affiliation-count } }
+          {
+            \bool_if:NT \l__cfflatex_affiliations_bool
+              {
+                \exp_args:Nee \__cfflatex_put_affiliation:nn
+                  { \__cfflatex_affiliation_mark:n {#1} }
+                  { \exp_not:N \cffaffiliation {\int_eval:n {#1}} }
+              }
+          }
+      }
+      { \msg_error:nn { import-citation-cff } { not-loaded } }
+  }
+% Kept separate so export can preserve class-defined formatting commands
+% while resolving CFF fields, rather than expanding arbitrary class code.
+\cs_new_protected:Npn \__cfflatex_store_author_names:
+  {
+    \tl_gset:Ne \g__cfflatex_author_names_tl
+      { \seq_use:Nn \l__cfflatex_names_seq { ,~ } }
+  }
+% Declares the #1-th author.
+\cs_new_protected:Npn \__cfflatex_set_author:n #1
+  {
+    \seq_clear:N \l__cfflatex_marks_seq
+    \bool_if:NT \l__cfflatex_affiliations_bool
+      {
+        \int_step_inline:nn
+          { \__cfflatex_count:n { authors / #1 / affiliation-count } }
+          {
+            \seq_put_right:Ne \l__cfflatex_marks_seq
+              {
+                \__cfflatex_affiliation_mark:n
+                  {
+                    \prop_item:Nn \g__cfflatex_values_prop
+                      { authors / #1 / affiliation-indices / ##1 }
+                  }
+              }
+          }
+      }
+    \bool_if:NT \l__cfflatex_contacts_bool
+      {
+        \tl_set:Ne \l__cfflatex_author_who_tl
+          { \__cfflatex_names:nn { authors } {#1} }
+        \int_step_inline:nn { \__cfflatex_count:n { contact-count } }
+          {
+            \tl_set:Ne \l__cfflatex_contact_who_tl
+              { \__cfflatex_names:nn { contact } {##1} }
+            \tl_if_eq:NNT \l__cfflatex_author_who_tl \l__cfflatex_contact_who_tl
+              {
+                \tl_set:No \l__cfflatex_contact_tl
+                  { \__cfflatex_contact:n { \cffcontact {##1} } }
+                \seq_put_right:Ne \l__cfflatex_marks_seq
+                  {
+                    \exp_not:N \__cfflatex_thanks:n
+                      { \exp_not:V \l__cfflatex_contact_tl }
+                  }
+              }
+          }
+      }
+    \seq_map_inline:Nn \l__cfflatex_notes_seq
+      { \__cfflatex_add_note_mark:nnn {#1} ##1 }
+    \tl_set:Ne \l__cfflatex_marks_tl
+      { \seq_use:NV \l__cfflatex_marks_seq \l__cfflatex_separator_tl }
+    \__cfflatex_prepare_author:n {#1}
+    % \protect keeps \cffauthor for \maketitle, where the check sees it, when
+    % the template expands the name, as the \author of authblk does.
+    \tl_set:No \l__cfflatex_name_tl
+      { \__cfflatex_name:n { \protect \cffauthor {#1} } }
+    \exp_args:NVV \__cfflatex_put_author:nn
+    \l__cfflatex_marks_tl \l__cfflatex_name_tl
+  }
+
+% \cffauthornames expands to the names of the authors, separated by commas, as
+% the name template of \cffsetauthors makes them.
+\NewExpandableDocumentCommand \cffauthornames {}
+  {\tl_use:N \g__cfflatex_author_names_tl}
+
+% Built-ins use the same registration API as external definition files.
+\__cfflatex_load_style:n { standard }
+\__cfflatex_load_style:n { authblk }
+
+% The check of the document --------------------------------------------------
+%
+% At \begin{document}, the check takes its fields and regions from the style
+% option of the package, or else from the style of the last \cffsetauthors in
+% the preamble, or else from standard. A style definition can give
+% check-fields, a list of fields of the citation, where authors stands for
+% every author, and check-region, a list of regions: maketitle, hooks =
+% {<begin hook>}{<end hook>}, and document as the fallback.
+\int_new:N \l__cfflatex_check_id_int
+\tl_new:N \l__cfflatex_region_tl
+\cs_generate_variant:Nn \hook_gput_code:nnn { nne }
+\keys_define:nn { import-citation-cff / check }
+  {
+    check-fields .clist_gset:N = \g__cfflatex_check_fields_clist,
+    check-region .code:n =
+      {
+        \seq_gclear:N \g__cfflatex_check_regions_seq
+        \bool_gset_false:N \g__cfflatex_check_document_bool
+        \keys_set:nn { import-citation-cff / check-region } {#1}
+      },
+  }
+\keys_define:nn { import-citation-cff / check-region }
+  {
+    maketitle .code:n =
+      { \seq_gput_right:Nn \g__cfflatex_check_regions_seq { maketitle } },
+    maketitle .value_forbidden:n = true,
+    document .code:n = { \bool_gset_true:N \g__cfflatex_check_document_bool },
+    document .value_forbidden:n = true,
+    hooks .code:n =
+      {
+        \int_compare:nNnTF { \tl_count:n {#1} } = { 2 }
+          { \__cfflatex_check_hooks:nn #1 }
+          {
+            \msg_error:nnn { import-citation-cff }
+              { check-region } { hooks~=~#1 }
+          }
+      },
+    hooks .value_required:n = true,
+    unknown .code:n =
+      {
+        \msg_error:nne { import-citation-cff }
+          { check-region } { \l_keys_key_str }
+      },
+  }
+% The region hooks<n> opens at the hook #1 and closes at the hook #2.
+\cs_new_protected:Npn \__cfflatex_check_hooks:nn #1#2
+  {
+    \tl_set:Ne \l__cfflatex_region_tl
+      { hooks \int_eval:n { \seq_count:N \g__cfflatex_check_regions_seq + 1 } }
+    \seq_gput_right:NV \g__cfflatex_check_regions_seq \l__cfflatex_region_tl
+    \hook_gput_code:nne {#1} { import-citation-cff }
+      { \__cfflatex_region_begin:n { \l__cfflatex_region_tl } }
+    \hook_gput_code:nne {#2} { import-citation-cff }
+      { \__cfflatex_region_end:n { \l__cfflatex_region_tl } }
+  }
+\cs_new_protected:Npn \__cfflatex_check_setup:
+  {
+    \tl_if_empty:NF \g__cfflatex_document_style_tl
+      { \exp_args:NV \__cfflatex_load_style:n \g__cfflatex_document_style_tl }
+    \bool_if:NT \g__cfflatex_check_bool
+      {
+        \tl_gset:Ne \g__cfflatex_check_style_tl
+          {
+            \tl_if_empty:NTF \g__cfflatex_document_style_tl
+              {
+                \tl_if_empty:NTF \g__cfflatex_last_style_tl
+                  { standard } { \exp_not:V \g__cfflatex_last_style_tl }
+              }
+              { \exp_not:V \g__cfflatex_document_style_tl }
+          }
+        \clist_gset:Nn \g__cfflatex_check_fields_clist { title, authors }
+        \seq_gset_from_clist:Nn \g__cfflatex_check_regions_seq { maketitle }
+        \bool_gset_false:N \g__cfflatex_check_document_bool
+        \prop_get:NVNT \g__cfflatex_author_styles_prop
+        \g__cfflatex_check_style_tl \l__cfflatex_style_keys_tl
+          {
+            \exp_args:NnV \keys_set_known:nn { import-citation-cff / check }
+            \l__cfflatex_style_keys_tl
+          }
+        % Fields other than the authors are numbered -1, -2, and so on.
+        \prop_gclear:N \g__cfflatex_check_ids_prop
+        \int_zero:N \l__cfflatex_check_id_int
+        \clist_map_inline:Nn \g__cfflatex_check_fields_clist
+          {
+            \str_if_eq:nnF {##1} { authors }
+              {
+                \int_decr:N \l__cfflatex_check_id_int
+                \prop_gput:Nne \g__cfflatex_check_ids_prop {##1}
+                  { \int_use:N \l__cfflatex_check_id_int }
+              }
+          }
+        \bool_if:NT \g__cfflatex_check_document_bool
+          { \__cfflatex_region_begin:n { document } }
+      }
+  }
+\AddToHook {begindocument} [import-citation-cff] {\__cfflatex_check_setup:}
+\tl_if_empty:NF \g__cfflatex_document_style_tl
+  {
+    \exp_args:NV \__cfflatex_if_style_name:nTF \g__cfflatex_document_style_tl
+      {}
+      {
+        \msg_error:nne { import-citation-cff } { style-name }
+          { \tl_use:N \g__cfflatex_document_style_tl }
+        \tl_gclear:N \g__cfflatex_document_style_tl
+      }
+  }
+
+\endinput

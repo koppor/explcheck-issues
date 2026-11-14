@@ -1,0 +1,342 @@
+%%
+%% This is file `cvss.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% cvss.dtx  (with options: `package')
+%% ----------------------------------------------------------------
+%% cvss --- A package to compute and display CVSS base scores
+%% E-mail: pierre@vivegnis.be
+%% Released under the LaTeX Project Public License v1.3c or later
+%% See http://www.latex-project.org/lppl.txt
+%% ----------------------------------------------------------------
+%% 
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cvss}[2022/12/02 v1.1.0 ]
+ %   \begin{syntax}
+ % \end{function}
+ %   \begin{syntax}
+ %     \cs{cvssLevel} \Arg{CVSS string}
+ %   \end{syntax}
+ %   \begin{syntax}
+ %     \cs{cvssLevelpretty} \Arg{CVSS string}
+ %   \end{syntax}
+ %   \begin{syntax}
+ %     \cs{cvssTag} \Arg{CVSS string}
+ %   \end{syntax}
+ %   \begin{syntax}
+ %     \cs{category} \Arg{CVSS score}
+ %   \end{syntax}
+
+
+
+
+
+
+
+%%\category{9.9}
+\RequirePackage{expl3}
+\RequirePackage[skins]{tcolorbox}
+\tcbuselibrary{xparse}
+\RequirePackage{xstring}
+\RequirePackage{hyperref}
+\def\scoreLow{0.1}
+\def\scoreMed{4.0}
+\def\scoreHigh{7.0}
+\def\scoreCrit{9.0}
+\definecolor{color@cvss@None}{RGB}{83, 170, 51}
+\definecolor{color@cvss@Low}{RGB}{255, 203, 13}
+\definecolor{color@cvss@Medium}{RGB}{249, 160, 9}
+\definecolor{color@cvss@High}{RGB}{223, 61, 3}
+\definecolor{color@cvss@Critical}{RGB}{204, 5, 0}
+\ExplSyntaxOn
+\cs_new:Npn \__CVSS_roundup:n #1 {
+         \fp_eval:n { ceil(#1,1) }
+         \fp_compare:nT { ceil(#1,1)=ceil(#1,0) } {.0}
+}
+\msg_new:nnn { CVSS } { invalid-option }{ Value~'#2'~invalid~for~#1~#3.}
+\msg_new:nnn { CVSS } { invalid-structure } { CVSS~metric~#1~is~not~correct~(#2)~#3.}
+\msg_new:nnn { CVSS } { invalid-length } { CVSS~vector~"#1"~is~badly~formatted~#2.}
+\msg_new:nnn { CVSS } { wrong-version } { Wrong~CVSS~version~(#2)~#3.}
+\cs_new:Npn \__CVSS_parseAV:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { N } { 0.85 } % Network
+          { A } { 0.62 } % Adjacent
+          { L } { 0.55 } % Local
+          { P } { 0.2 }  % Physical
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parseAV } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_parseAC:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { H } { 0.44 }     % High
+          { L } { 0.77 }     % Low
+
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parseAC } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_parsePRScopeUnchanged:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { N } { 0.85 } % None
+          { L } { 0.62 } % Low
+          { H } { 0.27 } % High
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parsePRScopeUnchanged } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_parsePRScopeChanged:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { N } { 0.85 } % None
+          { L } { 0.68 } % Low
+          { H } { 0.50 } % High
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parsePRScopeChanged } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_parsePR:nn #1#2
+{
+     % #1 Privilege Required
+     % #2 Scope
+     \str_case_e:nnF {#2}
+     {
+          { U } { \exp_args:Ne \__CVSS_parsePRScopeUnchanged:n {#1} }
+          { C } { \exp_args:Ne \__CVSS_parsePRScopeChanged:n {#1} }
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parsePR } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_parseUI:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { N } { 0.85 } % None
+          { R } { 0.62 } % Required
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parseUI } {#1} {\msg_line_context:} }
+}
+
+
+\cs_new:Npn \__CVSS_parseCIA:n #1
+{
+     \str_case_e:nnF {#1}
+     {
+          { H } { 0.56 }
+          { L } { 0.22 }
+          { N } { 0.00 }
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { parseCIA } {#1} {\msg_line_context:} }
+}
+\cs_new:Npn \__CVSS_calcISS:nnn #1#2#3
+{
+     % #1 Confidentiality Impact %High H, Low L, None N
+     % #2 Integrity Impact %High H, Low L, None N
+     % #3 Availability Impact %High H, Low L, None N
+     1 - ( (1 - (\__CVSS_parseCIA:n {#1})) * (1 - (\__CVSS_parseCIA:n {#2})) * (1 - (\__CVSS_parseCIA:n {#3})) )
+}
+\cs_new:Npn \__CVSS_calcImpact:nn #1#2
+{
+     % #1 = Scope
+     % #2 = ISS
+     % Scope Unchanged 6.42 × ISS
+     % Scope Changed 7.52 × [ISS-0.029] - 3.25 × [ISS-0.02]15
+     \str_case_e:nnF {#1}
+     {
+          { U } { \fp_eval:n { 6.42 * (#2) } } % Scope UNCHANGED
+          { C } { \fp_eval:n { 7.52 * ( (#2) - 0.029 ) - 3.25 * ( (#2) - 0.02 )^15 } } % Scope CHANGED
+     }
+     { \msg_error:nnxxx { CVSS } { invalid-option } { calcISC } {#1} {\msg_line_context:} }
+}%
+\cs_new:Npn \__CVSS_calcExploitability:nnnnn #1#2#3#4#5
+{
+     % #1 Attack Vector
+     % #2 Attack Complexity
+     % #3 Privileges Required
+     % #4 User Interaction
+     % #5 Scope
+     % 8.22 × AttackVector × AttackComplexity × PrivilegeRequired × UserInteraction
+     8.22 * (\__CVSS_parseAV:n {#1}) * (\__CVSS_parseAC:n {#2}) * (\__CVSS_parsePR:nn {#3}{#5}) * (\__CVSS_parseUI:n {#4})%
+}
+\cs_new:Npn \__CVSS_cvssBaseScore:nnnnnnnn #1#2#3#4#5#6#7#8 {
+     % #1 Attack Vector %Network N, Adjacent A, Local L, Physical P
+     % #2 Attack Complexity %Low L, High H
+     % #3 Privileges Required %None N, Low L, High H
+     % #4 User Interaction %None N, Required R
+     % #5 Scope %Unchanged U, Changed C
+     % #6 Confidentiality Impact %High H, Low L, None N
+     % #7 Integrity Impact %High H, Low L, None N
+     % #8 Availability Impact %High H, Low L, None N
+     %
+     \fp_compare:nTF { \exp_args:Ne \__CVSS_calcImpact:nn {#5}{\exp_args:Ne \__CVSS_calcISS:nnn {#6}{#7}{#8}} <= 0 }
+     % IF ISC <=0
+     {
+          % ISC <=0
+          0.0
+     }{
+          % ISC > 0
+          \str_case_e:nnF {#5}
+          {
+               { U } { % SCOPE UNCHANGED
+                    \fp_eval:n { \__CVSS_roundup:n { min( ((\__CVSS_calcImpact:nn {#5}{\__CVSS_calcISS:nnn {#6}{#7}{#8}}) + (\__CVSS_calcExploitability:nnnnn {#1}{#2}{#3}{#4}{#5})), 10) } }%
+               }
+               { C } { % SCOPE CHANGED
+                    \fp_eval:n { \__CVSS_roundup:n { min( (1.08 * ((\__CVSS_calcImpact:nn {#5}{\__CVSS_calcISS:nnn {#6}{#7}{#8}}) + (\__CVSS_calcExploitability:nnnnn {#1}{#2}{#3}{#4}{#5}))), 10) } }%
+               }
+          }
+          { \msg_error:nnxxx { CVSS } { invalid-option } { parseScope } {#1} {\msg_line_context:} }
+     }%
+}
+\NewExpandableDocumentCommand \cvssScore { m }{%
+    % Check that there are 44 chars
+    \int_compare:nNnTF { \str_count_ignore_spaces:n {#1} } = {44}{}{
+        \msg_error:nnxx{CVSS}{invalid-length}{#1}{\msg_line_context:}
+    }
+    % Check CVSS: value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {1} {5}} {CVSS:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{AV}{\str_range:nnn {#1} {1} {5}}{\msg_line_context:}
+    }
+    % Check 3.1 value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {6} {8}} {3.1}
+    {} {
+        \msg_error:nnxxx{CVSS}{wrong-version}{3.1}{\str_range:nnn {#1} {6} {8}}{\msg_line_context:}
+    }
+    % Check 3.1 value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {9} {9}} {/}
+    {} {
+        \msg_error:nnxxx{CVSS}{wrong-version}{/}{\str_range:nnn {#1} {9} {9}}{\msg_line_context:}
+    }
+    % Check AV value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {10} {12}} {AV:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{AV}{\str_range:nnn {#1} {10} {12}}{\msg_line_context:}
+    }
+    % Check AC value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {14} {17}} {/AC:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{AC}{\str_range:nnn {#1} {14} {17}}{\msg_line_context:}
+    }
+
+    % Check PR value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {19} {22}} {/PR:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{PR}{\str_range:nnn {#1} {19} {22}}{\msg_line_context:}
+    }
+
+    % Check UI value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {24} {27}} {/UI:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{UI}{\str_range:nnn {#1} {24} {27}}{\msg_line_context:}
+    }
+
+    % Check S value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {29} {31}} {/S:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{S}{\str_range:nnn {#1} {29} {31}}{\msg_line_context:}
+    }
+
+    % Check I value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {33} {35}} {/C:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{C}{\str_range:nnn {#1} {33} {35}}{\msg_line_context:}
+    }
+
+    % Check I value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {37} {39}} {/I:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{I}{\str_range:nnn {#1} {37} {39}}{\msg_line_context:}
+    }
+
+    % Check A value
+    \str_if_eq:eeTF {\str_range:nnn {#1} {41} {43}} {/A:}
+    {} {
+        \msg_error:nnxxx{CVSS}{invalid-structure}{A}{\str_range:nnn {#1} {41} {43}}{\msg_line_context:}
+    }
+
+    \exp_args:Ne \__CVSS_cvssBaseScore:nnnnnnnn
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 13 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 18 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 23 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 28 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 32 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 36 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 40 } }
+    { \str_use:N \str_item_ignore_spaces:nn { #1 }{ 44 } }
+}%
+\ExplSyntaxOff
+\ExplSyntaxOn
+\NewExpandableDocumentCommand \category { m }{%
+     \fp_compare:nNnTF {#1}<{\scoreLow}{None}
+     {
+          \fp_compare:nNnTF{#1}<{\scoreMed}{Low}
+          {
+               \fp_compare:nNnTF{#1}<{\scoreHigh}{Medium}
+               {
+                    \fp_compare:nNnTF{#1}<{\scoreCrit}{High}
+                    {Critical}
+               }%
+          }%
+     }%
+}%
+\ExplSyntaxOff
+\newcommand{\cvssScorepretty}[1]{%
+     \def\CVSScategory{\category{\cvssScore{#1}}}%
+     \textcolor{color@cvss@\CVSScategory}{\cvssScore{#1}}%
+}%
+\newcommand{\cvssLevel}[1]{%
+     \def\CVSSscore{\cvssScore{#1}}%
+     \category{\CVSSscore}%
+}%
+\newcommand{\cvssLevelpretty}[1]{%
+     \def\CVSScategory{\category{\cvssScore{#1}}}%
+     \textcolor{color@cvss@\CVSScategory}{\CVSScategory}%
+}%
+\DeclareTotalTCBox{\cvssFrame}{m}{
+     enhanced,nobeforeafter,
+     tcbox raise base,
+     boxrule=0.4pt,
+     top=0mm,bottom=0mm,right=1mm,left=1mm,
+     arc=1pt,
+     boxsep=2pt,
+     colframe=color@cvss@#1,
+     colback=tcbcolframe,
+     coltext=black,
+}{#1}%
+
+\MakeRobust\cvssFrame
+\newcommand{\cvssTag}[1]{%
+     \def\CVSSscore{\cvssScore{#1}}%
+     \cvssFrame{\category{\CVSSscore}}%
+}%
+\newcommand{\cvssPrint}[1]{%
+     \def\CVSSscore{\cvssScore{#1}}
+     \cvssFrame{\category{\CVSSscore}} \quad \CVSSscore \quad%
+     \href{https://www.first.org/cvss/calculator/3.1\##1}{#1}
+}%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 
+%% Copyright (C) 2022 by Pierre VIVEGNIS <pierre@vivegnis.be>
+%% 
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License (LPPL), either
+%% version 1.3c of this license or (at your option) any later
+%% version.  The latest version of this license is in the file:
+%% 
+%% http://www.latex-project.org/lppl.txt
+%% 
+%% This work is "maintained" (as per LPPL maintenance status) by
+%% Pierre VIVEGNIS.
+%% 
+%% This work consists of the file  cvss.dtx
+%% and the derived files           cvss.ins,
+%%                                 cvss.pdf and
+%%                                 cvss.sty.
+%% 
+%%
+%% End of file `cvss.sty'.

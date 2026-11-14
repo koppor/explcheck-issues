@@ -1,0 +1,358 @@
+%%
+%% This is file `invoice2.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% invoice2.dtx  (with options: `package')
+%% 
+%% Copyright (C) 2017-2018 Simon Dierl
+%% 
+%% This program is free software: you can redistribute it and/or modify
+%% it under the terms of the GNU General Public License as published by
+%% the Free Software Foundation, either version 3 of the License, or
+%% (at your option) any later version.
+%% 
+%% This program is distributed in the hope that it will be useful,
+%% but WITHOUT ANY WARRANTY; without even the implied warranty of
+%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%% GNU General Public License for more details.
+%% 
+%% You should have received a copy of the GNU General Public License
+%% along with this program.  If not, see <http://www.gnu.org/licenses/>.
+%% 
+    %    \invoicesingleitem{Ignition!}{4087.99}
+    %    \invoicesingleitem{The Art of Computer Programming 1--4}{162.99}
+    %    \invoicesingleitem{The TeXbook}{55.69}
+    % \end{invoice}
+\RequirePackage{booktabs}
+\RequirePackage{expl3}
+\RequirePackage{l3keys2e}
+\RequirePackage{longtable}
+\RequirePackage{siunitx}
+\RequirePackage{translations}
+\PassOptionsToPackage{table}{xcolor}
+\RequirePackage{xcolor}
+\RequirePackage{xparse}
+\ProvidesExplPackage{invoice2}{2018/01/15}{1.2}
+    {Intelligent invoices with LaTeX3}
+\LoadDictionaryFor{english}{invoice2}
+\LoadDictionaryFor{german}{invoice2}
+\LoadDictionaryFor{swissgerman}{invoice2}
+\DeclareTranslationFallback{invoice2-thousands-sep}{\,}
+\DeclareTranslationFallback{invoice2-decimal-point}{.}
+\DeclareTranslationFallback{invoice2-amount}{Amount}
+\DeclareTranslationFallback{invoice2-item}{Item}
+\DeclareTranslationFallback{invoice2-vat}{VAT}
+\DeclareTranslationFallback{invoice2-unit-price}{Unit~Price}
+\DeclareTranslationFallback{invoice2-price}{Price}
+\DeclareTranslationFallback{invoice2-net-total}{Net~Total}
+\DeclareTranslationFallback{invoice2-vat-total}{VAT}
+\DeclareTranslationFallback{invoice2-gross-total}{Gross~Total}
+\fp_new:N \l__invoicetwo_vat_fp
+\bool_new:N \l__invoicetwo_included_vat_bool
+\tl_new:N \l__invoicetwo_currency_symbol_tl
+\int_new:N \l__invoicetwo_currency_fraction_digits_int
+\bool_new:N \l__invoicetwo_currency_in_header_bool
+\bool_new:N \l__invoicetwo_colorize_bool
+\tl_new:N \l__invoicetwo_odd_color_tl
+\tl_set:Nn \l__invoicetwo_odd_color_tl {white}
+\tl_new:N \l__invoicetwo_even_color_tl
+\tl_set:Nn \l__invoicetwo_even_color_tl {lightgray}
+\tl_new:N \l__invoicetwo_title_color_tl
+\tl_set:Nn \l__invoicetwo_title_color_tl {white}
+\tl_new:N \l__invoicetwo_total_color_tl
+\tl_set:Nn \l__invoicetwo_total_color_tl {white}
+\bool_new:N \l__invoicetwo_in_invoice_bool
+\int_new:N \g__invoicetwo_row_number_int
+\bool_new:N \l__invoicetwo_vat_nonzero_bool
+\bool_new:N \l__invoicetwo_amount_nonone_bool
+\fp_new:N \l__invoicetwo_net_total_fp
+\fp_new:N \l__invoicetwo_vat_total_fp
+\fp_new:N \l__invoicetwo_gross_total_fp
+\tl_new:N \l__invoicetwo_tabular_tl
+\keys_define:nn {invoice2} {
+    vat .fp_set:N = \l__invoicetwo_vat_fp,
+    vat .value_required:n = true,
+    vat .initial:n = 0,
+    included-vat .bool_set:N = \l__invoicetwo_included_vat_bool,
+    included-vat .initial:n = false,
+    currency-symbol .tl_set:N = \l__invoicetwo_currency_symbol_tl,
+    currency-symbol .value_required:n = true,
+    currency-symbol .initial:n = {\$},
+    currency-fraction-digits .int_set:N = \l__invoicetwo_currency_fraction_digits_int,
+    currency-fraction-digits .value_required:n = true,
+    currency-fraction-digits .initial:n = 2,
+    currency-in-header .bool_set:N = \l__invoicetwo_currency_in_header_bool,
+    currency-in-header .initial:n = false,
+    colorize .bool_set:N = \l__invoicetwo_colorize_bool,
+    colorize .initial:n = false,
+    odd-color .initial:n = white,
+    odd-color .value_required:n = true,
+    odd-color .tl_set:N = \l__invoicetwo_odd_color_tl,
+    even-color .initial:n = lightgray,
+    even-color .value_required:n = true,
+    even-color .tl_set:N = \l__invoicetwo_even_color_tl,
+    title-color .initial:n = white,
+    title-color .value_required:n = true,
+    title-color .tl_set:N = \l__invoicetwo_title_color_tl,
+    total-color .initial:n = white,
+    total-color .value_required:n = true,
+    total-color .tl_set:N = \l__invoicetwo_total_color_tl
+}
+\ProcessKeysOptions{invoice2}
+\NewDocumentCommand{\invoiceoptions}{m}{
+    \keys_set:nn {invoice2} {#1}
+}
+\cs_new:Nn {\__invoicetwo_print_begin_table:}{
+    \exp_args:Nx \longtable {
+        \bool_if:NT \l__invoicetwo_amount_nonone_bool { c }
+        l
+        \bool_if:NT \l__invoicetwo_vat_nonzero_bool { c }
+        r
+        \bool_if:nT { \l__invoicetwo_amount_nonone_bool || \l__invoicetwo_vat_nonzero_bool } { r }
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_column_title:n}{
+    \multicolumn{1}{c}{
+        \bool_if:NT \l__invoicetwo_colorize_bool {
+            \cellcolor{ \l__invoicetwo_title_color_tl }
+        }
+        \begin{scriptsize}
+            \textbf{#1}
+        \end{scriptsize}}
+}
+\cs_new:Nn {\__invoicetwo_print_amount_title:}{
+    \bool_if:NT \l__invoicetwo_amount_nonone_bool {
+        \__invoicetwo_print_column_title:n {\GetTranslation{invoice2-amount}} &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_item_title:}{
+    \__invoicetwo_print_column_title:n {\GetTranslation{invoice2-item}} &
+}
+\cs_new:Nn {\__invoicetwo_print_vat_title:}{
+    \bool_if:NT \l__invoicetwo_vat_nonzero_bool {
+        \__invoicetwo_print_column_title:n {\GetTranslation{invoice2-vat}} &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_unit_price_title:}{
+    \bool_if:nT { \l__invoicetwo_amount_nonone_bool || \l__invoicetwo_vat_nonzero_bool } {
+        \__invoicetwo_print_column_title:n {
+            \GetTranslation{invoice2-unit-price}
+            \bool_if:NT \l__invoicetwo_currency_in_header_bool {
+                \ (\tl_use:N \l__invoicetwo_currency_symbol_tl)
+            }
+        } &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_price_title:}{
+    \__invoicetwo_print_column_title:n {\GetTranslation{invoice2-price}
+        \bool_if:NT \l__invoicetwo_currency_in_header_bool {
+            \ (\tl_use:N \l__invoicetwo_currency_symbol_tl)
+        }
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_header:}{
+    \__invoicetwo_print_begin_table:
+    \toprule
+    \__invoicetwo_print_amount_title:
+    \__invoicetwo_print_item_title:
+    \__invoicetwo_print_vat_title:
+    \__invoicetwo_print_unit_price_title:
+    \__invoicetwo_print_price_title:
+    \\
+    \midrule
+}
+\cs_new:Nn {\__invoicetwo_print_real_value:n}{
+    \num[round-integer-to-decimal,
+    group-minimum-digits=4,
+    group-separator={\GetTranslation{invoice2-thousands-sep}},
+    output-decimal-marker={\GetTranslation{invoice2-decimal-point}}]{
+        #1
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_currency_value:n}{
+    \num[round-precision={\int_use:N \l__invoicetwo_currency_fraction_digits_int},
+    round-mode=places,
+    round-integer-to-decimal,
+    group-minimum-digits=4,
+    group-separator={\GetTranslation{invoice2-thousands-sep}},
+    output-decimal-marker={\GetTranslation{invoice2-decimal-point}}]{
+        #1
+    }
+    \bool_if:NF \l__invoicetwo_currency_in_header_bool {
+        \, \tl_use:N \l__invoicetwo_currency_symbol_tl
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_currency_value:N}{
+    \__invoicetwo_print_currency_value:n {\fp_use:N #1}
+}
+\cs_new:Nn {\__invoicetwo_print_percentage:n}{
+    \num[round-integer-to-decimal,
+    group-minimum-digits=4,
+    group-separator={\GetTranslation{invoice2-thousands-sep}},
+    output-decimal-marker={\GetTranslation{invoice2-decimal-point}}]{
+        \fp_eval:n {#1 * 100}
+    }
+    \, \%
+}
+\cs_new:Nn {\__invoicetwo_update_trackers:nn}{
+    \fp_compare:nT {#1 != 1}{
+        \bool_set_true:N \l__invoicetwo_amount_nonone_bool
+    }
+    \fp_compare:nT {#2 != 0}{
+        \bool_set_true:N \l__invoicetwo_vat_nonzero_bool
+    }
+}
+\cs_new:Nn {\__invoicetwo_update_totals:nnn}{
+    \fp_add:Nn \l__invoicetwo_gross_total_fp {
+        #1 * #3 \bool_if:NF \l__invoicetwo_included_vat_bool { * (1 + #2) }
+    }
+    \fp_add:Nn \l__invoicetwo_vat_total_fp {
+        #1 * #2 * #3 \bool_if:NT \l__invoicetwo_included_vat_bool { / (1 + #2) }
+    }
+    \fp_add:Nn \l__invoicetwo_net_total_fp {
+        #1 * #3 \bool_if:NT \l__invoicetwo_included_vat_bool { / (1 + #2) }
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_amount:n}{
+    \bool_if:NT \l__invoicetwo_amount_nonone_bool {
+        \__invoicetwo_print_real_value:n {#1} &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_item:n}{
+    #1 &
+}
+\cs_new:Nn {\__invoicetwo_print_vat:n}{
+    \bool_if:NT \l__invoicetwo_vat_nonzero_bool {
+        \__invoicetwo_print_percentage:n {#1} &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_unit_price:nn}{
+    \bool_if:nT { \l__invoicetwo_amount_nonone_bool || \l__invoicetwo_vat_nonzero_bool } {
+        \__invoicetwo_print_currency_value:n {
+            \fp_eval:n {
+                #2 \bool_if:NT \l__invoicetwo_included_vat_bool { / (1 + #1) }
+            }
+        } &
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_price:nnn}{
+    \__invoicetwo_print_currency_value:n {
+        \fp_eval:n {
+            #1 \bool_if:NF \l__invoicetwo_included_vat_bool { * (1 + #2) } * #3
+        }
+    }
+}
+\cs_new:Nn {\__invoicetwo_colorize_row:}{
+    \bool_if:NT \l__invoicetwo_colorize_bool {
+        \int_if_odd:nTF \g__invoicetwo_row_number_int {
+            \rowcolor{ \l__invoicetwo_odd_color_tl }
+        }
+        {
+            \rowcolor{ \l__invoicetwo_even_color_tl }
+        }
+    }
+    \int_gincr:N \g__invoicetwo_row_number_int
+}
+\cs_new:Nn {\__invoicetwo_add_row:nnnn}{
+    \__invoicetwo_update_trackers:nn {#1} {#3}
+    \__invoicetwo_update_totals:nnn {#1} {#3} {#4}
+    \tl_put_right:Nn \l__invoicetwo_tabular_tl {
+        \__invoicetwo_colorize_row:
+        \__invoicetwo_print_amount:n {#1}
+        \__invoicetwo_print_item:n {#2}
+        \__invoicetwo_print_vat:n {#3}
+        \__invoicetwo_print_unit_price:nn {#3} {#4}
+        \__invoicetwo_print_price:nnn {#1} {#3} {#4} \\
+    }
+}
+\NewDocumentCommand{\invoiceitem}{ommm}{
+    \__invoicetwo_add_row:nnnn {#2} {#3}
+        {\IfValueTF{#1}{#1}{\fp_use:N \l__invoicetwo_vat_fp}}
+        {#4}
+}
+\NewDocumentCommand{\invoicesingleitem}{omm}{
+    \__invoicetwo_add_row:nnnn {1} {#2}
+        {\IfValueTF{#1}{#1}{\fp_use:N \l__invoicetwo_vat_fp}}
+        {#3}
+}
+\cs_new:Nn {\__invoicetwo_print_multicolumn_count:}{
+    \int_eval:n {
+        1
+        \bool_if:NT \l__invoicetwo_vat_nonzero_bool {+1}
+        \bool_if:NT \l__invoicetwo_amount_nonone_bool {+1}
+        \bool_if:nT { \l__invoicetwo_amount_nonone_bool || \l__invoicetwo_vat_nonzero_bool } {+1}
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_footer_item:n}{
+    \multicolumn{\__invoicetwo_print_multicolumn_count:}{r}{
+        \bool_if:NT \l__invoicetwo_colorize_bool {
+            \cellcolor{ \l__invoicetwo_total_color_tl }
+        }
+        \textbf{#1}
+    } & \bool_if:NT \l__invoicetwo_colorize_bool {
+        \cellcolor{ \l__invoicetwo_total_color_tl }
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_net_item:}{
+    \bool_if:NT \l__invoicetwo_vat_nonzero_bool {
+        \__invoicetwo_print_footer_item:n {
+            \GetTranslation{invoice2-net-total}
+            \bool_if:NT \l__invoicetwo_currency_in_header_bool {
+                \ (\tl_use:N \l__invoicetwo_currency_symbol_tl)
+            }
+        }
+        \__invoicetwo_print_currency_value:N \l__invoicetwo_net_total_fp \\
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_vat_item:}{
+    \bool_if:NT \l__invoicetwo_vat_nonzero_bool {
+        \__invoicetwo_print_footer_item:n {\GetTranslation{invoice2-vat-total}}
+        \__invoicetwo_print_currency_value:N \l__invoicetwo_vat_total_fp \\
+    }
+}
+\cs_new:Nn {\__invoicetwo_print_gross_item:}{
+    \__invoicetwo_print_footer_item:n {
+        \GetTranslation{invoice2-gross-total}
+        \bool_if:NT \l__invoicetwo_currency_in_header_bool {
+            \ (\tl_use:N \l__invoicetwo_currency_symbol_tl)
+        }
+    }
+    \__invoicetwo_print_currency_value:N \l__invoicetwo_gross_total_fp \\
+}
+\cs_new:Nn {\__invoicetwo_print_footer:}{
+    \midrule
+    \__invoicetwo_print_net_item:
+    \__invoicetwo_print_vat_item:
+    \__invoicetwo_print_gross_item:
+    \bottomrule
+    \endlongtable
+}
+\cs_new:Nn {\__invoicetwo_begin_invoice:n}{
+    \bool_if:NT \l__invoicetwo_in_invoice_bool {
+        \msg_error:nn {invoice2} {nested-invoice}
+    }
+    \bool_set_true:N \l__invoicetwo_in_invoice_bool
+    \int_gset:Nn \g__invoicetwo_row_number_int {1}
+    \keys_set:nn {invoice2} {#1}
+}
+\cs_new:Nn {\__invoicetwo_end_invoice:}{
+    \__invoicetwo_print_header:
+    \tl_use:N \l__invoicetwo_tabular_tl
+    \__invoicetwo_print_footer:
+}
+\NewDocumentEnvironment{invoice}{o}{
+    \IfValueTF{#1}{\__invoicetwo_begin_invoice:n {#1}}{\__invoicetwo_begin_invoice:n {}}
+}
+{
+    \__invoicetwo_end_invoice:
+}
+\msg_new:nnnn {invoice2} {nested-invoice}
+    {\msg_error_text:n {invoice2}:~%
+    Nested~invoice~environments~are~not~supported.}
+    {Invoices~can~not~contain~invoices.\\%
+    Please~check~your~environment~delimiters.}
+%% 
+%%
+%% End of file `invoice2.sty'.
