@@ -1,0 +1,395 @@
+%%
+%% magicthegathering.sty  --  LaTeX support for Magic: The Gathering
+%%
+%% Copyright (C) 2024--2026  Hypergeomancer
+%%
+%% This work may be distributed and/or modified under the conditions
+%% of the LaTeX Project Public License, either version 1.3c of this
+%% license or (at your option) any later version.
+%% The latest version of this license is in
+%%
+%%   https://www.latex-project.org/lppl/lppl-1-3c/
+%%
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Hypergeomancer.
+%%
+%% Magic: The Gathering, the mana symbols, the tap symbol, the set
+%% symbols, and all associated card names and game elements are
+%% trademarks and/or copyrighted materials of Wizards of the Coast LLC
+%% and/or its affiliates.  All rights in such materials are reserved
+%% by Wizards of the Coast.  This package is an unofficial fan project
+%% and is not produced, endorsed, supported, or affiliated with
+%% Wizards of the Coast.
+%%
+%% Mana and set symbol SVG artwork is from the Mana and Keyrune
+%% projects by Andrew Gioia, released under the SIL Open Font
+%% Licence 1.1.
+%%
+%% Symbol artwork last updated: December 2025.
+%% Newer sets may not yet be included.
+%%
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\ProvidesPackage{magicthegathering}
+  [2026/03/21 v1.1 Magic: The Gathering typesetting (Hypergeomancer)]
+
+%% ============================================================
+%% 1.  PACKAGE OPTIONS
+%% ============================================================
+
+\RequirePackage{pgfopts}
+
+\newif\if@mtg@hyperref  \@mtg@hyperreftrue
+\newif\if@mtg@color     \@mtg@colortrue
+\newif\if@mtg@links     \@mtg@linkstrue
+
+\pgfkeys{
+  /magicthegathering/.cd,
+  hyperref/.is if   = @mtg@hyperref,
+  colorlinks/.is if = @mtg@color,
+  activelinks/.is if = @mtg@links,
+  symbolpath/.store in = \mtg@symbolpath,
+  setpath/.store in    = \mtg@setpath,
+  symbolprefix/.store in = \mtg@symbolprefix,
+  setprefix/.store in    = \mtg@setprefix,
+  hyperref    = true,
+  colorlinks  = true,
+  activelinks = true,
+  symbolpath  = {symbols},
+  setpath     = {sets},
+  symbolprefix = {mtg-sym-},
+  setprefix    = {mtg-set-},
+}
+\ProcessPgfOptions{/magicthegathering}
+
+%% ============================================================
+%% 2.  REQUIRED PACKAGES
+%% ============================================================
+
+\RequirePackage{graphicx}
+\RequirePackage{svg}
+\RequirePackage{xstring}
+\RequirePackage{booktabs}
+\RequirePackage{array}
+\RequirePackage{multicol}
+\RequirePackage{enumitem}
+\RequirePackage{xcolor}
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+
+\if@mtg@hyperref
+  \RequirePackage{hyperref}
+  \if@mtg@color
+    \hypersetup{
+      colorlinks = true,
+      linkcolor  = black,
+      urlcolor   = blue!70!black,
+      pdfborder  = {0 0 0},
+    }
+  \fi
+\fi
+
+%% ============================================================
+%% 3.  LENGTHS
+%% ============================================================
+
+\newlength{\mtg@symht}    \setlength{\mtg@symht}{0.8em}
+\newlength{\mtg@setsymht} \setlength{\mtg@setsymht}{1em}
+
+%% ============================================================
+%% 4.  IMPLEMENTATION  (single ExplSyntaxOn block)
+%% ============================================================
+
+\ExplSyntaxOn
+
+%% ---  Internal helpers  ---
+
+%% Graphic loader: prefers .pdf, falls back to .svg.
+%% #1 = height, #2 = directory, #3 = file prefix, #4 = user id
+\cs_new_protected:Nn \mtg__graphic:nnnn
+  {
+    \file_if_exist:nTF { #2 / #3 #4 .pdf }
+      { \includegraphics [ height = #1 ] { #2 / #3 #4 .pdf } }
+      { \includesvg       [ height = #1 ] { #2 / #3 #4 } }
+  }
+
+%% -----------------------------------------------------------------
+%% 4a.  MANA SYMBOLS
+%% -----------------------------------------------------------------
+
+\NewDocumentCommand \setmanasymbolsize { m }
+  { \setlength { \mtg@symht } {#1} }
+
+\NewDocumentCommand \mana { m }
+  {
+    \raisebox { -0.2ex }
+      { \mtg__graphic:nnnn { \the\mtg@symht } { \mtg@symbolpath } { \mtg@symbolprefix } {#1} }
+  }
+
+\NewDocumentCommand \manacost { m }
+  {
+    \seq_set_split:Nnn \l_tmpa_seq { ~ } {#1}
+    \seq_map_inline:Nn \l_tmpa_seq
+      { \tl_if_empty:nF {##1} { \mana {##1} } }
+  }
+
+\NewDocumentCommand \manaW {} { \mana{W} }
+\NewDocumentCommand \manaU {} { \mana{U} }
+\NewDocumentCommand \manaB {} { \mana{B} }
+\NewDocumentCommand \manaR {} { \mana{R} }
+\NewDocumentCommand \manaG {} { \mana{G} }
+\NewDocumentCommand \manaC {} { \mana{C} }
+
+%% -----------------------------------------------------------------
+%% 4b.  SET SYMBOLS
+%% -----------------------------------------------------------------
+
+\NewDocumentCommand \setsetsymbolsize { m }
+  { \setlength { \mtg@setsymht } {#1} }
+
+\NewDocumentCommand \setsymbol { m }
+  {
+    \raisebox { -0.4ex }
+      { \mtg__graphic:nnnn { \the\mtg@setsymht } { \mtg@setpath } { \mtg@setprefix } {#1} }
+  }
+
+%% -----------------------------------------------------------------
+%% 4c.  CARD LINKS  -- defined after \ExplSyntaxOff; see below.
+%% -----------------------------------------------------------------
+
+%% -----------------------------------------------------------------
+%% 4d.  MATCHUP ENVIRONMENT  (sideboard guide)
+%% -----------------------------------------------------------------
+
+\seq_new:N \l__mtg_in_seq
+\seq_new:N \l__mtg_out_seq
+\int_new:N \l__mtg_matchup_len_int
+\tl_new:N  \g__mtg_matchup_body_tl
+
+\NewDocumentCommand \initem  { m }
+  { \seq_put_right:Nn \l__mtg_in_seq  {#1} }
+\NewDocumentCommand \outitem { m }
+  { \seq_put_right:Nn \l__mtg_out_seq {#1} }
+
+\cs_new_protected:Nn \__mtg_sort_seq:N
+  {
+    \seq_sort:Nn #1
+      {
+        \str_compare:nNnTF {##1} > {##2}
+          { \sort_return_swapped: }
+          { \sort_return_same:    }
+      }
+  }
+
+\NewDocumentEnvironment { matchup } {}
+  {
+    \seq_clear:N \l__mtg_in_seq
+    \seq_clear:N \l__mtg_out_seq
+  }
+  {
+    \__mtg_sort_seq:N \l__mtg_in_seq
+    \__mtg_sort_seq:N \l__mtg_out_seq
+    \int_set:Nn \l__mtg_matchup_len_int
+      {
+        \int_max:nn { \seq_count:N \l__mtg_in_seq }
+                    { \seq_count:N \l__mtg_out_seq }
+      }
+    \tl_gclear:N \g__mtg_matchup_body_tl
+    \int_step_inline:nn { \l__mtg_matchup_len_int }
+      {
+        \tl_gput_right:Nx \g__mtg_matchup_body_tl
+          {
+            \seq_item:Nn \l__mtg_in_seq  {##1} &
+            \seq_item:Nn \l__mtg_out_seq {##1} \\
+          }
+      }
+    \begin{center}
+      \begin{tabular}{ @{} l @{\hspace{2em}} l @{} }
+        \toprule
+        \multicolumn{1}{c}{\textbf{IN}} &
+        \multicolumn{1}{c}{\textbf{OUT}} \\
+        \midrule
+        \tl_use:N \g__mtg_matchup_body_tl
+        \bottomrule
+      \end{tabular}
+    \end{center}
+  }
+
+%% -----------------------------------------------------------------
+%% 4e.  DECK-LIST IMPORT
+%% -----------------------------------------------------------------
+
+\seq_new:N  \l__mtg_main_seq
+\seq_new:N  \l__mtg_side_seq
+\bool_new:N \l__mtg_in_side_bool
+\int_new:N  \l__mtg_main_total_int
+\int_new:N  \l__mtg_side_total_int
+
+\cs_new_protected:Nn \__mtg_deck_reset:
+  {
+    \seq_clear:N  \l__mtg_main_seq
+    \seq_clear:N  \l__mtg_side_seq
+    \int_zero:N   \l__mtg_main_total_int
+    \int_zero:N   \l__mtg_side_total_int
+    \bool_set_false:N \l__mtg_in_side_bool
+  }
+
+\cs_new_protected:Nn \__mtg_deck_parse_line:n
+  {
+    \tl_set:Nn \l_tmpa_tl {#1}
+    \tl_trim_spaces:N \l_tmpa_tl
+    \str_if_eq:VnTF \l_tmpa_tl { SIDEBOARD }
+      { \bool_set_true:N \l__mtg_in_side_bool }
+      {
+        \tl_if_empty:NF \l_tmpa_tl
+          {
+            \seq_set_split:NnV \l_tmpb_seq { ~ } \l_tmpa_tl
+            \tl_set:Nx \l_tmpc_tl { \seq_item:Nn \l_tmpb_seq {1} }
+            \seq_pop_left:NN \l_tmpb_seq \l_tmpd_tl
+            \tl_set:Nx \l_tmpe_tl { \seq_use:Nn \l_tmpb_seq { ~ } }
+            \bool_if:NTF \l__mtg_in_side_bool
+              {
+                \int_add:Nn \l__mtg_side_total_int { \l_tmpc_tl }
+                \seq_put_right:Nx \l__mtg_side_seq
+                  { \tl_use:N \l_tmpc_tl \c_space_tl \tl_use:N \l_tmpe_tl }
+              }
+              {
+                \int_add:Nn \l__mtg_main_total_int { \l_tmpc_tl }
+                \seq_put_right:Nx \l__mtg_main_seq
+                  { \tl_use:N \l_tmpc_tl \c_space_tl \tl_use:N \l_tmpe_tl }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Nn \__mtg_deck_format_entry:n
+  {
+    \seq_set_split:Nnn \l_tmpa_seq { ~ } {#1}
+    \tl_set:Nx \l_tmpc_tl { \seq_item:Nn \l_tmpa_seq {1} }
+    \seq_pop_left:NN \l_tmpa_seq \l_tmpd_tl
+    \tl_set:Nx \l_tmpe_tl { \seq_use:Nn \l_tmpa_seq { ~ } }
+    \item[] \tl_use:N \l_tmpc_tl \c_space_tl \card { \tl_use:N \l_tmpe_tl }
+  }
+
+\msg_new:nnn { mtg } { deck-not-found }
+  { Deck-list~file~'#1'~not~found.~Check~the~file~path. }
+
+\NewDocumentCommand \insertdeck { m }
+  {
+    \__mtg_deck_reset:
+    \file_if_exist:nTF {#1}
+      {
+        \ior_open:Nn  \g_tmpa_ior {#1}
+        \ior_map_inline:Nn \g_tmpa_ior
+          { \__mtg_deck_parse_line:n {##1} }
+        \ior_close:N  \g_tmpa_ior
+      }
+      { \msg_error:nnn { mtg } { deck-not-found } {#1} }
+    \noindent\rule{\linewidth}{0.4pt}\par\nobreak
+    \begin{multicols}{2}
+      \begin{itemize}[leftmargin=*,itemsep=0pt,parsep=1pt,topsep=2pt]
+        \item[] \textbf{Maindeck}~(\int_use:N \l__mtg_main_total_int)
+        \seq_map_function:NN \l__mtg_main_seq \__mtg_deck_format_entry:n
+      \end{itemize}
+      \int_compare:nNnT { \l__mtg_side_total_int } > { 0 }
+        {
+          \vfill\columnbreak
+          \begin{itemize}[leftmargin=*,itemsep=0pt,parsep=1pt,topsep=2pt]
+            \item[] \textbf{Sideboard}~(\int_use:N \l__mtg_side_total_int)
+            \seq_map_function:NN \l__mtg_side_seq \__mtg_deck_format_entry:n
+          \end{itemize}
+        }
+    \end{multicols}
+    \noindent\rule{\linewidth}{0.4pt}\par
+  }
+
+%% -----------------------------------------------------------------
+%% 4f.  MATCH RESULTS TABLE
+%% -----------------------------------------------------------------
+
+\seq_new:N \g__mtg_results_seq
+\int_new:N \g__mtg_wins_int
+\int_new:N \g__mtg_losses_int
+\int_new:N \g__mtg_draws_int
+\tl_new:N  \g__mtg_results_body_tl
+
+\NewDocumentCommand \matchresult { m m m m m }
+  {
+    \seq_gput_right:Nn \g__mtg_results_seq { #1 & #2 & #3 & #4 & #5 }
+    \str_case:nn {#5}
+      {
+        { Win  } { \int_gincr:N \g__mtg_wins_int   }
+        { Loss } { \int_gincr:N \g__mtg_losses_int }
+        { Draw } { \int_gincr:N \g__mtg_draws_int  }
+      }
+  }
+
+\NewDocumentEnvironment { matchresults } {}
+  {
+    \seq_gclear:N \g__mtg_results_seq
+    \tl_gclear:N  \g__mtg_results_body_tl
+    \int_gzero:N  \g__mtg_wins_int
+    \int_gzero:N  \g__mtg_losses_int
+    \int_gzero:N  \g__mtg_draws_int
+  }
+  {
+    \seq_map_inline:Nn \g__mtg_results_seq
+      { \tl_gput_right:Nn \g__mtg_results_body_tl { ##1 \\ } }
+    \begin{center}
+      \begin{tabular}{ @{} c l l c c @{} }
+        \toprule
+        \textbf{Round} & \textbf{Opponent} & \textbf{Deck} &
+        \textbf{Score} & \textbf{Result} \\
+        \midrule
+        \tl_use:N \g__mtg_results_body_tl
+        \bottomrule
+      \end{tabular}
+    \end{center}
+    \medskip
+    \noindent
+    \textbf{Record:}~%
+    \int_use:N \g__mtg_wins_int
+    --\int_use:N \g__mtg_losses_int
+    --\int_use:N \g__mtg_draws_int
+    \quad
+    (\int_eval:n
+      { \g__mtg_wins_int + \g__mtg_losses_int + \g__mtg_draws_int }
+    ~{$\ $}matches)
+  }
+
+\ExplSyntaxOff
+
+%% -----------------------------------------------------------------
+%% 5.  CARD LINKS  (outside ExplSyntaxOn to avoid catcode conflicts
+%%     between expl3 and hyperref)
+%%
+%%     When activelinks=false, \card produces plain \textit and
+%%     \cardlink produces plain text with no hyperlink.
+%% -----------------------------------------------------------------
+
+\makeatletter
+\newcommand*{\card}[1]{%
+  \if@mtg@links
+    \StrSubstitute{#1}{ }{+}[\mtg@cardurl]%
+    \href{https://scryfall.com/search?q=\mtg@cardurl}{\textit{#1}}%
+  \else
+    \textit{#1}%
+  \fi
+}
+\newcommand*{\cardlink}[2]{%
+  \if@mtg@links
+    \StrSubstitute{#1}{ }{+}[\mtg@cardurl]%
+    \href{https://scryfall.com/search?q=\mtg@cardurl}{#2}%
+  \else
+    #2%
+  \fi
+}
+\makeatother
+
+%% ============================================================
+\endinput
+%%
+%% End of file `magicthegathering.sty'.

@@ -1,0 +1,493 @@
+%% calendar-grid.sty -- deterministic calendar grids for LaTeX
+%% Copyright (C) 2026 Mateo Pedersen
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, version 1.3c or (at your option) any later
+%% version. The latest version is at https://www.latex-project.org/lppl/.
+%% This work has LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Mateo Pedersen.
+%% The maintainer can be contacted through the repository issue tracker:
+%% https://github.com/mateopedersen/calendar-grid-latex/issues
+%% This work consists of all files listed in manifest.txt.
+\NeedsTeXFormat{LaTeX2e}[2020-10-01]
+\ProvidesExplPackage{calendar-grid}{2026-10-06}{1.0.0}
+  {Deterministic month and year calendar grids}
+\RequirePackage{array}
+\ExplSyntaxOn
+
+\msg_new:nnn { calendar-grid } { bad-date }
+  { Invalid~Gregorian~date~'#1'.~Use~YYYY-MM-DD~from~0001-01-01~to~9999-12-31. }
+\msg_new:nnn { calendar-grid } { bad-month }
+  { Month~'#1'~must~be~an~integer~from~1~to~12. }
+\msg_new:nnn { calendar-grid } { bad-year }
+  { Year~'#1'~must~be~an~integer~from~1~to~9999. }
+\msg_new:nnn { calendar-grid } { bad-list }
+  { The~'#1'~label~list~must~contain~exactly~#2~items. }
+\msg_new:nnn { calendar-grid } { bad-columns }
+  { Year~overview~columns~must~be~an~integer~from~1~to~4. }
+\msg_new:nnn { calendar-grid } { reversed-range }
+  { Range~start~date~'#1'~must~not~be~after~'#2'. }
+
+\int_new:N \l__cg_year_int
+\int_new:N \l__cg_month_int
+\int_new:N \l__cg_columns_int
+\int_new:N \l__cg_week_start_int
+\int_new:N \l__cg_month_days_int
+\int_new:N \l__cg_first_weekday_int
+\int_new:N \l__cg_offset_int
+\int_new:N \l__cg_rows_int
+\int_new:N \l__cg_cells_int
+\int_new:N \l__cg_index_int
+\int_new:N \l__cg_cell_year_int
+\int_new:N \l__cg_cell_month_int
+\int_new:N \l__cg_cell_day_int
+\int_new:N \l__cg_cell_weekday_int
+\int_new:N \l__cg_cell_row_int
+\int_new:N \l__cg_cell_column_int
+\int_new:N \l__cg_cell_serial_int
+\int_new:N \l__cg_serial_int
+\int_new:N \l__cg_date_year_int
+\int_new:N \l__cg_date_month_int
+\int_new:N \l__cg_date_day_int
+\int_new:N \l__cg_jdn_a_int
+\int_new:N \l__cg_jdn_y_int
+\int_new:N \l__cg_jdn_m_int
+\int_new:N \l__cg_jdn_int
+\int_new:N \l__cg_range_id_int
+\int_new:N \l__cg_range_start_int
+\int_new:N \l__cg_range_end_int
+\int_new:N \l__cg_range_counter_int
+\int_new:N \g__cg_range_id_int
+\bool_new:N \l__cg_leap_bool
+\bool_new:N \l__cg_cell_current_bool
+\bool_new:N \l__cg_cell_range_bool
+\bool_new:N \l__cg_cell_weekend_bool
+\bool_new:N \l__cg_date_valid_bool
+\dim_new:N \l__cg_cell_width_dim
+\dim_new:N \l__cg_cell_height_dim
+\dim_new:N \l__cg_header_height_dim
+\dim_new:N \l__cg_row_gap_dim
+\dim_new:N \l__cg_column_gap_dim
+\dim_new:N \l__cg_year_cell_width_dim
+\tl_new:N \l__cg_layout_tl
+\tl_new:N \l__cg_overflow_tl
+\tl_new:N \l__cg_date_tl
+\tl_new:N \l__cg_iso_tl
+\tl_new:N \l__cg_event_tl
+\tl_new:N \l__cg_range_styles_tl
+\tl_new:N \l__cg_range_style_tl
+\tl_new:N \l__cg_year_shortnames_tl
+\seq_new:N \l__cg_date_match_seq
+\seq_new:N \l__cg_month_names_seq
+\seq_new:N \l__cg_weekday_names_seq
+\seq_new:N \l__cg_weekday_short_names_seq
+\seq_new:N \l__cg_active_range_styles_seq
+\seq_new:N \g__cg_range_ids_seq
+\prop_new:N \g__cg_events_prop
+\prop_new:N \g__cg_ranges_start_prop
+\prop_new:N \g__cg_ranges_end_prop
+\prop_new:N \g__cg_ranges_style_prop
+\cs_generate_variant:Nn \prop_get:NnNTF { NVNTF }
+\cs_generate_variant:Nn \prop_get:NnN { NVN }
+\cs_generate_variant:Nn \prop_gput:Nnn { NnV, NVn, NVV, Nnx, NVx }
+\cs_generate_variant:Nn \seq_if_in:NnTF { NVTF }
+\cs_generate_variant:Nn \seq_put_right:Nn { NV }
+\cs_generate_variant:Nn \seq_gput_right:Nn { NV }
+
+\seq_set_from_clist:Nn \l__cg_month_names_seq
+  { January,February,March,April,May,June,July,August,September,October,November,December }
+\seq_set_from_clist:Nn \l__cg_weekday_names_seq
+  { Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday }
+\seq_set_from_clist:Nn \l__cg_weekday_short_names_seq { Mon,Tue,Wed,Thu,Fri,Sat,Sun }
+
+\cs_new_protected:Npn \__cg_leap:nTF #1#2#3
+  {
+    \int_compare:nNnTF { \int_mod:nn {#1} {400} } = {0}
+      {#2}
+      {
+        \int_compare:nNnTF { \int_mod:nn {#1} {100} } = {0}
+          {#3}
+          { \int_compare:nNnTF { \int_mod:nn {#1} {4} } = {0} {#2} {#3} }
+      }
+  }
+
+\cs_new_protected:Npn \__cg_days_in_month:nnN #1#2#3
+  {
+    \int_case:nnF {#2}
+      {
+        {1}{\int_set:Nn #3 {31}} {2}{\__cg_leap:nTF {#1}{\int_set:Nn #3 {29}}{\int_set:Nn #3 {28}}}
+        {3}{\int_set:Nn #3 {31}} {4}{\int_set:Nn #3 {30}} {5}{\int_set:Nn #3 {31}}
+        {6}{\int_set:Nn #3 {30}} {7}{\int_set:Nn #3 {31}} {8}{\int_set:Nn #3 {31}}
+        {9}{\int_set:Nn #3 {30}} {10}{\int_set:Nn #3 {31}} {11}{\int_set:Nn #3 {30}}
+        {12}{\int_set:Nn #3 {31}}
+      }
+      {\int_zero:N #3}
+  }
+
+% Julian day number, with Monday = 1 and Sunday = 7. The 4800-year offset
+% keeps all divisions positive for the supported civil years 0001--9999.
+\cs_new_protected:Npn \__cg_serial:nnnN #1#2#3#4
+  {
+    \int_set:Nn \l__cg_jdn_a_int { \int_div_truncate:nn {14-#2}{12} }
+    \int_set:Nn \l__cg_jdn_y_int { #1 + 4800 - \l__cg_jdn_a_int }
+    \int_set:Nn \l__cg_jdn_m_int { #2 + 12*\l__cg_jdn_a_int - 3 }
+    \int_set:Nn #4
+      {
+        #3 + \int_div_truncate:nn {153*\l__cg_jdn_m_int+2}{5}
+        + 365*\l__cg_jdn_y_int
+        + \int_div_truncate:nn {\l__cg_jdn_y_int}{4}
+        - \int_div_truncate:nn {\l__cg_jdn_y_int}{100}
+        + \int_div_truncate:nn {\l__cg_jdn_y_int}{400} - 32045
+      }
+  }
+
+\cs_new_protected:Npn \__cg_parse_date:n #1
+  {
+    \bool_set_false:N \l__cg_date_valid_bool
+    \regex_extract_once:nnNTF {\A([0-9]{4})-([0-9]{2})-([0-9]{2})\Z}
+      {#1} \l__cg_date_match_seq
+      {
+        \int_set:Nn \l__cg_date_year_int {\seq_item:Nn \l__cg_date_match_seq {2}}
+        \int_set:Nn \l__cg_date_month_int {\seq_item:Nn \l__cg_date_match_seq {3}}
+        \int_set:Nn \l__cg_date_day_int {\seq_item:Nn \l__cg_date_match_seq {4}}
+        \int_compare:nNnT {\l__cg_date_year_int} > {0}
+          {
+            \int_compare:nNnT {\l__cg_date_year_int} < {10000}
+              {
+                \int_compare:nNnT {\l__cg_date_month_int} > {0}
+                  {
+                    \int_compare:nNnT {\l__cg_date_month_int} < {13}
+                      {
+                        \__cg_days_in_month:nnN {\l__cg_date_year_int}
+                          {\l__cg_date_month_int} \l__cg_month_days_int
+                        \int_compare:nNnT {\l__cg_date_day_int} > {0}
+                          {\int_compare:nNnT {\l__cg_date_day_int} < {\l__cg_month_days_int+1}
+                            {\bool_set_true:N \l__cg_date_valid_bool}}
+                      }
+                  }
+              }
+          }
+      }
+      { }
+    \bool_if:NF \l__cg_date_valid_bool {\msg_error:nnn {calendar-grid}{bad-date}{#1}}
+  }
+
+\cs_new_protected:Npn \__cg_date_serial:nN #1#2
+  {
+    \__cg_parse_date:n {#1}
+    \bool_if:NT \l__cg_date_valid_bool
+      {\__cg_serial:nnnN {\l__cg_date_year_int}{\l__cg_date_month_int}{\l__cg_date_day_int}#2}
+  }
+
+\cs_new:Npn \__cg_pad_two:n #1
+  {\int_compare:nNnT {#1} < {10} {0}\int_to_arabic:n {#1}}
+\cs_new:Npn \__cg_pad_four:n #1
+  {
+    \int_compare:nNnT {#1} < {1000} {0}
+    \int_compare:nNnT {#1} < {100} {0}
+    \int_compare:nNnT {#1} < {10} {0}
+    \int_to_arabic:n {#1}
+  }
+
+\keys_define:nn { calendar-grid }
+  {
+    year .int_set:N = \l__cg_year_int,
+    year .initial:n = 2027,
+    month .int_set:N = \l__cg_month_int,
+    month .initial:n = 1,
+    columns .int_set:N = \l__cg_columns_int,
+    columns .initial:n = 3,
+    week-start .choices:nn = {monday,tuesday,wednesday,thursday,friday,saturday,sunday}
+      {\int_set:Nn \l__cg_week_start_int {\l_keys_choice_int}},
+    week-start .initial:n = monday,
+    layout .choices:nn = {fixed,compact}
+      {\tl_set:NV \l__cg_layout_tl \l_keys_choice_tl},
+    layout .initial:n = fixed,
+    overflow .choices:nn = {adjacent,blank}
+      {\tl_set:NV \l__cg_overflow_tl \l_keys_choice_tl},
+    overflow .initial:n = adjacent,
+    cell-width .dim_set:N = \l__cg_cell_width_dim,
+    cell-width .initial:n = 1.35cm,
+    cell-height .dim_set:N = \l__cg_cell_height_dim,
+    cell-height .initial:n = 8mm,
+    header-height .dim_set:N = \l__cg_header_height_dim,
+    header-height .initial:n = 7mm,
+    row-gap .dim_set:N = \l__cg_row_gap_dim,
+    row-gap .initial:n = 1pt,
+    column-gap .dim_set:N = \l__cg_column_gap_dim,
+    column-gap .initial:n = 2pt,
+    month-names .code:n = {\seq_set_from_clist:Nn \l__cg_month_names_seq {#1}},
+    weekday-names .code:n = {\seq_set_from_clist:Nn \l__cg_weekday_names_seq {#1}},
+    weekday-short-names .code:n = {\seq_set_from_clist:Nn \l__cg_weekday_short_names_seq {#1}},
+  }
+\keys_define:nn { calendar-grid/range }
+  { style .tl_set:N = \l__cg_range_style_tl, style .initial:n = range }
+
+\cs_new_protected:Npn \__cg_check_options:
+  {
+    \int_compare:nNnF {\l__cg_year_int} > {0}
+      {\msg_error:nnn {calendar-grid}{bad-year}{\int_use:N \l__cg_year_int}}
+    \int_compare:nNnF {\l__cg_year_int} < {10000}
+      {\msg_error:nnn {calendar-grid}{bad-year}{\int_use:N \l__cg_year_int}}
+    \int_compare:nNnF {\l__cg_month_int} > {0}
+      {\msg_error:nnn {calendar-grid}{bad-month}{\int_use:N \l__cg_month_int}}
+    \int_compare:nNnF {\l__cg_month_int} < {13}
+      {\msg_error:nnn {calendar-grid}{bad-month}{\int_use:N \l__cg_month_int}}
+    \int_compare:nNnF {\seq_count:N \l__cg_month_names_seq} = {12}
+      {\msg_error:nnnn {calendar-grid}{bad-list}{month~names}{12}}
+    \int_compare:nNnF {\seq_count:N \l__cg_weekday_names_seq} = {7}
+      {\msg_error:nnnn {calendar-grid}{bad-list}{weekday~names}{7}}
+    \int_compare:nNnF {\seq_count:N \l__cg_weekday_short_names_seq} = {7}
+      {\msg_error:nnnn {calendar-grid}{bad-list}{weekday~short~names}{7}}
+  }
+
+\cs_new_protected:Npn \__cg_get_cell:n #1
+  {
+    \int_set:Nn \l__cg_index_int {#1}
+    \int_set_eq:NN \l__cg_cell_year_int \l__cg_year_int
+    \int_set_eq:NN \l__cg_cell_month_int \l__cg_month_int
+    \bool_set_true:N \l__cg_cell_current_bool
+    \int_compare:nNnTF {#1} < {\l__cg_offset_int}
+      {
+        \bool_set_false:N \l__cg_cell_current_bool
+        \int_compare:nNnTF {\l__cg_month_int} = {1}
+          {\int_decr:N \l__cg_cell_year_int \int_set:Nn \l__cg_cell_month_int {12}}
+          {\int_decr:N \l__cg_cell_month_int}
+        \__cg_days_in_month:nnN {\l__cg_cell_year_int}{\l__cg_cell_month_int}\l_tmpa_int
+        \int_set:Nn \l__cg_cell_day_int {\l_tmpa_int-\l__cg_offset_int+#1+1}
+      }
+      {
+        \int_compare:nNnTF {#1} < {\l__cg_offset_int+\l__cg_month_days_int}
+          {\int_set:Nn \l__cg_cell_day_int {#1-\l__cg_offset_int+1}}
+          {
+            \bool_set_false:N \l__cg_cell_current_bool
+            \int_compare:nNnTF {\l__cg_month_int} = {12}
+              {\int_incr:N \l__cg_cell_year_int \int_set:Nn \l__cg_cell_month_int {1}}
+              {\int_incr:N \l__cg_cell_month_int}
+            \int_set:Nn \l__cg_cell_day_int {#1-\l__cg_offset_int-\l__cg_month_days_int+1}
+          }
+      }
+    \tl_set:Nx \l__cg_iso_tl
+      {
+        \__cg_pad_four:n {\l__cg_cell_year_int}-
+        \__cg_pad_two:n {\l__cg_cell_month_int}-
+        \__cg_pad_two:n {\l__cg_cell_day_int}
+      }
+    \int_set:Nn \l__cg_cell_weekday_int
+      {\int_mod:nn {\l__cg_week_start_int-1 + \int_mod:nn {#1}{7}}{7}+1}
+    \int_set:Nn \l__cg_cell_column_int {\int_mod:nn {#1}{7}+1}
+    \int_set:Nn \l__cg_cell_row_int {\int_div_truncate:nn {#1}{7}+1}
+    \int_compare:nNnTF {\l__cg_cell_weekday_int} > {5}
+      {\bool_set_true:N \l__cg_cell_weekend_bool}
+      {\bool_set_false:N \l__cg_cell_weekend_bool}
+    \__cg_serial:nnnN {\l__cg_cell_year_int}{\l__cg_cell_month_int}{\l__cg_cell_day_int}\l__cg_cell_serial_int
+  }
+
+\cs_new_protected:Npn \__cg_get_ranges:
+  {
+    \seq_clear:N \l__cg_active_range_styles_seq
+    \seq_map_inline:Nn \g__cg_range_ids_seq
+      {
+        \prop_get:NnN \g__cg_ranges_start_prop {##1}\l_tmpa_tl
+        \prop_get:NnN \g__cg_ranges_end_prop {##1}\l_tmpb_tl
+        \int_compare:nNnT {\l__cg_cell_serial_int} > {\l_tmpa_tl-1}
+          {
+            \int_compare:nNnT {\l__cg_cell_serial_int} < {\l_tmpb_tl+1}
+              {
+                \prop_get:NnN \g__cg_ranges_style_prop {##1}\l_tmpc_tl
+                \seq_if_in:NVTF \l__cg_active_range_styles_seq \l_tmpc_tl
+                  { }
+                  {\seq_put_right:NV \l__cg_active_range_styles_seq \l_tmpc_tl}
+              }
+          }
+      }
+    \tl_set:Nx \l__cg_range_styles_tl {\seq_use:Nn \l__cg_active_range_styles_seq {,~}}
+    \seq_if_empty:NTF \l__cg_active_range_styles_seq
+      {\bool_set_false:N \l__cg_cell_range_bool}
+      {\bool_set_true:N \l__cg_cell_range_bool}
+  }
+
+% Presentation hooks: redefine these commands to suit a document's visual style.
+\NewDocumentCommand \CalendarGridFormatMonthTitle { m m }
+  {\par\medskip\centering\bfseries #1\space #2\par\smallskip}
+\NewDocumentCommand \CalendarGridFormatDay { m m m m m m m m m }
+  {
+    \parbox[c][\l__cg_cell_height_dim][c]{\l__cg_cell_width_dim}
+      {
+        \centering
+        \str_if_eq:nnTF {#3}{true}
+          {\tl_if_blank:nTF {#9}{\str_if_eq:nnTF {#5}{true}{\bfseries #2}{#2}}{\bfseries #2}}
+          {\textit{#2}}
+        \tl_if_blank:nF {#8} {\par\scriptsize #8}
+      }
+  }
+
+\cs_new_protected:Npn \__cg_render_cell:n #1
+  {
+    \__cg_get_cell:n {#1}
+    \__cg_get_ranges:
+    \prop_get:NVNTF \g__cg_events_prop \l__cg_iso_tl \l__cg_event_tl
+      { }
+      {\tl_clear:N \l__cg_event_tl}
+    \bool_if:NTF \l__cg_cell_current_bool
+      {
+        \use:x
+          {
+            \exp_not:N \CalendarGridFormatDay
+              {\exp_not:V \l__cg_iso_tl}
+              {\int_use:N \l__cg_cell_day_int}
+              {true}
+              {\int_use:N \l__cg_cell_weekday_int}
+              {\bool_if:NTF \l__cg_cell_weekend_bool {true}{false}}
+              {\int_use:N \l__cg_cell_row_int}
+              {\int_use:N \l__cg_cell_column_int}
+              {\exp_not:V \l__cg_event_tl}
+              {\exp_not:V \l__cg_range_styles_tl}
+          }
+      }
+      {
+        \tl_if_eq:NnTF \l__cg_overflow_tl {adjacent}
+          {
+            \use:x
+              {
+                \exp_not:N \CalendarGridFormatDay
+                  {\exp_not:V \l__cg_iso_tl}
+                  {\int_use:N \l__cg_cell_day_int}
+                  {false}
+                  {\int_use:N \l__cg_cell_weekday_int}
+                  {\bool_if:NTF \l__cg_cell_weekend_bool {true}{false}}
+                  {\int_use:N \l__cg_cell_row_int}
+                  {\int_use:N \l__cg_cell_column_int}
+                  {\exp_not:V \l__cg_event_tl}
+                  {\exp_not:V \l__cg_range_styles_tl}
+              }
+          }
+          {\parbox[c][\l__cg_cell_height_dim][c]{\l__cg_cell_width_dim}{\strut}}
+      }
+  }
+
+\cs_new_protected:Npn \__cg_compute_layout:
+  {
+    \__cg_days_in_month:nnN {\l__cg_year_int}{\l__cg_month_int}\l__cg_month_days_int
+    \__cg_serial:nnnN {\l__cg_year_int}{\l__cg_month_int}{1}\l__cg_serial_int
+    \int_set:Nn \l__cg_first_weekday_int {\int_mod:nn {\l__cg_serial_int}{7}+1}
+    \int_set:Nn \l__cg_offset_int
+      {\int_mod:nn {\l__cg_first_weekday_int-\l__cg_week_start_int+7}{7}}
+    \tl_if_eq:NnTF \l__cg_layout_tl {fixed}
+      {\int_set:Nn \l__cg_rows_int {6}}
+      {\int_set:Nn \l__cg_rows_int {\int_div_truncate:nn {\l__cg_offset_int+\l__cg_month_days_int+6}{7}}}
+    \int_set:Nn \l__cg_cells_int {7*\l__cg_rows_int}
+  }
+
+\cs_new_protected:Npn \__cg_render:
+  {
+    \__cg_check_options:
+    \__cg_compute_layout:
+    \CalendarGridFormatMonthTitle
+      {\seq_item:Nn \l__cg_month_names_seq {\l__cg_month_int}}
+      {\int_use:N \l__cg_year_int}
+    \group_begin:
+    \setlength{\tabcolsep}{\l__cg_column_gap_dim}
+    \setlength{\extrarowheight}{\l__cg_row_gap_dim}
+    \begin{tabular}{|*{7}{>{\centering\arraybackslash}p{\l__cg_cell_width_dim}|}}
+      \hline
+      \int_step_inline:nn {7}
+        {
+          \int_set:Nn \l_tmpa_int {\int_mod:nn {\l__cg_week_start_int-1+##1-1}{7}+1}
+          \parbox[c][\l__cg_header_height_dim][c]{\l__cg_cell_width_dim}
+            {\centering\scriptsize\seq_item:Nn \l__cg_weekday_short_names_seq {\l_tmpa_int}}
+          \int_compare:nNnTF {##1} = {7} {\\\hline} {&}
+        }
+      \int_step_inline:nn {\l__cg_cells_int}
+        {
+          \__cg_render_cell:n {##1-1}
+          \int_compare:nNnTF {\int_mod:nn {##1}{7}} = {0} {\\\hline} {&}
+        }
+    \end{tabular}
+    \group_end:
+  }
+
+\NewDocumentCommand \CalendarGrid { O{} }
+  {\group_begin:\keys_set:nn {calendar-grid}{#1}\__cg_render:\group_end:}
+
+\NewDocumentCommand \CalendarGridWeekday { m }
+  {
+    \group_begin:
+    \__cg_date_serial:nN {#1}\l__cg_serial_int
+    \bool_if:NT \l__cg_date_valid_bool
+      {\int_set:Nn \l_tmpa_int {\int_mod:nn {\l__cg_serial_int}{7}+1}\seq_item:Nn \l__cg_weekday_names_seq {\l_tmpa_int}}
+    \group_end:
+  }
+
+\NewDocumentCommand \CalendarGridEvent { m m }
+  {
+    \group_begin:
+    \__cg_parse_date:n {#1}
+    \bool_if:NT \l__cg_date_valid_bool
+      {
+        \prop_get:NnNTF \g__cg_events_prop {#1}\l_tmpa_tl
+          {\tl_put_right:Nn \l_tmpa_tl {\newline #2}\prop_gput:NnV \g__cg_events_prop {#1}\l_tmpa_tl}
+          {\prop_gput:Nnn \g__cg_events_prop {#1}{#2}}
+      }
+    \group_end:
+  }
+
+\NewDocumentCommand \CalendarGridRange { O{} m m }
+  {
+    \group_begin:
+    \tl_set:Nn \l__cg_range_style_tl {range}
+    \keys_set:nn {calendar-grid/range}{#1}
+    \__cg_date_serial:nN {#2}\l_tmpa_int
+    \bool_set_eq:NN \l_tmpa_bool \l__cg_date_valid_bool
+    \__cg_date_serial:nN {#3}\l_tmpb_int
+    \bool_if:nT {\l_tmpa_bool && \l__cg_date_valid_bool}
+      {
+        \int_compare:nNnTF {\l_tmpa_int} > {\l_tmpb_int}
+          {\msg_error:nnnn {calendar-grid}{reversed-range}{#2}{#3}}
+          {
+            \int_gincr:N \g__cg_range_id_int
+            \tl_set:Nx \l_tmpc_tl {\int_use:N \g__cg_range_id_int}
+            \seq_gput_right:NV \g__cg_range_ids_seq \l_tmpc_tl
+            \prop_gput:NVx \g__cg_ranges_start_prop \l_tmpc_tl {\int_use:N \l_tmpa_int}
+            \prop_gput:NVx \g__cg_ranges_end_prop \l_tmpc_tl {\int_use:N \l_tmpb_int}
+            \prop_gput:NVV \g__cg_ranges_style_prop \l_tmpc_tl \l__cg_range_style_tl
+          }
+      }
+    \group_end:
+  }
+
+\NewDocumentCommand \CalendarYear { O{} }
+  {
+    \group_begin:
+    \keys_set:nn {calendar-grid}{#1}
+    \__cg_check_options:
+    \int_compare:nNnTF {\l__cg_columns_int} < {1}
+      {\msg_error:nn {calendar-grid}{bad-columns}\int_set:Nn\l__cg_columns_int{3}}
+      {\int_compare:nNnT {\l__cg_columns_int} > {4}
+        {\msg_error:nn {calendar-grid}{bad-columns}\int_set:Nn\l__cg_columns_int{3}}}
+    \dim_set:Nn \l__cg_year_cell_width_dim
+      {\dim_eval:n {\linewidth/\l__cg_columns_int-2\tabcolsep}}
+    \begin{tabular}{*{\int_use:N \l__cg_columns_int}{c}}
+      \int_step_inline:nn {12}
+        {
+        \group_begin:
+        \begin{minipage}[t]{\l__cg_year_cell_width_dim}
+        \int_set:Nn \l__cg_month_int {##1}
+        \dim_set:Nn \l__cg_cell_width_dim
+          {\dim_eval:n { (\l__cg_year_cell_width_dim-14pt)/7 }}
+        \dim_set:Nn \l__cg_cell_height_dim {.55cm}
+        \dim_set:Nn \l__cg_header_height_dim {.45cm}
+        \dim_set:Nn \l__cg_column_gap_dim {1pt}
+        \dim_set:Nn \l__cg_row_gap_dim {0pt}
+        \scriptsize\__cg_render:
+        \end{minipage}
+        \group_end:
+        \int_compare:nNnTF {\int_mod:nn {##1}{\l__cg_columns_int}} = {0}
+          {\\[\baselineskip]}
+          {&}
+      }
+    \end{tabular}
+    \group_end:
+  }
+
+\ExplSyntaxOff
+\endinput

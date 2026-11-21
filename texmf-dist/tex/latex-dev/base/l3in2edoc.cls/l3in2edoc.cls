@@ -1,0 +1,80 @@
+%
+% We are still waiting to find the time to consolidate ltxdoc, l3doc, etc, so for now this
+% is yet another internal class that loads l3doc + the extra bits from ltxdoc we want for newer dtx files.
+%
+% None of this is meant to stay, so this class is not supposed to be used outside of the kernel documentation!
+% It may get incompatible updates and it will vanish again, eventually.
+\ProvidesClass{l3in2edoc}[2026-10-27 v1.0c Internal LaTeX documentation class based on l3doc]
+
+\LoadClassWithOptions{l3doc}
+
+% load support for tagging, if \DocumentMetadata is used
+
+\IfDocumentMetadataT{\RequirePackage{latex-lab-testphase-l3doc}}
+
+% load some extra definitions for new documentation
+%
+\input{ltxdoc-extra.ltx}
+
+% Some redefinitions for template descriptions
+
+\renewenvironment{TemplateInterfaceDescription}[1]
+ {%
+   \subsubsection{The template type `#1'}
+   \begingroup
+   \@beginparpenalty\@M
+   \description
+   \def\TemplateArgument##1##2{\item[Arg:~##1]##2\par}%
+   \def\TemplateSemantics%
+     {\enddescription\endgroup
+     \subsubsection*{Semantics:}}%
+ }
+ {\par\bigskip}
+
+\renewenvironment{TemplateDescription}[2]
+  {\subsubsection{The \texttt{#1} template `#2'}
+    \paragraph*{Attributes:}
+    \begingroup
+    \@beginparpenalty\@M
+    \description
+    \long\def\TemplateKey##1##2##3##4{%
+        \item[\texttt{##1} (\textit{\mdseries##2})]##3%
+        \ifx\TemplateKey##4\TemplateKey\else
+          \hfill\penalty500\hbox{}\hfill\space Default:~\texttt{##4}%
+          \nobreak\hskip-\parfillskip\hskip0pt\relax
+        \fi
+        \par
+      }%
+    \def\TemplateSemantics{%
+        \enddescription\endgroup
+        \paragraph*{Semantics \& Comments:}%
+      }%
+  }
+  {\par\bigskip}
+
+\ExplSyntaxOn
+% Support \DescribeMacro with l3doc; copies code from \__codedoc_get_hyper_target:nN.
+% Also adds a \MakeLinkTarget
+\def\@doc@describe#1#2{
+   \ifdoc@noprint\else
+     \marginpar{\raggedleft
+                \strut
+                \tl_set:Ne \l__codedoc_tmpa_tl { \tl_to_str:n {#2} }
+                \tl_replace_all:NVn \l__codedoc_tmpa_tl \c_underscore_str { / }
+                \tl_remove_all:NV \l__codedoc_tmpa_tl \c_backslash_str
+                \tl_put_left:Nn \l__codedoc_tmpa_tl { doc/function// }
+                \MakeLinkTarget[macro]{}
+                \exp_args:Ne \label { \tl_trim_spaces:V \l__codedoc_tmpa_tl }
+                \doc@providetarget
+                \@nameuse{PrintDescribe#1}{#2}}
+   \fi
+   \ifdoc@noindex\else
+     \@nameuse{Special#1Index}{#2}
+   \fi
+ \@esphack
+ \endgroup
+ \ignorespaces}
+
+% Match ltxdoc formatting of \meta (l3doc adds a \texttt)
+\RenewDocumentCommand{\meta}{m}{\__codedoc_meta:n{#1}}
+\ExplSyntaxOff

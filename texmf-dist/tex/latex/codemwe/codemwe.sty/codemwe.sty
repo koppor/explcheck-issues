@@ -1,0 +1,1984 @@
+%%% --------------------------------------------------------------------------------------
+%%% codemwe   : typeset a code box with a result box and generate an MWE file using LaTeX3
+%%% Author    : Nan Geng <nangeng@nwafu.edu.cn>
+%%% Repository: https://gitee.com/nwafu_nan/codemwe
+%%% License   : The LaTeX Project Public License 1.3c
+%%% --------------------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{expl3}
+\ProvidesExplPackage{codemwe}{2026-10-23}{v1.1.0}
+  {typeset code with result box and generate MWE file using LaTeX3}
+
+% 宏包版本检查函数
+% #1 宏包名
+% #2 要求的最低日期
+\cs_new_protected:Npn \__codemwe_check_package_date:nn #1#2
+  {
+    \@ifpackagelater{ #1 }{ #2 }
+      { }
+      { \msg_warning:nnn { codemwe } { package-old } { #1 } }
+  }
+
+% 消息定义
+% ===================================================================
+% 宏包过期
+\msg_new:nnn { codemwe } { package-old }
+  {
+    Package~#1~is~out~of~date. \\
+    Some~problems~or~errors~may~occur~if~you~continue~compiling. \\\\
+    Please~update~this~package~from~CTAN.
+  }
+
+% width 宽度设置过大
+\msg_new:nnn { codemwe } { width-too-large }
+  {
+    The~'width'~option~is~too~large,~so~the~right~result~box~has~a~
+    negative~width. \\
+    Please~reduce~'width'~or~'sep'.
+  }
+
+% 未知 key-val 选项
+\msg_new:nnn { codemwe } { unknown-key }
+  {
+    Unknown~key-val~option~'#1'~for~package~'codemwe'. \\
+    Please~check~the~spelling~of~the~option~name. \\
+    The~option~'#1'~has~been~ignored.
+  }
+
+% 结果图片文件不存在
+\msg_new:nnn { codemwe } { result-file-missing }
+  {
+    The~result~image~file~'#1'~was~not~found. \\
+    Please~check~the~'result'~option.
+  }
+
+% 计数器冲突（用户指定的 counter 已经存在）
+\msg_new:nnn { codemwe } { counter-exists }
+  {
+    The~counter~'#1'~already~exists. \\
+    The~'counter'~option~has~been~ignored;~please~choose~another~name.
+  }
+
+% 未知语种类型
+\msg_new:nnn { codemwe } { unknown-textlang }
+  {
+    Unknown~language~'#1'. \\
+    Falling~back~to~'en'. \\
+    Use~\token_to_str:N \codemweNewLang~to~register~a~new~language.
+  }
+
+% 过渡语及注释词内容检索值错误
+\msg_new:nnn { codemwe } { textlang-item-count }
+  {
+    Language~'#1'~provides~#2~items~instead~of~8. \\
+    Please~check~its~definition.
+  }
+
+% 注册 tcolorbox 盒子失败，未知盒子类型
+\msg_new:nnn { codemwe } { unknown-boxtype }
+  {
+    Unknown~box~type~'#1'. \\
+    Falling~back~to~'syntaxbox'. \\
+    Please~use~a~valid~box~environment~name,~or~register~one~
+    via~\token_to_str:N \codemweNewBox.
+  }
+
+% 未知代码后端
+\msg_new:nnn { codemwe } { unknown-backend }
+  {
+    Unknown~code~backend~'#1'. \\
+    Falling~back~to~'tex'. \\
+    Please~use~a~valid~backend~name,~or~register~one~
+    via~\token_to_str:N \codemweNewBackend.
+  }
+
+% 不可编译后端缺少结果图片
+\msg_new:nnn { codemwe } { backend-no-result }
+  {
+    Backend~'#1'~code~cannot~be~compiled~by~LaTeX,~and~no~result~
+    image~is~given~by~the~'result'~option. \\
+    The~result~box~has~been~skipped. \\
+    Please~provide~a~result~image~via~the~'result'~option,~or~use~
+    the~'noshow'~option.
+  }
+
+% minted 不可用（缺少 minted 宏包或未开启 shell escape）
+\msg_new:nnn { codemwe } { minted-unavailable }
+  {
+    The~'minted'~option~requires~the~minted~package~and~shell~escape. \\
+    minted~is~not~available,~so~the~code~is~typeset~with~fancyvrb~
+    and~no~syntax~highlighting~is~applied. \\
+    Please~install~minted,~enable~shell~escape~(-shell-escape),~
+    and~recompile.
+  }
+
+% 未加载 minted 时就设置了 mintedstyle
+\msg_new:nnn { codemwe } { mintedstyle-unused }
+  {
+    The~'mintedstyle'~option~has~no~effect~unless~the~'minted'~option~
+    is~set. \\
+    The~value~'#1'~has~been~recorded~and~will~be~used~together~with~
+    the~'minted'~option.
+  }
+
+% 后端没有为 minted 指定代码语言名
+\msg_new:nnn { codemwe } { minted-no-lexer }
+  {
+    Code~backend~'#1'~is~used~with~the~'minted'~option,~but~no~minted~
+    language~name~is~assigned~to~it. \\
+    The~name~'#1'~itself~is~passed~to~minted~as~the~lexer;~if~minted~
+    does~not~know~it,~it~will~fall~back~to~plain~text. \\
+    Assign~a~language~with~\token_to_str:N \codemweNewBackend.
+  }
+
+% minted 语言名未知（仍交给 minted 处理，由 minted 报告）
+\msg_new:nnn { codemwe } { minted-unknown-lexer }
+  {
+    minted~does~not~know~the~language~name~'#1'~used~for~code~backend~
+    '#2'. \\
+    minted~will~report~an~error~and~fall~back~to~plain~text~output.
+  }
+
+% 为宏包传入参数
+\clist_map_inline:nn
+  {
+    { many                }{ tcolorbox },
+  }{ \PassOptionsToPackage #1 }
+
+% 加载需要的宏包
+\RequirePackage
+  {
+    tcolorbox, % 彩色盒子
+    fancyvrb,  % 代码排版宏包
+    graphicx,  % 插入图片
+  }
+
+% 检查指定的宏包是否过于陈旧
+\clist_map_inline:nn
+  {
+    { expl3     }{ 2020/10/27 },
+    { tcolorbox }{ 2020/10/09 },
+  }{ \__codemwe_check_package_date:nn #1 }
+
+% tcolorbox 盒子定义
+% ===================================================================
+% mwebox 盒子
+% #1（可选，[]）背景色，默认 cyan
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ mwebox }{ O{ cyan } d() O{  } }
+  {
+    enhanced~jigsaw,
+    frame~hidden,
+    center~title,
+
+    IfValueT = { #2 }
+      { title = #2 },
+
+    pad~at~break*    = 3pt,
+    boxrule          = 0pt,
+    toptitle         = 3pt,
+    colback          = #1,
+    colbacktitle     = #1,
+    opacityback      = 0.1,
+    opacitybacktitle = 0.1,
+    coltitle         = black,
+    colframe         = black,
+    left             = 6pt,
+    right            = 6pt,
+    top              = 0pt,
+    bottom           = 3pt,
+    middle           = 3pt,
+    bottomtitle      = 3pt,
+    beforeafter~skip = 2ex,
+    halign~upper     = left,
+    halign~lower     = left,
+    #3
+  }
+
+% mwebox* 盒子
+% #1（可选，[]）背景色，默认 cyan
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ mwebox* }{ O{ cyan } d() O{  } }
+  {
+    enhanced~jigsaw,
+    center~title,
+
+    IfValueT = { #2 }
+      { title = #2 },
+
+    pad~at~break* = 3pt,
+    toptitle         = 3pt,
+    colback          = #1,
+    colbacktitle     = #1,
+    opacityback      = 0.1,
+    opacitybacktitle = 0.1,
+    coltitle         = black,
+    colframe         = black,
+    boxrule          = 0.4pt,
+    left             = 6pt,
+    right            = 6pt,
+    top              = 3pt,
+    bottom           = 3pt,
+    middle           = 3pt,
+    bottomtitle      = 3pt,
+    beforeafter~skip = 2ex,
+    halign~upper     = left,
+    halign~lower     = left,
+    #3
+  }
+
+% mweparbox 盒子
+% #1（可选，[]）边框颜色，默认 purple
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ mweparbox }{ O{ purple } d() O{  } }
+  {
+    frame~hidden,
+    enhanced~jigsaw,
+
+    IfValueTF = { #2 }
+      {
+        title = #2,
+        top   = 0pt
+      }{
+        top   = 3pt
+      },
+
+    bottom           = 3pt,
+    toptitle         = 3pt,
+    left             = 6pt,
+    right            = 6pt,
+    middle           = 3pt,
+    bottomtitle      = 3pt,
+    beforeafter~skip = 1.5ex,
+    pad~at~break*    = 3pt,
+    boxrule          = 0pt,
+    borderline~west  = { 3pt }{ 0pt }{ #1 },
+    colback          = #1,
+    colbacktitle     = #1,
+    opacityback      = 0.1,
+    opacitybacktitle = 0.1,
+    colframe         = #1,
+    coltitle         = #1,
+    #3
+  }
+
+% mweparbox* 盒子
+% #1（可选，[]）边框颜色，默认 purple
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ mweparbox* }{ O{ purple } d() O{  } }
+  {
+    frame~hidden,
+    enhanced~jigsaw,
+
+    IfValueT = { #2 }
+      { title = #2 },
+
+    toptitle         = 0pt,
+    left             = 6pt,
+    right            = 6pt,
+    top              = 0pt,
+    middle           = 3pt,
+    bottom           = 0pt,
+    bottomtitle      = 3pt,
+    beforeafter~skip = 1.5ex,
+    pad~at~break*    = 3pt,
+    boxrule          = 0pt,
+    borderline~west  = { 3pt }{ 0pt }{ #1 },
+    colback          = white,
+    colframe         = #1,
+    coltitle         = #1,
+    #3
+  }
+
+% syntaxbox 盒子
+% #1（可选，[]）背景色，默认 gray!12
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ syntaxbox }{ O{ gray!12 } d() O{ } }
+  {
+    colback   = #1,
+    colframe  = #1,
+    boxrule   = 0pt,
+    arc       = 0pt,
+    left      = 6pt,
+    right     = 6pt,
+    top       = 3pt,
+    bottom    = 3pt,
+    nobeforeafter,
+    #3,
+  }
+
+% syntaxbox* 盒子
+% #1（可选，[]）背景色，默认 white
+% #2（可选，()）标题
+% #3（可选，[]）额外 tcolorbox 选项
+\DeclareTColorBox{ syntaxbox* }{ O{ white } d() O{ } }
+  {
+    colback   = #1,
+    colframe  = black,
+    boxrule   = 0pt,
+    arc       = 0pt,
+    left      = 6pt,
+    right     = 6pt,
+    top       = 3pt,
+    bottom    = 3pt,
+    nobeforeafter,
+    #3,
+  }
+
+% 变量定义
+% ===================================================================
+% 文件输出流
+\iow_new:N \g__codemwe_aux_iow
+\iow_new:N \g__codemwe_mwe_iow
+
+% 保存示例代码的临时文件名
+\tl_new:N   \g__codemwe_aux_name_tl
+\tl_gset:Nx \g__codemwe_aux_name_tl { \c_sys_jobname_str -example.aux }
+
+% 使用 minted 时另存一份临时文件，以免与 fancyvrb 的读取过程相互干扰
+\tl_new:N   \g__codemwe_minted_aux_name_tl
+\tl_gset:Nx \g__codemwe_minted_aux_name_tl { \c_sys_jobname_str -example-minted.aux }
+
+% tex MWE 文件的文档类名称
+\tl_new:N    \l__codemwe_cls_tl
+\tl_set:Nn   \l__codemwe_cls_tl { article } % 默认文档类
+\clist_new:N \l__codemwe_cls_opts_clist     % 文档类选项
+
+% tex MWE 文件的宏包
+\clist_new:N \l__codemwe_pkgs_clist       % 宏包列表
+\clist_new:N \l__codemwe_pkg_opts_clist   % 与宏包对应的选项列表
+
+% 盒子宽度 dim 变量
+\dim_new:N \l__codemwe_width_dim  % 垂直模式上代码框与下结果框宽度
+\dim_new:N \l__codemwe_lwidth_dim % 水平模式左代码框宽度
+\dim_new:N \l__codemwe_rwidth_dim % 水平模式右结果框宽度
+\dim_new:N \l__codemwe_lrsep_dim  % 水平模式代码框与结果框间距
+
+% 代码盒子排版模式
+\bool_new:N \l__codemwe_vmode_bool  % 是否为垂直模式
+\bool_new:N \l__codemwe_nonum_bool  % 是否需要编号
+\bool_new:N \l__codemwe_noshow_bool % 是否输出结果
+
+% 示例代码框内容构成
+\bool_new:N \l__codemwe_with_cls_bool   % tex代码是否包含文档类内容
+\bool_new:N \l__codemwe_with_pkg_bool   % tex代码是否包含宏包内容
+\bool_new:N \l__codemwe_with_extra_bool % tex代码是否包含额外导言区内容
+\bool_new:N \l__codemwe_no_body_bool    % tex代码是否包含环境体
+
+% 盒子标题管理
+\bool_new:N \l__codemwe_box_title_bool    % 当前盒子是否支持标题栏
+\bool_new:N \l__codemwe_newbox_title_bool % \codemweNewBox 用
+
+% 盒子有无标题属性表
+\prop_new:N \g__codemwe_boxes_title_prop  % 盒子名 → true/false
+% 属性表初始化
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { syntaxbox  }  { \c_false_bool }
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { syntaxbox* }  { \c_false_bool }
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { mwebox     }  { \c_true_bool  }
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { mwebox*    }  { \c_true_bool  }
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { mweparbox  }  { \c_true_bool  }
+\prop_gput:Nnn \g__codemwe_boxes_title_prop { mweparbox* }  { \c_true_bool  }
+
+% 代码后端管理
+% 属性表：后端名 → { 源文件扩展名, 注释符, 是否可被 LaTeX 编译, minted 语言名 }
+\prop_new:N \g__codemwe_backend_prop
+\prop_gput:Nnn \g__codemwe_backend_prop { tex } { tex , \c_percent_str , true , tex }
+\prop_gput:Nnn \g__codemwe_backend_prop { c   } { c   , //           , false , c  }
+
+\tl_new:N \l__codemwe_backend_tl             % 当前代码后端名称
+\tl_new:N \l__codemwe_backend_ext_tl         % 当前代码后端MWE源文件扩展名
+\tl_new:N \l__codemwe_comment_tl             % 当前代码后端注释符
+\tl_new:N \l__codemwe_mintedlexer_tl         % 当前代码后端的 minted 语言名
+\bool_new:N \l__codemwe_backend_compile_bool % 当前代码后端源文件可否被 LaTeX 编译
+
+% tl 变量
+\tl_new:N \l__codemwe_body_tl           % 环境体
+\tl_new:N \l__codemwe_packages_tl       % 宏包内容
+\tl_new:N \l__codemwe_extra_preamble_tl % 导言区追加内容
+\tl_new:N \l__codemwe_title_tl          % 示例代码框标题
+\tl_new:N \l__codemwe_transition_tl     % 垂直模式上代码框与下结果框间的过渡文字
+\tl_new:N \l__codemwe_label_tl          % 交叉引用标签名称
+\tl_new:N \l__codemwe_pretitle_tl       % 标签名称前缀
+\tl_new:N \l__codemwe_prelabel_tl       % MWE 代码文件名称和交叉引用标签前缀
+\tl_new:N \l__codemwe_counter_tl        % 计数器名称
+\tl_new:N \l__codemwe_dir_tl            % MWE 代码文件保存目录
+\tl_new:N \l__codemwe_mwe_filename_tl   % MWE 代码文件名称
+\tl_new:N \l__codemwe_result_fig_tl     % 代码结果插图文件名（可有路径）
+\tl_new:N \l__codemwe_headcomment_tl    % 为代码框添加的首行注释
+\tl_new:N \l__codemwe_boxtype_tl        % boxtype 选项值（即盒子环境名）
+\tl_new:N \l__codemwe_box_title_tl      % 传给盒子 d() 参数的标题
+\tl_new:N \l__codemwe_headtext_tl       % 首行注释文本："例 1.1 绘制直线"
+\tl_new:N \l__codemwe_tmpa_tl           % 临时变量
+
+% 语法高亮（minted）相关
+\bool_new:N \l__codemwe_minted_bool          % 是否使用 minted 语法高亮排版引擎
+\bool_new:N \g__codemwe_minted_loaded_bool   % minted 宏包是否已加载
+\bool_new:N \g__codemwe_minted_ok_bool       % minted 是否可用（存在宏包并且使用了-shell-escape编译选项）
+\bool_new:N \g__codemwe_mintedstyle_set_bool % 用户是否显式设置过 mintedstyle
+\tl_new:N \l__codemwe_mintedstyle_tl         % minted 高亮样式名
+\tl_new:N \l__codemwe_minted_opts_tl         % 传给 minted 环境的选项列表
+\tl_new:N \l__codemwe_minted_lang_tl         % 传给 minted 环境的语言名
+\tl_new:N \l__codemwe_minted_file_tl         % 传给 minted 的文件名
+
+% 过渡语及注释词语种类型选择管理
+\prop_new:N \g__codemwe_textlang_prop          % 语种表：语种名 → 逗号分隔的 8 段文本
+\tl_new:N \l__codemwe_textlang_tl              % 当前选中的语种
+\tl_new:N \l__codemwe_textlang_trans_pre_tl    % 有编号前过渡语
+\tl_new:N \l__codemwe_textlang_trans_post_tl   % 有编号后过渡语
+\tl_new:N \l__codemwe_textlang_trans_nonum_tl  % 无编号整段过渡语
+\tl_new:N \l__codemwe_textlang_cls_tl          % "文档类"注释词
+\tl_new:N \l__codemwe_textlang_preamble_tl     % "导言区"注释词
+\tl_new:N \l__codemwe_textlang_body_tl         % "正文区"注释词
+\tl_new:N \l__codemwe_textlang_cls_default_tl  % 语种里的默认文档类
+\tl_new:N \l__codemwe_textlang_pretitle_tl     % 语种里的引用前缀
+
+\bool_new:N \l__codemwe_cls_set_bool       % 用户是否显式设置过 cls 选项
+\bool_new:N \l__codemwe_pretitle_set_bool  % 用户是否显式设置过 pretitle 选项
+
+\bool_new:N \l__codemwe_linenos_bool       % 代码框是否显示行号
+
+% 结果插图尺寸控制
+\fp_new:N  \l__codemwe_result_fig_scale_fp   % 结果插图的缩放比例
+\dim_new:N \l__codemwe_result_fig_width_dim  % 结果插图宽度
+\dim_new:N \l__codemwe_result_fig_height_dim % 结果插图高度
+
+% 文本预处理
+% ===================================================================
+% 首字母大写，其余小写
+% #1 保存结果的 tl 变量
+% #2 输入（可含需要 x 展开的命令）
+\cs_new_protected:Npn \__codemwe_capitalize_into:Nn #1#2
+  {
+    % 先 x 展开
+    \tl_set:Nx \l_tmpa_tl { #2 }
+
+    % 将首字母转换为大写
+    \tl_if_empty:NTF \l_tmpa_tl
+      { \tl_clear:N #1 }
+      {
+        \tl_set:Nn \l_tmpb_tl
+          {
+            \text_uppercase:n { \tl_head:V \l_tmpa_tl }
+            \text_lowercase:n { \tl_tail:V \l_tmpa_tl }
+          }
+        \tl_set:Ne #1 { \l_tmpb_tl }
+      }
+  }
+
+% 参数内容中的空白清理
+% #1 保存结果的变量
+% #2 参数内容
+\cs_new_protected:Npn \__codemwe_trim_newline_spaces:Nn #1#2
+  {
+    \tl_set:Nn \l_tmpa_tl { #2 }
+    \tl_replace_all:Nnn \l_tmpa_tl { ^^J } { ~ }
+    \tl_trim_spaces:N \l_tmpa_tl
+    \tl_set_eq:NN #1 \l_tmpa_tl
+  }
+
+% 基础辅助函数（被 .code:n 或其它函数调用，必须在 keys 定义前）
+% ===================================================================
+% 解析 cls 选项内容
+% #1 cls 选项内容，如：ctexart 或 article={12pt, a4paper}
+\cs_new_protected:Npn \__codemwe_parse_cls:n #1
+  {
+    % 按逗号拆出 cls 各项内容
+    \seq_set_split:Nnn \l_tmpa_seq { , } { #1 }
+
+    % 逐项解析各文档类选项
+    \seq_map_inline:Nn \l_tmpa_seq { \__codemwe_parse_cls_item:n { ##1 } }
+  }
+
+% 解析单个 cls 选项
+% #1 单个 cls 选项内容，如：{article={a4paper, draft}}
+\cs_new_protected:Npn \__codemwe_parse_cls_item:n #1
+  {
+    \keyval_parse:NNn \__codemwe_parse_cls_aux:n \__codemwe_parse_cls_aux:nn { #1 }
+  }
+
+% 不带选项的 cls 名称，如: article
+\cs_new_protected:Npn \__codemwe_parse_cls_aux:n #1
+  {
+    \tl_set:Nx \l__codemwe_cls_tl { \tl_trim_spaces:n { #1 } }
+    \clist_clear:N \l__codemwe_cls_opts_clist
+  }
+
+% 带选项的 cls 名称，如: article = { a4paper, draft }
+\cs_new_protected:Npn \__codemwe_parse_cls_aux:nn #1#2
+  {
+    \tl_set:Nx \l__codemwe_cls_tl { \tl_trim_spaces:n { #1 } }
+    \clist_set:Nx \l__codemwe_cls_opts_clist { \tl_trim_spaces:n { #2 } }
+  }
+
+% 解析 pkg 内容
+% #1 pkg 选项内容
+\cs_new_protected:Npn \__codemwe_parse_pkg:n #1
+  {
+    % 按顶层逗号拆出 pkg 各项宏包内容
+    \seq_set_split:Nnn \l_tmpa_seq { , } { #1 }
+
+    % 逐项解析各宏包选项
+    \seq_map_inline:Nn \l_tmpa_seq { \__codemwe_parse_pkg_item:n { ##1 } }
+  }
+
+% 解析单个 pkg 选项
+% #1 单个 pkg 选项内容，如：{listings={numbers=left}}
+\cs_new_protected:Npn \__codemwe_parse_pkg_item:n #1
+  {
+    \keyval_parse:NNn \__codemwe_parse_pkg_aux:n \__codemwe_parse_pkg_aux:nn { #1 }
+  }
+
+% 不带选项的 pkg 名称，如: tikz
+\cs_new_protected:Npn \__codemwe_parse_pkg_aux:n #1
+  {
+    \clist_put_right:Nx \l__codemwe_pkgs_clist { \tl_trim_spaces:n { #1 } }
+    \clist_put_right:Nn \l__codemwe_pkg_opts_clist { {  } }  % 空值占位
+  }
+
+% 带选项的 pkg 名称，如: xcolor = { svgnames }
+\cs_new_protected:Npn \__codemwe_parse_pkg_aux:nn #1#2
+  {
+    \clist_put_right:Nx \l__codemwe_pkgs_clist { \tl_trim_spaces:n { #1 } }
+    \clist_put_right:Nx \l__codemwe_pkg_opts_clist { { \tl_trim_spaces:n { #2 } } }  % 关键：多包一层 {} 保护内部逗号
+  }
+
+% 过渡语及注释词语种表初始化
+\prop_gclear:N \g__codemwe_textlang_prop
+
+% 内置过渡语及注释词语种表(8段逗号分隔的内容)
+\clist_map_inline:nn
+  {
+    { en } {
+      The~result~of,                          % 有编号前过渡语
+      is~shown~below.,                        % 有编号后过渡语
+      The~result~of~the~code~is~shown~below., % 无编号整段过渡语
+      document~class,                         % "文档类"注释词(仅对 LaTeX 示例代码有效)
+      preamble,                               % "导言区"注释词(仅对 LaTeX 示例代码有效)
+      body,                                   % "正文区"注释词(仅对 LaTeX 示例代码有效)
+      article,                                % MWE tex文件的默认文档类
+      example                                 % 示例标题及引用前缀
+    },
+    { zh } {
+      以下是,                                 % 有编号前过渡语
+      编译后得到的结果。,                     % 有编号后过渡语
+      以下是该代码编译后得到的结果。,         % 无编号整段过渡语
+      文档类,                                 % "文档类"注释词(仅对 LaTeX 示例代码有效)
+      导言区,                                 % "导言区"注释词(仅对 LaTeX 示例代码有效)
+      正文区,                                 % "正文区"注释词(仅对 LaTeX 示例代码有效)
+      ctexart,                                % MWE tex文件的默认文档类
+      例                                      % 示例标题及引用前缀
+    },
+  }{ \prop_gput:Nnn \g__codemwe_textlang_prop #1 }
+
+% 提取指定 seq 内容
+% #1 结果 tl 变量
+% #2 需要提取内容的编号
+\cs_new_protected:Npn \__codemwe_textlang_get_item:Nn #1#2
+  {
+    \tl_set:Nx #1 { \seq_item:Nn \l_tmpa_seq { #2 } }
+    \tl_trim_spaces:N #1
+  }
+
+% 加载一种过渡语及注释词的 8 段文本
+% #1 语种名（en / zh / 自定义）
+\cs_new_protected:Npn \__codemwe_set_textlang:n #1
+  {
+    \prop_get:NnNTF \g__codemwe_textlang_prop { #1 } \l_tmpa_tl
+      {
+        % 拆分各部分为 seq
+        \seq_set_split:NnV \l_tmpa_seq { , } \l_tmpa_tl
+
+        % 是否为 8 项
+        \int_compare:nNnTF { \seq_count:N \l_tmpa_seq } = { 8 }
+          {
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_trans_pre_tl   { 1 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_trans_post_tl  { 2 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_trans_nonum_tl { 3 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_cls_tl         { 4 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_preamble_tl    { 5 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_body_tl        { 6 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_cls_default_tl { 7 }
+            \__codemwe_textlang_get_item:Nn \l__codemwe_textlang_pretitle_tl    { 8 }
+
+            % 若用户未显式设置过 cls 选项，用语种默认的文档类(仅对 LaTeX 有效)
+            \bool_if:NF \l__codemwe_cls_set_bool
+              {
+                \tl_set_eq:NN \l__codemwe_cls_tl \l__codemwe_textlang_cls_default_tl
+              }
+
+            % 若用户未显式设置过 pretitle 选项，用语种默认前缀
+            \bool_if:NF \l__codemwe_pretitle_set_bool
+              {
+                \tl_set_eq:NN \l__codemwe_pretitle_tl \l__codemwe_textlang_pretitle_tl
+              }
+
+            \tl_set:Nn \l__codemwe_textlang_tl { #1 }
+          }
+          {
+            \msg_warning:nnxx { codemwe } { textlang-item-count }
+              { #1 } { \int_to_arabic:n { \seq_count:N \l_tmpa_seq } }
+          }
+      }
+      {
+        \msg_warning:nnx { codemwe } { unknown-textlang } { #1 }
+        \__codemwe_set_textlang:n { en }
+      }
+  }
+
+% 设置代码后端
+% #1 后端名称
+\cs_new_protected:Npn \__codemwe_set_backend:n #1
+  {
+    % 先去除首尾空白，再查表（键为变量，须用 NV 变体）
+    \tl_set:Nx \l_tmpb_tl { \tl_trim_spaces:n { #1 } }
+    \prop_get:NVNTF \g__codemwe_backend_prop \l_tmpb_tl \l_tmpa_tl
+      {
+        % 记录后端名称
+        \tl_set:Nx \l__codemwe_backend_tl { \tl_trim_spaces:n { #1 } }
+
+        % 提取源文件扩展名
+        \tl_set:Nx \l__codemwe_backend_ext_tl
+          { \clist_item:Nn \l_tmpa_tl { 1 } }
+
+        % 提取注释符
+        \tl_set:Nx \l__codemwe_comment_tl
+          { \clist_item:Nn \l_tmpa_tl { 2 } }
+
+        % 提取可编译标志
+        \tl_set:Nx \l_tmpb_tl { \clist_item:Nn \l_tmpa_tl { 3 } }
+        \str_if_eq:VnTF \l_tmpb_tl { true }
+          { \bool_set_true:N \l__codemwe_backend_compile_bool }
+          { \bool_set_false:N \l__codemwe_backend_compile_bool }
+
+        % 提取 minted 语言名（未设置显式留空时，退化为后端名）
+        \tl_set:Nx \l_tmpa_tl { \clist_item:Nn \l_tmpa_tl { 4 } }
+        \tl_set:Nx \l__codemwe_mintedlexer_tl
+          {
+            \tl_if_blank:VTF \l_tmpa_tl
+              { \tl_trim_spaces:n { #1 } }
+              { \l_tmpa_tl }
+          }
+      }
+      {
+        \msg_warning:nnx { codemwe } { unknown-backend } { #1 }
+        \__codemwe_set_backend:n { tex }
+      }
+  }
+
+% 提示：minted 不可用但用户要求高亮
+\cs_new_protected:Npn \__codemwe_minted_warn_once:
+  {
+    \bool_if:nT { \l__codemwe_minted_bool && !\g__codemwe_minted_ok_bool }
+      { \msg_warning:nn { codemwe } { minted-unavailable } }
+  }
+
+% 设置是否用 minted 实现语法高亮
+% #1 取值，可为 true / false / 空
+% 空值的含义是“只写选项名、不写取值”，即启用；显式写 false 则关闭。
+%
+% minted 是否真的可用已在宏包加载时检测完毕（见 \__codemwe_load_minted:），
+% 这里只负责开关；不可用时由排版阶段的 minted-unavailable 警告提示
+\cs_new_protected:Npn \__codemwe_set_minted:n #1
+  {
+    \bool_set_false:N \l__codemwe_minted_bool
+
+    \tl_if_blank:nTF { #1 }
+      { \bool_set_true:N \l__codemwe_minted_bool }
+      {
+        \str_if_eq:nnT { #1 } { true } { \bool_set_true:N \l__codemwe_minted_bool }
+        \str_if_eq:nnT { #1 } { yes  } { \bool_set_true:N \l__codemwe_minted_bool }
+      }
+  }
+
+% 设置 minted 高亮样式
+% 这里只记录取值，不改变 minted 的开关状态，也不在此加载 minted：
+% 样式可以与 minted 一起给出，也可以在 minted 之前给出，
+% 真正的加载由 minted 选项负责（见 \__codemwe_set_minted:n）。
+% #1 样式名
+\cs_new_protected:Npn \__codemwe_set_mintedstyle:n #1
+  {
+    \__codemwe_trim_newline_spaces:Nn \l__codemwe_mintedstyle_tl { #1 }
+    \tl_if_eq:NnF \l__codemwe_mintedstyle_tl { default }
+      { \bool_gset_true:N \g__codemwe_mintedstyle_set_bool }
+  }
+
+% 检查 minted 相关选项的搭配
+\cs_new_protected:Npn \__codemwe_check_minted_opts:
+  {
+    % 设置了 mintedstyle 却未启用 minted，给出提示
+    \bool_if:nT
+      { \g__codemwe_mintedstyle_set_bool && !\l__codemwe_minted_bool }
+      {
+        \msg_warning:nnx { codemwe } { mintedstyle-unused }
+          { \l__codemwe_mintedstyle_tl }
+      }
+  }
+
+% 布尔键转发：无值 → true；有值 → 原样
+% #1 选项名称
+% #2 取值
+\cs_new_protected:Npn \__codemwe_pkgopt_bool:nn #1#2
+  {
+    \tl_if_blank:nTF { #2 }
+      { \keys_set:nn { codemwe } { #1 = true  } }
+      { \keys_set:nn { codemwe } { #1 = { #2 } } }
+  }
+
+% 按需加载 minted 并检查其可用性
+% 「存在 minted.sty 且开启了 shell escape」，就直接加载 minted；
+% 未满足条件时不加载（此时加载也必然失败），仅置不可用标志，
+% 由后续的 minted 选项触发 minted-unavailable 警告。
+\cs_new_protected:Npn \__codemwe_load_minted:
+  {
+    \bool_if:NF \g__codemwe_minted_loaded_bool
+      {
+        \bool_gset_true:N \g__codemwe_minted_loaded_bool
+
+        \bool_lazy_and:nnT
+          { \sys_if_shell_unrestricted_p: }
+          { \file_if_exist_p:n { minted.sty } }
+          {
+            \RequirePackage { minted }
+            \bool_gset_true:N \g__codemwe_minted_ok_bool
+
+            % minted 以「文件在编译期间是否被改写」来判断能否复用高亮结果。
+            % 示例代码正是本宏包在编译过程中写出的临时文件，
+            % 若不登记其扩展名，minted 会误判为非法输入而报错。
+            % 该命令 minted v3 才提供，v2 无此机制，故先判断存在性。
+            \cs_if_exist:NT \MintedRegisterTempFileExtension
+              { \MintedRegisterTempFileExtension { .aux } }
+          }
+      }
+  }
+
+% codemwe 宏包加载时即完成检测
+\__codemwe_load_minted:
+
+% 设置 minted 环境的选项列表
+% minted 环境以文件为输入，故用 autogobble 去掉示例文件中的公共缩进
+% 注：minted 用 pgfkeys 解析键值，键与值两侧的空格必须去掉
+\cs_new_protected:Npn \__codemwe_set_minted_opts:
+  {
+    % 先按条件拼出可展开的样式名与编号关键字
+    \tl_set:Nx \l_tmpa_tl { \tl_trim_spaces:n { \l__codemwe_mintedstyle_tl } }
+
+    % 有无行号
+    \bool_if:NTF \l__codemwe_linenos_bool
+      { \tl_set:Nn \l_tmpb_tl { left } }
+      { \tl_set:Nn \l_tmpb_tl { none } }
+
+    \tl_set:Nx \l__codemwe_minted_opts_tl
+      {
+        autogobble,              % 删除公共缩进
+        breaklines,              % 允许换行
+        style      = \l_tmpa_tl, % 高亮样式
+        numbers    = \l_tmpb_tl, % 是否显示行号
+        numbersep  = 6pt,        % 行号与代码间的间距
+        fontseries = upright,    % 强制使用正体（包括注释）
+      }
+
+    % 是否输出行号
+    \bool_if:NT \l__codemwe_linenos_bool
+      {
+        % 输出行号
+        \tl_put_right:Nn \l__codemwe_minted_opts_tl { , linenos }
+        % 行号起始值
+        \tl_put_right:Nn \l__codemwe_minted_opts_tl { , firstnumber = 1 }
+      }
+  }
+
+% 键定义
+% ===================================================================
+% key-val 选项
+\keys_define:nn { codemwe }
+  {
+    % ===== 未知选项：给出警告，忽略 =====
+    unknown .code:n = { \msg_warning:nnx { codemwe } { unknown-key } { \l_keys_key_str } },
+
+    % ===== 文档类 =====
+    cls        .code:n     = {
+                               \__codemwe_parse_cls:n { #1 }
+                               \bool_set_true:N \l__codemwe_cls_set_bool
+                             },
+
+    % ===== 示例代码中是否包含文档类内容 =====
+    withcls    .bool_set:N = \l__codemwe_with_cls_bool,
+    withcls    .initial:n  = false,
+    withcls    .default:n  = true,
+
+    % ===== 宏包 =====
+    pkg        .code:n     = \__codemwe_parse_pkg:n { #1 },
+
+    % ===== 示例代码中是否包含宏包内容 =====
+    withpkg    .bool_set:N = \l__codemwe_with_pkg_bool,
+    withpkg    .initial:n  = false,
+    withpkg    .default:n  = true,
+
+    % ===== 示例代码中是否包含额外导言区内容 =====
+    withextra  .bool_set:N = \l__codemwe_with_extra_bool,
+    withextra  .initial:n  = false,
+    withextra  .default:n  = true,
+
+    % ===== 计数器名称 =====
+    counter     .tl_set:N  = \l__codemwe_counter_tl,
+    counter     .initial:n = { example },
+
+    % ===== 标签名称前缀 =====
+    prelabel    .tl_set:N  = \l__codemwe_prelabel_tl,
+    prelabel    .initial:n = { ex },
+
+    % ===== 标题及引用前缀 =====
+    pretitle       .code:n = {
+                               \__codemwe_trim_newline_spaces:Nn \l__codemwe_pretitle_tl { #1 }
+                               \bool_set_true:N \l__codemwe_pretitle_set_bool
+                             },
+
+    % ===== 文件与路径 =====
+    dir        .tl_set:N  = \l__codemwe_dir_tl,
+    dir        .initial:n = { codes },
+
+    % ===== 排版模式 =====
+    vmode     .bool_set:N = \l__codemwe_vmode_bool,
+    vmode     .initial:n  = false,
+    vmode     .default:n  = true,
+
+    % ===== 排版宽度 =====
+    width      .dim_set:N = \l__codemwe_width_dim,
+    width      .initial:n = { \c_zero_dim },
+
+    % ===== 代码框与结果框间距 =====
+    sep        .dim_set:N = \l__codemwe_lrsep_dim,
+    sep        .initial:n = { 18pt },
+
+    % ===== 示例代码中是否包含环境体 =====
+    nobody    .bool_set:N = \l__codemwe_no_body_bool,
+    nobody    .initial:n  = false,
+    nobody    .default:n  = true,
+
+    % ===== 结果输出控制 =====
+    noshow    .bool_set:N = \l__codemwe_noshow_bool,
+    noshow    .initial:n  = false,
+    noshow    .default:n  = true,
+
+    % ===== 编号控制 =====
+    nonum     .bool_set:N = \l__codemwe_nonum_bool,
+    nonum     .initial:n  = false,
+    nonum     .default:n  = true,
+
+    % ===== 盒子类型名称 =====
+    boxtype   .code:n     = { \__codemwe_trim_newline_spaces:Nn \l__codemwe_boxtype_tl { #1 } },
+    boxtype   .initial:n  = { syntaxbox },
+
+    % ===== 代码行号 =====
+    linenos   .bool_set:N = \l__codemwe_linenos_bool,
+    linenos   .initial:n  = false,
+    linenos   .default:n  = true,
+
+    % ===== 语种 =====
+    textlang       .code:n    = { \__codemwe_set_textlang:n { #1 } },
+    textlang       .initial:n = { en },
+
+    % ===== 代码后端（源语言）=====
+    backend        .code:n    = { \__codemwe_set_backend:n { #1 } },
+    backend        .initial:n = { tex },
+
+    % ===== 是否用 minted 实现语法高亮 =====
+    % 说明：此处必须真正解析取值，`minted = false` 要能把高亮关掉，
+    % 故不能像早期版本那样无条件置 true。只在取值为真时才顺手加载
+    % minted，使其副作用（加载宏包）与开关本身保持一致。
+    minted         .code:n    = { \__codemwe_set_minted:n { #1 } },
+    minted         .initial:n = false,
+    minted         .default:n = true,
+
+    % ===== minted 高亮样式 =====
+    % 说明：包选项是按键名逐个处理的，mintedstyle 可能先于 minted 出现，
+    % 此处若立即判断会误报「mintedstyle 未起作用」。故只记录取值，
+    % 待文档开始时再统一检查（见 \__codemwe_check_minted_opts:）。
+    mintedstyle    .code:n    = { \__codemwe_set_mintedstyle:n { #1 } },
+    mintedstyle    .initial:n = { default },
+
+    % ===== 示例代码标题 =====
+    title      .code:n    = { \__codemwe_trim_newline_spaces:Nn \l__codemwe_title_tl { #1 } },
+    title      .initial:n = {  },
+
+    % ===== 示例引用标签 =====
+    label      .code:n    = { \__codemwe_trim_newline_spaces:Nn \l__codemwe_label_tl { #1 } },
+    label      .initial:n = {  },
+
+    % ===== MWE tex文件名 =====
+    filename   .tl_set:N  = \l__codemwe_mwe_filename_tl,
+    filename   .initial:n = {  },
+
+    % ===== 结果图片 =====
+    result   .tl_set:N    = \l__codemwe_result_fig_tl,
+    result   .initial:n   = {  },
+
+    % ===== 结果图片缩放比例 =====
+    scale      .fp_set:N  = \l__codemwe_result_fig_scale_fp,
+    scale      .initial:n = { 1 },
+
+    % ===== 结果图片宽度 =====
+    wd         .dim_set:N = \l__codemwe_result_fig_width_dim,
+    wd         .initial:n = { \c_zero_dim },
+
+    % ===== 结果图片高度 =====
+    ht         .dim_set:N = \l__codemwe_result_fig_height_dim,
+    ht         .initial:n = { \c_zero_dim },
+
+    % ===== 上下盒子间过渡语 =====
+    transition .code:n    = { \__codemwe_trim_newline_spaces:Nn \l__codemwe_transition_tl { #1 } },
+    transition .initial:n = { },
+  }
+
+% 宏包选项转发
+\keys_define:nn { codemwe / pkgopts }
+  {
+    % 非布尔键：直接转发
+    cls         .meta:nn = { codemwe } { cls         = { #1 } },
+    pkg         .meta:nn = { codemwe } { pkg         = { #1 } },
+    counter     .meta:nn = { codemwe } { counter     = { #1 } },
+    prelabel    .meta:nn = { codemwe } { prelabel    = { #1 } },
+    pretitle    .meta:nn = { codemwe } { pretitle    = { #1 } },
+    dir         .meta:nn = { codemwe } { dir         = { #1 } },
+    width       .meta:nn = { codemwe } { width       = { #1 } },
+    sep         .meta:nn = { codemwe } { sep         = { #1 } },
+    boxtype     .meta:nn = { codemwe } { boxtype     = { #1 } },
+    textlang    .meta:nn = { codemwe } { textlang    = { #1 } },
+    backend     .meta:nn = { codemwe } { backend     = { #1 } },
+    mintedstyle .meta:nn = { codemwe } { mintedstyle = { #1 } },
+
+    % 布尔键：允许“不带值”，无值时视为 true
+    withcls   .code:n = { \__codemwe_pkgopt_bool:nn { withcls   } { #1 } },
+    withpkg   .code:n = { \__codemwe_pkgopt_bool:nn { withpkg   } { #1 } },
+    withextra .code:n = { \__codemwe_pkgopt_bool:nn { withextra } { #1 } },
+    vmode     .code:n = { \__codemwe_pkgopt_bool:nn { vmode     } { #1 } },
+    nobody    .code:n = { \__codemwe_pkgopt_bool:nn { nobody    } { #1 } },
+    noshow    .code:n = { \__codemwe_pkgopt_bool:nn { noshow    } { #1 } },
+    nonum     .code:n = { \__codemwe_pkgopt_bool:nn { nonum     } { #1 } },
+    linenos   .code:n = { \__codemwe_pkgopt_bool:nn { linenos   } { #1 } },
+    minted    .code:n = { \__codemwe_pkgopt_bool:nn { minted    } { #1 } },
+  }
+
+% 注册新盒子命令需要的选项
+\keys_define:nn { codemwe / newbox }
+  {
+    withtitle .bool_set:N = \l__codemwe_newbox_title_bool,
+    withtitle .initial:n  = true,
+    withtitle .default:n  = true,
+  }
+
+% 默认语种设置为英文
+\__codemwe_set_textlang:n { en }
+
+% 处理宏包选项
+\ProcessKeyOptions [ codemwe / pkgopts ]
+
+% 计数器与引用格式
+% ===================================================================
+% 构造章节前缀 "."
+\cs_new:Npn \__codemwe_chapter_dot:
+  {
+    \cs_if_exist:cT { c@chapter }
+      {
+        \int_compare:nNnT { \c@chapter } > { 0 }
+          { \thechapter . }
+      }
+  }
+
+% 构造章节前缀 "-"
+\cs_new:Npn \__codemwe_chapter_dash:
+  {
+    \cs_if_exist:cT { c@chapter }
+      {
+        \int_compare:nNnT { \c@chapter } > { 0 }
+          { \thechapter - }
+      }
+  }
+
+% 定义计数器
+\AtBeginDocument
+  {
+    % 检查 minted 相关选项的搭配（此时全部包选项已处理完毕）
+    \__codemwe_check_minted_opts:
+
+    % 判断计数器是否冲突
+    \cs_if_exist:cTF { c@ \l__codemwe_counter_tl }
+      { \msg_warning:nnx { codemwe } { counter-exists } { \l__codemwe_counter_tl } }
+      {
+        \cs_if_exist:cTF { c@chapter }
+          { \newcounter{ \l__codemwe_counter_tl }[chapter] }
+          { \newcounter{ \l__codemwe_counter_tl } }
+      }
+
+    % 设置 \the计数器 编号输出样式
+    \cs_set:cpn { the \l__codemwe_counter_tl }
+      {
+        \__codemwe_chapter_dot:
+        \int_use:c { c@ \l__codemwe_counter_tl }
+      }
+
+    % 设置 \ref 引用样式
+    \exp_args:Nx \labelformat
+      { \l__codemwe_counter_tl }
+      { \l__codemwe_pretitle_tl\c_space_tl #1 }
+  }
+
+% 工具函数
+% ===================================================================
+% 盒子类型解析
+\cs_new_protected:Npn \__codemwe_resolve_boxtype:
+  {
+    \prop_get:NVNTF \g__codemwe_boxes_title_prop \l__codemwe_boxtype_tl \l_tmpa_tl
+      { \bool_set_eq:NN \l__codemwe_box_title_bool \l_tmpa_tl }
+      {
+        % 未注册：给出警告
+        \msg_warning:nnx { codemwe } { unknown-boxtype } { \l__codemwe_boxtype_tl }
+
+        % 回退到 syntaxbox
+        \tl_set:Nn \l__codemwe_boxtype_tl { syntaxbox }
+        \bool_set_false:N \l__codemwe_box_title_bool
+      }
+  }
+
+% 循环删除 tl 变量首尾部的 \obeyedline
+% #1 tl 变量
+\cs_new_protected:Npn \__codemwe_trim_obeyedline:N #1
+  {
+    % 删首部
+    \bool_while_do:nn
+      { \tl_if_head_eq_meaning_p:VN #1 \obeyedline }
+      { \tl_set:Nx #1 { \tl_tail:N #1 } }
+
+    % 删尾部
+    \tl_reverse:N #1
+    \bool_while_do:nn
+      { \tl_if_head_eq_meaning_p:VN #1 \obeyedline }
+      { \tl_set:Nx #1 { \tl_tail:N #1 } }
+    \tl_reverse:N #1
+  }
+
+% 构造引用标签
+\cs_new_protected:Npn \__codemwe_make_label:
+  {
+    \tl_set:Nx \l__codemwe_label_tl
+      {
+        \l__codemwe_prelabel_tl :
+        \__codemwe_chapter_dash:
+        \int_use:c { c@ \l__codemwe_counter_tl }
+      }
+  }
+
+% 写文件函数
+% #1 iow 文件变量
+% #2 文件名
+% #3 文件内容变量
+\cs_new_protected:Npn \__codemwe_write_stream:NNn #1#2#3
+  {
+    % 打开文件
+    \iow_open:Nn #1 { #2 }
+    % 写入文件
+    \iow_now:NV  #1 #3
+    % 关闭文件
+    \iow_close:N #1
+  }
+
+% 文件构造函数
+% ===================================================================
+% 构造 MWE 示例代码文件名称
+% 指定了 filename 选项，则使用指定的文件名；
+% 否则使用 prelabel章号-编号.扩展名 作为文件名（扩展名由 backend 决定），
+% 文件路径由 dir 选项确定。
+\cs_new:Npn \__codemwe_create_mwe_filename:
+  {
+    \tl_if_empty:NTF \l__codemwe_mwe_filename_tl
+      {
+        \l__codemwe_dir_tl / \l__codemwe_prelabel_tl
+        \__codemwe_chapter_dash:
+        \int_use:c { c@ \l__codemwe_counter_tl }
+        . \l__codemwe_backend_ext_tl
+      }
+      { \l__codemwe_dir_tl / \l__codemwe_mwe_filename_tl }
+  }
+
+% 构造注释字符串
+% #1 被注释的文字
+\cs_new:Npn \__codemwe_comment_line:n #1
+  {
+    \l__codemwe_comment_tl \c_space_tl #1
+    \iow_newline:
+  }
+
+% 构造文档类字符串
+\cs_new:Npn \__codemwe_cls_line:
+  {
+    % 构造 \documentclass
+    \c_backslash_str documentclass
+
+    % 文档类选项
+    \clist_if_empty:NF \l__codemwe_cls_opts_clist
+      { [ \clist_use:Nn \l__codemwe_cls_opts_clist { , } ] }
+
+    % 文档类名称
+    { \l__codemwe_cls_tl }
+  }
+
+% 构造带注释符（%）的文档类字符串
+\cs_new:Npn \__codemwe_commented_cls_line:
+  {
+    % 判断是否输出结果或示例代码
+    \bool_if:nTF { \l__codemwe_noshow_bool || \l__codemwe_no_body_bool }
+      {
+        % 不输出结果或示例代码，直接输出文档类内容
+        \__codemwe_cls_line:
+      }{
+        % 输出结果或示例代码，需要给文档类添加注释符号
+        \c_percent_str \c_space_tl \__codemwe_cls_line:
+      }
+  }
+
+% 构造 \begin{document} 或 \end{document} 之类的文档行
+% #1 begin 或 end
+% #2 document
+\cs_new:Npn \__codemwe_document_line:nn #1#2
+  {
+    \c_backslash_str #1 { #2 } \iow_newline:
+  }
+
+% 构造一条 \usepackage[...]{...} 字符串
+% #1 宏包名称
+% #2 宏包选项
+\cs_new:Npn \__codemwe_usepackage_line:nn #1#2
+  {
+    % 构造 \usepackage 命令
+    \c_backslash_str usepackage
+
+    % 先展开 #2 再判断是否为空
+    \exp_args:Ne \tl_if_empty:nF { #2 } { [ #2 ] }
+
+    % 宏包名称
+    { #1 }
+
+    % 换行
+    \iow_newline:
+  }
+
+% 构造宏包及其选项
+\cs_new_protected:Npn \__codemwe_create_pkg_contents:
+  {
+    % 清空
+    \tl_clear:N \l__codemwe_packages_tl
+
+    % 循环处理各个宏包
+    \int_step_inline:nn { \clist_count:N \l__codemwe_pkgs_clist }
+      {
+        % 提取宏包名
+        \tl_set:Nx \l_tmpb_tl
+          { \clist_item:Nn \l__codemwe_pkgs_clist { ##1 } }
+
+        % 提取宏包选项
+        \tl_set:Nx \l_tmpa_tl
+          { \clist_item:Nn \l__codemwe_pkg_opts_clist { ##1 } }
+
+        % 拼接整行
+        \tl_put_right:Nx \l__codemwe_packages_tl
+          {
+            \__codemwe_usepackage_line:nn { \l_tmpb_tl } { \l_tmpa_tl }
+          }
+      }
+  }
+
+% 写入示例文件
+% #1 示例文件名
+\cs_new_protected:Npn \__codemwe_write_mwe_file:n #1
+  {
+    \bool_if:NTF \l__codemwe_backend_compile_bool
+      {
+        % LaTeX 可编译后端：拼接完整 LaTeX 文档结构
+        % 拼接完整内容
+        \tl_set:Nx \l_tmpb_tl
+          {
+            % 构造文档类注释
+            \__codemwe_comment_line:n { \l__codemwe_textlang_cls_tl }
+
+            % 输出文档类内容
+            \__codemwe_cls_line:
+            \iow_newline:
+            \iow_newline:
+
+            % 构造导言区注释
+            \bool_if:nT { !(\tl_if_empty_p:N \l__codemwe_packages_tl) ||
+                          !(\tl_if_empty_p:N \l__codemwe_extra_preamble_tl) }
+              {
+                \__codemwe_comment_line:n { \l__codemwe_textlang_preamble_tl }
+              }
+
+            % 宏包及选项
+            \tl_if_empty:NF \l__codemwe_packages_tl
+              {
+                \l__codemwe_packages_tl
+                \iow_newline:
+              }
+
+            % 导言区额外内容（由 example 环境的必选参数设置）
+            \tl_if_empty:NF \l__codemwe_extra_preamble_tl
+              {
+                \l__codemwe_extra_preamble_tl
+                \iow_newline:
+                \iow_newline:
+              }
+
+            % 构造正文区注释
+            \__codemwe_comment_line:n { \l__codemwe_textlang_body_tl }
+
+            % 构造 \begin{document} 命令
+            \__codemwe_document_line:nn { begin }{ document }
+            \iow_newline:
+
+            % 示例代码内容（由 example 环境的环境体提供）
+            \l__codemwe_body_tl
+            \iow_newline:
+            \iow_newline:
+
+            % 构造 \end{document} 命令
+            \__codemwe_document_line:nn { end }{ document }
+          }
+
+        % 写入文件
+        \__codemwe_write_stream:NNn \g__codemwe_mwe_iow { #1 } \l_tmpb_tl
+      }
+      {
+        % 不可编译后端：仅写入首行注释、可选附加内容与源代码
+        % 拼接完整内容
+        \tl_set:Nx \l_tmpb_tl
+          {
+            % 首行注释（如 "// 例 1.1 绘制直线"）
+            \l__codemwe_headcomment_tl
+
+            % 附加内容（由环境必选参数设置，如 C 语言的 #include 行）
+            \tl_if_empty:NF \l__codemwe_extra_preamble_tl
+              {
+                \l__codemwe_extra_preamble_tl
+                \iow_newline:
+                \iow_newline:
+              }
+
+            % 源代码内容（由环境体提供）
+            \l__codemwe_body_tl
+            \iow_newline:
+          }
+
+        % 写入文件
+        \__codemwe_write_stream:NNn \g__codemwe_mwe_iow { #1 } \l_tmpb_tl
+      }
+  }
+
+% 仅将环境体写入指定文件
+% #1 文件名
+\cs_new_protected:Npn \__codemwe_write_body_file:n #1
+  {
+    % 拼完整内容
+    \tl_set:Nx \l_tmpb_tl
+      {
+        % 示例代码内容（仅写入环境体内容，不含文档类、导言区等）
+        \l__codemwe_body_tl
+        \iow_newline:
+      }
+
+    % 写入文件
+    \__codemwe_write_stream:NNn \g__codemwe_mwe_iow { #1 } \l_tmpb_tl
+  }
+
+% 为 LaTeX 各宏包添加注释符号 "%"
+\cs_new_protected:Npn \__codemwe_commentize_packages:
+  {
+    \tl_clear:N \l__codemwe_tmpa_tl
+
+    % 按行拆分各宏包内容
+    \seq_set_split:NnV \l_tmpa_seq { ^^J } \l__codemwe_packages_tl
+
+    % 逐个处理各个宏包
+    \seq_map_inline:Nn \l_tmpa_seq
+      {
+        \tl_if_empty:nF { ##1 }
+          {
+            \tl_put_right:Nx \l__codemwe_tmpa_tl
+              { \c_percent_str \c_space_tl ##1 \iow_newline: }
+          }
+      }
+  }
+
+% 写入示例代码临时文件
+% #1：环境体的 token 列表
+\cs_new_protected:Npn \__codemwe_write_example_aux:n #1
+  {
+    \bool_if:NTF \l__codemwe_backend_compile_bool
+      { \__codemwe_write_example_aux_c:n { #1 } }
+      { \__codemwe_write_example_aux_nc:n { #1 } }
+  }
+
+% 当前应使用的临时文件名（minted 与 fancyvrb 各用一份）
+\tl_new:N \l__codemwe_aux_name_tl
+\cs_new_protected:Npn \__codemwe_set_aux_name:
+  {
+    \bool_if:NTF \l__codemwe_minted_bool
+      { \tl_set_eq:NN \l__codemwe_aux_name_tl \g__codemwe_minted_aux_name_tl }
+      { \tl_set_eq:NN \l__codemwe_aux_name_tl \g__codemwe_aux_name_tl }
+  }
+
+% 写入可编译后端（LaTeX）的示例代码临时文件
+% #1：环境体的 token 列表
+\cs_new_protected:Npn \__codemwe_write_example_aux_c:n #1
+  {
+    % 如果输出结果则为各宏包添加注释符号
+    \bool_if:nF { \l__codemwe_noshow_bool || \l__codemwe_no_body_bool }
+      {
+        \__codemwe_commentize_packages:
+      }
+
+    % 拼接完整内容
+    \tl_set:Nx \l_tmpb_tl
+      {
+        % 示例文件首行注释行（仅当盒子不支持标题栏时才写入 aux 文件）
+        \bool_if:NF \l__codemwe_box_title_bool
+          { \l__codemwe_headcomment_tl }
+
+        % 如果需要 cls
+        \bool_if:NT \l__codemwe_with_cls_bool
+          {
+            % 构造 "% 文档类" 注释行
+            \__codemwe_comment_line:n { \l__codemwe_textlang_cls_tl }
+
+            % 输出文档类内容
+            \__codemwe_commented_cls_line:
+            \iow_newline:
+          }
+
+        % 如果需要 pkg 或其它导言区内容，则添加一行注释：% 导言区
+        \bool_if:nT { \l__codemwe_with_pkg_bool || \l__codemwe_with_extra_bool }
+          {
+            \__codemwe_comment_line:n { \l__codemwe_textlang_preamble_tl }
+          }
+
+        % 添加宏包内容
+        \bool_if:nT { \l__codemwe_with_pkg_bool && !(\tl_if_empty_p:N \l__codemwe_packages_tl) }
+          {
+            \bool_if:nTF { \l__codemwe_noshow_bool || \l__codemwe_no_body_bool }
+              { \l__codemwe_packages_tl }
+              { \l__codemwe_tmpa_tl }
+          }
+
+        % 添加通过必选参数设置的额外导言区内容
+        \bool_if:nT { \l__codemwe_with_extra_bool && !(\tl_if_empty_p:N \l__codemwe_extra_preamble_tl) }
+          {
+            \l__codemwe_extra_preamble_tl
+            \bool_if:nF { \l__codemwe_noshow_bool || \l__codemwe_no_body_bool }
+              { \iow_newline: }
+          }
+
+        % 如果添加了 pkg 或其它导言区内容，则添加一行注释：% 正文区
+        \bool_if:nT { (\l__codemwe_with_pkg_bool || \l__codemwe_with_extra_bool)
+                      && !(\l__codemwe_no_body_bool) }
+          {
+            \__codemwe_comment_line:n { \l__codemwe_textlang_body_tl }
+          }
+
+        % 环境体内容
+        \bool_if:NF \l__codemwe_no_body_bool
+          { #1 }
+      }
+
+    % 写入文件
+    \__codemwe_set_aux_name:
+    \__codemwe_write_stream:NNn \g__codemwe_aux_iow \l__codemwe_aux_name_tl \l_tmpb_tl
+  }
+
+% 写入不可编译后端的示例代码临时文件（供代码框排版读取）
+% #1：环境体的 token 列表
+\cs_new_protected:Npn \__codemwe_write_example_aux_nc:n #1
+  {
+    % 拼接完整内容（仅注释行、可选附加内容与源代码，不含 LaTeX 结构）
+    \tl_set:Nx \l_tmpb_tl
+      {
+        % 示例文件首行注释行（仅当盒子不支持标题栏时才写入）
+        \bool_if:NF \l__codemwe_box_title_bool
+          { \l__codemwe_headcomment_tl }
+
+        % 附加内容（由环境必选参数设置）
+        \bool_if:nT { \l__codemwe_with_extra_bool && !(\tl_if_empty_p:N \l__codemwe_extra_preamble_tl) }
+          {
+            \l__codemwe_extra_preamble_tl
+            \iow_newline:
+          }
+
+        % 环境体内容
+        \bool_if:NF \l__codemwe_no_body_bool
+          {
+            #1
+          }
+      }
+
+    % 写入文件
+    \__codemwe_set_aux_name:
+    \__codemwe_write_stream:NNn \g__codemwe_aux_iow \l__codemwe_aux_name_tl \l_tmpb_tl
+  }
+
+% 构造首行注释行
+% #1 注释行引导词（如 "\l__codemwe_pretitle_tl ~ \the计数器" 或 filename）
+\cs_new_protected:Npn \__codemwe_set_headcomment:n #1
+  {
+    % 独立求值，结果存入 tl
+    \__codemwe_capitalize_into:Nn \l_tmpa_tl { #1 }
+
+    % 纯文本："例 1.1 绘制直线"
+    \tl_set:Nx \l__codemwe_headtext_tl
+      {
+        \exp_not:V \l_tmpa_tl
+        \tl_if_empty:NF \l__codemwe_title_tl
+          { \c_space_tl \tl_use:N \l__codemwe_title_tl }
+      }
+
+    % 带注释符与换行："% 例 1.1 绘制直线\n"（注释符由 backend 决定）
+    \tl_set:Nx \l__codemwe_headcomment_tl
+      {
+        \l__codemwe_comment_tl \c_space_tl
+        \l__codemwe_headtext_tl
+        \iow_newline:
+      }
+
+    % 若当前盒子支持标题栏，就把纯文本作为盒子标题；否则清空
+    \bool_if:NTF \l__codemwe_box_title_bool
+      { \tl_set_eq:NN \l__codemwe_box_title_tl \l__codemwe_headtext_tl }
+      { \tl_clear:N \l__codemwe_box_title_tl }
+  }
+
+% 排版函数
+% ===================================================================
+% 排版代码框内容
+% #1 代码文件名
+\cs_new_protected:Npn \__codemwe_typeset_code:n #1
+  {
+    \bool_lazy_and:nnTF
+      { \l__codemwe_minted_bool }
+      { \g__codemwe_minted_ok_bool }
+      { \__codemwe_typeset_code_minted:n { #1 } }
+      { \__codemwe_typeset_code_verbatim:n { #1 } }
+  }
+
+% 用 fancyvrb 原样排版代码
+% #1 代码文件名
+\cs_new_protected:Npn \__codemwe_typeset_code_verbatim:n #1
+  {
+      \bool_if:NTF \l__codemwe_linenos_bool
+        { \VerbatimInput[gobble=0, numbers=left, numbersep=6pt]{ #1 } }
+        { \VerbatimInput[gobble=0]{ #1 } }
+  }
+
+% 用 minted 排版代码并做语法高亮
+% example 环境已把代码写入临时文件，故这里直接用 minted 的文件输入接口排版；
+% minted 以 \small 排版，并自动去掉公共缩进
+% 注 1：\inputminted 内部依赖 \FVExtraRetokenizeVArg，对分类码敏感，
+%       必须在 \ExplSyntaxOff 状态下调用
+% 注 2：\setminted 与 \inputminted 的参数都不做展开，选项串必须作为字面记号交给 minted，
+%       故不能用 \exp_args:NV 之类的手段传参
+% #1 代码文件名
+\cs_new_protected:Npn \__codemwe_typeset_code_minted:n #1
+  {
+    % 构造选项串
+    \__codemwe_set_minted_opts:
+
+    % minted 代码语言名称
+    \tl_set_eq:NN \l__codemwe_minted_lang_tl \l__codemwe_mintedlexer_tl
+
+    % 代码文件名称
+    \tl_set:Nx \l__codemwe_minted_file_tl { #1 }
+
+    % 关闭 Expl3 语法后交给 minted
+    % 此时，空格是有意义的，而选项串本身不含空格，故可直接按字面记号写出
+    \group_begin:
+      \ExplSyntaxOff
+        \small
+        \__codemwe_minted_typeset:
+      \ExplSyntaxOn
+    \group_end:
+  }
+
+% 关闭 Expl3 语法下的 minted 排版：把三个变量一次展开成字面记号
+% 这里用 \csname 取得 expl3 变量（变量名含下划线与冒号，在文档语法下必须经 \csname 才能安全访问），
+% 再用 \edef 拼出一条完整调用
+\cs_new_protected:Npn \__codemwe_minted_typeset:
+  {
+    \begingroup
+      % 拼接
+      \edef\__codemwe_minted_do:
+        {
+          \noexpand\setminted
+            { \csname l__codemwe_minted_opts_tl \endcsname }
+          \noexpand\inputminted
+            { \csname l__codemwe_minted_lang_tl \endcsname }
+            { \csname l__codemwe_minted_file_tl \endcsname }
+        }
+
+      % 使用
+      \__codemwe_minted_do:
+    \endgroup
+  }
+
+% 代码框宽度计算函数
+% #1：代码框宽度
+\cs_new_protected:Npn \__codemwe_set_codebox_width:n #1
+  {
+    % 水平/垂直模式判断
+    \bool_if:NTF \l__codemwe_vmode_bool
+      {
+        % 垂直模式：上下等宽
+        \dim_compare:nNnTF { #1 } = { \c_zero_dim }
+          {
+            % 默认为 \textwidth
+            \dim_set:Nn \l__codemwe_lwidth_dim { \textwidth }
+            \dim_set:Nn \l__codemwe_rwidth_dim { \textwidth }
+          }{
+            \dim_set:Nn \l__codemwe_lwidth_dim { #1 }
+            \dim_set:Nn \l__codemwe_rwidth_dim { #1 }
+          }
+      }
+      {
+        % 水平模式：左右分栏
+        \dim_compare:nNnTF { #1 } = { \c_zero_dim }
+          {
+            % 默认为 \textwidth 减去间距后的 1/2
+            \dim_set:Nn \l__codemwe_lwidth_dim { \textwidth }
+            \dim_sub:Nn \l__codemwe_lwidth_dim { \l__codemwe_lrsep_dim }
+            \dim_set:Nn \l__codemwe_lwidth_dim { \dim_eval:n { \l__codemwe_lwidth_dim / 2 } }
+          }{
+            \dim_set:Nn \l__codemwe_lwidth_dim { #1 }
+          }
+
+        % 计算水平模式的左代码框和右结果框宽度
+        \dim_set:Nn \l__codemwe_rwidth_dim { \textwidth }
+        \dim_sub:Nn \l__codemwe_rwidth_dim { \l__codemwe_lwidth_dim }
+        \dim_sub:Nn \l__codemwe_rwidth_dim { \l__codemwe_lrsep_dim }
+
+        % 右结果框宽度小于 0，给出警告
+        \dim_compare:nNnT { \l__codemwe_rwidth_dim } < { \c_zero_dim }
+          { \msg_warning:nn { codemwe } { width-too-large } }
+      }
+  }
+
+% 排版结果框
+\cs_new_protected:Npn \__codemwe_typeset_result:
+  {
+    \tl_if_empty:NTF \l__codemwe_result_fig_tl
+      {
+        % 未指定输出结果图片文件，且后端可编译时，直接编译示例代码得到结果
+        \bool_if:NT \l__codemwe_backend_compile_bool
+          {
+            \exp_args:NV \begin \l__codemwe_boxtype_tl ( ) [ width = \dim_use:N \l__codemwe_rwidth_dim, center ]
+              \normalsize
+              % 结果框要把示例代码真正运行一遍，故此处必须原样 \input，
+              \__codemwe_set_aux_name:
+              \input{ \l__codemwe_aux_name_tl }
+            \exp_args:NV \end \l__codemwe_boxtype_tl
+          }
+      }
+      {
+        % 检查插图文件是否存在
+        \file_if_exist:nF { \l__codemwe_result_fig_tl }
+          { \msg_warning:nnx { codemwe } { result-file-missing } { \l__codemwe_result_fig_tl } }
+
+        % 为插图添加边框
+        \tcbox[enhanced,            % 增强效果
+               sharp~corners,       % 边角：锐角
+               opacityback = 1,     % 透明度
+               colback     = white, % 背景色：white
+               colframe    = black, % 边框色：black
+               boxrule     = 0.4pt, % 线宽
+               boxsep      = 0.0pt, % 内边距
+               left        = 1.8pt, % 左边距
+               right       = 1.8pt, % 右边距
+               top         = 1.8pt, % 上边距（基线补偿）
+               bottom      = 1.8pt, % 下边距
+               nobeforeafter,       % 取消盒子前后自动添加的垂直间距
+               center,              % 盒子水平居中排版
+        ]{%
+          % 指定了输出结果图片文件，插入图片作为示例代码编译结果
+          % 如果指定了 wd 则忽略 ht 和 scale
+          \centering % 盒子内容居中排版
+          \dim_compare:nNnTF { \l__codemwe_result_fig_width_dim } = { \c_zero_dim }
+            {
+              % 如果未指定 wd，但指定了 ht 则忽略 scale
+              \dim_compare:nNnTF { \l__codemwe_result_fig_height_dim } = { \c_zero_dim }
+                {
+                  % 使用 scale
+                  \includegraphics[ scale = \fp_use:N \l__codemwe_result_fig_scale_fp ]
+                    { \l__codemwe_result_fig_tl }
+                }
+                {
+                  % 使用 ht
+                  \includegraphics[ height = \dim_use:N \l__codemwe_result_fig_height_dim ]
+                    { \l__codemwe_result_fig_tl }
+                }
+            }
+            {
+              % 使用 wd
+              \includegraphics[ width = \dim_use:N \l__codemwe_result_fig_width_dim ]
+                { \l__codemwe_result_fig_tl }
+            }
+        } % tcbox 结束
+      }
+  }
+
+% 核心流程
+% ===================================================================
+% example 环境开始函数
+% #1：环境体的 token 列表
+\cs_new_protected:Npn \__codemwe_example_begin:n #1
+  {
+    % 解析 boxtype（须在设置 headcomment 之前）
+    \__codemwe_resolve_boxtype:
+
+    % minted 可用性已在宏包加载时检测；此处仅在要求高亮而 minted 不可用时提示
+    \bool_if:NT \l__codemwe_minted_bool
+      {
+        \__codemwe_minted_warn_once:
+      }
+
+    % 不可编译后端且未指定结果图片（而结果框本应输出）时给出警告
+    \bool_if:nT
+      {
+        !\l__codemwe_backend_compile_bool && \tl_if_empty_p:N \l__codemwe_result_fig_tl &&
+        !(\l__codemwe_noshow_bool || \l__codemwe_no_body_bool)
+      }
+      { \msg_warning:nnx { codemwe } { backend-no-result } { \l__codemwe_backend_tl } }
+
+    % 处理 pkg 选项设定的宏包内容
+    \__codemwe_create_pkg_contents:
+
+    % example 环境必选项（导言区额外内容）非空时处理
+    \tl_if_empty:NF \l__codemwe_extra_preamble_tl
+      {
+        % 删除首尾 \obeyedline
+        \__codemwe_trim_obeyedline:N \l__codemwe_extra_preamble_tl
+
+        % 将 \obeyedline 替换为换行符
+        \tl_replace_all:Nxx \l__codemwe_extra_preamble_tl
+          { \obeyedline }
+          { \iow_char:N \^^J }
+      }
+
+    % 将环境体中的 \obeyedline 替换为真正的换行符
+    \tl_set:Nn \l_tmpa_tl { #1 }
+    \tl_replace_all:Nxx \l_tmpa_tl
+      { \obeyedline }
+      { \iow_char:N \^^J }
+
+    % 保存规范化后的环境体内容
+    \tl_set_eq:NN \l__codemwe_body_tl \l_tmpa_tl
+
+    % 是否编号判断
+    \bool_if:NTF \l__codemwe_nonum_bool
+      {
+        \tl_if_empty:NTF \l__codemwe_mwe_filename_tl
+          {
+            % 不编号且未指定保存文件名时，清空注释行，避免沿用旧值
+            \tl_clear:N \l__codemwe_headcomment_tl
+          }{
+            % 不编号但指定了保存文件名，则将环境体保存为指定的文件
+            % 构造示例代码开头的注释行（如：text.tex）
+            \__codemwe_set_headcomment:n { \l__codemwe_mwe_filename_tl }
+
+            % 仅保存环境体内容到指定文件
+            \__codemwe_write_body_file:n { \__codemwe_create_mwe_filename: }
+          }
+      }{
+        % 递增计数器，产生交叉引用链接锚点
+        \exp_args:Nx \refstepcounter { \l__codemwe_counter_tl }
+
+        % 构造示例代码开头的注释行（如：例 8.1）
+        \__codemwe_set_headcomment:n
+          {
+            \l__codemwe_pretitle_tl \c_space_tl
+            \use:c { the \l__codemwe_counter_tl }
+          }
+
+        % 确定标签名
+        \tl_if_empty:NTF \l__codemwe_label_tl
+          {
+            \__codemwe_make_label:
+          }{ }
+        \exp_args:NV \label \l__codemwe_label_tl
+
+        % 生成可编译的完整结构示例代码文件
+        \__codemwe_write_mwe_file:n { \__codemwe_create_mwe_filename: }
+      }
+
+    % 若未自定义过渡文字，则默认引用本示例编号
+    \tl_if_empty:NTF \l__codemwe_transition_tl
+      {
+        \bool_if:NTF \l__codemwe_nonum_bool
+          {
+            % 无编号：直接用整段
+            \tl_set_eq:NN \l__codemwe_transition_tl \l__codemwe_textlang_trans_nonum_tl
+          }{
+            % 有编号：前 + \ref + 后
+            \tl_set:Nx \l__codemwe_transition_tl
+              {
+                \l__codemwe_textlang_trans_pre_tl
+                \c_space_tl
+                \exp_not:N \ref { \l__codemwe_label_tl }
+                \tl_if_empty:NF \l__codemwe_textlang_trans_post_tl
+                  {
+                    \c_space_tl \l__codemwe_textlang_trans_post_tl
+                  }
+              }
+          }
+      }{ }
+
+    % 将规范化后的环境体内容写入临时文件，供排版时读取
+    \__codemwe_write_example_aux:n { \l__codemwe_body_tl }
+
+    % 设置代码框宽度
+    \__codemwe_set_codebox_width:n { \l__codemwe_width_dim }
+  }
+
+% example 环境结束函数：实现排版
+\cs_new_protected:Npn \__codemwe_example_end:
+  {
+    \par\addvspace{\smallskipamount}
+    \noindent
+
+    \bool_if:NTF \l__codemwe_vmode_bool
+      {
+        % 垂直模式
+        % 排版代码框
+        % 垂直模式代码框
+        \exp_args:NV \begin \l__codemwe_boxtype_tl ( \l__codemwe_box_title_tl )
+          [ width = \dim_use:N \l__codemwe_lwidth_dim, fonttitle = \small, center ]
+          \small
+          \__codemwe_typeset_code:n { \l__codemwe_aux_name_tl }
+        \exp_args:NV \end \l__codemwe_boxtype_tl
+
+        % 排版结果框，仅在需要显示结果且能获得结果时输出
+        \bool_if:nF
+          {
+            \l__codemwe_noshow_bool || \l__codemwe_no_body_bool ||
+            ( !\l__codemwe_backend_compile_bool && \tl_if_empty_p:N \l__codemwe_result_fig_tl )
+          }
+          {
+            % 过渡文字
+            \tl_if_empty:NF \l__codemwe_transition_tl
+              {
+                \par
+                \group_begin:
+                  \noindent \l__codemwe_transition_tl \par
+                  \medskip
+                \group_end:
+              }
+
+            % 示例代码编译结果
+            \par
+            \group_begin:
+              \noindent
+              \__codemwe_typeset_result:
+            \group_end:
+            \par
+          }
+      }{
+        % 水平模式
+        % 排版代码框
+        \begin{minipage}[c]{ \l__codemwe_lwidth_dim }
+          \exp_args:NV \begin \l__codemwe_boxtype_tl ( \l__codemwe_box_title_tl )
+            [ width = \dim_use:N \l__codemwe_lwidth_dim, fonttitle = \small, center ]
+            \small
+            \__codemwe_typeset_code:n { \l__codemwe_aux_name_tl }
+          \exp_args:NV \end \l__codemwe_boxtype_tl
+        \end{minipage}%
+
+        % 示例代码排版结果
+        \bool_if:nF
+          {
+            \l__codemwe_noshow_bool || \l__codemwe_no_body_bool ||
+            ( !\l__codemwe_backend_compile_bool && \tl_if_empty_p:N \l__codemwe_result_fig_tl )
+          }
+          {
+            \hfill%
+            \begin{minipage}[c]{ \l__codemwe_rwidth_dim }
+              \__codemwe_typeset_result:
+            \end{minipage}%
+            \par\addvspace{\medskipamount}
+          }
+      }
+  }
+
+% 用户接口
+% ===================================================================
+% 定义“左代码 + 右结果”的示例代码环境
+% #1 (O)  可选：key-val 选项列表，默认为空
+% #2 (+v) 必选：导言区附加内容
+% #3 (+c) 必选：环境体
+% 使用示例：
+% \begin{example}[key-val list]{导言区附加内容}
+%   ...环境体...
+% \end{example}
+\NewDocumentEnvironment{ example }{ O{} +v +c }
+  {
+    \group_begin:
+      % 设置选项
+      \keys_set:nn { codemwe } { #1 }
+
+      % 导言区附加内容
+      \tl_set:Nn \l__codemwe_extra_preamble_tl { #2 }
+
+      % 水平模式
+      \__codemwe_example_begin:n { #3 }
+  }{
+     \__codemwe_example_end:
+    \group_end:
+  }
+
+% 定义“上代码 + 过渡语 + 下结果”的示例代码环境
+% #1 (O)  可选：key-val 选项列表，默认为空
+% #2 (+v) 必选：导言区附加内容
+% #3 (+c) 必选：环境体
+% 使用示例：
+% \begin{example*}[key-val list]{导言区附加内容}
+%   ...环境体...
+% \end{example*}
+\NewDocumentEnvironment{ example* }{ O{} +v +c }
+  {
+    \group_begin:
+      % 设置选项
+      \keys_set:nn { codemwe } { vmode = true, #1 }
+
+      % 导言区附加内容
+      \tl_set:Nn \l__codemwe_extra_preamble_tl { #2 }
+
+      % 垂直模式
+      \__codemwe_example_begin:n { #3 }
+  }{
+      \__codemwe_example_end:
+    \group_end:
+  }
+
+% 仅排版代码环境 texcode
+\NewDocumentEnvironment{ texcode }{ O{} +c }
+  {
+    \group_begin:
+      % 设置选项
+      \keys_set:nn { codemwe } { vmode, nonum, noshow, #1 }
+
+      % 垂直模式
+      \__codemwe_example_begin:n { #2 }
+  }{
+      \__codemwe_example_end:
+    \group_end:
+  }
+
+% 定义仅排版 C 语言代码的环境 ccode
+% #1 (O) 可选：key-val 选项列表，默认为空
+% #2 (+c) 必选：环境体（C 语言源代码）
+% 等价于 example 的 vmode + nonum + noshow + backend = c 组合，
+% 仅排版代码框，不生成结果框，同时生成 .c 源文件。
+% 使用示例：
+% \begin{ccode}[filename = demo.c]{}
+%   ...C 代码...
+% \end{ccode}
+\NewDocumentEnvironment{ ccode }{ O{} +c }
+  {
+    \group_begin:
+      % 设置选项
+      \keys_set:nn { codemwe } { vmode, nonum, noshow, backend = c, #1 }
+
+      % 垂直模式
+      \__codemwe_example_begin:n { #2 }
+  }{
+      \__codemwe_example_end:
+    \group_end:
+  }
+
+% example 环境选项设置
+% #1 example key-val 选项列表
+\NewDocumentCommand \codemweset { m }
+  {
+    % 设置选项
+    \keys_set:nn { codemwe } { #1 }
+  }
+
+% 注册一个新的盒子（只需声明是否支持标题栏）
+% #1 盒子环境名，须符合 "s O{背景色} d() O{额外选项}" 接口
+% #2 可选参数：title = true / false（默认 true）
+\NewDocumentCommand \codemweNewBox { m O{} }
+  {
+    \group_begin:
+      % 设置新盒子选项
+      \keys_set:nn { codemwe / newbox } { #2 }
+
+      % 构造 prop 值
+      \tl_set:Nx \l_tmpa_tl
+        {
+          % 设置新盒子是否有标题栏
+          \bool_if:NTF \l__codemwe_newbox_title_bool
+            { \exp_not:N \c_true_bool }
+            { \exp_not:N \c_false_bool }
+        }
+
+      % 写入 prop (不能完全展开)
+      \prop_gput:NxV \g__codemwe_boxes_title_prop
+        { \tl_trim_spaces:n { #1 } } \l_tmpa_tl
+    \group_end:
+  }
+
+% 注册新语种
+% #1 语种名
+% #2 8段文本，逗号分隔(内容中有逗号则需要用大括号保护,空白也需要留白)：
+%    { 前过渡语、后过渡语、无编号过渡语、文档类词、导言区词、正文区词、默认文档类名、标题及引用前缀 }
+\NewDocumentCommand \codemweNewLang { m m }
+  {
+    \prop_gput:Nxx \g__codemwe_textlang_prop
+      { \tl_trim_spaces:n { #1 } }
+      { \tl_trim_spaces:n { #2 } }
+  }
+
+% 注册新的代码后端（源语言）
+% #1 后端名称，之后可作为 backend 选项的取值
+% #2 源文件扩展名（不含点）
+% #3 注释符，按原样读取（如 % 或 // 或 #，不必转义）
+% #4 该语言源代码能否被 LaTeX 直接编译（true / false）
+% #5（可选）minted 语言名，默认与后端名相同
+\NewDocumentCommand \codemweNewBackend { m m v m O{} }
+  {
+    % 后端名称，作为 prop 的键，因此需去除首尾空白
+    \tl_set:Nx \l_tmpa_tl { \tl_trim_spaces:n { #1 } }
+
+    % 注释符：v 型参数按原样读取为字符串（含 # 也不会出问题），
+    % 仅去除首尾空白
+    \tl_set:Nn \l_tmpb_tl { #3 }
+    \tl_trim_spaces:N \l_tmpb_tl
+
+    % minted 语言名：留空时沿用后端名
+    \tl_set:Nx \l_tmpd_tl
+      {
+        \tl_if_blank:nTF { #5 }
+          { \tl_trim_spaces:n { #1 } }
+          { \tl_trim_spaces:n { #5 } }
+      }
+
+    % 值：{ 扩展名 , 注释符 , 是否可编译 , minted 语言名 }
+    \tl_set:Nx \l_tmpc_tl
+      {
+        \tl_trim_spaces:n { #2 } ,
+        \l_tmpb_tl ,
+        \tl_trim_spaces:n { #4 } ,
+        \l_tmpd_tl
+      }
+
+    % 写入属性表（NVV：键与值均取变量内容）
+    \prop_gput:NVV \g__codemwe_backend_prop \l_tmpa_tl \l_tmpc_tl
+  }
+
+\endinput

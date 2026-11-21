@@ -1,0 +1,183 @@
+% Single entry point for the feature subsystem.
+% Feature ids map directly to module files through the centralized catalog.
+
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+\RequirePackage{import}
+
+\makeatletter
+\@ifundefined{ifNextSystemInstalled}
+  {\newif\ifNextSystemInstalled\NextSystemInstalledfalse}
+  {}
+\providecommand{\NextSystemRoot}{}
+\newcommand{\FeatureModuleRoot}{}
+\ifNextSystemInstalled
+  \edef\FeatureModuleRoot{modules/features/}
+\else
+  \ifx\import@path\@undefined
+    \edef\FeatureModuleRoot{./modules/features/}
+  \else
+    \edef\FeatureModuleRoot{\import@path}
+    \StrSubstitute{\FeatureModuleRoot}{core/system/../features/}{modules/features/}[\FeatureModuleRoot]
+    \StrSubstitute{\FeatureModuleRoot}{core/features/}{modules/features/}[\FeatureModuleRoot]
+    \StrSubstitute{\FeatureModuleRoot}{package/../}{ }[\FeatureModuleRoot]
+    \StrSubstitute{\FeatureModuleRoot}{ }{}[\FeatureModuleRoot]
+  \fi
+\fi
+\makeatother
+
+\providecommand{\NextCitationBiblatexOptions}{%
+  backend=biber,
+  style=apa,
+  sorting=nyt,
+  sortcites=true,
+  doi=true,
+  isbn=false,
+  url=true
+}
+
+\makeatletter
+\newcommand{\SetCitationBiblatexOptions}[1]{%
+  \@ifpackageloaded{biblatex}
+    {%
+      \PackageError{feature-citations}
+        {Citation style options must be set before biblatex is loaded}
+        {Call this command before loading the citations feature.}%
+    }
+    {\def\NextCitationBiblatexOptions{#1}}%
+}
+\makeatother
+
+\providecommand{\NextMathFontSelection}{auto}
+\newcommand{\UseMathFont}[1]{%
+  \def\NextMathFontSelection{#1}%
+}
+
+\ExplSyntaxOn
+
+\NewDocumentCommand{\UseCitationStyle}{m}
+  {
+    \str_case_e:nnF { \str_uppercase:n {#1} }
+      {
+        { APA }
+          {
+            \SetCitationBiblatexOptions
+              {
+                backend=biber,
+                style=apa,
+                sorting=nyt,
+                sortcites=true,
+                doi=true,
+                isbn=false,
+                url=true
+              }
+          }
+        { GB }
+          {
+            \SetCitationBiblatexOptions
+              {
+                backend=biber,
+                style=gb7714-2015,
+                sorting=none,
+                sortcites=true,
+                doi=true,
+                isbn=false,
+                url=true
+              }
+          }
+        { NUMERIC }
+          {
+            \SetCitationBiblatexOptions
+              {
+                backend=biber,
+                style=numeric,
+                sorting=none,
+                sortcites=true,
+                doi=true,
+                isbn=false,
+                url=true
+              }
+          }
+        { AUTHOR-YEAR }
+          {
+            \SetCitationBiblatexOptions
+              {
+                backend=biber,
+                style=authoryear,
+                sorting=nyt,
+                sortcites=true,
+                giveninits=true,
+                uniquename=init,
+                maxnames=3,
+                maxbibnames=99,
+                doi=true,
+                isbn=false,
+                url=true
+              }
+          }
+        { AUTHORYEAR }
+          {
+            \SetCitationBiblatexOptions
+              {
+                backend=biber,
+                style=authoryear,
+                sorting=nyt,
+                sortcites=true,
+                giveninits=true,
+                uniquename=init,
+                maxnames=3,
+                maxbibnames=99,
+                doi=true,
+                isbn=false,
+                url=true
+              }
+          }
+      }
+      {
+        \PackageError{feature-citations}
+          {Unknown~citation~style~`#1`}
+          {Use~APA,~GB,~numeric,~or~author-year.}
+      }
+  }
+
+\prop_new:N \g__feature_catalog_path_prop
+\prop_new:N \g__feature_catalog_loaded_prop
+
+\cs_new_protected:Npn \__feature_catalog_register:nn #1#2
+  { \prop_put:Nnn \g__feature_catalog_path_prop {#1} {#2} }
+
+\NewDocumentCommand{\FeatureCatalogEntry}{m m}
+  { \__feature_catalog_register:nn {#1} {#2} }
+
+\cs_new_protected:Npn \__feature_use:n #1
+  {
+    \prop_if_in:NnTF \g__feature_catalog_path_prop {#1}
+      {
+        \prop_if_in:NnTF \g__feature_catalog_loaded_prop {#1}
+          { }
+          {
+            \prop_get:NnN \g__feature_catalog_path_prop {#1} \l_tmpa_tl
+            \use:x { \exp_not:N \input { \FeatureModuleRoot \tl_use:N \l_tmpa_tl } }
+            \prop_put:Nnn \g__feature_catalog_loaded_prop {#1} { loaded }
+          }
+      }
+      {
+        \PackageError{feature-catalog}
+          {Unknown~feature~id~`#1`}
+          {Register~the~feature~in~catalog/impe-features-catalog.tex.}
+      }
+  }
+
+\NewDocumentCommand{\UseFeature}{m}
+  { \__feature_use:n {#1} }
+
+\NewDocumentCommand{\UseFeatures}{m}
+  { \clist_map_inline:nn {#1} { \__feature_use:n {##1} } }
+
+\ExplSyntaxOff
+
+\ifNextSystemInstalled
+  \input{catalog/impe-features-catalog.tex}
+\else
+  \subimport{../../catalog/}{impe-features-catalog.tex}
+\fi

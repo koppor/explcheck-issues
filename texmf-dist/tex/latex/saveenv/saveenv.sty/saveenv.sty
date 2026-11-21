@@ -1,0 +1,172 @@
+% File: saveenv.sty
+% Copyright 2022 user202729
+%
+% This work  may be  distributed and/or  modified under  the conditions  of the
+% LaTeX Project Public License (LPPL),  either version 1.3c  of this license or
+% (at your option) any later version.  The latest version of this license is in
+% the file:
+%
+%   http://www.latex-project.org/lppl.txt
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is user202729.
+
+\ProvidesExplPackage{saveenv}{2022/12/23}{0.0.1}{Save environment content verbatim}
+\RequirePackage{precattl}
+\msg_new:nnn {saveenv} {trailing-content-or-pretokenized}
+	{Trailing~content~found~on~line,~or~content~pretokenized!}
+
+\msg_new:nnn {saveenv} {trailing-content-end-line}
+	{Trailing~content~found~on~environment~last~line}
+
+\msg_new:nnn {saveenv} {currfile-package-not-loaded}
+	{currfile~package~is~needed~for~this~functionality}
+
+\precattl_exec:n{
+% args: char code, content, environment name
+\msg_new:nnn {saveenv} {leading-content-last-line}
+	{Leading~content~found~on~\cO\\end{#3}~line,~first~char~code~=~#1,~content~=~'#2'}
+}
+
+\makeatletter
+
+\seq_new:N \_senv_lines
+\ior_new:N \_senv_file
+
+\precattl_exec:n {
+
+\NewDocumentEnvironment {saveenvghost} {m} {
+	\edef \_senv_firstline {\the\inputlineno}
+} {
+
+	\cs_if_free:NT \currfilename {
+		\msg_error:nn {saveenv} {currfile-package-not-loaded}
+	}
+	\ior_open:Nn \_senv_file {\currfilename}
+
+	\prg_replicate:nn {\_senv_firstline} {
+		\ior_str_get:NN \_senv_file \_senv_line
+	}
+
+	\tl_build_gbegin:N #1
+
+	\prg_replicate:nn {\the\inputlineno-\_senv_firstline-1} {
+		\ior_str_get:NN \_senv_file \_senv_line
+		\exp_args:NNo \tl_build_gput_right:Nn #1 {\_senv_line ^^J}
+	}
+
+	\ior_close:N \_senv_file
+
+	\tl_build_gend:N #1
+
+}
+
+
+% #1: target macro
+% #2: content to be inserted after the \end
+\NewDocumentEnvironment {saveenvkeeplastreinsert} {mm} {
+	\begingroup
+	\edef \_senv_old_endlinechar {\the\endlinechar}
+	%\bench before cctab.
+	\cctab_select:N \c_other_cctab  % note that this changes the value of \endlinechar as well
+	%\bench after cctab.
+	\int_compare:nNnTF {\_senv_old_endlinechar} < {0} {
+		\_senv_start_get_body:Nn #1 {#2}
+	} {
+		\exp_last_unbraced:Nf \peek_meaning_remove:NTF { \char_generate:nn{\_senv_old_endlinechar}{12} }    %12 is other
+		{
+			\_senv_start_get_body:Nn #1 {#2}
+		}
+		{
+			\msg_error:nn {saveenv} {trailing-content-or-pretokenized}
+		}
+	}
+} {
+}
+
+
+% #1: target macro
+% #2: content to be inserted after the \end
+\cs_new_protected:Npn \_senv_start_get_body:Nn #1 #2 {
+	\endlinechar=10~
+	\str_set:NV \_senv_env \@currenvir
+	\tl_replace_all:Nnn \_senv_env {~} {\cO\  }
+	\_senv_helper:NVVn #1 \_senv_env \@currenvir {#2}
+}
+
+% #1: target macro
+% #2: value of \@currenvir but with all tokens catcode 12 (other)
+% #3: value of \@currenvir
+% #4 content to be inserted after the \end
+\cs_new_protected:Npn \_senv_helper:Nnnn #1 #2 #3 #4 {
+	\cs_set_protected:cpn {[saveenv]~verbatim~body~scanner~for~#2} ##1 \cO{ \\end\{ } #2 \cO\} {
+		%\bench X3.
+		% ##1: the body
+		\peek_meaning_remove:NTF ^^J {
+			%\bench inside peek.
+			\endgroup
+			%\bench after endgroup.
+			\str_gset:Nn #1 {##1}
+			%\bench X5.
+			\end{#3}
+			%\bench X6.
+			#4
+		} {
+			\msg_error:nn {saveenv} {trailing-content-end-line}
+		}
+	}
+
+	\use:c {[saveenv]~verbatim~body~scanner~for~#2}
+}
+\cs_generate_variant:Nn \_senv_helper:Nnnn {NVVn}
+
+\NewDocumentEnvironment {saveenvkeeplast} {m} {
+	\saveenvkeeplastreinsert #1 {}
+} {
+	\endsaveenvkeeplastreinsert
+}
+
+% set variable #1 to have content of #2, but with last line dropped.
+% lines are separated by \^^J.
+
+\cs_new:Npn \_senv_append_newline:n #1 { #1 ^^J }
+
+\cs_new_protected:Npn \saveenv_set_drop_last:Nn #1 #2 {
+	\tl_set:Nn \_senv_body {#2}
+	\tl_replace_all:Nnn \_senv_body {~} {\cO\  }  % keep spaces in seq_set_split (support older expl3 versions)
+	\seq_set_split:NnV \_senv_lines {^^J} \_senv_body
+	\seq_pop_right:NN \_senv_lines \_senv_lastline
+	\tl_map_inline:Nn \_senv_lastline {  % debug check, ensure last line is empty
+		\int_case:nnF {`##1}  {
+			{32} {}  %space
+			{9} {}   %tab
+		}
+		{
+			\msg_error:nnoVV {saveenv} {leading-content-last-line} {\number`##1} \_senv_lastline \@currenvir
+		}
+	}
+	%\str_gset:Nx #1 {\seq_use:Nn \_senv_lines {^^J}}  % this is extremely slow because \seq_use:Nn is ⋆-expandable
+	\str_gset:Nx #1 {\seq_map_function:NN \_senv_lines \_senv_append_newline:n }
+}
+
+\cs_generate_variant:Nn \saveenv_set_drop_last:Nn {NV}
+
+\NewDocumentEnvironment {saveenvreinsert} {mm} {
+	\saveenvkeeplastreinsert #1 {#2}
+} {
+	\endsaveenvkeeplastreinsert
+	\saveenv_set_drop_last:NV #1 #1
+}
+
+\NewDocumentEnvironment {saveenv} {m} {
+	\saveenvkeeplast #1
+} {
+	\endsaveenvkeeplast
+	\saveenv_set_drop_last:NV #1 #1
+}
+
+
+}
+
+\cs_generate_variant:Nn \msg_error:nnnnn {nnoVV}

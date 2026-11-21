@@ -1,0 +1,1695 @@
+% Copyright (c) 2026 Simon Rubinstein-Salzedo.
+% Distributed under the LaTeX Project Public License, version 1.3c or later.
+% Maintenance status: maintained. Current Maintainer: Simon Rubinstein-Salzedo.
+% License: https://www.latex-project.org/lppl.txt
+% See README.md for the list of files and attribution.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% combgames-tikz.sty
+% AUTHOR: Simon Rubinstein-Salzedo
+%         based on combgames.sty by Raymond Chen, 
+%         David Wolfe, and Aaron Siegel
+% PLEASE SUGGEST IMPROVEMENTS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{combgames-tikz}[2026/10/28 v1.0 Combinatorial game theory TikZ game boards]
+
+\RequirePackage{iftex}
+\RequirePackage{expl3}
+\RequirePackage{xparse}
+\RequirePackage{tikz}
+\usetikzlibrary{calc}
+\usetikzlibrary{arrows.meta}
+\RequirePackage{combgames-symbols}
+
+\tikzset{
+	linecap/.style={line cap=#1},
+	linejoin/.style={line join=#1},
+	linewidth/.style={line width=#1},
+}
+\tikzset{
+	hackennode/.style={draw,fill=white,circle,inner sep=0,minimum size=4pt},
+	treenode/.style={inner sep=1, minimum size=4pt},
+	hackenline/.style={line width=3pt},
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% GridGame setup
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\ExplSyntaxOn
+\msg_new:nnn { combgames-tikz } { unknown-token }
+  { Unknown~token~'#2'~in~game~'#1';~leaving~this~position~empty. }
+% token registry
+\NewDocumentCommand \gridtoken { m m m }{
+	\cs_set_protected:cpn { cgt@map@#1@#2 } { #3 }
+}
+
+% minimal engine
+% ===================== GridGame (with bbox margins) =====================
+\NewDocumentCommand \GridGame { O{.35cm} m m }{%
+	\ensuremath{%
+		\mathord{%
+			\vcenter{\hbox{%
+					\begin{tikzpicture}[x=#1,y=#1, every node/.style={inner sep=0pt,outer sep=0pt}]
+						% ---- measure rows/cols ----
+						\seq_clear_new:N \l__rows
+						\int_zero_new:N \l__R
+						\int_zero_new:N \l__C
+						\int_zero_new:N \l__len
+						\seq_set_split:Nnn \l__rows { \\ } { #3 }
+                        % Ignore empty rows, including rows containing only spaces.
+                        \seq_clear_new:N \l__cgt_nonempty_rows_seq
+                        \seq_map_inline:Nn \l__rows {
+                          \tl_set:Nn \l_tmpa_tl { ##1 }
+                          \tl_remove_all:Nn \l_tmpa_tl { \c_space_tl }
+                          \tl_remove_all:Nn \l_tmpa_tl { ~ }
+                          \tl_remove_all:Nn \l_tmpa_tl { ^^a0 }
+                          \tl_if_blank:VF \l_tmpa_tl
+                            { \seq_put_right:NV \l__cgt_nonempty_rows_seq \l_tmpa_tl }
+                        }
+                        \seq_set_eq:NN \l__rows \l__cgt_nonempty_rows_seq
+                        \int_set:Nn \l__R { \seq_count:N \l__rows }
+						\int_zero:N \l__C
+						\seq_map_inline:Nn \l__rows {
+							\tl_set:Nn \l_tmpa_tl { ##1 }
+							\tl_remove_all:Nn \l_tmpa_tl { \c_space_tl } \tl_remove_all:Nn \l_tmpa_tl { ~ } \tl_remove_all:Nn \l_tmpa_tl { ^^a0 }
+							\int_set:Nn \l__len { \tl_count:N \l_tmpa_tl }
+							\int_compare:nNnT { \l__len } > { \l__C } { \int_set_eq:NN \l__C \l__len }
+						}
+						
+						% ---- per-game bbox margins lookup ----
+						\edef\cgt@bbl{%
+							\ifcsname cgt@bboxlower@#2\endcsname
+							\csname cgt@bboxlower@#2\endcsname
+							\else
+							\csname cgt@bboxlower@DEFAULT\endcsname
+							\fi}
+						\edef\cgt@bbu{%
+							\ifcsname cgt@bboxupper@#2\endcsname
+							\csname cgt@bboxupper@#2\endcsname
+							\else
+							\csname cgt@bboxupper@DEFAULT\endcsname
+							\fi}
+						
+						% ---- prime the picture bbox so \vcenter centers visible artwork ----
+						\path (0,\cgt@bbl) rectangle (\int_eval:n{\l__C}, {\int_eval:n{\l__R}+\cgt@bbu});
+						
+						% ---- draw cells/tokens ----
+						\cs_if_exist_use:c { cgt@beforecells@#2 }
+                        \int_zero_new:N \l__row
+						\int_zero_new:N \l__col
+						\seq_map_inline:Nn \l__rows {
+							\int_incr:N \l__row
+							\tl_set:Nn \l_tmpa_tl { ##1 }
+							\tl_remove_all:Nn \l_tmpa_tl { \c_space_tl } \tl_remove_all:Nn \l_tmpa_tl { ~ } \tl_remove_all:Nn \l_tmpa_tl { ^^a0 }
+							\int_zero:N \l__col
+							\tl_map_inline:Nn \l_tmpa_tl {
+								\int_incr:N \l__col
+								\cs_if_exist:cTF { cgt@position@#2 }
+                                  { \edef\cgt@cellposition{\use:c{cgt@position@#2}} }
+                                  { \edef\cgt@cellposition{(\int_eval:n{\l__col-1},\int_eval:n{\l__R-\l__row})} }
+                                \edef\cgt@begincell{\noexpand\begin{scope}[shift={\cgt@cellposition}]}\cgt@begincell
+									\coordinate (cellcenter) at (.5,.5);
+									\cs_if_exist_use:cF { cgt@map@#2@####1 } { \msg_warning:nnnn { combgames-tikz } { unknown-token } {#2} {####1} }
+								\end{scope}
+							}
+						}
+					\cs_if_exist_use:c { cgt@aftercells@#2 }
+					\end{tikzpicture}%
+			}}%
+		}%
+	}%
+}
+
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DOMINEERING
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% ------------ Domineering tokens ------------
+\gridtoken{DomTok}{.}{}                        % empty
+\gridtoken{DomTok}{o}{\draw (0,0) rectangle (1,1);}  % outline 1×1
+\gridtoken{DomTok}{x}{%
+	\fill[draw=none,fill=lightgray] (0,0) rectangle (1,1);
+	\draw (0,0) rectangle (1,1);
+}
+\gridtoken{DomTok}{^}{}%
+% n is a safe alias for ^ (the top half); v draws the whole vertical domino.
+\gridtoken{DomTok}{n}{\csname cgt@map@DomTok@^\endcsname}
+\gridtoken{DomTok}{>}{}%
+\gridtoken{DomTok}{v}{%
+	\draw (0,0) rectangle (1,2);
+	\fill (0.4,0.4) -- (0.2,0.2) -- (0.8,0.2) -- (0.6,0.4)
+	-- (0.6,1.6) -- (0.8,1.8) -- (0.2,1.8) -- (0.4,1.6) -- cycle;
+}
+\gridtoken{DomTok}{<}{%
+	\draw (0,0) rectangle (2,1);
+	\fill (0.4,0.4) -- (0.2,0.2) -- (0.2,0.8) -- (0.4,0.6)
+	-- (1.6,0.6) -- (1.8,0.8) -- (1.8,0.2) -- (1.6,0.4) -- cycle;
+}
+
+% direct wrapper (no factory involved)
+\NewDocumentCommand{\Domineering}{ O{.35cm} m }{%
+	\GridGame[#1]{DomTok}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% CLOBBER
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\gridtoken{CLOB}{O}{%
+	\draw (0,0) rectangle +(1,1);
+	\draw
+	(0.16495,0.34487) -- (0.23333,0.25000) -- (0.86666,0.25000) --
+	(0.76495,0.65513) -- (0.68333,0.75000) -- (0.26666,0.75000) -- cycle;
+	\draw
+	(0.26666,0.75000) -- (0.33504,0.65513) -- (0.76495,0.65513) --
+	(0.33504,0.65513) -- (0.23333,0.25000);
+	\draw[line width=0.3pt] (0.54,0.710718) arc (-60:240:0.08);
+}
+\gridtoken{CLOB}{X}{%
+	\draw (0,0) rectangle +(1,1);
+	\filldraw
+	(0.16495,0.34487) -- (0.23333,0.25000) -- (0.86666,0.25000) --
+	(0.76495,0.65513) -- (0.68333,0.75000) -- (0.26666,0.75000) -- cycle;
+	\draw[white,line width=0.5pt]
+	(0.26666,0.75000) -- (0.33504,0.65513) -- (0.76495,0.65513) --
+	(0.33504,0.65513) -- (0.23333,0.25000);
+	\draw[line width=0.3pt]
+	(0.54,0.710718) arc (-60:240:0.08);
+}
+\gridtoken{CLOB}{.}{
+	\draw (0,0) rectangle +(1,1);
+}
+\gridtoken{CLOB}{o}{\csname cgt@map@CLOB@O\endcsname}
+\gridtoken{CLOB}{x}{\csname cgt@map@CLOB@X\endcsname}
+
+\ExplSyntaxOn
+\NewDocumentCommand{\clobber}{ O{.3cm} m }{%
+	\GridGame[#1]{CLOB}{#2}%
+}
+\NewDocumentCommand{\Clobber}{ O{.5cm} m }{%
+	\GridGame[#1]{CLOB}{#2}%
+}
+\ExplSyntaxOff
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DOTS AND BOXES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Symbol definitions, including \cgloony, come from cgt.sty.
+
+\gridtoken{DAB}{.}{}
+\gridtoken{DAB}{o}{\fill (0,0) circle (.3);}
+\gridtoken{DAB}{-}{\draw (-1,0) -- (1,0);}
+\gridtoken{DAB}{|}{\draw (0,1) -- (0,-1);}
+\gridtoken{DAB}{:}{\draw[densely dotted] (0,-1) -- (0,1);}
+\gridtoken{DAB}{+}{\draw[densely dotted] (-1,0) -- (1,0);}
+\gridtoken{DAB}{*}{\node at (0,0) {\tiny$\cgloony$};}
+\gridtoken{DAB}{A}{\node at (0,0) {\textbf{A}};}
+\gridtoken{DAB}{B}{\node at (0,0) {\textbf{B}};}
+
+\NewDocumentCommand{\DotsAndBoxes}{ O{.35cm} m }{%
+	\GridGame[#1]{DAB}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% STRINGS AND COINS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% helper: coin outline + centered text
+\newcommand{\SNCcoin}[1]{%
+	\draw (.5,.5) circle[radius=.5];%
+	\node at (.5,.5){#1};%
+}
+
+\gridtoken{SNC}{.}{}                                  % empty cell
+\gridtoken{SNC}{o}{\SNCcoin{\$}}                      % coin with $
+\gridtoken{SNC}{A}{\SNCcoin{\textbf{A}}}             % coin with A
+\gridtoken{SNC}{B}{\SNCcoin{\textbf{B}}}             % coin with B
+
+% edges (short inside-cell segments, centered)
+\gridtoken{SNC}{-}{\draw (0.05,.5)--(.95,.5);}        % solid horizontal
+\gridtoken{SNC}{|}{\draw (.5,0.05)--(.5,.95);}        % solid vertical
+\gridtoken{SNC}{+}{\draw[densely dotted] (0.05,.5)--(.95,.5);}  % dotted horiz
+\gridtoken{SNC}{:}{\draw[densely dotted] (.5,0.05)--(.5,.95);}  % dotted vert
+
+% specials with loony mark near the center-left
+\gridtoken{SNC}{*}{%
+	\draw (0.05,.5)--(.95,.5);%
+	\node at (.45,.5){\small$\scriptstyle\cgloony$};%
+}
+\gridtoken{SNC}{!}{%
+	\draw (.5,0.05)--(.5,.95);%
+	\node at (.45,.50){\small$\scriptstyle\cgloony$};%
+}
+
+% wrapper
+\NewDocumentCommand{\StringsAndCoins}{ O{.35cm} m }{%
+	\GridGame[#1]{SNC}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% CHOMP
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\gridtoken{CHM}{.}{}  % (optional) allow '.' as empty if you use it elsewhere
+\gridtoken{CHM}{O}{\draw (0,0) rectangle (1,1);}  % empty
+\gridtoken{CHM}{X}{%
+	\draw (0,0) rectangle +(1,1);
+	\draw (.5,.5) circle[radius=.3];
+	\draw (.2,.2)--(.8,.8) (.2,.8)--(.8,.2);
+}
+\gridtoken{CHM}{P}{%
+	\draw (0,0) rectangle +(1,1);
+	\draw (.5,.5) circle[radius=.3];
+	\draw (.2,.2)--(.8,.8) (.2,.8)--(.8,.2);
+}
+
+\NewDocumentCommand{\Chomp}{ O{.35cm} m }{%
+	\GridGame[#1]{CHM}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% BRIDGIT
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\gridtoken{BRG}{.}{}                                  % empty
+\gridtoken{BRG}{o}{\draw (0,0) circle[radius=.2];}  % small empty node
+\gridtoken{BRG}{x}{\fill (0,0) circle[radius=.2];}  % small filled node
+\gridtoken{BRG}{-}{\draw (-.8,0) -- (.8,0);}        % solid horizontal
+\gridtoken{BRG}{|}{\draw (0,-.8) -- (0,.8);}        % solid vertical
+\gridtoken{BRG}{+}{\draw[densely dotted] (-.8,0) -- (.8,0);} % dotted horiz
+\gridtoken{BRG}{:}{\draw[densely dotted] (0,-.8) -- (0,.8);} % dotted vert
+
+\NewDocumentCommand{\Bridgit}{ O{.35cm} m }{%
+	\GridGame[#1]{BRG}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AMAZONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\AmazonsArcher}[1][]{%
+	\draw[-{Classical TikZ Rightarrow},#1] (.25,.25) -- (.8,.8);
+	\draw[#1]    (.25,.8)  -- (.3,.3) -- (.8,.25);
+	\draw[line width=.6pt,#1]  (.2,.23) -- (.25,.25) -- (.23,.2);
+	\draw[line width=.8pt,#1]  plot[smooth] coordinates {(.2,.8) (.675,.675) (.8,.2)};
+}
+
+% tokens
+\gridtoken{AMZ}{.}{} % documented empty position
+\gridtoken{AMZ}{o}{\draw (0,0) rectangle (1,1);} % empty
+
+% blocked cell (your 'x' PST: light gray filled square + outline)
+\gridtoken{AMZ}{x}{%
+	\fill[fill=lightgray] (0,0) rectangle (1,1);
+	\draw (0,0) rectangle (1,1);
+}
+
+% Right/outline amazon: outline disc + black archer overlay
+\gridtoken{AMZ}{R}{%
+	\draw (0,0) rectangle (1,1);
+	\draw (.5,.5) circle[radius=.45];
+	\AmazonsArcher
+}
+
+% Left/filled amazon: filled disc + white archer overlay (to match PST)
+\gridtoken{AMZ}{L}{%
+	\draw (0,0) rectangle (1,1);
+	\fill (.5,.5) circle[radius=.45];
+	\AmazonsArcher[draw=white]
+}
+
+% lowercase aliases
+\gridtoken{AMZ}{r}{\csname cgt@map@AMZ@R\endcsname}
+\gridtoken{AMZ}{l}{\csname cgt@map@AMZ@L\endcsname}
+
+% wrapper
+\NewDocumentCommand{\Amazons}{ O{.35cm} m }{%
+	\GridGame[#1]{AMZ}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% FOX AND GEESE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Goose: solid profile, with a natural neck and a compact body.
+\gridtoken{FNG}{g}{%
+  \draw (0,0) rectangle +(1,1);
+  \fill
+    (.12,.37)
+    .. controls (.23,.48) and (.38,.48) .. (.51,.40)
+    .. controls (.60,.35) and (.62,.43) .. (.61,.55)
+    .. controls (.59,.66) and (.59,.75) .. (.65,.79)
+    .. controls (.70,.83) and (.77,.80) .. (.79,.75)
+    -- (.89,.70) -- (.78,.68)
+    .. controls (.72,.69) and (.71,.66) .. (.72,.58)
+    .. controls (.75,.43) and (.76,.33) .. (.67,.25)
+    .. controls (.58,.17) and (.39,.15) .. (.27,.20)
+    .. controls (.17,.23) and (.11,.30) .. (.08,.40)
+    -- cycle;
+  \fill (.40,.20) -- (.43,.20) -- (.43,.11)
+    -- (.53,.09) -- (.38,.09) -- cycle;
+}
+
+% Fox: right-facing sculpted profile with tapered cheek and neck accents.
+\gridtoken{FNG}{f}{%
+  \draw (0,0) rectangle +(1,1);
+  \begin{scope}[line join=round,line cap=round]
+    % Rear ear, behind the larger near ear.
+    \fill (.52,.75) .. controls (.55,.83) and (.62,.88) .. (.65,.88)
+      .. controls (.66,.84) and (.62,.75) .. (.63,.69) -- cycle;
+    % White face and sweeping neck outline.
+    \filldraw[fill=white]
+      (.48,.08)
+      .. controls (.38,.21) and (.15,.21) .. (.13,.38)
+      .. controls (.10,.59) and (.23,.76) .. (.39,.79)
+      .. controls (.43,.86) and (.48,.92) .. (.51,.93)
+      .. controls (.56,.91) and (.58,.82) .. (.58,.75)
+      .. controls (.63,.70) and (.69,.67) .. (.70,.60)
+      .. controls (.71,.55) and (.80,.50) .. (.88,.44)
+      .. controls (.90,.41) and (.84,.37) .. (.80,.36)
+      .. controls (.73,.33) and (.67,.39) .. (.59,.39)
+      .. controls (.51,.39) and (.51,.35) .. (.56,.28)
+      .. controls (.62,.19) and (.57,.12) .. (.48,.08)
+      -- cycle;
+    % Near ear: tapered rim and interior.
+    \fill (.39,.79)
+      .. controls (.43,.86) and (.48,.92) .. (.51,.93)
+      .. controls (.55,.90) and (.58,.81) .. (.58,.75)
+      -- (.56,.71)
+      .. controls (.56,.80) and (.54,.87) .. (.51,.89)
+      .. controls (.46,.83) and (.43,.75) .. (.45,.68)
+      .. controls (.40,.69) and (.38,.74) .. (.39,.79);
+    \fill (.51,.85)
+      .. controls (.52,.80) and (.52,.77) .. (.54,.74)
+      .. controls (.51,.77) and (.49,.76) .. (.48,.74)
+      .. controls (.48,.78) and (.50,.83) .. (.51,.85);
+    % Separate, small eye; the cheek contour stops well below the face.
+    % A recessed almond eye, separated from the forehead and cheek.
+    \fill (.586,.578)
+      .. controls (.601,.593) and (.623,.595) .. (.644,.584)
+      .. controls (.624,.569) and (.603,.567) .. (.586,.578);
+    \fill (.580,.584)
+      .. controls (.601,.608) and (.628,.605) .. (.649,.588)
+      .. controls (.625,.600) and (.603,.598) .. (.580,.584);
+    \fill (.465,.468)
+      .. controls (.410,.417) and (.397,.339) .. (.44,.26)
+      .. controls (.407,.345) and (.423,.415) .. (.465,.468);
+    % Small dark nose.
+    \fill (.86,.455) -- (.88,.44)
+      .. controls (.90,.42) and (.87,.40) .. (.845,.385)
+      .. controls (.83,.40) and (.83,.43) .. (.86,.455);
+    % Mouth and throat: a tapered curve, not a smile.
+    \fill (.82,.37)
+      .. controls (.73,.34) and (.67,.43) .. (.59,.43)
+      .. controls (.67,.44) and (.73,.35) .. (.82,.37);
+    \fill (.59,.39)
+      .. controls (.51,.41) and (.48,.37) .. (.49,.31)
+      .. controls (.50,.355) and (.525,.375) .. (.55,.36)
+      .. controls (.57,.30) and (.63,.22) .. (.54,.13)
+      -- (.48,.08)
+      .. controls (.61,.13) and (.63,.21) .. (.56,.30)
+      .. controls (.52,.36) and (.53,.39) .. (.59,.39);
+    % Curved neck crest and pointed lower termination.
+    \fill (.34,.59)
+      .. controls (.24,.50) and (.27,.38) .. (.37,.32)
+      .. controls (.42,.26) and (.48,.18) .. (.48,.08)
+      .. controls (.475,.19) and (.43,.265) .. (.38,.33)
+      .. controls (.285,.40) and (.265,.505) .. (.34,.59);
+    \fill (.48,.08)
+      .. controls (.39,.20) and (.19,.22) .. (.16,.37)
+      .. controls (.17,.31) and (.18,.30) .. (.20,.30)
+      .. controls (.20,.35) and (.21,.36) .. (.22,.37)
+      .. controls (.21,.25) and (.39,.23) .. (.48,.08);
+  \end{scope}%
+}
+% optional: treat '.' as empty too (handy in mixed boards)
+\gridtoken{FNG}{.}{}
+\gridtoken{FNG}{o}{\draw (0,0) rectangle +(1,1);}  % your PST used 'o {}'
+
+% wrapper
+\NewDocumentCommand{\FoxAndGeese}{ O{.5cm} m }{%
+	\GridGame[#1]{FNG}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% PUSH AND SHOVE AND ALL-SMALL VERSIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% ===== Push / Shove family =====
+\newif\ifgridgamecolor % default false; set \gridgamecolortrue for colored O/X/G
+
+% --- core shape paths (used by all variants) ---
+% main blob
+\newcommand{\pshgBlobPath}{%
+	plot[smooth] coordinates {
+		(.55,.10) (.42,.20) (.33,.27) (.32,.30) (.33,.40) (.33,.50)
+		(.33,.56) (.34,.60) (.355,.625) (.39,.625)
+		(.39,.625) (.39,.625) (.39,.625) (.41,.80) (.425,.83) (.45,.83)
+		(.465,.80) (.50,.40) (.525,.30) (.625,.22)
+	}%
+}
+% highlight curve
+\newcommand{\pshgHiPath}{%
+	plot[smooth] coordinates { (.355,.625) (.39,.625) (.40,.60) (.40,.415) (.40,.425) }%
+}
+
+% right-edge ticks: Push (P)
+\newcommand{\pshgTicksP}{%
+	\draw (.60,.40)--(.70,.40);
+	\draw (.60,.70)--(.70,.70);
+}
+% right-edge ticks: Shove (S)
+\newcommand{\pshgTicksS}{%
+	\draw (.70,.30)--(.85,.30);
+	\draw (.65,.45)--(.90,.45);
+	\draw (.65,.60)--(.80,.60);
+	\draw (.65,.75)--(.90,.75);
+}
+
+% --- drawing helpers for O/X/G under current color mode ---
+\newcommand{\pshgDrawO}{%
+	\ifgridgamecolor
+	\filldraw[fill=red] \pshgBlobPath;
+	\else
+	\draw \pshgBlobPath;
+	\fi
+	% highlight (black)
+	\draw \pshgHiPath;
+}
+\newcommand{\pshgDrawX}{%
+	\ifgridgamecolor
+	\filldraw[fill=blue] \pshgBlobPath;
+	\else
+	\filldraw \pshgBlobPath; % default black fill+stroke
+	\fi
+	% white highlight on X
+	\draw[white] \pshgHiPath;
+}
+\newcommand{\pshgDrawG}{%
+	\ifgridgamecolor
+	\filldraw[fill=green] \pshgBlobPath;
+	\else
+	\filldraw[fill=lightgray] \pshgBlobPath;
+	\fi
+	% highlight (black)
+	\draw \pshgHiPath;
+}
+
+% --- one piece: place, optionally scale (AllSmall), and choose ticks by game ---
+% #1 = ticks macro (\pshgTicksP or \pshgTicksS)
+% #2 = body macro  (\pshgDrawO / \pshgDrawX / \pshgDrawG)
+% #3 = scale factor (1 or 0.6)
+\newcommand{\pshgPiece}[3]{%
+	\begin{scope}[shift={(.5,.5)}, scale=#3, shift={(-.5,-.5)}] % scale about cell center
+		#2 % draw blob + highlight
+		#1 % draw right-edge tick marks
+	\end{scope}%
+}
+
+% -------------------- Push tokens (map: PUSH) --------------------
+\gridtoken{PUSH}{.}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);} % empty
+\gridtoken{PUSH}{O}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawO}{1}}
+\gridtoken{PUSH}{o}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawO}{1}}
+\gridtoken{PUSH}{X}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawX}{1}}
+\gridtoken{PUSH}{x}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawX}{1}}
+\gridtoken{PUSH}{L}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawX}{1}} % alias
+\gridtoken{PUSH}{R}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawO}{1}} % alias
+\gridtoken{PUSH}{G}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);
+	\pshgPiece{\pshgTicksP}{\pshgDrawG}{1}}
+\gridtoken{PUSH}{#}{}
+
+\NewDocumentCommand{\Push}{ O{.5cm} m }{%
+	\GridGame[#1]{PUSH}{#2}%
+}
+
+% -------------------- Shove tokens (map: SHOV) --------------------
+\gridtoken{SHOV}{.}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);} % empty
+\gridtoken{SHOV}{O}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{1}}
+\gridtoken{SHOV}{o}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{1}}
+\gridtoken{SHOV}{X}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{1}}
+\gridtoken{SHOV}{x}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{1}}
+\gridtoken{SHOV}{L}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{1}}
+\gridtoken{SHOV}{R}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{1}}
+\gridtoken{SHOV}{G}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawG}{1}}
+\gridtoken{SHOV}{#}{}
+
+\NewDocumentCommand{\Shove}{ O{.5cm} m }{%
+	\GridGame[#1]{SHOV}{#2}%
+}
+
+% ------------- AllSmallPush tokens (map: ASP) -------------
+\gridtoken{ASP}{.}{} % empty
+\gridtoken{ASP}{O}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawO}{0.6}}
+\gridtoken{ASP}{o}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawO}{0.6}}
+\gridtoken{ASP}{X}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawX}{0.6}}
+\gridtoken{ASP}{x}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawX}{0.6}}
+\gridtoken{ASP}{L}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawX}{0.6}}
+\gridtoken{ASP}{R}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawO}{0.6}}
+\gridtoken{ASP}{G}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksP}{\pshgDrawG}{0.6}}
+\gridtoken{ASP}{#}{}
+
+\NewDocumentCommand{\AllSmallPush}{ O{.5cm} m }{%
+	\GridGame[#1]{ASP}{#2}%
+}
+
+% ------------- AllSmallShove tokens (map: ASHV) -------------
+\gridtoken{ASHV}{.}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);} % empty
+\gridtoken{ASHV}{O}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{0.6}}
+\gridtoken{ASHV}{o}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{0.6}}
+\gridtoken{ASHV}{X}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{0.6}}
+\gridtoken{ASHV}{x}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{0.6}}
+\gridtoken{ASHV}{L}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawX}{0.6}}
+\gridtoken{ASHV}{R}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawO}{0.6}}
+\gridtoken{ASHV}{G}{\draw (0,0) -- (1,0) -- (1,1) -- (0,1);\pshgPiece{\pshgTicksS}{\pshgDrawG}{0.6}}
+\gridtoken{ASHV}{#}{}
+
+\NewDocumentCommand{\AllSmallShove}{ O{.5cm} m }{%
+	\GridGame[#1]{ASHV}{#2}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TOPPLING DOMINOES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% keeps ground out of the bounding box
+\newcommand{\tdominoGround}{%
+	\begin{pgfinterruptboundingbox}
+		\fill[lightgray] (-.5,-.6) rectangle +(1,.2);
+	\end{pgfinterruptboundingbox}
+}
+
+\newcommand{\tdominoOutline}{%
+	\tdominoGround
+	\draw[rounded corners=.05mm] (-.2,-.5) -- (-.2,.3) -- (0,.5) -- (.2,.5) -- (.2,-.5) -- cycle;
+	\draw (0,-.5) -- (0,.5);
+	\draw (0,0) -- (-.2,-.1);
+}
+
+\newcommand{\tdominoFilled}[2]{%
+	\tdominoGround
+	\filldraw[fill=#1,rounded corners=.05mm] (-.2,-.5) -- (-.2,.3) -- (0,.5) -- (.2,.5) -- (.2,-.5) -- cycle;
+	\draw[#2] (0,-.5) -- (0,.5);
+	\draw[#2] (0,0) -- (-.2,-.1);
+}
+
+\gridtoken{TDOM}{.}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoGround \end{scope}
+}
+\gridtoken{TDOM}{o}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoOutline \end{scope}
+}
+\gridtoken{TDOM}{x}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoFilled{black}{white} \end{scope}
+}
+\gridtoken{TDOM}{g}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoFilled{lightgray}{black} \end{scope}
+}
+
+\NewDocumentCommand{\TopplingDominoes}{ O{.5cm} m }{%
+	\GridGame[#1]{TDOM}{#2}%
+}
+
+% ==== TDOMC (color) ====
+\gridtoken{TDOMC}{.}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoGround \end{scope}
+}
+\gridtoken{TDOMC}{o}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoFilled{red}{black} \end{scope}
+}
+\gridtoken{TDOMC}{x}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoFilled{blue}{white} \end{scope}
+}
+\gridtoken{TDOMC}{g}{%
+	\begin{scope}[shift={(.5,.5)}] \tdominoFilled{green!70!black}{black} \end{scope}
+}
+
+\NewDocumentCommand{\TopplingDominoesColor}{ O{.5cm} m }{%
+	\GridGame[#1]{TDOMC}{#2}%
+}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% MAZE AND MAIZE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The modern maps use one checkerboard sublattice of diamond cells.
+% Draw every fill first, then every white seam, then the existing walls/markers.
+% This prevents a later cell from erasing a wall supplied by its neighbour.
+\tikzset{
+  cgt maze cell/.style={fill=black!12},
+  cgt maze seam/.style={draw=white,line width=.8pt},
+  cgt maze wall/.style={draw=black,line width=.5pt}
+}
+\newcommand{\cgt@mazediamond}{(-1,0)--(0,1)--(1,0)--(0,-1)--cycle}
+\ExplSyntaxOn
+\int_new:N \l__cgt_maze_bgrow_int
+\int_new:N \l__cgt_maze_bgcol_int
+\prop_new:N \l__cgt_maze_walls_prop
+\prop_const_from_keyval:Nn \c__cgt_maze_masks_prop {0=0,1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,a=10,b=11,c=12,d=13,e=14,f=15,A=0,B=1,C=2,D=3,E=4,F=5,G=6,H=7,I=8,J=9,K=10,L=11,M=12,N=13,O=14,P=15,/=10,|=5,*=0,x=0,o=0}
+\cs_new:Npn \cgt_maze_edge_key:nn #1#2 {
+  \int_eval:n {2*\l__cgt_maze_bgcol_int+#1}/
+  \int_eval:n {2*\l__cgt_maze_bgrow_int+#2}
+}
+\cs_new_protected:Npn \cgt_maze_record_edge:nnnn #1#2#3#4 {
+  \int_if_odd:nT {\int_div_truncate:nn {#1}{#2}}{
+    \exp_args:NNx \prop_put:Nnn \l__cgt_maze_walls_prop
+      {\cgt_maze_edge_key:nn {#3}{#4}} {1}
+  }
+}
+\cs_new_protected:Npn \cgt_maze_record_walls:n #1 {
+  \prop_get:NnNT \c__cgt_maze_masks_prop {#1} \l_tmpa_tl {
+    \cgt_maze_record_edge:nnnn {\l_tmpa_tl}{1}{-1}{1}
+    \cgt_maze_record_edge:nnnn {\l_tmpa_tl}{2}{1}{1}
+    \cgt_maze_record_edge:nnnn {\l_tmpa_tl}{4}{1}{-1}
+    \cgt_maze_record_edge:nnnn {\l_tmpa_tl}{8}{-1}{-1}
+  }
+}
+\cs_new_protected:Npn \cgt_maze_seam:nnn #1#2#3 {
+  \exp_args:NNx \prop_if_in:NnF \l__cgt_maze_walls_prop
+    {\cgt_maze_edge_key:nn {#1}{#2}} {\draw[cgt~maze~seam] #3;}
+}
+\cs_new_protected:Npn \cgt_maze_seams: {
+  \cgt_maze_seam:nnn {-1}{1}{(-1,0)--(0,1)}
+  \cgt_maze_seam:nnn {1}{1}{(0,1)--(1,0)}
+  \cgt_maze_seam:nnn {1}{-1}{(1,0)--(0,-1)}
+  \cgt_maze_seam:nnn {-1}{-1}{(0,-1)--(-1,0)}
+}
+
+\cs_new_protected:Npn \cgt_maze_background_pass:nn #1#2 {
+  \int_set:Nn \l__cgt_maze_bgrow_int {\l__R}
+  \seq_map_inline:Nn \l__rows {
+    \int_decr:N \l__cgt_maze_bgrow_int
+    \int_zero:N \l__cgt_maze_bgcol_int
+    \tl_map_inline:nn {##1}{
+      \str_if_eq:nnF {####1}{.}{
+        \cs_if_exist:cT {cgt@map@#1@####1}{
+          \int_compare:nNnT {#2}={1}{\cgt_maze_record_walls:n {####1}}
+          \begin{scope}[shift={(\int_use:N\l__cgt_maze_bgcol_int,\int_use:N\l__cgt_maze_bgrow_int)}]
+            \int_compare:nNnTF {#2}={1}
+              {\fill[cgt~maze~cell] \cgt@mazediamond;}
+              {\cgt_maze_seams:}
+          \end{scope}
+        }
+      }
+      \int_incr:N \l__cgt_maze_bgcol_int
+    }
+  }
+}
+\cs_new_protected:Npn \cgt_maze_background:n #1 {
+  \prop_clear:N \l__cgt_maze_walls_prop
+  \cgt_maze_background_pass:nn {#1}{1}
+  \cgt_maze_background_pass:nn {#1}{2}
+}
+\cs_new_protected:cpn {cgt@beforecells@MAZE}{\cgt_maze_background:n {MAZE}}
+\cs_new_protected:cpn {cgt@beforecells@MAIZ}{\cgt_maze_background:n {MAIZ}}
+% Give the documentation's individual token boxes the same appearance.
+\cs_new_protected:Npn \cgt_maze_single_background:n #1 {
+  \str_if_eq:nnF {#1}{.}{
+    \group_begin:
+      \int_zero:N \l__cgt_maze_bgcol_int
+      \int_zero:N \l__cgt_maze_bgrow_int
+      \prop_clear:N \l__cgt_maze_walls_prop
+      \cgt_maze_record_walls:n {#1}
+      \fill[cgt~maze~cell] \cgt@mazediamond;
+      \cgt_maze_seams:
+    \group_end:
+  }
+}
+\cs_new_eq:cN {cgt@beforetoken@MAZE} \cgt_maze_single_background:n
+\cs_new_eq:cN {cgt@beforetoken@MAIZ} \cgt_maze_single_background:n
+\ExplSyntaxOff
+
+% ===== Maze (explicit 32-symbol set) =====
+% helpers (no logic): the four diamond walls and the center star
+\newcommand{\MazeLT}{\draw[cgt maze wall] (-1,0) -- (0,1);}  % left→top
+\newcommand{\MazeTR}{\draw[cgt maze wall] (0,1) -- (1,0);}  % top→right
+\newcommand{\MazeRB}{\draw[cgt maze wall] (1,0) -- (0,-1);}  % right→bottom
+\newcommand{\MazeBL}{\draw[cgt maze wall] (-1,0) -- (0,-1);}  % bottom→left
+\newcommand{\MazeCenter}{\draw (0,0) circle[radius=.5]; \node at (0,0){$\star$};}
+
+% empty / center-only (not counted in the 32)
+\gridtoken{MAZE}{.}{}               % empty
+\gridtoken{MAZE}{*}{\MazeCenter}    % center only
+
+% ---- walls only: 0..f ----
+\gridtoken{MAZE}{0}{}                                     % none
+\gridtoken{MAZE}{1}{\MazeLT}
+\gridtoken{MAZE}{2}{\MazeTR}
+\gridtoken{MAZE}{3}{\MazeLT \MazeTR}
+\gridtoken{MAZE}{4}{\MazeRB}
+\gridtoken{MAZE}{5}{\MazeLT \MazeRB}
+\gridtoken{MAZE}{6}{\MazeTR \MazeRB}
+\gridtoken{MAZE}{7}{\MazeLT \MazeTR \MazeRB}
+\gridtoken{MAZE}{8}{\MazeBL}
+\gridtoken{MAZE}{9}{\MazeLT \MazeBL}
+\gridtoken{MAZE}{a}{\MazeTR \MazeBL}
+\gridtoken{MAZE}{b}{\MazeLT \MazeTR \MazeBL}
+\gridtoken{MAZE}{c}{\MazeRB \MazeBL}
+\gridtoken{MAZE}{d}{\MazeLT \MazeRB \MazeBL}
+\gridtoken{MAZE}{e}{\MazeTR \MazeRB \MazeBL}
+\gridtoken{MAZE}{f}{\MazeLT \MazeTR \MazeRB \MazeBL}
+
+% ---- walls + center: A..P (same as 0..f plus MazeCenter) ----
+\gridtoken{MAZE}{A}{\MazeCenter}
+\gridtoken{MAZE}{B}{\MazeLT \MazeCenter}
+\gridtoken{MAZE}{C}{\MazeTR \MazeCenter}
+\gridtoken{MAZE}{D}{\MazeLT \MazeTR \MazeCenter}
+\gridtoken{MAZE}{E}{\MazeRB \MazeCenter}
+\gridtoken{MAZE}{F}{\MazeLT \MazeRB \MazeCenter}
+\gridtoken{MAZE}{G}{\MazeTR \MazeRB \MazeCenter}
+\gridtoken{MAZE}{H}{\MazeLT \MazeTR \MazeRB \MazeCenter}
+\gridtoken{MAZE}{I}{\MazeBL \MazeCenter}
+\gridtoken{MAZE}{J}{\MazeLT \MazeBL \MazeCenter}
+\gridtoken{MAZE}{K}{\MazeTR \MazeBL \MazeCenter}
+\gridtoken{MAZE}{L}{\MazeLT \MazeTR \MazeBL \MazeCenter}
+\gridtoken{MAZE}{M}{\MazeRB \MazeBL \MazeCenter}
+\gridtoken{MAZE}{N}{\MazeLT \MazeRB \MazeBL \MazeCenter}
+\gridtoken{MAZE}{O}{\MazeTR \MazeRB \MazeBL \MazeCenter}
+\gridtoken{MAZE}{P}{\MazeLT \MazeTR \MazeRB \MazeBL \MazeCenter}
+
+% wrapper (uses your existing \GridGame)
+\NewDocumentCommand{\Maze}{ O{.3cm} m }{%
+	\GridGame[#1]{MAZE}{#2}%
+}
+
+% ===== Maize (explicit 32-symbol set; reuses MazeLT/TR/RB/BL) =====
+\newcommand{\MaizeCenter}{%
+	\draw (0,0) circle[radius=.5];%
+	\fill (0,0) circle[radius=.1];%
+}
+
+% empty / center-only
+\gridtoken{MAIZ}{.}{}                % empty
+\gridtoken{MAIZ}{*}{\MaizeCenter}    % center only
+
+% ---- walls only: 0..f ----
+\gridtoken{MAIZ}{0}{}                                     % none
+\gridtoken{MAIZ}{1}{\MazeLT}
+\gridtoken{MAIZ}{2}{\MazeTR}
+\gridtoken{MAIZ}{3}{\MazeLT \MazeTR}
+\gridtoken{MAIZ}{4}{\MazeRB}
+\gridtoken{MAIZ}{5}{\MazeLT \MazeRB}
+\gridtoken{MAIZ}{6}{\MazeTR \MazeRB}
+\gridtoken{MAIZ}{7}{\MazeLT \MazeTR \MazeRB}
+\gridtoken{MAIZ}{8}{\MazeBL}
+\gridtoken{MAIZ}{9}{\MazeLT \MazeBL}
+\gridtoken{MAIZ}{a}{\MazeTR \MazeBL}
+\gridtoken{MAIZ}{b}{\MazeLT \MazeTR \MazeBL}
+\gridtoken{MAIZ}{c}{\MazeRB \MazeBL}
+\gridtoken{MAIZ}{d}{\MazeLT \MazeRB \MazeBL}
+\gridtoken{MAIZ}{e}{\MazeTR \MazeRB \MazeBL}
+\gridtoken{MAIZ}{f}{\MazeLT \MazeTR \MazeRB \MazeBL}
+
+% ---- walls + center: A..P (same as 0..f plus MaizeCenter) ----
+\gridtoken{MAIZ}{A}{\MaizeCenter}
+\gridtoken{MAIZ}{B}{\MazeLT \MaizeCenter}
+\gridtoken{MAIZ}{C}{\MazeTR \MaizeCenter}
+\gridtoken{MAIZ}{D}{\MazeLT \MazeTR \MaizeCenter}
+\gridtoken{MAIZ}{E}{\MazeRB \MaizeCenter}
+\gridtoken{MAIZ}{F}{\MazeLT \MazeRB \MaizeCenter}
+\gridtoken{MAIZ}{G}{\MazeTR \MazeRB \MaizeCenter}
+\gridtoken{MAIZ}{H}{\MazeLT \MazeTR \MazeRB \MaizeCenter}
+\gridtoken{MAIZ}{I}{\MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{J}{\MazeLT \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{K}{\MazeTR \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{L}{\MazeLT \MazeTR \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{M}{\MazeRB \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{N}{\MazeLT \MazeRB \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{O}{\MazeTR \MazeRB \MazeBL \MaizeCenter}
+\gridtoken{MAIZ}{P}{\MazeLT \MazeTR \MazeRB \MazeBL \MaizeCenter}
+
+% wrapper (same default unit as Maze)
+\NewDocumentCommand{\Maize}{ O{.3cm} m }{%
+	\GridGame[#1]{MAIZ}{#2}%
+}
+
+% one-token box (inline), if you haven't added this yet
+\NewDocumentCommand{\TokenBox}{ O{.35cm} m m }{%
+	\ensuremath{%
+		\mathord{%
+			\vcenter{\hbox{%
+					\begin{tikzpicture}[x=#1,y=#1, every node/.style={inner sep=0pt,outer sep=0pt}]
+						% token draws and sets its own bbox
+						\expandafter\ifx\csname cgt@map@#2@#3\endcsname\relax
+						\else
+						\ifcsname cgt@beforetoken@#2\endcsname
+                          \csname cgt@beforetoken@#2\endcsname{#3}
+                        \fi
+                        \csname cgt@map@#2@#3\endcsname
+						\fi
+					\end{tikzpicture}%
+			}}%
+		}%
+	}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% CHRISTMAS LIGHTS' FIXTURE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Defaults (no overhang)
+\providecommand\cgt@bboxlower@DEFAULT{0}
+\providecommand\cgt@bboxupper@DEFAULT{0}
+
+% Xmas overhang: wire/socket dip below the cell
+\providecommand\cgt@bboxlower@XMAS{-0.25} % tweak to taste: -0.20 .. -0.35
+\let\cgt@bboxlower@XMSC\cgt@bboxlower@XMAS  % colored variant if you have one
+\providecommand\cgt@bboxupper@XMAS{0}
+\let\cgt@bboxupper@XMSC\cgt@bboxupper@XMAS
+
+\newcommand{\cgt@xmasunit}{.35cm}
+
+% helper to define named commands like \XmasB → TokenBox{XMAS}{B}
+\newcommand{\defXmasCmd}[1]{%
+	\expandafter\newcommand\csname Xmas#1\endcsname{%
+		\TokenBox[\cgt@xmasunit]{XMAS}{#1}%
+	}%
+}
+
+\newcommand{\UseXmas}[1]{%
+	\edef\XMAS@name{Xmas#1}%
+	\@ifundefined{\XMAS@name}{}{%
+		\csname \XMAS@name\endcsname
+	}%
+}
+
+% \Xmas[<unit>]{<string>} calls \UseXmas for each character.
+\ExplSyntaxOn
+\NewDocumentCommand{\Xmas}{ O{.35cm} m }{%
+	\group_begin:
+	\cs_set:Npn \cgt@xmasunit {#1}
+	% normalize: strip spaces and NBSPs
+	\tl_set:Nn \l_tmpa_tl {#2}
+	\tl_remove_all:Nn \l_tmpa_tl { \c_space_tl }
+	\tl_remove_all:Nn \l_tmpa_tl { ~ }
+	\tl_remove_all:Nn \l_tmpa_tl { ^^a0 }
+	% walk each character
+	\tl_map_inline:Nn \l_tmpa_tl
+	{
+		% uppercase this single character
+		\tl_set:Nx \l_tmpb_tl { \tl_upper_case:n {##1} }
+		% OPTIONAL first-char remap R->W, B->T:
+		% comment out these two lines if you don't want the remap
+		% \str_if_eq:VnTF \l_tmpb_tl { R } { \tl_set:Nn \l_tmpb_tl { W } }{
+		% \str_if_eq:VnT \l_tmpb_tl { B } { \tl_set:Nn \l_tmpb_tl { T } }
+		% }
+		% call \UseXmas{LETTER}; if \Xmas<LETTER> isn't defined, \UseXmas does nothing
+		\exp_args:NV \UseXmas \l_tmpb_tl
+	}
+	\group_end:
+}
+\ExplSyntaxOff
+
+\newcommand{\XmasB}{\TokenBox[\cgt@xmasunit]{XMAS}{B}}
+\newcommand{\XmasC}{\TokenBox[\cgt@xmasunit]{XMAS}{C}}
+\newcommand{\XmasG}{\TokenBox[\cgt@xmasunit]{XMAS}{G}}
+\newcommand{\XmasM}{\TokenBox[\cgt@xmasunit]{XMAS}{M}}
+\newcommand{\XmasN}{\TokenBox[\cgt@xmasunit]{XMAS}{N}}
+\newcommand{\XmasO}{\TokenBox[\cgt@xmasunit]{XMAS}{O}}
+\newcommand{\XmasP}{\TokenBox[\cgt@xmasunit]{XMAS}{P}}
+\newcommand{\XmasR}{\TokenBox[\cgt@xmasunit]{XMAS}{R}}
+\newcommand{\XmasW}{\TokenBox[\cgt@xmasunit]{XMAS}{W}}
+\newcommand{\XmasY}{\TokenBox[\cgt@xmasunit]{XMAS}{Y}}
+
+% Common vertical window matches the paper's fixture PDFs. Short fixtures
+% reserve their own width, but keep the same rail height when math-centered.
+\newcommand{\xmasPrimeBBox}[2][-3]{%
+	\path[use as bounding box] (#1,-5) rectangle (#2,2.1);%
+}
+
+% Draw the wire/rail/plug without affecting bbox
+\newcommand{\xmasRail}{%
+	\begin{pgfinterruptboundingbox}
+		\filldraw (-3,-2.67) rectangle +(6,.14); % rail
+		\filldraw (2.9,-2.1)  rectangle +(.2,-1); % plug
+	\end{pgfinterruptboundingbox}%
+}
+
+\gridtoken{XMAS}{C}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\fill[cyan] (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{G}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\fill[green] (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{O}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\fill[orange] (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{R}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\fill[red] (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{Y}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\fill[yellow] (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{W}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\draw (0,0) ellipse (1.5 and 2);
+	\draw (0,-2) -- (-0.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (0.5,-.5);
+	\draw (-0.8,-2) -- (0.8,-2);
+	\draw (-0.8,-2.2) -- (0.8,-2.2);
+	\draw (-0.8,-2.4) -- (0.8,-2.4);
+	\xmasRail
+}
+
+% Broken bulb (B), short rail sections (M,N), and plug (P):
+\gridtoken{XMAS}{B}{%
+	\xmasPrimeBBox{3.07}
+	\clip(-3,-5) rectangle (3.07,2.1);
+	\draw[black] (-1.35,1.03) arc(150:390:1.5 and 2);
+	\draw (0,-2) -- (-.5,-.5);
+	\draw (0,-2) -- (0,-.5);
+	\draw (0,-2) -- (.5,-.5);
+	\draw (-1.35,1.03) -- (-1.35+0.5,1.03-0.5) -- cycle; \draw (-1.35+0.5,1.03-0.5) -- (-1.35+0.5+0.5,1.03) -- cycle; \draw (-1.35+0.5+0.5,1.03) -- (-1.35+0.5+0.5+0.5,1.03-0.5) -- cycle; \draw (-1.35+0.5+0.5+0.5,1.03-0.5) -- (-1.35+0.5+0.5+0.5+0.5,1.03) -- cycle; \draw (-1.35+0.5+0.5+0.5+0.5,1.03) -- (-1.35+0.5+0.5+0.5+0.5+0.6,1.03) -- cycle; \fill[black] (-0.8,-2) rectangle (0.8,-2.6);
+	\xmasRail
+}
+
+\gridtoken{XMAS}{M}{%
+	\xmasPrimeBBox[-3.09]{-.88}
+	\clip(-3.09,-5) rectangle (-.88,2.1);
+	\begin{pgfinterruptboundingbox}
+		% Filled geometry scales with the drawing unit (including thickness).
+		\fill[lightgray] (-3,-3.1) rectangle (-.95,-2.1);
+		\fill (-3.25,-3.1) rectangle (-2.75,-2.1);
+		\fill (-1.20,-3.1) rectangle (-.70,-2.1);
+	\end{pgfinterruptboundingbox}
+}
+
+\gridtoken{XMAS}{N}{%
+	\xmasPrimeBBox{-.88}
+	\clip(-3,-5) rectangle (-.88,2.1);
+	\begin{pgfinterruptboundingbox}
+		% Filled geometry scales with the drawing unit (including thickness).
+		\fill[lightgray] (-3,-3.1) rectangle (-.95,-2.1);
+		\fill (-1.20,-3.1) rectangle (-.70,-2.1);
+	\end{pgfinterruptboundingbox}
+}
+
+\gridtoken{XMAS}{P}{%
+	\xmasPrimeBBox{-.5}
+	\clip(-3,-5) rectangle (-.5,2.1);
+	\begin{pgfinterruptboundingbox}
+		\fill (-2.4,-5) rectangle +(.2,4.9);
+		\fill (-2.8,-2.25) rectangle +(.8,.3);
+		\fill (-2.8,-3.15) rectangle +(.8,.3);
+		\filldraw[black] (-2,-4.1) arc (-90:90:1.5) -- cycle;
+	\end{pgfinterruptboundingbox}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% MINESWEEPER
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Clue colors follow the shared board color switch.
+\newcommand{\cgt@mineclue}[2]{%
+  \ifgridgamecolor\textcolor{#1}{\textbf{#2}}%
+  \else\textcolor{black}{\textbf{#2}}\fi
+}
+\gridtoken{MINE}{.}{\draw (0,0) rectangle +(1,1);}
+\gridtoken{MINE}{0}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\textbf{0}};}
+\gridtoken{MINE}{1}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{blue}{1}};}
+\gridtoken{MINE}{2}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{green!70!black}{2}};}
+\gridtoken{MINE}{3}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{red}{3}};}
+\gridtoken{MINE}{4}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{blue!50!black}{4}};}
+\gridtoken{MINE}{5}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{red!60!black}{5}};}
+\gridtoken{MINE}{6}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{cyan}{6}};}
+\gridtoken{MINE}{7}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{orange}{7}};}
+\gridtoken{MINE}{8}{\draw (0,0) rectangle +(1,1);
+\path node at (.5,.5) {\cgt@mineclue{gray}{8}};}
+\gridtoken{MINE}{a}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$a$};}
+\gridtoken{MINE}{A}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$\bar{a}$};}
+\gridtoken{MINE}{b}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$b$};}
+\gridtoken{MINE}{B}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$\bar{b}$};}
+\gridtoken{MINE}{c}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$c$};}
+\gridtoken{MINE}{C}{\draw (0,0) rectangle +(1,1);
+	\path node at (.5,.5) {$\bar{c}$};}
+\gridtoken{MINE}{f}{\draw (0,0) rectangle +(1,1);
+	\begin{scope}[shift={(.5,.5)}, scale=1.7] % center at (.5,.5), 1.3×
+		\draw (-.15,-.2) -- (-.15,.2);                       % pole
+		\ifgridgamecolor\def\cgt@mineflag{red}\else\def\cgt@mineflag{black}\fi
+	\draw[fill=\cgt@mineflag] (-.15,.2) -- (.15,.1) -- (-.15,0) -- cycle; % flag
+		\end{scope}}
+	
+\NewDocumentCommand{\Minesweeper}{ O{.5cm} m }{%
+	\GridGame[#1]{MINE}{#2}}%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Additional boards and compatibility aliases
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Aliases resolve the target at drawing time, preserving user customizations.
+\newcommand{\cgt@tokenalias}[3]{%
+  \gridtoken{#1}{#2}{\csname cgt@map@#1@#3\endcsname}%
+}
+
+% AntiClobber uses the vertically reflected Clobber piece artwork.
+\gridtoken{ACLOB}{O}{\begin{scope}[shift={(0,1)},yscale=-1]
+  \csname cgt@map@CLOB@O\endcsname\end{scope}}
+\gridtoken{ACLOB}{X}{\begin{scope}[shift={(0,1)},yscale=-1]
+  \csname cgt@map@CLOB@X\endcsname\end{scope}}
+\gridtoken{ACLOB}{.}{\draw (0,0) rectangle (1,1);}
+\NewDocumentCommand{\AntiClobber}{O{.3cm} m}{\GridGame[#1]{ACLOB}{#2}}
+\NewDocumentCommand{\anticlobber}{O{.3cm} m}{\AntiClobber[#1]{#2}}
+
+% Hackenbush strings extend rightward from a common ground line, one per row.
+% Set \gridgamecolortrue for red/blue/green; false gives print-safe styles.
+\newcommand{\cgt@hackedge}[1]{%
+  \ifgridgamecolor
+    \draw[draw=#1,line width=1.1pt] (0,.5)--(1,.5);
+  \else
+    \csname cgt@hackstyle@#1\endcsname
+  \fi
+  \fill (0,.5) circle[radius=.075];\fill (1,.5) circle[radius=.075];
+}
+\def\cgt@hackstyle@blue{\draw[line width=1.1pt] (0,.5)--(1,.5);}
+\def\cgt@hackstyle@red{\draw[double=white,double distance=.7pt,line width=.3pt] (0,.5)--(1,.5);}
+\def\cgt@hackstyle@green{\draw[gray,line width=1.1pt] (0,.5)--(1,.5);}
+\gridtoken{HACK}{R}{\cgt@hackedge{red}}
+\gridtoken{HACK}{B}{\cgt@hackedge{blue}}
+\gridtoken{HACK}{G}{\cgt@hackedge{green}}
+\gridtoken{HACK}{.}{}
+\ExplSyntaxOn
+\cs_new:cpn {cgt@beforecells@HACK}{
+  \pgfresetboundingbox
+  \int_compare:nNnT {\l__R}>{0}{
+    \draw[gray,line~width=2pt] (0,.15)--(0,{\int_eval:n{\l__R}-.15});
+  }
+}
+\ExplSyntaxOff
+\NewDocumentCommand{\HackenbushString}{O{.5cm} m}{\GridGame[#1]{HACK}{#2}}
+\NewDocumentCommand{\Hackenbushstring}{O{.5cm} m}{\HackenbushString[#1]{#2}}
+
+% Hex: a rhombic array of regular, point-up hexagons; unit = cell width.
+\newcommand{\cgt@hexcell}{%
+  \draw (0,.577350269)--(.5,.288675135)--(.5,-.288675135)
+    --(0,-.577350269)--(-.5,-.288675135)--(-.5,.288675135)--cycle;
+}
+% Left/black pieces become blue, and right/white pieces red, in color mode.
+\newcommand{\cgt@hexblack}{%
+  \ifgridgamecolor\fill[blue] (0,0) circle[radius=.30];%
+  \else\fill (0,0) circle[radius=.30];\fi
+}
+\newcommand{\cgt@hexwhite}{%
+  \ifgridgamecolor\fill[red] (0,0) circle[radius=.30];%
+  \else\draw[fill=white] (0,0) circle[radius=.30];%
+    \draw (0,0) circle[radius=.12];\fi
+}
+\gridtoken{HEX}{o}{\cgt@hexcell}
+\gridtoken{HEX}{X}{\cgt@hexcell\cgt@hexblack}
+\gridtoken{HEX}{O}{\cgt@hexcell\cgt@hexwhite}
+\gridtoken{HEX}{L}{\cgt@hexblack}
+\gridtoken{HEX}{R}{\cgt@hexwhite}
+\gridtoken{HEX}{.}{}
+\ExplSyntaxOn
+\cs_new:cpn {cgt@beforecells@HEX}{\pgfresetboundingbox}
+\cs_new:cpn {cgt@position@HEX}{
+  ({\int_eval:n{\l__col-1}+.5*\int_eval:n{\l__row-1}},
+   {-.866025404*\int_eval:n{\l__row-1}})
+}
+\ExplSyntaxOff
+
+% Hex options: [cell width][boundary=standard|swapped|none,
+%   edges={row/column/NE/blue,row/column/W/red,...}].
+% Rows and columns are 1-based in the normalized input (empty rows ignored).
+\ExplSyntaxOn
+\cs_generate_variant:Nn \regex_match:nnTF {ne}
+\tl_new:N \l__cgt_hex_boundary_tl
+\clist_new:N \l__cgt_hex_edges_clist
+\seq_new:N \l__cgt_hex_edge_seq
+\tl_new:N \l__cgt_hex_row_tl
+\tl_new:N \l__cgt_hex_color_tl
+\bool_new:N \l__cgt_hex_valid_bool
+\int_new:N \l__cgt_hex_r_int
+\int_new:N \l__cgt_hex_c_int
+\keys_define:nn { cgt/hex } {
+  boundary .choice:,
+  boundary / none .code:n = {\tl_set:Nn \l__cgt_hex_boundary_tl {none}},
+  boundary / standard .code:n = {\tl_set:Nn \l__cgt_hex_boundary_tl {standard}},
+  boundary / swapped .code:n = {\tl_set:Nn \l__cgt_hex_boundary_tl {swapped}},
+  edges .clist_set:N = \l__cgt_hex_edges_clist,
+}
+\msg_new:nnn {combgames-tikz}{hex-edge}
+  {Invalid~Hex~edge~'#1'.~Use~row/column/NE|E|SE|SW|W|NW/blue|red;~the~cell~must~exist.}
+\msg_new:nnn {combgames-tikz}{hex-full-board}
+  {The~Hex~boundary~shortcut~requires~equal-length~rows~without~holes~('.').~Use~explicit~edges~for~fragments.}
+% Endpoints follow a point-up hexagon clockwise from its top vertex.
+\cs_new:cpn {cgt@hexedge@NE}{(0,.577350269)--(.5,.288675135)}
+\cs_new:cpn {cgt@hexedge@E}{(.5,.288675135)--(.5,-.288675135)}
+\cs_new:cpn {cgt@hexedge@SE}{(.5,-.288675135)--(0,-.577350269)}
+\cs_new:cpn {cgt@hexedge@SW}{(0,-.577350269)--(-.5,-.288675135)}
+\cs_new:cpn {cgt@hexedge@W}{(-.5,-.288675135)--(-.5,.288675135)}
+\cs_new:cpn {cgt@hexedge@NW}{(-.5,.288675135)--(0,.577350269)}
+\cs_new_protected:Npn \cgt_hex_draw_edge:nnnn #1#2#3#4 {
+  \edef\cgt@edgepath{\use:c{cgt@hexedge@#3}}
+  \begin{scope}[shift={({#2-1+.5*(#1-1)},{-.866025404*(#1-1)})}]
+    \edef\cgt@drawedge{\noexpand\draw[draw=#4,line~width=1.4pt,line~cap=round]~\cgt@edgepath;}
+    \cgt@drawedge
+  \end{scope}
+}
+\cs_new_protected:Npn \cgt_hex_explicit_edge:n #1 {
+  \seq_set_split:Nnn \l__cgt_hex_edge_seq {/}{#1}
+  \bool_set_true:N \l__cgt_hex_valid_bool
+  \int_compare:nNnTF {\seq_count:N\l__cgt_hex_edge_seq}={4}{
+    \regex_match:neTF {\A[1-9][0-9]*\Z}{\seq_item:Nn\l__cgt_hex_edge_seq{1}}{}{
+      \bool_set_false:N\l__cgt_hex_valid_bool}
+    \regex_match:neTF {\A[1-9][0-9]*\Z}{\seq_item:Nn\l__cgt_hex_edge_seq{2}}{}{
+      \bool_set_false:N\l__cgt_hex_valid_bool}
+    \cs_if_exist:cF {cgt@hexedge@\seq_item:Nn\l__cgt_hex_edge_seq{3}}{
+      \bool_set_false:N\l__cgt_hex_valid_bool}
+    \str_case_e:nnF {\seq_item:Nn\l__cgt_hex_edge_seq{4}}{{blue}{}{red}{}}{
+      \bool_set_false:N\l__cgt_hex_valid_bool}
+  }{\bool_set_false:N\l__cgt_hex_valid_bool}
+  \bool_if:NT \l__cgt_hex_valid_bool {
+    \int_set:Nn\l__cgt_hex_r_int{\seq_item:Nn\l__cgt_hex_edge_seq{1}}
+    \int_set:Nn\l__cgt_hex_c_int{\seq_item:Nn\l__cgt_hex_edge_seq{2}}
+    \int_compare:nNnTF {\l__cgt_hex_r_int}>{\l__R}{
+      \bool_set_false:N\l__cgt_hex_valid_bool
+    }{
+      \tl_set:Ne\l__cgt_hex_row_tl{\seq_item:Nn\l__rows{\l__cgt_hex_r_int}}
+      \int_compare:nNnTF {\l__cgt_hex_c_int}>{\tl_count:N\l__cgt_hex_row_tl}{
+        \bool_set_false:N\l__cgt_hex_valid_bool
+      }{
+        \str_if_eq:eeT{\tl_item:Nn\l__cgt_hex_row_tl{\l__cgt_hex_c_int}}{.}{
+          \bool_set_false:N\l__cgt_hex_valid_bool}
+      }
+    }
+  }
+  \bool_if:NTF\l__cgt_hex_valid_bool{
+    \cgt_hex_draw_edge:nnnn{\int_use:N\l__cgt_hex_r_int}{\int_use:N\l__cgt_hex_c_int}
+      {\seq_item:Nn\l__cgt_hex_edge_seq{3}}{\seq_item:Nn\l__cgt_hex_edge_seq{4}}
+  }{\msg_error:nnn{combgames-tikz}{hex-edge}{#1}}
+}
+\cs_new_protected:cpn {cgt@aftercells@HEX}{
+  \tl_if_eq:NnF\l__cgt_hex_boundary_tl{none}{
+    \bool_set_true:N\l__cgt_hex_valid_bool
+    \seq_map_inline:Nn\l__rows{
+      \int_compare:nNnF{\tl_count:n{##1}}={\l__C}{\bool_set_false:N\l__cgt_hex_valid_bool}
+      \tl_if_in:nnT{##1}{.}{\bool_set_false:N\l__cgt_hex_valid_bool}
+    }
+    \bool_if:NTF\l__cgt_hex_valid_bool{
+      \int_compare:nNnT{\l__R}>{0}{
+        % Top and bottom: red in standard mode.
+        \tl_set:Nn\l__cgt_hex_color_tl{red}
+        \tl_if_eq:NnT\l__cgt_hex_boundary_tl{swapped}{\tl_set:Nn\l__cgt_hex_color_tl{blue}}
+        \int_step_inline:nn{\l__C}{
+          \cgt_hex_draw_edge:nnnn{1}{##1}{NW}{\l__cgt_hex_color_tl}
+          \cgt_hex_draw_edge:nnnn{1}{##1}{NE}{\l__cgt_hex_color_tl}
+          \cgt_hex_draw_edge:nnnn{\int_use:N\l__R}{##1}{SW}{\l__cgt_hex_color_tl}
+          \cgt_hex_draw_edge:nnnn{\int_use:N\l__R}{##1}{SE}{\l__cgt_hex_color_tl}
+        }
+        % Left and right include the exposed diagonal edges between rows.
+        \tl_set:Nn\l__cgt_hex_color_tl{blue}
+        \tl_if_eq:NnT\l__cgt_hex_boundary_tl{swapped}{\tl_set:Nn\l__cgt_hex_color_tl{red}}
+        \int_step_inline:nn{\l__R}{
+          \cgt_hex_draw_edge:nnnn{##1}{1}{W}{\l__cgt_hex_color_tl}
+          \cgt_hex_draw_edge:nnnn{##1}{\int_use:N\l__C}{E}{\l__cgt_hex_color_tl}
+          \int_compare:nNnT{##1}<{\l__R}{\cgt_hex_draw_edge:nnnn{##1}{1}{SW}{\l__cgt_hex_color_tl}}
+          \int_compare:nNnT{##1}>{1}{\cgt_hex_draw_edge:nnnn{##1}{\int_use:N\l__C}{NE}{\l__cgt_hex_color_tl}}
+        }
+      }
+    }{\msg_error:nn{combgames-tikz}{hex-full-board}}
+  }
+  % Explicit edges are drawn last, allowing selected shortcut edges to be overridden.
+  \clist_map_function:NN\l__cgt_hex_edges_clist\cgt_hex_explicit_edge:n
+}
+\NewDocumentCommand{\Hex}{O{.5cm} O{} m}{
+  \group_begin:
+  \keys_set:nn{cgt/hex}{boundary=none,edges={},#2}
+  \GridGame[#1]{HEX}{#3}
+  \group_end:
+}
+\NewDocumentCommand{\HexColor}{O{.5cm} O{} m}{
+  \group_begin:\gridgamecolortrue\Hex[#1][#2]{#3}\group_end:
+}
+\ExplSyntaxOff
+
+% Piece aliases, scoped to each game's token table.
+\ExplSyntaxOn
+\clist_map_inline:nn {CLOB,ACLOB}{
+  \cgt@tokenalias{#1}{x}{X}\cgt@tokenalias{#1}{l}{X}\cgt@tokenalias{#1}{L}{X}
+  \cgt@tokenalias{#1}{o}{O}\cgt@tokenalias{#1}{r}{O}\cgt@tokenalias{#1}{R}{O}
+}
+\clist_map_inline:nn {TDOM,TDOMC}{
+  \cgt@tokenalias{#1}{X}{x}\cgt@tokenalias{#1}{L}{x}\cgt@tokenalias{#1}{l}{x}
+  \cgt@tokenalias{#1}{O}{o}\cgt@tokenalias{#1}{R}{o}\cgt@tokenalias{#1}{r}{o}
+  \cgt@tokenalias{#1}{G}{g}
+}
+\clist_map_inline:nn {PUSH,SHOV,ASP,ASHV}{
+  \cgt@tokenalias{#1}{l}{L}\cgt@tokenalias{#1}{r}{R}\cgt@tokenalias{#1}{g}{G}
+}
+\clist_map_inline:nn {MAZE,MAIZ}{
+  \gridtoken{#1}{/}{\MazeBL\MazeTR}
+  \gridtoken{#1}{|}{\MazeLT\MazeRB}
+  \gridtoken{#1}{o}{}
+  \cgt@tokenalias{#1}{x}{*}
+}
+\ExplSyntaxOff
+\cgt@tokenalias{CHM}{p}{P}
+\cgt@tokenalias{FNG}{F}{f}\cgt@tokenalias{FNG}{G}{g}\cgt@tokenalias{FNG}{O}{o}
+\cgt@tokenalias{HACK}{L}{B}\cgt@tokenalias{HACK}{l}{B}
+\cgt@tokenalias{HACK}{r}{R}\cgt@tokenalias{HACK}{b}{B}\cgt@tokenalias{HACK}{g}{G}
+\cgt@tokenalias{HEX}{*}{o}\cgt@tokenalias{HEX}{x}{X}
+\cgt@tokenalias{HEX}{l}{L}\cgt@tokenalias{HEX}{r}{R}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TOADS AND FROGS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% T/L: right-facing toad. F/R: left-facing frog. . or o: empty square.
+\newcommand{\cgt@toad}{%
+  \begin{scope}[line join=round,line cap=round]
+    \def\cgt@animalfill{black}\ifgridgamecolor\def\cgt@animalfill{blue}\fi
+    \filldraw[fill=\cgt@animalfill]
+      (.13,.24)..controls(.11,.42)and(.22,.56)..(.38,.57)
+      ..controls(.47,.60)and(.54,.56)..(.60,.55)
+      ..controls(.59,.69)and(.75,.70)..(.77,.57)
+      ..controls(.83,.55)and(.88,.51)..(.88,.45)
+      ..controls(.88,.39)and(.78,.38)..(.72,.38)
+      --(.73,.24)--(.87,.20)--(.62,.20)--(.58,.31)
+      ..controls(.47,.22)and(.27,.19)..(.13,.24)--cycle;
+    \draw[white,line width=.45pt] (.22,.25)
+      ..controls(.18,.42)and(.38,.48)..(.47,.37)
+      --(.34,.24)--(.52,.24);
+    \fill[white] (.697,.585) circle[radius=.022];
+  \end{scope}%
+}
+\newcommand{\cgt@frog}{%
+  % Reflect a right-facing frog to face left.
+  \begin{scope}[shift={(1,0)},xscale=-1,line join=round,line cap=round]
+    \def\cgt@animalfill{white}\ifgridgamecolor\def\cgt@animalfill{red}\fi
+    \filldraw[fill=\cgt@animalfill]
+      (.12,.23)..controls(.10,.40)and(.22,.52)..(.36,.49)
+      ..controls(.47,.47)and(.55,.52)..(.63,.56)
+      ..controls(.62,.67)and(.75,.69)..(.78,.57)
+      --(.91,.48)..controls(.90,.42)and(.79,.40)..(.72,.40)
+      --(.68,.24)--(.88,.19)--(.59,.19)--(.57,.34)
+      ..controls(.44,.28)and(.28,.20)..(.12,.23)--cycle;
+    \draw (.18,.25)..controls(.16,.42)and(.31,.47)..(.41,.38)
+      --(.27,.23)--(.50,.19);
+    \fill (.716,.588) circle[radius=.023];
+  \end{scope}%
+}
+\gridtoken{TAF}{T}{\draw (0,0) rectangle (1,1);\cgt@toad}
+\gridtoken{TAF}{F}{\draw (0,0) rectangle (1,1);\cgt@frog}
+\gridtoken{TAF}{.}{\draw (0,0) rectangle (1,1);}
+\cgt@tokenalias{TAF}{t}{T}\cgt@tokenalias{TAF}{L}{T}\cgt@tokenalias{TAF}{l}{T}
+\cgt@tokenalias{TAF}{f}{F}\cgt@tokenalias{TAF}{R}{F}\cgt@tokenalias{TAF}{r}{F}
+\cgt@tokenalias{TAF}{o}{.}
+\NewDocumentCommand{\ToadsAndFrogs}{O{.6cm} m}{\GridGame[#1]{TAF}{#2}}
+\NewDocumentCommand{\ToadsAndFrogsColor}{O{.6cm} m}{%
+  \begingroup\gridgamecolortrue\ToadsAndFrogs[#1]{#2}\endgroup}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% SKI JUMPS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% L/R are jumpers, l/r are slippers. L/l face left; R/r face right.
+% A skier is a compact sporting pictogram, rather than an animal-style face.
+\newcommand{\cgt@skier}[2]{%
+  \draw (0,0) rectangle (1,1);
+  \begin{scope}[line join=round,line cap=round]
+    \def\cgt@skifill{white}\def\cgt@skiline{black}
+    \ifnum#1=0
+      \begin{scope}[shift={(1,0)},xscale=-1]
+      \def\cgt@skifill{black}
+      \ifgridgamecolor\def\cgt@skifill{blue}\def\cgt@skiline{blue}\fi
+    \else
+      \begin{scope}
+      \ifgridgamecolor\def\cgt@skifill{red}\def\cgt@skiline{red}\fi
+    \fi
+    \ifnum#2=1
+      % Airborne tuck: rising skis and a forward-leaning torso.
+      \draw[draw=\cgt@skiline,line width=.6pt]
+        (.12,.24)--(.82,.37)..controls(.88,.38)and(.89,.42)..(.89,.44);
+      \draw[draw=\cgt@skiline,line width=.45pt]
+        (.12,.16)--(.82,.29)..controls(.88,.30)and(.89,.34)..(.89,.36);
+      \filldraw[fill=\cgt@skifill,draw=\cgt@skiline]
+        (.38,.34)--(.49,.39)--(.33,.49)--(.39,.59)--(.65,.70)
+        --(.70,.61)--(.47,.51)--(.59,.40)--(.45,.32)--cycle;
+      \filldraw[fill=\cgt@skifill,draw=\cgt@skiline] (.74,.73) circle[radius=.072];
+      \draw[draw=\cgt@skiline,line width=.6pt] (.61,.60)--(.73,.53)--(.83,.57);
+    \else
+      % Grounded crouch and pole distinguish a slipper from a jumper.
+      \draw[draw=\cgt@skiline,line width=.6pt]
+        (.12,.18)--(.80,.18)..controls(.86,.18)and(.89,.21)..(.89,.25);
+      \draw[draw=\cgt@skiline,line width=.45pt]
+        (.12,.10)--(.80,.10)..controls(.86,.10)and(.89,.13)..(.89,.17);
+      \filldraw[fill=\cgt@skifill,draw=\cgt@skiline]
+        (.36,.20)--(.48,.36)--(.35,.47)--(.40,.58)--(.57,.70)
+        --(.64,.62)--(.49,.49)--(.60,.36)--(.46,.20)--cycle;
+      \filldraw[fill=\cgt@skifill,draw=\cgt@skiline] (.64,.78) circle[radius=.072];
+      \draw[draw=\cgt@skiline,line width=.6pt] (.55,.59)--(.70,.47)--(.78,.51);
+      \draw[draw=\cgt@skiline,line width=.35pt] (.77,.54)--(.83,.18);
+    \fi
+    \end{scope}
+  \end{scope}%
+}
+\gridtoken{SKI}{L}{\cgt@skier{0}{1}}
+\gridtoken{SKI}{R}{\cgt@skier{1}{1}}
+\gridtoken{SKI}{l}{\cgt@skier{0}{0}}
+\gridtoken{SKI}{r}{\cgt@skier{1}{0}}
+\gridtoken{SKI}{.}{\draw (0,0) rectangle (1,1);}
+\cgt@tokenalias{SKI}{o}{.}
+\NewDocumentCommand{\SkiJumps}{O{.6cm} m}{\GridGame[#1]{SKI}{#2}}
+\NewDocumentCommand{\SkiJumpsColor}{O{.6cm} m}{%
+  \begingroup\gridgamecolortrue\SkiJumps[#1]{#2}\endgroup}
+
+% Consistent Color suffix for boards with an existing color mode.
+% Wrappers preserve the color setting outside the command.
+\NewDocumentCommand{\PushColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\Push[#1]{#2}\endgroup}
+\NewDocumentCommand{\ShoveColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\Shove[#1]{#2}\endgroup}
+\NewDocumentCommand{\AllSmallPushColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\AllSmallPush[#1]{#2}\endgroup}
+\NewDocumentCommand{\AllSmallShoveColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\AllSmallShove[#1]{#2}\endgroup}
+\NewDocumentCommand{\HackenbushStringColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\HackenbushString[#1]{#2}\endgroup}
+\NewDocumentCommand{\HackenbushstringColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\Hackenbushstring[#1]{#2}\endgroup}
+\NewDocumentCommand{\MinesweeperColor}{O{.5cm} m}{\begingroup\gridgamecolortrue\Minesweeper[#1]{#2}\endgroup}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% NAMED-POINT BOARDS: HARE AND HOUNDS, MORRIS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Optional arguments: [unit][labels=true]. Lists use the printed point names.
+\newif\ifcgt@pointlabels
+\pgfkeys{/cgt/points/.is family,/cgt/points,
+  labels/.is if=cgt@pointlabels,labels/.default=true}
+\ExplSyntaxOn
+\clist_new:N \l__cgt_validpoints_clist
+\clist_new:N \l__cgt_occupiedpoints_clist
+\cs_new_protected:Npn \cgt@pointreset #1 {
+  \clist_set:Nn \l__cgt_validpoints_clist {#1}
+  \clist_clear:N \l__cgt_occupiedpoints_clist
+}
+\cs_new_protected:Npn \cgt@placepoints #1#2 {
+  \clist_map_inline:nn {#1} {
+    \clist_if_in:NnTF \l__cgt_validpoints_clist {##1} {
+      \clist_if_in:NnTF \l__cgt_occupiedpoints_clist {##1}
+        {\PackageError{combgames-tikz}{Point~##1~is~occupied~twice}{Use~each~point~only~once.}}
+        {\clist_put_right:Nn \l__cgt_occupiedpoints_clist {##1} #2{##1}}
+    }{\PackageError{combgames-tikz}{Unknown~board~point~##1}{Use~labels=true~to~see~the~valid~point~names.}}
+  }
+}
+\ExplSyntaxOff
+\newcommand{\cgt@hound}[1]{%
+  \begin{scope}[shift={(#1)},scale=.65,line join=round,line cap=round]
+    \def\cgt@piececolor{black}\ifgridgamecolor\def\cgt@piececolor{blue}\fi
+    % Far legs remain distinct from the near legs in the silhouette.
+    \fill[\cgt@piececolor] (-.25,-.07)--(-.15,-.27)--(-.10,-.29)
+      --(-.10,-.32)--(-.19,-.32)--(-.30,-.12)--cycle;
+    \fill[\cgt@piececolor] (.10,-.07)--(.04,-.28)--(.08,-.30)
+      --(.08,-.32)--(-.01,-.32)--(.02,-.08)--cycle;
+    % Lean standing hound: arched loin, deep chest, narrow muzzle and legs.
+    \filldraw[fill=\cgt@piececolor,line width=.3pt]
+      (-.33,.04)
+      ..controls(-.40,.10)and(-.44,.19)..(-.46,.22)
+      ..controls(-.46,.12)and(-.43,.02)..(-.38,-.04)
+      ..controls(-.35,-.11)and(-.37,-.18)..(-.40,-.27)
+      --(-.44,-.31)..controls(-.45,-.34)and(-.37,-.34)..(-.35,-.32)
+      --(-.27,-.17)--(-.23,-.10)
+      ..controls(-.12,-.09)and(-.03,-.16)..(.09,-.13)
+      --(.15,-.29)--(.13,-.32)--(.23,-.32)
+      ..controls(.23,-.29)and(.20,-.29)..(.20,-.26)
+      --(.19,-.07)
+      ..controls(.25,-.02)and(.27,.07)..(.27,.13)
+      --(.39,.14)..controls(.44,.15)and(.48,.18)..(.47,.20)
+      --(.36,.24)..controls(.32,.25)and(.33,.31)..(.27,.32)
+      ..controls(.20,.34)and(.16,.28)..(.14,.23)
+      ..controls(.10,.15)and(.07,.09)..(.02,.08)
+      ..controls(-.10,.10)and(-.24,.13)..(-.33,.04)--cycle;
+    % A restrained ear contour; no oversized facial features.
+    \draw[white,line width=.3pt] (.23,.27)
+      ..controls(.17,.21)and(.18,.13)..(.22,.12);
+    \fill[white] (.31,.242) circle[radius=.012];
+  \end{scope}}
+\newcommand{\cgt@hare}[1]{%
+  \begin{scope}[shift={(#1)},scale=.65,line join=round,line cap=round]
+    \def\cgt@piececolor{white}\ifgridgamecolor\def\cgt@piececolor{red}\fi
+    % Seated rabbit, based on the photographic reference: a tapered muzzle and slimmer chest,
+    % leaner back, close upright ears, and front paws visible beneath the body.
+    \filldraw[fill=\cgt@piececolor,line width=.35pt]
+      (-.394,.095)
+      ..controls(-.401,.125)and(-.375,.164)..(-.350,.191)
+      ..controls(-.316,.239)and(-.276,.278)..(-.222,.282)
+      ..controls(-.249,.365)and(-.236,.446)..(-.190,.480)
+      ..controls(-.154,.507)and(-.112,.487)..(-.116,.450)
+      ..controls(-.124,.391)and(-.151,.331)..(-.160,.298)
+      ..controls(-.122,.368)and(-.098,.440)..(-.059,.470)
+      ..controls(-.027,.493)and(-.010,.461)..(-.018,.423)
+      ..controls(-.023,.348)and(-.064,.279)..(-.103,.237)
+      ..controls(-.107,.204)and(-.101,.171)..(-.079,.151)
+      ..controls(0.0148,0.1747)and(0.114,0.195)..(0.2058,0.1521)
+      ..controls(0.3075,0.1108)and(0.3542,0.0133)..(0.3411,-0.111)
+      ..controls(0.3387,-0.165)and(0.3165,-0.206)..(0.2927,-0.238)
+      ..controls(0.2583,-0.274)and(0.1837,-0.276)..(0.132,-0.273)
+      --(0.0336,-0.289)
+      ..controls(0.0066,-0.29)and(-0.011,-0.279)..(0.0098,-0.262)
+      --(0.0713,-0.227)
+      ..controls(0.009,-0.239)and(-0.072,-0.233)..(-0.098,-0.218)
+      --(-0.12,-0.273)
+      ..controls(-0.133,-0.296)and(-0.18,-0.299)..(-0.213,-0.287)
+      --(-0.227,-0.267)
+      ..controls(-0.249,-0.289)and(-0.304,-0.297)..(-0.325,-0.277)
+      ..controls(-0.336,-0.262)and(-0.321,-0.244)..(-0.295,-0.232)
+      ..controls(-0.288,-0.179)and(-0.303,-0.12)..(-0.291,-0.07)
+      ..controls(-.285,-.042)and(-.280,-.024)..(-.306,-.011)
+      ..controls(-.343,.002)and(-.379,.021)..(-.391,.050)
+      ..controls(-.398,.066)and(-.398,.081)..(-.394,.095)--cycle;
+    % A short cheek contour suggests the jaw without enclosing the head.
+    \draw[line width=.23pt] (-.264,.010)
+      ..controls(-.226,.016)and(-.190,.038)..(-.174,.063);
+    % Two weight-bearing forelegs, with small, separate paws.
+    \draw[line width=.23pt] (-0.218,-0.08)
+      ..controls(-0.232,-0.139)and(-0.227,-0.215)..(-0.227,-0.267);
+    \draw[line width=.22pt] (-0.142,-0.102)
+      ..controls(-0.133,-0.155)and(-0.135,-0.215)..(-0.157,-0.258);
+    \draw[line width=.18pt] (-0.292,-0.265)--(-0.29,-0.279)
+      (-0.265,-0.26)--(-0.263,-0.281) (-0.179,-0.272)--(-0.176,-0.287);
+    % Restrained hind-leg contour, following the slimmer body.
+    \draw[line width=.22pt] (0.264,-0.185)
+      ..controls(0.2845,-0.089)and(0.2222,-0.01)..(0.1697,-0.039);
+    \draw[line width=.20pt] (0.1238,-0.115)
+      ..controls(0.1123,-0.166)and(0.1419,-0.207)..(0.1771,-0.222);
+    % Broad inner ears follow the reference; no black hare-ear tips.
+    \draw[line width=.19pt] (-0.193,0.316)
+      ..controls(-0.198,0.373)and(-0.178,0.445)..(-0.164,0.465);
+    \draw[line width=.19pt] (-0.125,0.291)
+      ..controls(-0.087,0.34)and(-0.071,0.409)..(-0.066,0.444);
+    % High-contrast features sized to remain visible in a 1 cm board token.
+    \fill[black] (-.275,.144)
+      ..controls(-.264,.182)and(-.228,.199)..(-.202,.178)
+      ..controls(-.186,.154)and(-.215,.126)..(-.255,.130)
+      --cycle;
+    \fill[white] (-.229,.172) circle[radius=.011];
+    % Small nose and short muzzle line; facial whiskers omitted at token size.
+    \fill[black] (-.397,.109)
+      ..controls(-.389,.115)and(-.380,.110)..(-.379,.103)
+      --(-.391,.092)--cycle;
+    \draw[black,line width=.22pt] (-.391,.092)--(-.385,.077)--(-.373,.071);
+  \end{scope}}
+\NewDocumentCommand{\HareAndHounds}{O{1cm} O{} m m}{%
+  \begingroup\cgt@pointlabelsfalse\pgfkeys{/cgt/points/.cd,#2}%
+  \cgt@pointreset{a2,b1,b2,b3,c1,c2,c3,d1,d2,d3,e2}%
+  \ensuremath{\mathord{\vcenter{\hbox{\begin{tikzpicture}[x=#1,y=#1]
+    \foreach \n/\x/\y in {a2/0/1,b1/1/0,b2/1/1,b3/1/2,c1/2/0,c2/2/1,c3/2/2,d1/3/0,d2/3/1,d3/3/2,e2/4/1}{
+      \node[draw,circle,inner sep=0,minimum size=.72*#1] (\n) at (\x,\y) {};
+    }
+    \draw (a2)--(b1)--(b2)--(b3)--(a2)--(b2)--(c2)--(c1)--(b1)--(c2)--(b3)--(c3)--(c2)--(d3)--(d2)--(c2)--(d1)--(d2)--(e2)--(d3);
+    \draw (c3)--(d3) (c1)--(d1)--(e2);
+    \ifcgt@pointlabels
+      \foreach \n in {a2,b1,b2,b3,c1,c2,c3,d1,d2,d3,e2}
+        \node[font=\scriptsize,fill=white,inner sep=1pt,above] at ([yshift=.38*#1]\n.center) {\n};
+    \fi
+    \cgt@placepoints{#3}{\cgt@hound}\cgt@placepoints{#4}{\cgt@hare}
+  \end{tikzpicture}}}}}\endgroup}
+\NewDocumentCommand{\HareAndHoundsColor}{O{1cm} O{} m m}{%
+  \begingroup\gridgamecolortrue\HareAndHounds[#1][#2]{#3}{#4}\endgroup}
+
+% Morris coordinates are a1--g7, with a1 at the bottom left.
+\newcommand{\cgt@morrisleft}[1]{%
+  \def\cgt@piececolor{black}\ifgridgamecolor\def\cgt@piececolor{blue}\fi
+  \shade[ball color=\cgt@piececolor] (#1) circle[radius=.19];}
+\newcommand{\cgt@morrisright}[1]{%
+  \def\cgt@piececolor{white}\ifgridgamecolor\def\cgt@piececolor{red}\fi
+  \shade[ball color=\cgt@piececolor] (#1) circle[radius=.19];}
+\NewDocumentCommand{\NineMensMorris}{O{.65cm} O{} m m}{%
+  \begingroup\cgt@pointlabelsfalse\pgfkeys{/cgt/points/.cd,#2}%
+  \cgt@pointreset{a1,d1,g1,b2,d2,f2,c3,d3,e3,a4,b4,c4,e4,f4,g4,c5,d5,e5,b6,d6,f6,a7,d7,g7}%
+  \ensuremath{\mathord{\vcenter{\hbox{\begin{tikzpicture}[x=#1,y=#1]
+    \draw (0,0) rectangle (6,6) (1,1) rectangle (5,5) (2,2) rectangle (4,4);
+    \draw (3,0)--(3,2) (0,3)--(2,3) (6,3)--(4,3) (3,6)--(3,4);
+    \foreach \n/\x/\y in {a1/0/0,d1/3/0,g1/6/0,b2/1/1,d2/3/1,f2/5/1,c3/2/2,d3/3/2,e3/4/2,a4/0/3,b4/1/3,c4/2/3,e4/4/3,f4/5/3,g4/6/3,c5/2/4,d5/3/4,e5/4/4,b6/1/5,d6/3/5,f6/5/5,a7/0/6,d7/3/6,g7/6/6}{
+      \coordinate (\n) at (\x,\y);\fill (\n) circle[radius=.065];
+      \ifcgt@pointlabels\node[font=\scriptsize,above right,inner sep=2pt] at (\x,{\y+.14}) {\n};\fi
+    }
+    \cgt@placepoints{#3}{\cgt@morrisleft}\cgt@placepoints{#4}{\cgt@morrisright}
+  \end{tikzpicture}}}}}\endgroup}
+\NewDocumentCommand{\NineMensMorrisColor}{O{.65cm} O{} m m}{%
+  \begingroup\gridgamecolortrue\NineMensMorris[#1][#2]{#3}{#4}\endgroup}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% PHUTBALL: INTERSECTIONS AND ANNOTATED JUMP PATHS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% [unit][columns=15,rows=19,move={x/y,...},numbered=true,move color=...]
+% Mandatory arguments: black stones {x/y,...}, white ball {x/y} (or {}).
+% Coordinates start at 1/1 in the bottom left. The move includes its start.
+% Move coordinates may lie outside the grid, to illustrate a winning jump.
+\newif\ifcgt@numbered
+\pgfkeys{/cgt/phut/.is family,/cgt/phut,
+  columns/.store in=\cgt@phutcols,rows/.store in=\cgt@phutrows,
+  move/.store in=\cgt@phutmove,move color/.store in=\cgt@movecolor,
+  numbered/.is if=cgt@numbered,numbered/.default=true,
+  labels/.is if=cgt@pointlabels,labels/.default=true}
+\ExplSyntaxOn
+\seq_new:N \l__cgt_xy_seq
+\clist_new:N \l__cgt_phutoccupied_clist
+\cs_new_protected:Npn \cgt@phutreset {\clist_clear:N \l__cgt_phutoccupied_clist}
+\cs_new_protected:Npn \cgt@phutballcount #1 {
+  \int_compare:nNnT {\clist_count:n{#1}}>{1}{
+    \PackageError{combgames-tikz}{Phutball~has~more~than~one~white~ball}{Supply~one~coordinate~or~an~empty~argument.}
+  }
+}
+\cs_new_protected:Npn \cgt@xy #1 {
+  \regex_match:nnTF {\A\s*-?\d+\s*/\s*-?\d+\s*\Z} {#1} {
+    \seq_set_split:Nnn \l__cgt_xy_seq {/}{#1}
+    \edef\cgt@x{\int_eval:n{\seq_item:Nn\l__cgt_xy_seq{1}}}
+    \edef\cgt@y{\int_eval:n{\seq_item:Nn\l__cgt_xy_seq{2}}}
+  }{\PackageError{combgames-tikz}{Invalid~coordinate~#1}{Use~integer~pairs~such~as~11/6.}\def\cgt@x{1}\def\cgt@y{1}}
+}
+\cs_new_protected:Npn \cgt@phutstones #1#2 {
+  \clist_map_inline:nn {#1}{
+    \cgt@xy{##1}
+    \bool_if:nTF {
+      \int_compare_p:n{1<=\cgt@x<=\cgt@phutcols} &&
+      \int_compare_p:n{1<=\cgt@y<=\cgt@phutrows}
+    }{
+      \tl_set:Nx \l_tmpa_tl {\cgt@x/\cgt@y}
+      \exp_args:NNV \clist_if_in:NnTF \l__cgt_phutoccupied_clist \l_tmpa_tl
+        {\PackageError{combgames-tikz}{Phutball~point~##1~is~occupied~twice}{Use~each~point~only~once.}}
+        {\clist_put_right:NV \l__cgt_phutoccupied_clist \l_tmpa_tl
+         \filldraw[fill=#2] (\cgt@x,\cgt@y) circle[radius=.24];}
+    }
+    {\PackageError{combgames-tikz}{Stone~##1~is~outside~the~Phutball~board}{Increase~rows/columns~or~correct~the~coordinate.}}
+  }
+}
+\cs_new_protected:Npn \cgt@phutpath #1 {
+  \int_zero:N \l_tmpa_int
+  \clist_map_inline:nn {#1}{
+    \cgt@xy{##1}
+    \int_incr:N \l_tmpa_int
+    \int_compare:nNnT {\l_tmpa_int}>{1}{
+      \draw[draw=\cgt@movecolor,line~width=.35pt,densely~dashed]
+        (\cgt@prevx,\cgt@prevy)--(\cgt@x,\cgt@y);
+    }
+    \edef\cgt@prevx{\cgt@x}\edef\cgt@prevy{\cgt@y}
+  }
+  % Draw labels last, so later segments never run across earlier labels.
+  \ifcgt@numbered
+    \int_zero:N \l_tmpa_int
+    \clist_map_inline:nn {#1}{
+      \cgt@xy{##1}\int_incr:N \l_tmpa_int
+      \int_compare:nNnT {\l_tmpa_int}>{1}{
+        \node[circle,draw=\cgt@movecolor,line~width=.3pt,font=\tiny,
+          fill=white,text=\cgt@movecolor,inner~sep=.6pt]
+          at (\cgt@x,\cgt@y) {\int_eval:n{\l_tmpa_int-1}};
+      }
+    }
+  \fi
+}
+\cs_new_protected:Npn \cgt@phutdimensions {
+  \regex_match:neTF {\A[1-9]\d*\Z}{\cgt@phutcols}{}{
+    \PackageError{combgames-tikz}{Invalid~Phutball~columns}{Use~a~positive~integer.}\def\cgt@phutcols{15}}
+  \regex_match:neTF {\A[1-9]\d*\Z}{\cgt@phutrows}{}{
+    \PackageError{combgames-tikz}{Invalid~Phutball~rows}{Use~a~positive~integer.}\def\cgt@phutrows{19}}
+}
+\cs_generate_variant:Nn \regex_match:nnTF {ne}
+\ExplSyntaxOff
+\NewDocumentCommand{\Phutball}{O{.35cm} O{} m m}{%
+  \begingroup
+  \def\cgt@phutcols{15}\def\cgt@phutrows{19}\def\cgt@phutmove{}%
+  \def\cgt@movecolor{black}\ifgridgamecolor\def\cgt@movecolor{red}\fi
+  \cgt@numberedtrue\cgt@pointlabelsfalse
+  \pgfkeys{/cgt/phut/.cd,#2}\cgt@phutdimensions\cgt@phutreset\cgt@phutballcount{#4}
+  \ensuremath{\mathord{\vcenter{\hbox{\begin{tikzpicture}[x=#1,y=#1]
+    \draw[gray!65,step=1] (1,1) grid (\cgt@phutcols,\cgt@phutrows);
+    \ifcgt@pointlabels
+      \foreach \x in {1,...,\cgt@phutcols}\node[font=\tiny,below] at (\x,.7) {\x};
+      \foreach \y in {1,...,\cgt@phutrows}\node[font=\tiny,left] at (.7,\y) {\y};
+    \fi
+    % Draw the route first; opaque stones cover it without any erasing halo.
+    \expandafter\cgt@phutpath\expandafter{\cgt@phutmove}
+    \cgt@phutstones{#3}{black}\cgt@phutstones{#4}{white}
+  \end{tikzpicture}}}}}\endgroup}
+\NewDocumentCommand{\PhutballColor}{O{.35cm} O{} m m}{%
+  \begingroup\gridgamecolortrue\Phutball[#1][#2]{#3}{#4}\endgroup}

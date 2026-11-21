@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../../../../../node_modules/bootstrap/dist/css/bootstrap.min.css">
+
+  <style>
+    .error-highlight {
+      background-color: rgba(255, 255, 0, 0.308);
+    }
+
+    .error-hovered {
+      background-color: rgba(255, 166, 0, 0.384) !important;
+    }
+
+    #code {
+      font-family: monospace;
+      white-space: pre;
+    }
+
+    #error-wrapper {
+      max-height: 25vh;
+    }
+  </style>
+</head>
+
+<body class="d-flex flex-column min-vh-100">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="../../../../../">Home</a></li>
+<li class="breadcrumb-item"><a href="../../../../">texmf-dist</a></li>
+<li class="breadcrumb-item"><a href="../../../">tex</a></li>
+<li class="breadcrumb-item"><a href="../../">generic</a></li>
+<li class="breadcrumb-item"><a href="../">namedef</a></li>
+<li class="breadcrumb-item"><a href="#">namedef.sty</a></li>
+
+    </ol>
+  </nav>
+
+  <h2>Issues in File</h2>
+
+  <div id="content-wrapper" class="d-flex flex-column flex-grow-1">
+    <div id="editor-wrapper" class="flex-grow-1 w-100">
+      <div id="editor" class="h-100"></div>
+    </div>
+    <div id="error-wrapper" class="overflow-auto flex-grow-0">
+      <div id="code"></div>
+    </div>
+  </div>
+
+  <script src="../../../../../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script>
+    filename = 'namedef.sty';
+    language = 'latex';
+
+    require.config({ paths: { vs: '../../../../../node_modules/monaco-editor/min/vs' } });
+
+    require(['vs/editor/editor.main'], function () {
+      fetch('../../../../../latex.json')
+        .then(response => response.json())
+        .then(latexDefinition => {
+
+          latexDefinition.id = "latex";
+          monaco.languages.register(latexDefinition);
+          monaco.languages.setMonarchTokensProvider("latex", latexDefinition);
+
+          fetch(filename)
+            .then(response => response.text())
+            .then(content => {
+              editor = monaco.editor.create(document.getElementById('editor'), {
+                language: language,
+                theme: 'vs-dark',
+                value: content,
+              });
+              fetch('errors.json')
+                .then(response => response.json())
+                .then(errors => {
+
+                  // console.log(errors);
+
+                  const urlFragment = window.location.hash.substring(1);
+                  const filterIdentifiers = urlFragment.split(',');
+
+                  // If some identifiers were given in URL fragment, use them to filter the errors
+                  if(urlFragment.length > 0) {
+                    errors = errors.filter(error => {
+                      let identifier = `${String.fromCodePoint(error.type)}${error.nr}`;
+                      return filterIdentifiers.includes(identifier);
+                    });
+                  }
+
+                  // console.log(errors);
+
+                  // Sort errors by lnum, col, end_lnum, end_col
+                  errors.sort((a, b) => {
+                    if (a.lnum !== b.lnum) return a.lnum - b.lnum;
+                    if (a.col !== b.col) return a.col - b.col;
+                    if (a.end_lnum !== b.end_lnum) return a.end_lnum - b.end_lnum;
+                    return a.end_col - b.end_col;
+                  });
+
+                  addErrorsAndHovers(errors)
+
+                  decorations = generateDecorations(errors);
+                  const decorationsCollection = editor.createDecorationsCollection(decorations);
+
+                  const hoverProvider = monaco.languages.registerHoverProvider('lua', {
+                    provideHover: (model, position) => {
+                      const matchingErrors = errors.filter(err => {
+                        // Check if the current line matches the error line range
+                        const isLineInRange = err.lnum <= position.lineNumber && position.lineNumber <= err.end_lnum;
+
+                        // If it's a single-line error, check the column range
+                        if (err.lnum === err.end_lnum) {
+                          return isLineInRange &&
+                            err.col <= position.column &&
+                            position.column <= err.end_col;
+                        }
+
+                        // For multi-line errors:
+                        if (isLineInRange) {
+                          if (position.lineNumber === err.lnum) {
+                            // First line: column should be after or at the start column
+                            return position.column >= err.col;
+                          } else if (position.lineNumber === err.end_lnum) {
+                            // Last line: column should be before or at the end column
+                            return position.column <= err.end_col;
+                          } else {
+                            // For lines between start and end lines, any column is valid
+                            return true;
+                          }
+                        }
+
+                        return false;
+                      });
+
+                      if (matchingErrors.length === 0) {
+                        return null;
+                      }
+
+                      const hoverContents = matchingErrors.map(err =>
+                        `${err.text}`
+                      ).join('<br>');
+
+                      const firstError = matchingErrors[0];
+
+                      return {
+                        range: new monaco.Range(
+                          firstError.lnum,
+                          firstError.col,
+                          firstError.end_lnum,
+                          firstError.end_col + 2
+                        ),
+                        contents: [
+                          { supportHtml: true, value: hoverContents }
+                        ]
+                      };
+                    }
+                  });
+
+                });
+            });
+        })
+        .catch(err => console.error('Error loading LaTeX definition:', err));
+    });
+
+    function handleErrorSelection(e) {
+      const lnum = parseInt(e.target.dataset.lnum, 10);
+      const col = parseInt(e.target.dataset.col, 10);
+      const endLnum = parseInt(e.target.dataset.endLnum, 10);
+      const endCol = parseInt(e.target.dataset.endCol, 10);
+
+      highlightInEditor(lnum, col, endLnum, endCol);
+    }
+
+    function addErrorsAndHovers(errors) {
+
+      const content = errors.map((error, index) => {
+        return `<span class="error-line" 
+                   data-lnum="${error.lnum}" 
+                   data-col="${error.col}" 
+                   data-end-lnum="${error.end_lnum}" 
+                   data-end-col="${error.end_col}"
+                   id="error-${index}">${error.lines[0]}</span>`;
+      }).join('\n');
+
+      // Display the content in the #code element
+      document.getElementById('code').innerHTML = content;
+
+      // Add event listeners for hover effect - and mouse click
+      document.querySelectorAll('.error-line').forEach(item => {
+        item.addEventListener('click', (e) => {
+          handleErrorSelection(e);
+        });
+
+        item.addEventListener('mouseover', (e) => {
+          handleErrorSelection(e);
+        });
+        item.addEventListener('mouseout', () => {
+          clearEditorHighlight();
+        });
+      });
+
+
+      doResize();
+    }
+
+    function generateDecorations(errors) {
+      return errors.map(error => ({
+        range: new monaco.Range(error.lnum, error.col, error.end_lnum, error.end_col + 1),
+        options: {
+          isWholeLine: false,
+          className: 'error-highlight'
+        }
+      }));
+    }
+
+    function doResize() {
+      editor.layout({ width: 0, height: 0 })
+      window.requestAnimationFrame(() => {
+        const rect = parent.getBoundingClientRect()
+        editor.layout({ width: rect.width, height: rect.height })
+      })
+    }
+
+    <!-- solution from https://stackoverflow.com/a/70120566/873282 -->
+    const parent = document.getElementById('editor-wrapper')
+    window.addEventListener('resize', () => {
+      doResize();
+    })
+
+    // Highlight function for Monaco editor
+    function highlightInEditor(lnum, col, endLnum, endCol) {
+      const decoration = {
+        range: new monaco.Range(lnum, col, endLnum, endCol + 1),
+        options: {
+          isWholeLine: false,
+          className: 'error-hovered'
+        }
+      };
+
+      // Apply the decoration in the Monaco editor
+      window.errorDecorations = editor.deltaDecorations(window.errorDecorations || [], [decoration]);
+
+      editor.revealLineInCenter(lnum);
+    }
+
+    // Clear the highlight in Monaco editor
+    function clearEditorHighlight() {
+      if (window.errorDecorations) {
+        editor.deltaDecorations(window.errorDecorations, []);
+        window.errorDecorations = [];
+      }
+    }
+
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,79 @@
+% acousticintervals -- LPPL 1.3c
+% Maintained by Horn Guns, libertyhorns@gmail.com
+% License: https://www.latex-project.org/lppl/lppl-1-3c/
+% Copyright 2026 Horn Guns
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{acousticintervals}{2026-11-12}{0.1}{Duration-weighted acoustic interval reports}
+\RequirePackage{booktabs}
+\ExplSyntaxOn
+\fp_new:N \l__aci_duration_fp
+\fp_new:N \l__aci_energy_fp
+\fp_new:N \l__aci_time_fp
+\fp_new:N \l__aci_level_fp
+\seq_new:N \l__aci_pair_seq
+\tl_new:N \l__aci_rows_tl
+\bool_new:N \l__aci_valid_bool
+\int_new:N \l__aci_count_int
+\cs_new_protected:Npn \__aci_parse:n #1
+ {
+  \fp_zero:N \l__aci_duration_fp
+  \fp_zero:N \l__aci_energy_fp
+  \tl_clear:N \l__aci_rows_tl
+  \int_zero:N \l__aci_count_int
+  \bool_set_true:N \l__aci_valid_bool
+  \clist_map_inline:nn {#1}
+   {
+    \regex_match:nnTF {\A\s*[+]?\d+(\.\d+)?\s*/\s*[-+]?\d+(\.\d+)?\s*\Z} {##1}
+     {
+      \seq_set_split:Nnn \l__aci_pair_seq {/} {##1}
+      \fp_set:Nn \l__aci_time_fp {\seq_item:Nn \l__aci_pair_seq {1}}
+      \fp_set:Nn \l__aci_level_fp {\seq_item:Nn \l__aci_pair_seq {2}}
+      \bool_if:nTF
+       {\fp_compare_p:n {\l__aci_time_fp > 0} &&
+        \fp_compare_p:n {\l__aci_time_fp <= 1000000000} &&
+        \fp_compare_p:n {\l__aci_level_fp >= -100} &&
+        \fp_compare_p:n {\l__aci_level_fp <= 250}}
+       {
+        \int_incr:N \l__aci_count_int
+        \fp_add:Nn \l__aci_duration_fp {\l__aci_time_fp}
+        \fp_add:Nn \l__aci_energy_fp {\l__aci_time_fp * 10^(\l__aci_level_fp/10)}
+        \tl_put_right:Nx \l__aci_rows_tl
+         {\int_use:N \l__aci_count_int & \fp_to_decimal:N \l__aci_time_fp & \fp_to_decimal:N \l__aci_level_fp \exp_not:N \\}
+       }
+       {\bool_set_false:N \l__aci_valid_bool}
+     }
+     {\bool_set_false:N \l__aci_valid_bool}
+   }
+  \int_compare:nNnT {\l__aci_count_int} = {0}
+   {\bool_set_false:N \l__aci_valid_bool}
+ }
+\cs_new:Npn \__aci_result:
+ {\fp_eval:n {round(10*ln(\l__aci_energy_fp/\l__aci_duration_fp)/ln(10),4)}}
+\NewDocumentCommand \AcousticIntervalMean {m}
+ {
+  \group_begin:
+  \__aci_parse:n {#1}
+  \bool_if:NTF \l__aci_valid_bool {\__aci_result:} {\textbf{Invalid~interval~data}}
+  \group_end:
+ }
+\NewDocumentCommand \AcousticIntervalReport {m m}
+ {
+  \group_begin:
+  \__aci_parse:n {#2}
+  \str_case:nnF {#1} {{LAeq}{} {LCeq}{} {LZeq}{}}
+   {\bool_set_false:N \l__aci_valid_bool}
+  \bool_if:NTF \l__aci_valid_bool
+   {
+    \begin{tabular}{rrr}\toprule
+    Interval & Duration~(s) & #1~(dB) \\\midrule
+    \tl_use:N \l__aci_rows_tl
+    \bottomrule\end{tabular}
+    \par\smallskip
+    Total~duration:~\fp_to_decimal:N \l__aci_duration_fp\,s.
+    \quad Combined~#1:~\__aci_result:\,dB.
+   }
+   {\textbf{Invalid~interval~data~or~basis;~no~result~reported.}}
+  \group_end:
+ }
+\ExplSyntaxOff
+\endinput

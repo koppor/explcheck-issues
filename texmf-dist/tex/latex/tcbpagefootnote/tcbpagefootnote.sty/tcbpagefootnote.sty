@@ -1,0 +1,292 @@
+%%
+%% tcbpagefootnote.sty
+%% ===================
+%% Page footnotes from inside tcolorbox.
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This package is licensed under the conditions of the LaTeX Project
+%% Public License, either version 1.3c of this license or (at your
+%% option) any later version.  The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Munehiro Yamamoto.
+%%
+%% Background
+%%   tcolorbox typesets the content of a box like a minipage: \footnote
+%%   uses the mpfootnote counter and the footnote text is put at the
+%%   bottom of the box.
+%%
+%% What this package does
+%%   The tcolorbox key "page footnote" makes \footnote inside the box
+%%   (title, upper and lower part) behave as in the body text:
+%%     (1) the footnote counter and \thefootnote are used for the mark;
+%%     (2) the footnote text is collected, together with its mark, while
+%%         the box is typeset, and is put into the ordinary footnote
+%%         insertion right after the box ("after pre" of the hooks
+%%         library), i.e. at the bottom of the page where the box is.
+%%   With hyperref, each footnote text keeps the anchor of its own mark.
+%%   With the new footnote code of LaTeX (latex-lab-footnotes, e.g. with
+%%   \DocumentMetadata{tagging=on}), the footnote text is instead typeset
+%%   at its mark and the typeset text is output after the box: in a
+%%   tagged PDF its FENote then follows the Lbl of its mark.
+%%
+%% Limitations
+%%   * A breakable box that is broken across pages puts all its footnote
+%%     texts on the page where the box ends; a warning is issued.
+%%   * "page footnote" cannot be used with "float".
+%%   * Keys that set the "after" code (such as after, after skip and
+%%     nobeforeafter) must come before "page footnote" in the option list.
+%%   * With pLaTeX and upLaTeX in tate, a \footnotetext in vertical mode
+%%     does not work with the new footnote code of LaTeX (independent
+%%     of this package).
+%%
+%% Supported formats/engines: pdfLaTeX, XeLaTeX, LuaLaTeX, pLaTeX and
+%% upLaTeX (+ dvipdfmx), in yoko and in tate.  In tate with pLaTeX and
+%% upLaTeX, the document has to load the pxpgftate package: without
+%% it, tcolorbox draws its boxes sideways.
+%%
+\RequirePackage{expl3}
+\ProvidesExplPackage{tcbpagefootnote}
+  {2026/11/17}{1.3}{Page footnotes from inside tcolorbox}
+
+\RequirePackage{tcolorbox}
+\tcbuselibrary{hooks}
+
+%% The footnotes collected inside the box(es), output after the box
+\tl_new:N \g__tcbpagefootnote_notes_tl
+\tl_new:N \l__tcbpagefootnote_notes_tl
+%% The mark and the anchor of the last mark, kept while the texts are put
+\tl_new:N \l__tcbpagefootnote_mark_tl
+\tl_new:N \l__tcbpagefootnote_href_tl
+
+%% -----------------------------------------------------------------
+%% Messages
+%% -----------------------------------------------------------------
+\msg_new:nnn { tcbpagefootnote } { key-defined }
+  {
+    The~tcolorbox~key~'page~footnote'~is~already~defined.\\
+    tcbpagefootnote~will~not~redefine~it.
+  }
+\msg_new:nnn { tcbpagefootnote } { after-overwritten }
+  {
+    The~'after'~code~of~this~box~no~longer~flushes~the~page~footnotes.\\
+    Put~'page~footnote'~after~'after',~'after~skip',~etc.~in~the~option~list.
+  }
+\msg_new:nnn { tcbpagefootnote } { float }
+  { The~key~'page~footnote'~cannot~be~used~with~'float'. }
+\msg_new:nnn { tcbpagefootnote } { broken }
+  {
+    This~box~is~broken~across~pages.\\
+    Its~footnote~texts~are~put~on~the~page~where~the~box~ends.
+  }
+
+%% -----------------------------------------------------------------
+%% 1. Inside the box, switch the footnotes back from the minipage
+%%    setting to the page setting
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_eq:NN \@footnotetext \__tcbpagefootnote_collect:n
+  }
+
+%% -----------------------------------------------------------------
+%% 2. Collect the footnote text together with its mark
+%%    The mark is saved as the string formatted by \thefootnote:
+%%    \footnotetext[...] is not used since it assigns a number to the
+%%    counter.  With hyperref, the anchor of the mark
+%%    (\Hy@footnote@currentHref) is saved as well, since it is
+%%    overwritten by the next mark.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_collect:n #1
+  {
+    \tl_gput_right:Ne \g__tcbpagefootnote_notes_tl
+      {
+        \__tcbpagefootnote_output:nnn
+          { \exp_not:o { \@thefnmark } }
+          {
+            \cs_if_exist:NT \Hy@footnote@currentHref
+              { \exp_not:o { \Hy@footnote@currentHref } }
+          }
+          { \exp_not:n {#1} }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_output:nnn #1#2#3
+  {
+    \tl_gset:Nn \@thefnmark {#1}
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      { \tl_gset:Nn \Hy@footnote@currentHref {#2} }
+    \@footnotetext {#3}
+  }
+
+%% -----------------------------------------------------------------
+%% 3. Output the collected footnotes and clear the list
+%%    Called from "after pre", so that the footnotes are inserted
+%%    right after the box.  The list is cleared before its content is
+%%    used: a box with "page footnote" inside another one collects its
+%%    footnotes again into the list of the outer box.
+%%    The mark and, with hyperref, the anchor of the last mark are
+%%    restored afterwards: a \footnotetext after the box for a
+%%    \footnotemark in it uses them.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_check_broken:
+  {
+    \cs_if_exist:NT \c@tcbbreakpart
+      {
+        \int_compare:nNnT { \c@tcbbreakpart } > { 1 }
+          { \msg_warning:nn { tcbpagefootnote } { broken } }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_flush:
+  {
+    \tl_set_eq:NN \l__tcbpagefootnote_notes_tl \g__tcbpagefootnote_notes_tl
+    \tl_gclear:N \g__tcbpagefootnote_notes_tl
+    \tl_if_empty:NF \l__tcbpagefootnote_notes_tl
+      { \__tcbpagefootnote_check_broken: }
+    \tl_set_eq:NN \l__tcbpagefootnote_mark_tl \@thefnmark
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      {
+        \tl_set_eq:NN \l__tcbpagefootnote_href_tl
+          \Hy@footnote@currentHref
+      }
+    \tl_use:N \l__tcbpagefootnote_notes_tl
+    \tl_gset_eq:NN \@thefnmark \l__tcbpagefootnote_mark_tl
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      {
+        \tl_gset_eq:NN \Hy@footnote@currentHref
+          \l__tcbpagefootnote_href_tl
+      }
+  }
+
+%% -----------------------------------------------------------------
+%% 1'-3'. With the new footnote code of LaTeX (latex-lab-footnotes,
+%%    loaded e.g. by \DocumentMetadata{tagging=on}), the footnote text
+%%    is typeset at the place of its mark, as for a minipage, and the
+%%    typeset material is collected in a box: its structure (FENote)
+%%    then follows its mark (Lbl) in a tagged PDF.  The material is
+%%    output after the box through the fntext/process socket, i.e.
+%%    into \footins, into the box of an outer box with "page footnote"
+%%    or into \@mpfootins of an outer ordinary box.
+%%    The text is set in the \columnwidth and \textwidth outside the
+%%    box, saved when a box starts (\tcb@layer@inc) unless the
+%%    enclosing box has "page footnote".  The color is reset:
+%%    the material would otherwise carry the text color of the box.
+%%    \nobreak keeps the color special from being a place where the
+%%    insertion can be split before its first line.
+%% -----------------------------------------------------------------
+\box_new:N \g__tcbpagefootnote_notes_box
+\box_new:N \l__tcbpagefootnote_notes_box
+\dim_new:N \l__tcbpagefootnote_columnwidth_dim
+\dim_new:N \l__tcbpagefootnote_textwidth_dim
+%% The layer of the box with "page footnote" we are directly in
+\tl_new:N \l__tcbpagefootnote_layer_tl
+
+\cs_new_protected:Npn \__tcbpagefootnote_save_width:
+  {
+    \str_if_eq:eeF { \l__tcbpagefootnote_layer_tl } { \int_use:N \c@tcblayer }
+      {
+        \dim_set_eq:NN \l__tcbpagefootnote_columnwidth_dim \columnwidth
+        \dim_set_eq:NN \l__tcbpagefootnote_textwidth_dim \textwidth
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_socket_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_eq:NN \@footnotetext \fnote_footnotetext:n
+    \AssignSocketPlug { fntext/process } { tcbpagefootnote }
+    \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_socket_flush:
+  {
+    \box_set_eq:NN \l__tcbpagefootnote_notes_box \g__tcbpagefootnote_notes_box
+    \box_gclear:N \g__tcbpagefootnote_notes_box
+    \box_if_empty:NF \l__tcbpagefootnote_notes_box
+      {
+        \__tcbpagefootnote_check_broken:
+        \UseSocket { fntext/process }
+          {
+            \reset@font
+            \footnotesize
+            \interlinepenalty \interfootnotelinepenalty
+            \splittopskip \footnotesep
+            \splitmaxdepth \dp \strutbox
+            \floatingpenalty \@MM
+            \unvbox \l__tcbpagefootnote_notes_box
+          }
+      }
+  }
+
+\cs_if_exist:NT \fnote_footnotetext:n
+  {
+    \NewSocketPlug { fntext/process } { tcbpagefootnote }
+      {
+        \global \setbox \g__tcbpagefootnote_notes_box \vbox
+          {
+            \unvbox \g__tcbpagefootnote_notes_box
+            \columnwidth \l__tcbpagefootnote_columnwidth_dim
+            \textwidth \l__tcbpagefootnote_textwidth_dim
+            \linewidth \columnwidth
+            \color@begingroup
+              \normalcolor
+              \nobreak
+              #1
+            \color@endgroup
+          }
+      }
+    \AddToHook { begindocument }
+      {
+        \dim_set_eq:NN \l__tcbpagefootnote_columnwidth_dim \columnwidth
+        \dim_set_eq:NN \l__tcbpagefootnote_textwidth_dim \textwidth
+      }
+    \AddToHook { cmd/tcb@layer@inc/before } { \__tcbpagefootnote_save_width: }
+    \cs_gset_eq:NN \__tcbpagefootnote_restore: \__tcbpagefootnote_socket_restore:
+    \cs_gset_eq:NN \__tcbpagefootnote_flush: \__tcbpagefootnote_socket_flush:
+  }
+
+%% -----------------------------------------------------------------
+%% 4. Check the settings under which the footnotes cannot be output
+%%    - a float box does not use \kvtcb@afterbox
+%%    - after, after skip, etc. given later remove the "after pre" code
+%%    The tcbbreakpart counter of the breakable library is reset here:
+%%    a broken box sets it to the number of its parts while it is drawn
+%%    (after its content is typeset), and an unbreakable box does not
+%%    touch it.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_check:
+  {
+    \tl_if_empty:NF \kvtcb@float
+      { \msg_error:nn { tcbpagefootnote } { float } }
+    \tl_if_in:NnF \kvtcb@afterbox { \__tcbpagefootnote_flush: }
+      { \msg_error:nn { tcbpagefootnote } { after-overwritten } }
+    \cs_if_exist:NT \c@tcbbreakpart
+      { \int_gzero:N \c@tcbbreakpart }
+  }
+
+%% -----------------------------------------------------------------
+%% 5. The tcolorbox key
+%% -----------------------------------------------------------------
+\pgfkeysifdefined { /tcb/page~footnote/.@cmd }
+  { \msg_error:nn { tcbpagefootnote } { key-defined } }
+  {
+    \tcbset
+      {
+        page~footnote/.style =
+          {
+            before~title~pre = \__tcbpagefootnote_restore: ,
+            before~upper~pre = \__tcbpagefootnote_check:
+                               \__tcbpagefootnote_restore: ,
+            before~lower~pre = \__tcbpagefootnote_restore: ,
+            after~pre        = \__tcbpagefootnote_flush: ,
+          }
+      }
+  }
+
+\endinput
