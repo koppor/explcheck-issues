@@ -1,0 +1,561 @@
+%%
+%% Copyright (C) 2022-2024 by Jinwen XU
+%% ------------------------------------
+%%
+%% This file may be distributed and/or modified under the conditions of
+%% the LaTeX Project Public License, either version 1.3c of this license
+%% or (at your option) any later version.  The latest version of this
+%% license is in:
+%%
+%%    http://www.latex-project.org/lppl.txt
+%%
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage
+  {multifootnote}
+  {2024/03/24} {}
+  {Multiple numbers for the same footnote}
+
+\msg_new:nnn { multifootnote }
+  { non-compatible-package }
+  { "multifootnote" ~ is ~ not ~ compatible ~ with ~ the ~ package ~ "#1". }
+
+\hook_gput_code:nnn { begindocument/before } { multifootnote }
+  {
+    \@ifpackageloaded { footnotebackref }
+      {
+        \msg_warning:nnn { multifootnote } { non-compatible-package } { footnotebackref }
+      } {}
+  }
+
+\dim_new:N \l_multifootnote_space_after_comma_dim
+\dim_set:Nn \l_multifootnote_space_after_comma_dim { 0.2ex }
+
+\bool_new:N  \l__multifootnote_left_indent_bool
+\bool_set_false:N  \l__multifootnote_left_indent_bool
+\dim_new:N \l__multifootnote_left_indent_dim
+
+\keys_define:nn { multifootnote }
+  {
+    , backref       .bool_set:N = \l__multifootnote_backref_bool
+    , backref       .initial:n  = { false }
+
+    , left-align    .bool_set:N = \l__multifootnote_left_align_bool
+    , left-align    .initial:n  = { false }
+    , left~align    .bool_set:N = \l__multifootnote_left_align_bool
+    , left align    .bool_set:N = \l__multifootnote_left_align_bool
+    , left-indent   .code:n     = {
+                                    \bool_set_true:N \l__multifootnote_left_indent_bool
+                                    \dim_set:Nn \l__multifootnote_left_indent_dim { #1 }
+                                  }
+    , left-indent   .default:n  = { 1.5em }
+    , left~indent   .code:n     = {
+                                    \bool_set_true:N \l__multifootnote_left_indent_bool
+                                    \dim_set:Nn \l__multifootnote_left_indent_dim { #1 }
+                                  }
+    , left~indent   .default:n  = { 1.5em }
+    , left indent   .code:n     = {
+                                    \bool_set_true:N \l__multifootnote_left_indent_bool
+                                    \dim_set:Nn \l__multifootnote_left_indent_dim { #1 }
+                                  }
+    , left indent   .default:n  = { 1.5em }
+
+    , manual        .bool_set:N = \l__multifootnote_manual_mode_bool
+    , manual        .initial:n  = { false }
+    , manual-mode   .bool_set:N = \l__multifootnote_manual_mode_bool
+    , manual~mode   .bool_set:N = \l__multifootnote_manual_mode_bool
+    , manual mode   .bool_set:N = \l__multifootnote_manual_mode_bool
+
+    , unknown       .code:n     = {}
+  }
+\ProcessKeyOptions [ multifootnote ]
+
+\bool_if:NT \l__multifootnote_backref_bool
+  {
+    \RequirePackage { hyperref }
+  }
+
+\RequirePackage { refcount }
+
+\cs_new_protected:Nn \multifootnote_make_footnote_left_align:n
+  {
+    \renewcommand { \@makefntext } [1]
+      {
+        \skip_horizontal:n { #1 }
+        \tl_if_blank:eF { \text_expand:n { \@thefnmark } }
+          {
+            \@makefnmark
+            \nobreakspace
+          }
+        ##1
+      }
+  }
+
+\bool_if:NT \l__multifootnote_left_align_bool
+  {
+    \multifootnote_make_footnote_left_align:n { 0pt }
+  }
+\bool_if:NT \l__multifootnote_left_indent_bool
+  {
+    \multifootnote_make_footnote_left_align:n { \l__multifootnote_left_indent_dim }
+  }
+
+\cs_generate_variant:Nn \iow_now:Nn { ce }
+\cs_generate_variant:Nn \clist_put_right:Nn { ce }
+
+\tl_new:N \l__multifootnote_tmp_tl
+\seq_new:N \l__multifootnote_tmp_seq
+\clist_new:N \l__multifootnote_tmp_clist
+
+% get the total page number
+\hook_gput_code:nnn { enddocument } { multifootnote }
+  {
+    \label{multifootnote_last-page}
+  }
+\int_new:N \g_multifootnote_total_page_int
+\hook_gput_code:nnn { begindocument } { multifootnote }
+  {
+    \int_gset:Nn \g_multifootnote_total_page_int { \getpagerefnumber{multifootnote_last-page} }
+  }
+
+% First approach
+\NewDocumentCommand \multifootnotemarkmanual { O{} }
+  {
+    \footnotemark
+    \group_begin:
+      \tl_if_blank:nF { #1 }
+        {
+          \addtocounter { footnote } { -1 }
+          \refstepcounter { footnote }
+          \label { multifootnote-mark-#1 }
+          \@ifpackageloaded { hyperref }
+            {
+              \cs_gset_eq:NN \@currentHref \Hy@footnote@currentHref
+            } {}
+          \label { multifootnote-#1 }
+        }
+    \group_end:
+  }
+\NewCommandCopy \footnotenumbermanual \multifootnotemarkmanual
+
+\NewDocumentCommand \multifootnotetextmanual { O{} m }
+  {
+    \group_begin:
+      \tl_if_blank:nTF { #1 }
+        {
+          \footnotetext { #2 }
+        }
+        {
+          \clist_clear:N \l_tmpa_clist
+          \clist_clear:N \l_tmpb_clist
+          \clist_map_inline:nn { #1 }
+            {
+              \@ifpackageloaded { hyperref }
+                {
+                  \bool_if:NTF \l__multifootnote_backref_bool
+                    {
+                      \clist_put_right:Nn \l_tmpa_clist
+                        { \hyperref[multifootnote-mark-##1]{ \ref*{ multifootnote-##1 } } }
+                    }
+                    {
+                      \clist_put_right:Nn \l_tmpa_clist
+                        { \ref*{ multifootnote-##1 } }
+                    }
+                  \clist_put_right:Nn \l_tmpb_clist
+                    { \Hy@raisedlink { \hypertarget { \getrefbykeydefault{multifootnote-##1}{anchor}{Doc-Start} } {} } }
+                }
+                {
+                  \clist_put_right:Nn \l_tmpa_clist
+                    { \ref { multifootnote-##1 } }
+                }
+            }
+          \def \thefootnote { \clist_use:Nn \l_tmpa_clist { , \skip_horizontal:n { \l_multifootnote_space_after_comma_dim } } }
+          \@ifpackageloaded { hyperref }
+            {
+              \xdef \Hy@footnote@currentHref { x\Hy@footnote@currentHref }
+            } {}
+          \footnotetext { \clist_use:Nn \l_tmpb_clist {} \ignorespaces #2 }
+        }
+    \group_end:
+  }
+
+\seq_new:N \g__multifootnote_mark_internal_seq
+\cs_new:Nn \__multifootnote_process_per_page_mark:nnnN
+  % #1 = labels
+  % #2 = footnote text
+  % #3 = actual page number
+  % #4 = a macro to store the result
+  {
+    \tl_gclear:N #4
+    \clist_clear:N \l_tmpa_clist
+    \clist_map_inline:nn { #1 }
+      {
+        % only keep those labels that appear on the current page
+        \str_if_eq:eeT { #3 } { \getpagerefnumber{multifootnote-mark-##1} }
+          {
+            \clist_put_right:Nn \l_tmpa_clist { ##1 }
+          }
+      }
+    \clist_if_empty:NF \l_tmpa_clist
+      {
+        \tl_gput_right:No #4 { \exp_after:wN { \l_tmpa_clist } }
+        \tl_gput_right:Nn #4 { { #2 } }
+      }
+  }
+\hook_gput_code:nnn { begindocument } { multifootnote/mark }
+  {
+    \int_step_inline:nn { \int_eval:n { \g_multifootnote_total_page_int } }
+      {
+        % generate the per page mark-footnotetext sequences
+        % \tl_show:n { g__multifootnote_mark_internal_page_ #1 _seq }
+        \seq_new:c { g__multifootnote_mark_internal_page_ #1 _seq }
+        \seq_new:c { g__multifootnote_mark_internal_page_ #1 _recorded_seq }
+        % keep only those labels appeared on the current page
+        \seq_clear:N \l__multifootnote_tmp_seq
+        \seq_map_inline:cn { g__multifootnote_mark_internal_seq }
+          {
+            % \tl_show:n { TEST:~##1 }
+            \__multifootnote_process_per_page_mark:nnnN ##1 { #1 } \l__multifootnote_tmp_tl
+            \tl_if_empty:NF \l__multifootnote_tmp_tl
+              {
+                \seq_put_right:No \l__multifootnote_tmp_seq { \l__multifootnote_tmp_tl }
+              }
+          }
+        \seq_gset_eq:cN { g__multifootnote_mark_internal_page_ #1 _seq } \l__multifootnote_tmp_seq
+        % \seq_show:c { g__multifootnote_mark_internal_page_ #1 _seq }
+      }
+  }
+
+\NewDocumentCommand \multifootnotemark { O{} }
+  {
+    % print the footnote mark
+    \footnotemark
+    \group_begin:
+      \tl_if_blank:nF { #1 }
+        {
+          \addtocounter { footnote } { -1 }
+          \refstepcounter { footnote }
+          \label { multifootnote-mark-#1 }
+          \@ifpackageloaded { hyperref }
+            {
+              \cs_gset_eq:NN \@currentHref \Hy@footnote@currentHref
+            } {}
+          \label { multifootnote-#1 }
+        }
+    \group_end:
+    % print the corresponding footnote text
+    \tl_if_blank:nF { #1 }
+      {
+        \tl_set:Ne \l__multifootnote_tmp_tl { \getpagerefnumber{multifootnote-mark-#1} }
+        % \tl_show:N \l__multifootnote_tmp_tl
+        % \seq_show:c { g__multifootnote_mark_internal_page_ \l__multifootnote_tmp_tl _seq }
+        \seq_map_inline:cn { g__multifootnote_mark_internal_page_ \l__multifootnote_tmp_tl _seq }
+          {
+            % \tl_show:n { TEST:~ { #1 } ##1 }
+            \seq_if_in:cnF { g__multifootnote_mark_internal_page_ \l__multifootnote_tmp_tl _recorded_seq } { ##1 }
+              {
+                % \tl_show:n { TEST:~ { #1 } ##1 }
+                \__multifootnote_print_footnotetext:nnnnn { #1 } ##1
+                  {
+                    % record the current item
+                    \seq_gput_right:cn { g__multifootnote_mark_internal_page_ \l__multifootnote_tmp_tl _recorded_seq } { ##1 }
+                    % \seq_show:c { g__multifootnote_mark_internal_page_ \l__multifootnote_tmp_tl _recorded_seq }
+                  } {}
+                  {} {} % the two extra empty groups are added for safety
+              }
+          }
+      }
+  }
+\cs_new:Nn \__multifootnote_print_footnotetext:nnnnn
+  % #1 = a given label
+  % #2 = labels
+  % #3 = footnote text
+  % #4 = code when the footnote text is indeed printed
+  % #5 = fallback code when the footnote text does not get printed
+  {
+    % \tl_show:n { TEST:~ { #1 } { #2 } { #3 } }
+    % \clist_if_in:nnTF { #2 } { #1 } { \tl_show:n { TEST:~ {#1}~is~in~{#2}. } } { \tl_show:n { TEST:~ {#1}~is~NOT~in~{#2}. } }
+    \clist_if_in:nnTF { #2 } { #1 }
+      {
+        \clist_clear:N \l_tmpa_clist
+        \clist_clear:N \l_tmpb_clist
+        % \clist_show:n { #2 }
+        \clist_map_inline:nn { #2 }
+          {
+            \@ifpackageloaded { hyperref }
+              {
+                \bool_if:NTF \l__multifootnote_backref_bool
+                  {
+                    \clist_put_right:Nn \l_tmpa_clist
+                      { \hyperref[multifootnote-mark-##1]{ \ref*{ multifootnote-##1 } } }
+                  }
+                  {
+                    \clist_put_right:Nn \l_tmpa_clist
+                      { \ref*{ multifootnote-##1 } }
+                  }
+                \clist_put_right:Nn \l_tmpb_clist
+                  { \Hy@raisedlink { \hypertarget { \getrefbykeydefault{multifootnote-##1}{anchor}{Doc-Start} } {} } }
+              }
+              {
+                \clist_put_right:Nn \l_tmpa_clist
+                  { \ref { multifootnote-##1 } }
+              }
+          }
+        % \clist_show:N \l_tmpa_clist
+        \group_begin:
+          \def \thefootnote { \clist_use:Nn \l_tmpa_clist { , \skip_horizontal:n { \l_multifootnote_space_after_comma_dim } } }
+          \@ifpackageloaded { hyperref }
+            {
+              \xdef \Hy@footnote@currentHref { x\Hy@footnote@currentHref }
+            } {}
+          \footnotetext { \clist_use:Nn \l_tmpb_clist {} \ignorespaces #3 }
+        \group_end:
+        #4
+      }
+      {
+        #5
+      }
+  }
+\NewCommandCopy \footnotenumber \multifootnotemark
+
+\NewDocumentCommand \multifootnotetext { O{} m }
+  {
+    \tl_if_blank:nTF { #1 }
+      {
+        \footnotetext { #2 }
+      }
+      {
+        \iow_now:cn { @auxout }
+          {
+            \@multifootnote@add@to@mark@text@list { #1 } { #2 }
+          }
+      }
+  }
+\NewDocumentCommand \@multifootnote@add@to@mark@text@list { m m }
+  {
+    \seq_gput_right:Nn \g__multifootnote_mark_internal_seq { { #1 } { #2 } }
+  }
+
+% Second approach
+\int_new:N \g__multifootnote_tag_footnotemark_counter_int
+
+\NewDocumentCommand \multifootnotetagmanual { m }
+  {
+    \footnotemark
+    \@ifpackageloaded { hyperref }
+      {
+        \int_gdecr:N \g__multifootnote_tag_footnotemark_counter_int
+        \addtocounter { footnote } { -1 }
+        \refstepcounter { footnote }
+        \label { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } }
+        \cs_gset_eq:NN \@currentHref \Hy@footnote@currentHref
+        \label { multifootnote-tag-footnote- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } }
+        \clist_map_inline:nn { #1 }
+          {
+            % generate hypertargets for footnote marks so that they can jump correctly to the corresponding footnotes
+            \clist_if_exist:cF { multifootnote-tag-hypertarget- ##1 }
+              { \clist_new:c { multifootnote-tag-hypertarget- ##1 } }
+            \clist_put_right:ce { multifootnote-tag-hypertarget- ##1 }
+              { \exp_not:N \Hy@raisedlink { \exp_not:N \hypertarget { \exp_not:N \getrefbykeydefault{ multifootnote-tag-footnote- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int  } }{anchor}{Doc-Start} } {} } }
+          }
+      } {}
+    \clist_map_inline:nn { #1 }
+      {
+        % generate list of marks in the footnote
+        \bool_if:NTF \l__multifootnote_backref_bool
+          {
+            \cs_if_exist:cTF { multifootnote-tag-list- ##1 }
+              {
+                \tl_gput_right:ce { multifootnote-tag-list- ##1 } { , \skip_horizontal:n { \l_multifootnote_space_after_comma_dim } \ref { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int  } } }
+              }
+              {
+                \cs_gset:cpx { multifootnote-tag-list- ##1 } { \ref { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int  } } }
+              }
+          }
+          {
+            \cs_if_exist:cTF { multifootnote-tag-list- ##1 }
+              {
+                \tl_gput_right:ce { multifootnote-tag-list- ##1 } { , \skip_horizontal:n { \l_multifootnote_space_after_comma_dim } \thefootnote }
+              }
+              {
+                \cs_gset:cpx { multifootnote-tag-list- ##1 } { \thefootnote }
+              }
+          }
+      }
+  }
+\NewCommandCopy \footnotetagmanual \multifootnotetagmanual
+
+\NewDocumentCommand \multifootnotetagtextmanual { O{} m }
+  {
+    \group_begin:
+      \tl_if_blank:nTF { #1 }
+        {
+          \def \thefootnote { }
+        }
+        {
+          \def \thefootnote { \use:c { multifootnote-tag-list- #1 } }
+        }
+      \@ifpackageloaded { hyperref }
+        {
+          \xdef \Hy@footnote@currentHref { x\Hy@footnote@currentHref }
+          \footnotetext { \clist_use:cn { multifootnote-tag-hypertarget- #1 } {} \ignorespaces #2 }
+        }
+        {
+          \footnotetext { #2 }
+        }
+    \group_end:
+  }
+
+\prop_new:N \g__multifootnote_tag_internal_prop
+\NewDocumentCommand \multifootnotetag { m }
+  {
+    \footnotemark
+    \int_gdecr:N \g__multifootnote_tag_footnotemark_counter_int
+    \addtocounter { footnote } { -1 }
+    \refstepcounter { footnote }
+    \label { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } }
+    % add the current label number to the clist of the given tag on the current page
+    \clist_map_inline:nn { #1 }
+      {
+        \iow_now:ce { @auxout }
+          {
+            \@multifootnote@add@to@tag@label@list
+              { ##1 }
+              { \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } }
+              { \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } }
+          }
+      }
+    \@ifpackageloaded { hyperref }
+      {
+        \cs_gset_eq:NN \@currentHref \Hy@footnote@currentHref
+        \label { multifootnote-tag-footnote- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } }
+      } {}
+    \clist_map_inline:nn { #1 }
+      {
+        \clist_if_exist:cF { g__multifootnote_tag_page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _recorded_clist }
+          {
+            \clist_new:c { g__multifootnote_tag_page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _recorded_clist }
+          }
+        \clist_if_in:cnF { g__multifootnote_tag_page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _recorded_clist } { ##1 }
+          {
+            \clist_gput_right:cn { g__multifootnote_tag_page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _recorded_clist } { ##1 }
+            \group_begin:
+              % \clist_show:c { g__multifootnote_tag_ ##1 _page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _clist }
+              \clist_if_exist:cT { g__multifootnote_tag_ ##1 _page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _clist }
+                { % skip the following code on the first run
+                  \clist_clear:N \l__multifootnote_tmp_clist
+                  \clist_map_inline:cn { g__multifootnote_tag_ ##1 _page_ \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } _clist }
+                    {
+                      % generate list of marks in the footnote
+                      \clist_put_right:Nn \l__multifootnote_tmp_clist
+                        {
+                          % \tl_show:n { ####1 }
+                          \bool_if:NTF \l__multifootnote_backref_bool
+                            {
+                              \ref { multifootnote-tag-mark- ####1 }
+                            }
+                            {
+                              \@ifpackageloaded { hyperref }
+                                {
+                                  \ref*{ multifootnote-tag-mark- ####1 }
+                                }
+                                {
+                                  \ref { multifootnote-tag-mark- ####1 }
+                                }
+                            }
+                        }
+                      \@ifpackageloaded { hyperref }
+                        {
+                          % generate hypertargets for footnote marks so that they can jump correctly to the corresponding footnotes
+                          \clist_if_exist:cF { multifootnote-tag-hypertarget- ##1 -page- \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } }
+                            { \clist_new:c { multifootnote-tag-hypertarget- ##1 -page- \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } } }
+                          \clist_put_right:ce { multifootnote-tag-hypertarget- ##1 -page- \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } }
+                            { \exp_not:N \Hy@raisedlink { \exp_not:N \hypertarget { \exp_not:N \getrefbykeydefault{ multifootnote-tag-footnote- ####1 }{anchor}{Doc-Start} } {} } }
+                        } {}
+                    }
+                  % \clist_show:N \l__multifootnote_tmp_clist
+                  \def \thefootnote { \clist_use:Nn \l__multifootnote_tmp_clist { , \skip_horizontal:n { \l_multifootnote_space_after_comma_dim } } }
+                  \@ifpackageloaded { hyperref }
+                    {
+                      \xdef \Hy@footnote@currentHref { x\Hy@footnote@currentHref }
+                      \footnotetext
+                        {
+                          \clist_use:cn { multifootnote-tag-hypertarget- ##1 -page- \getpagerefnumber { multifootnote-tag-mark- \int_eval:n { \g__multifootnote_tag_footnotemark_counter_int } } } {} \ignorespaces
+                          \prop_item:Nn \g__multifootnote_tag_internal_prop { ##1 }
+                        }
+                    }
+                    {
+                      \footnotetext { \prop_item:Nn \g__multifootnote_tag_internal_prop { ##1 } }
+                    }
+                }
+            \group_end:
+          }
+      }
+  }
+\NewCommandCopy \footnotetag \multifootnotetag
+\NewDocumentCommand \@multifootnote@add@to@tag@label@list { m m m }
+  % #1 = tag
+  % #2 = label number
+  % #3 = page number
+  {
+    \clist_if_exist:cF { g__multifootnote_tag_ #1 _page_ #3 _clist }
+      {
+        \clist_new:c { g__multifootnote_tag_ #1 _page_ #3 _clist }
+      }
+    \clist_gput_right:cn { g__multifootnote_tag_ #1 _page_ #3 _clist } { #2 }
+    % \clist_show:c { g__multifootnote_tag_ #1 _page_ #3 _clist }
+  }
+
+\NewDocumentCommand \multifootnotetagtext { O{} m }
+  {
+    \tl_if_blank:nTF { #1 }
+      {
+        \footnotetext { #2 }
+      }
+      {
+        \iow_now:cn { @auxout }
+          {
+            \@multifootnote@add@to@tag@text@list { #1 } { #2 }
+          }
+      }
+  }
+\NewDocumentCommand \@multifootnote@add@to@tag@text@list { m m }
+  {
+    \prop_gput:Nnn \g__multifootnote_tag_internal_prop { #1 } { #2 }
+  }
+
+% The combined interface for producing footnote text
+\NewDocumentCommand \multifootnotemanual { O{} m }
+  {
+    \str_if_in:nnTF { #1 } { , }
+      {
+        \multifootnotetextmanual [ #1 ] { #2 }
+      }
+      {
+        \multifootnotetagtextmanual [ #1 ] { #2 }
+      }
+  }
+\NewDocumentCommand \multifootnote { O{} m }
+  {
+    \str_if_in:nnTF { #1 } { , }
+      {
+        \multifootnotetext [ #1 ] { #2 }
+      }
+      {
+        \multifootnotetagtext [ #1 ] { #2 }
+      }
+  }
+
+\bool_if:NT \l__multifootnote_manual_mode_bool
+  {
+    \RenewCommandCopy \multifootnotemark    \multifootnotemarkmanual
+    \RenewCommandCopy \multifootnotetext    \multifootnotetextmanual
+    \RenewCommandCopy \multifootnotetag     \multifootnotetagmanual
+    \RenewCommandCopy \multifootnotetagtext \multifootnotetagtextmanual
+    \RenewCommandCopy \multifootnote        \multifootnotemanual
+    \RenewCommandCopy \footnotenumber       \footnotenumbermanual
+    \RenewCommandCopy \footnotetag          \footnotetagmanual
+  }
+
+\endinput
+%%
+%% End of file `multifootnote.sty'.

@@ -1,0 +1,596 @@
+%% leanify.sty -- a LaTeX article checked by Leanify.
+%% Copyright (C) 2026 Marcus Rockel.
+%% Licensed under the Apache License, Version 2.0
+%% (https://www.apache.org/licenses/LICENSE-2.0).
+%% Home: https://github.com/Corrram/leanify
+%%
+%% Leanify reads the article source itself: its sentences, formulas and the
+%% macros of its preamble. This package does not change what the article says,
+%% and Leanify reads no markup from it. It
+%%   * loads the packages for the notation the grammar reads (\coloneqq from
+%%     mathtools, \mathbb and \le from amssymb);
+%%   * runs Leanify while the article compiles, when it can: if the compiler
+%%     may run programs (shell escape), every compile runs one command,
+%%     `leanify tex`, which does the quick check and, with `certify`, updates
+%%     the pin and builds the certificate (the first time, it writes the Lean
+%%     files of the article). The checker is the one of the Lean project the
+%%     article lies in (a lakefile in its folder or up to three folders
+%%     above); an article in no Lean project is checked by the checker on the
+%%     PATH, `leanify`, which then makes its Lean project, once, in the folder
+%%     `lean` next to the article (not with project=false). The command
+%%     writes its findings as records, \jobname.leanify.out, which this
+%%     package reads line by line: they appear as warnings at their lines of
+%%     the article, where editors list them. Without shell escape, as on
+%%     arXiv, nothing runs;
+%%   * with the option `status`, marks every labelled result in the margin with
+%%     its verification status, read from \jobname.leanify.tex, which
+%%     #leanify_certify writes next to the article. Without the option the
+%%     typeset article is unchanged (use it for journal submission);
+%%   * records the Lean module that certifies the article (\leanifymodule);
+%%   * prints, where \leanifyreadings stands, the formal reading of every
+%%     definition and statement, with the version of Leanify and the vocabulary:
+%%     what Lean was asked to prove, for a reader of the PDF to compare.
+%%
+%% Usage, in the preamble:
+%%   \usepackage[status]{leanify}               % marks from the last build
+%%   \usepackage[certify, vocab=unitsquare]{leanify}  % build on every compile
+%% Options: status, certify (implies status), check=false (no quick check),
+%% vocab=FIELDS (the fields of the vocabulary the article uses, e.g.
+%% vocab={numbers,analysis}; see docs/vocabulary.md), notions={graph, finite graph}
+%% (nouns the article uses without defining them) and quantities={degree} (words
+%% that name numbers): Leanify reads both from the source, nothing is printed for
+%% them, and \leanifyreport lists them (docs/writing.md), lean=FILE (its
+%% compiled Lean file, if it is not Compiled.lean next to the article or in
+%% the folder that `leanify init` made),
+%% exe=COMMAND (the checker to run instead of the project's or of `leanify`
+%% on the PATH, e.g. a path), project=false (an article in no Lean project gets
+%% none: it is checked, and nothing is written but the findings).
+%% Compile with shell escape (pdflatex -shell-escape, or the editor's setting)
+%% and with `lake` on the PATH, or outside a Lean project with `leanify` on the
+%% PATH. Leanify's output is in \jobname.leanify.log.
+%% Optionally, \leanifyreport prints a one-line summary where it appears, and
+%% \leanifyreadings the readings (in an appendix, say).
+\NeedsTeXFormat{LaTeX2e}[2022/06/01]
+\ProvidesPackage{leanify}[2026/11/23 v0.9 Leanify checks, status marks and readings]
+\RequirePackage{mathtools}
+\RequirePackage{amssymb}
+
+\ExplSyntaxOn
+\bool_new:N \l__leanify_status_bool
+\bool_new:N \l__leanify_check_bool
+\bool_new:N \l__leanify_certify_bool
+\bool_new:N \l__leanify_project_bool
+\str_new:N \l__leanify_vocab_str
+% The nouns and the words for numbers that the article uses without defining them
+% (notions={graph, finite graph}, quantities={degree}). Leanify reads them from the
+% source of the article; nothing is printed for them where they are declared, and
+% \leanifyreport lists them.
+\tl_new:N \l__leanify_notions_tl
+\tl_new:N \l__leanify_quantities_tl
+\str_new:N \l__leanify_lean_str
+\str_new:N \l__leanify_exeopt_str
+\keys_define:nn { leanify }
+  {
+    status  .bool_set:N = \l__leanify_status_bool ,
+    check   .bool_set:N = \l__leanify_check_bool ,
+    check   .initial:n  = true ,
+    certify .code:n     =
+      {
+        \bool_set_true:N \l__leanify_certify_bool
+        \bool_set_true:N \l__leanify_status_bool
+      } ,
+    certify .value_forbidden:n = true ,
+    vocab   .str_set:N  = \l__leanify_vocab_str ,
+    notions    .tl_set:N = \l__leanify_notions_tl ,
+    quantities .tl_set:N = \l__leanify_quantities_tl ,
+    lean    .str_set:N  = \l__leanify_lean_str ,
+    exe     .str_set:N  = \l__leanify_exeopt_str ,
+    project .bool_set:N = \l__leanify_project_bool ,
+    project .initial:n  = true ,
+  }
+\ProcessKeyOptions [ leanify ]
+% The vocabulary the article is read with, as printed by \leanifyreport.
+\tl_new:N \l__leanify_vocab_tl
+\tl_set:Ne \l__leanify_vocab_tl { \l__leanify_vocab_str }
+\tl_replace_all:Nnn \l__leanify_vocab_tl { , } { , ~ }
+\cs_new:Npn \leanify@vocab
+  {
+    \str_if_empty:NTF \l__leanify_vocab_str { core }
+      { core, ~ \tl_use:N \l__leanify_vocab_tl }
+  }
+\ExplSyntaxOff
+
+% The Lean module whose #leanify_certify checks this article.
+\newcommand*\leanifymodule[1]{\gdef\leanify@module{#1}}
+\newcommand*\leanify@module{}
+
+% Entries of the status file.
+\newcommand*\leanifystatus[2]{\expandafter\gdef\csname leanify@st@#1\endcsname{#2}}
+\newcommand*\leanifysummary[6]{%
+  \gdef\leanify@summary{#2 of #1 claims verified (#3 derived in the text from
+    their citations)\leanify@context; #5 of #6 sentences compiled; #4
+    \ifnum#4=1 definition\else definitions\fi\ well defined}}
+\newcommand*\leanify@summary{no status file (build the Lean module first)}
+% The verified claims that follow a sentence of their result or proof that is not read:
+% their readings have the hypotheses of the sentences that are read. They are verified
+% as read and are not among the verified claims of the summary.
+\newcommand*\leanifycontext[1]{\gdef\leanify@context{, and #1 more \ifnum#1=1 is\else
+    are\fi\ verified as read, after a sentence of \ifnum#1=1 its\else their\fi\ result
+    or proof that is not read}}
+\newcommand*\leanify@context{}
+% the MD5 sums of the article that the status file is of
+\newcommand*\leanifysource[1]{\gdef\leanify@source{#1}}
+\newcommand*\leanify@source{}
+\newcommand*\leanifyversion[1]{\gdef\leanify@version{~#1}}
+\newcommand*\leanify@version{}
+% Of the claims derived in the text, those the standard tactic closes; of the
+% statements with hypotheses, those whose hypotheses are shown to hold together.
+\newcommand*\leanifysteps[2]{\gdef\leanify@steps{; the standard tactic closes #1 of the #2
+    claims derived in the text}}
+\newcommand*\leanify@steps{}
+\newcommand*\leanifyhypotheses[2]{\gdef\leanify@hyps{; of the #2 sets of hypotheses under
+  which claims are made, #1 are shown to hold together}}
+\newcommand*\leanify@hyps{}
+% The statements quoted from the literature (a result whose heading cites its source and
+% that the article does not prove): the assumptions of the article, and the verified
+% claims that rest on them. What the article uses without defining it.
+\newcommand*\leanifyquoted[2]{\gdef\leanify@quoted{; #1 \ifnum#1=1 statement is\else
+    statements are\fi\ quoted from the literature and assumed, and #2 of the verified
+    claims rest on \ifnum#1=1 it\else them\fi}}
+\newcommand*\leanify@quoted{}
+\newcommand*\leanifynotdefined[1]{\gdef\leanify@notdefined{; not defined in this article
+    or in the vocabulary (a kind of object among them is assumed to have an element): #1}}
+\newcommand*\leanify@notdefined{}
+\newcommand*\leanifyreport{\textsf{Leanify}\leanify@version\ (vocabulary: \leanify@vocab):
+  \leanify@summary\leanify@steps\leanify@hyps\leanify@quoted\leanify@notdefined.}
+
+% The readings: what Lean was asked to prove. \leanifyreadings prints them where it
+% stands. A reading is the reading of a version of the grammar with a vocabulary,
+% so both are named, with the conventions the grammar applies where the text
+% states no domain.
+\newcommand*\leanify@readings{}
+\newcommand\leanifydefinition[3]{%
+  \g@addto@macro\leanify@readings{\leanify@printdefinition{#1}{#2}{#3}}}
+\newcommand\leanifyreading[4]{%
+  \g@addto@macro\leanify@readings{\leanify@printreading{#1}{#2}{#3}{#4}}}
+\def\leanify@cap#1#2\@nil{\MakeUppercase{#1}#2}
+\newcommand\leanify@entry[2]{%
+  \par\smallskip\noindent\hangindent=1.5em\hangafter=1 #1:\ \(#2\)\par}
+\newcommand\leanify@printdefinition[3]{%
+  \leanify@entry{Definition (line~#1)}{#2\coloneqq#3}}
+\newcommand\leanify@printreading[4]{%
+  \leanify@entry{\leanify@cap#2\@nil
+    \if\relax\detokenize{#1}\relax\else~\ref{#1}\fi\ (line~#3)}{#4}}
+\newcommand\leanifyreadings{%
+  \par\begingroup\small\raggedright
+  \noindent\textsf{Leanify}\leanify@version\ read the definitions and statements
+  of this article as follows, with the vocabulary \leanify@vocab. In a limit, a
+  sum, a set or a threshold whose variable has no stated domain, the letters
+  \(n\), \(m\), \(k\), \(j\), \(i\), \(N\), \(M\), \(K\) stand for
+  integers and every other letter for a real number; \(\mathbb{N}\) contains
+  \(0\); \(e^{x}\) is the exponential function and \(\log\) the natural
+  logarithm; a statement also asserts that every term in it is defined.
+  \ifx\leanify@readings\empty
+    \par\smallskip\noindent No readings (build the Lean module first).\par
+  \else\leanify@readings\fi
+  \endgroup}
+
+% The margin marks.
+\newcommand*\leanify@markof[1]{%
+  \ifcsname leanify@mk@#1\endcsname\csname leanify@mk@#1\endcsname\fi}
+\newcommand*\leanify@mk@text{$\checkmark$\,derived}
+\newcommand*\leanify@mk@argued{$\checkmark$\,argued}
+\newcommand*\leanify@mk@verified{$\checkmark$\,checked}
+\newcommand*\leanify@mk@partial{$\circ$\,partly checked}
+\newcommand*\leanify@mk@compiled{$\circ$\,compiled}
+\newcommand*\leanify@mk@quoted{$\circ$\,quoted}
+\newcommand*\leanify@mk@refuted{$\times$\,false}
+\newcommand*\leanify@mark[1]{%
+  \ifcsname leanify@st@#1\endcsname
+    \edef\leanify@st{\csname leanify@st@#1\endcsname}%
+    \ifx\leanify@st\leanify@none\else
+      \ifmmode\else\leavevmode\marginpar{\raggedright\footnotesize\sffamily
+        \leanify@markof{\leanify@st}}\fi
+    \fi
+  \fi}
+\def\leanify@none{none}
+
+% Running Leanify during the compile. The package runs one command,
+%   leanify tex "\jobname.tex" [--vocab FIELDS] [--certify] [--status] ...
+% which checks the article and, with `certify', builds its certificate. It writes
+% \jobname.leanify.out, which is read here line by line: the kind of a record on
+% one line, then each of its fields on a line of its own.
+%   W  line, message        a finding at a line of the article
+%   F  file, line, message  a finding in a file the article inputs
+%   M  message              a warning without a line
+%   S  text                 a line of the summary, for the terminal
+% What the command prints is in \jobname.leanify.log.
+\ExplSyntaxOn
+\str_new:N \l__leanify_root_str
+\str_new:N \l__leanify_job_str
+\str_new:N \l__leanify_line_str
+\str_new:N \l__leanify_first_str
+\str_new:N \l__leanify_kind_str
+\str_new:N \l__leanify_args_str
+\seq_new:N \l__leanify_fields_seq
+\int_new:N \l__leanify_need_int
+\bool_new:N \l__leanify_report_bool
+\bool_new:N \l__leanify_header_bool
+\ior_new:N \g__leanify_ior
+\str_set:Nx \l__leanify_job_str { \c_sys_jobname_str }
+\str_remove_all:Nn \l__leanify_job_str { " }
+\str_const:Nx \c__leanify_article_str { \l__leanify_job_str .tex }
+\str_const:Nx \c__leanify_log_str { \l__leanify_job_str .leanify.log }
+\str_const:Nx \c__leanify_out_str { \l__leanify_job_str .leanify.out }
+\str_const:Nx \c__leanify_status_str { \l__leanify_job_str .leanify.tex }
+\cs_generate_variant:Nn \msg_warning:nnn { nne }
+\cs_new_protected:Npn \__leanify_summary:n #1 { \typeout { Leanify: ~ #1 } }
+\cs_generate_variant:Nn \__leanify_summary:n { e }
+
+% A finding at line #1 of the article. \PackageWarningNoLine keeps `on input line
+% N' on one line of the log, where editors look for it (l3msg would wrap it).
+\cs_new_protected:Npn \__leanify_finding:nn #1#2
+  { \PackageWarningNoLine { leanify } { #2 ~ on ~ input ~ line ~ #1 } }
+\cs_generate_variant:Nn \__leanify_finding:nn { ee }
+\msg_new:nnn { leanify } { lean } { #1 }
+\msg_new:nnn { leanify } { no-shell }
+  {
+    Leanify ~ did ~ not ~ run, ~ because ~ shell ~ escape ~ is ~ off. ~
+    Compile ~ with ~ pdflatex ~ -shell-escape ~ (or ~ turn ~ shell ~ escape ~
+    on ~ in ~ the ~ editor) ~ to ~ check ~ the ~ article ~ as ~ it ~ compiles, ~
+    or ~ load ~ the ~ package ~ with ~ check=false ~ to ~ silence ~ this
+  }
+\msg_new:nnn { leanify } { no-report }
+  {
+    Leanify ~ gave ~ no ~ report ~ on ~ the ~ article. ~ Is ~ lake ~ (or ~ the ~
+    checker ~ named ~ by ~ the ~ option ~ exe) ~ on ~ the ~ PATH? ~ Its ~ output ~
+    (in ~ \c__leanify_log_str) ~ begins: ~ #1
+  }
+% An article in no Lean project, whose checker is `leanify' on the PATH, on a
+% machine where that did not run: a warning that says what to install (the
+% package is never silent about an article that it did not check; check=false
+% is how an author says that it need not be checked).
+\msg_new:nnn { leanify } { no-checker }
+  {
+    Leanify ~ did ~ not ~ check ~ \c__leanify_article_str : ~ the ~ checker ~
+    `leanify' ~ did ~ not ~ run ~ (#1). ~ Install ~ Leanify ~ and ~ put ~ `leanify' ~
+    on ~ the ~ PATH ~ (the ~ releases ~ at ~ https://github.com/Corrram/leanify ~
+    have ~ the ~ executable; ~ it ~ needs ~ neither ~ Lean ~ nor ~ mathlib ~ to ~
+    check ~ an ~ article, ~ and ~ it ~ sets ~ up ~ the ~ Lean ~ project ~ of ~ the ~
+    article ~ itself), ~ or ~ name ~ the ~ checker ~ with ~ the ~ option ~ exe, ~ or ~
+    load ~ the ~ package ~ with ~ check=false ~ to ~ silence ~ this
+  }
+
+% The Lean project: the nearest folder, up to three above, with a lakefile.
+\cs_new_protected:Npn \__leanify_find_root:
+  {
+    \str_clear:N \l__leanify_root_str
+    \clist_map_inline:nn { . , .. , ../.. , ../../.. }
+      {
+        \file_if_exist:nTF { ##1 / lakefile.toml }
+          { \str_set:Nn \l__leanify_root_str {##1} \clist_map_break: }
+          {
+            \file_if_exist:nT { ##1 / lakefile.lean }
+              { \str_set:Nn \l__leanify_root_str {##1} \clist_map_break: }
+          }
+      }
+  }
+
+% The checker: the command of the option `exe', or the project's; for an article
+% in no Lean project, `leanify' on the PATH (the releases of Leanify have that
+% executable: it needs neither Lean nor mathlib). Before it runs
+% an executable, lake checks that every module of the project is built, mathlib's
+% included, which takes seconds on every compile. So the project's executable is
+% run directly when it is current: in a project that requires Leanify, the
+% package's executable if it is newer than the project's lake-manifest.json (an
+% update of Leanify changes the manifest, and lake then rebuilds it); in the
+% Leanify repository, its own executable if it is newer than the checker's
+% sources. Otherwise lake runs it.
+\str_new:N \l__leanify_exe_str
+\str_new:N \l__leanify_ext_str
+\str_new:N \l__leanify_cand_str
+\bool_new:N \l__leanify_current_bool
+\bool_new:N \l__leanify_path_bool
+\cs_new_protected:Npn \__leanify_find_exe:
+  {
+    \str_if_empty:NTF \l__leanify_exeopt_str
+      {
+        \bool_if:NTF \l__leanify_path_bool
+          {
+            % the checker of the article's own Lean project (the folder `lean'
+            % that `leanify tex' makes), if it is built and current: it is the
+            % version that the project requires. Otherwise `leanify' on the PATH.
+            \str_set:Nn \l__leanify_exe_str { leanify }
+            \sys_if_platform_windows:TF
+              { \str_set:Nn \l__leanify_ext_str { .exe } }
+              { \str_clear:N \l__leanify_ext_str }
+            \str_set:Nx \l__leanify_cand_str
+              { lean/.lake/packages/leanify/.lake/build/bin/leanify \l__leanify_ext_str }
+            \file_if_exist:nT { \l__leanify_cand_str }
+              {
+                \file_compare_timestamp:nNnF { lean/lake-manifest.json } > { \l__leanify_cand_str }
+                  {
+                    \str_set_eq:NN \l__leanify_exe_str \l__leanify_cand_str
+                    \sys_if_platform_windows:T
+                      { \exp_args:NNnV \str_replace_all:Nnn \l__leanify_exe_str { / } \c_backslash_str }
+                  }
+              }
+          }
+          { \__leanify_find_project_exe: }
+      }
+      { \str_set_eq:NN \l__leanify_exe_str \l__leanify_exeopt_str }
+  }
+\cs_new_protected:Npn \__leanify_find_project_exe:
+  {
+    \str_clear:N \l__leanify_exe_str
+    \sys_if_platform_windows:TF
+      { \str_set:Nn \l__leanify_ext_str { .exe } }
+      { \str_clear:N \l__leanify_ext_str }
+    % a project that requires Leanify
+    \str_set:Nx \l__leanify_cand_str
+      { \l__leanify_root_str /.lake/packages/leanify/.lake/build/bin/leanify \l__leanify_ext_str }
+    \file_if_exist:nT { \l__leanify_cand_str }
+      {
+        \file_compare_timestamp:nNnF { \l__leanify_root_str /lake-manifest.json } > { \l__leanify_cand_str }
+          { \str_set_eq:NN \l__leanify_exe_str \l__leanify_cand_str }
+      }
+    % the Leanify repository
+    \str_if_empty:NT \l__leanify_exe_str
+      {
+        \str_set:Nx \l__leanify_cand_str
+          { \l__leanify_root_str /.lake/build/bin/leanify \l__leanify_ext_str }
+        \file_if_exist:nT { \l__leanify_cand_str }
+          {
+            \bool_set_true:N \l__leanify_current_bool
+            \clist_map_inline:nn
+              {
+                LeanifyCli, Leanify/Codes, Leanify/Lex, Leanify/Segment, Leanify/Math,
+                Leanify/Grammar, Leanify/Elab, Leanify/Doc, Leanify/Check, Leanify/Render,
+                Leanify/Vocab, Leanify/Syntax, Leanify/Meta, Leanify/Report,
+                Leanify/Library/Build, Leanify/Library/Complex, Leanify/Library/Distributions,
+                Leanify/Library/Fields, Leanify/Library/Numbers, Leanify/Library/Torus,
+                Leanify/Library/UnitSquare
+              }
+              {
+                \file_if_exist:nT { \l__leanify_root_str / ##1 .lean }
+                  {
+                    \file_compare_timestamp:nNnT
+                      { \l__leanify_root_str / ##1 .lean } > { \l__leanify_cand_str }
+                      { \bool_set_false:N \l__leanify_current_bool \clist_map_break: }
+                  }
+              }
+            \bool_if:NT \l__leanify_current_bool
+              { \str_set_eq:NN \l__leanify_exe_str \l__leanify_cand_str }
+          }
+      }
+    \sys_if_platform_windows:T
+      {
+        \str_if_empty:NF \l__leanify_exe_str
+          { \exp_args:NNnV \str_replace_all:Nnn \l__leanify_exe_str { / } \c_backslash_str }
+      }
+  }
+
+% `leanify tex ARTICLE ...': the executable directly, or through lake. What it
+% prints goes to the log.
+\cs_new_protected:Npn \__leanify_tex:
+  {
+    \str_set:Nx \l__leanify_args_str
+      {
+        tex ~ " \c__leanify_article_str "
+        \str_if_empty:NF \l__leanify_vocab_str { ~ --vocab ~ \l__leanify_vocab_str }
+        \bool_if:NF \l__leanify_check_bool { ~ --no-check }
+        \bool_if:NT \l__leanify_certify_bool { ~ --certify }
+        \bool_if:NT \l__leanify_status_bool { ~ --status }
+        \bool_if:NF \l__leanify_project_bool { ~ --no-project }
+        \str_if_empty:NF \l__leanify_lean_str { ~ --lean ~ " \l__leanify_lean_str " }
+        \tl_if_empty:NF \leanify@module { ~ --module ~ \leanify@module }
+      }
+    \str_if_empty:NTF \l__leanify_exe_str
+      {
+        \sys_shell_now:e
+          {
+            lake ~ -d ~ " \l__leanify_root_str " ~ exe ~ leanify ~ \l__leanify_args_str
+            \c_space_tl > ~ " \c__leanify_log_str " ~ 2>&1
+          }
+      }
+      {
+        % (the name of the checker on the PATH stands as it is: a command line
+        % that begins with a quotation mark is read differently by cmd.exe)
+        \sys_shell_now:e
+          {
+            \str_if_eq:VnTF \l__leanify_exe_str { leanify }
+              { \l__leanify_exe_str } { " \l__leanify_exe_str " }
+            \c_space_tl \l__leanify_args_str
+            \c_space_tl > ~ " \c__leanify_log_str " ~ 2>&1
+          }
+      }
+  }
+
+% The records of \jobname.leanify.out.
+\cs_new_protected:Npn \__leanify_read_out:
+  {
+    \bool_set_true:N \l__leanify_header_bool
+    \int_zero:N \l__leanify_need_int
+    \ior_open:NnT \g__leanify_ior { \c__leanify_out_str }
+      {
+        \ior_str_map_inline:Nn \g__leanify_ior
+          {
+            \str_set:Nn \l__leanify_line_str {##1}
+            \regex_replace_all:nnN { \r } { } \l__leanify_line_str
+            \bool_if:NTF \l__leanify_header_bool
+              {
+                % the first line names the version: the command ran
+                \bool_set_false:N \l__leanify_header_bool
+                \bool_set_true:N \l__leanify_report_bool
+              }
+              { \__leanify_record_line: }
+          }
+        \ior_close:N \g__leanify_ior
+      }
+  }
+\cs_new_protected:Npn \__leanify_record_line:
+  {
+    \int_compare:nNnTF { \l__leanify_need_int } = { 0 }
+      {
+        \str_set_eq:NN \l__leanify_kind_str \l__leanify_line_str
+        \seq_clear:N \l__leanify_fields_seq
+        \int_set:Nn \l__leanify_need_int
+          { \str_case:VnF \l__leanify_kind_str { {W} {2} {F} {3} {M} {1} {S} {1} } { 0 } }
+      }
+      {
+        \seq_put_right:NV \l__leanify_fields_seq \l__leanify_line_str
+        \int_decr:N \l__leanify_need_int
+        \int_compare:nNnT { \l__leanify_need_int } = { 0 } { \__leanify_record: }
+      }
+  }
+\cs_new_protected:Npn \__leanify_record:
+  {
+    \str_case:Vn \l__leanify_kind_str
+      {
+        {W}
+          {
+            \__leanify_finding:ee
+              { \seq_item:Nn \l__leanify_fields_seq { 1 } }
+              { \seq_item:Nn \l__leanify_fields_seq { 2 } }
+          }
+        {F}
+          {
+            \msg_warning:nne { leanify } { lean }
+              {
+                \seq_item:Nn \l__leanify_fields_seq { 3 } \c_space_tl
+                ( \seq_item:Nn \l__leanify_fields_seq { 1 } , ~ line ~
+                \seq_item:Nn \l__leanify_fields_seq { 2 } )
+              }
+          }
+        {M} { \msg_warning:nne { leanify } { lean } { \seq_item:Nn \l__leanify_fields_seq { 1 } } }
+        {S} { \__leanify_summary:e { \seq_item:Nn \l__leanify_fields_seq { 1 } } }
+      }
+  }
+
+% The first line of the log, to say why there is no report.
+\cs_new_protected:Npn \__leanify_log_start:
+  {
+    \str_clear:N \l__leanify_first_str
+    \ior_open:NnT \g__leanify_ior { \c__leanify_log_str }
+      {
+        \ior_str_map_inline:Nn \g__leanify_ior
+          { \str_set:Nn \l__leanify_first_str {##1} \ior_map_break: }
+        \ior_close:N \g__leanify_ior
+      }
+  }
+
+\cs_new_protected:Npn \__leanify_run:
+  {
+    \__leanify_find_root:
+    % an article in no Lean project, and no checker named by the option `exe':
+    % the checker on the PATH checks it (and makes its Lean project)
+    \bool_set:Nn \l__leanify_path_bool
+      {
+        \str_if_empty_p:N \l__leanify_root_str &&
+        \str_if_empty_p:N \l__leanify_exeopt_str
+      }
+    \bool_lazy_or:nnT { \l__leanify_check_bool } { \l__leanify_certify_bool }
+      {
+        \sys_if_shell_unrestricted:TF
+          {
+            \__leanify_find_exe:
+            \__leanify_summary:e
+              {
+                \bool_if:NTF \l__leanify_certify_bool { certifying } { checking }
+                \c_space_tl \c__leanify_article_str
+              }
+            \__leanify_tex:
+            % a command that did not run leaves no records, or those of an
+            % earlier version of the article
+            \bool_set_false:N \l__leanify_report_bool
+            \file_if_exist:nT { \c__leanify_out_str }
+              {
+                \file_compare_timestamp:nNnF
+                  { \c__leanify_article_str } > { \c__leanify_out_str }
+                  { \__leanify_read_out: }
+              }
+            \bool_if:NF \l__leanify_report_bool
+              {
+                \__leanify_log_start:
+                \bool_if:NTF \l__leanify_path_bool
+                  { \msg_warning:nne { leanify } { no-checker } { \l__leanify_first_str } }
+                  { \msg_warning:nne { leanify } { no-report } { \l__leanify_first_str } }
+              }
+          }
+          {
+            \msg_warning:nn { leanify } { no-shell }
+          }
+      }
+  }
+
+% The status file is of another version of the article (its MD5 sum is none of
+% those the file records), and Leanify did not check the article in this compile
+% (shell escape is off, or the checker did not run): nothing says that the
+% article as it is now was checked, and the marks and the summary of the status
+% file are of the earlier version.
+\msg_new:nnn { leanify } { stale }
+  {
+    \c__leanify_article_str \c_space_tl has ~ changed ~ since ~ Leanify ~ checked ~ it, ~
+    and ~ Leanify ~ did ~ not ~ run ~ in ~ this ~ compile ~ (#1): ~ the ~ article ~ as ~
+    it ~ is ~ now ~ is ~ not ~ checked, ~ and ~ the ~ status ~ in ~
+    \c__leanify_status_str \c_space_tl is ~ that ~ of ~ the ~ earlier ~ version. ~
+    Compile ~ with ~ shell ~ escape ~ and ~ the ~ checker ~ `leanify' ~ on ~ the ~
+    PATH, ~ or ~ run ~ `leanify ~ check ~ \c__leanify_article_str' ~ in ~ a ~ terminal
+  }
+\cs_new_protected:Npn \__leanify_stale:
+  {
+    \bool_lazy_all:nT
+      {
+        { \l__leanify_check_bool || \l__leanify_certify_bool }
+        { ! \l__leanify_report_bool }
+        { \cs_if_exist_p:N \file_mdfive_hash:n }
+        { ! \tl_if_empty_p:N \leanify@source }
+      }
+      {
+        \str_set:Ne \l__leanify_sum_str { \file_mdfive_hash:n { \c__leanify_article_str } }
+        \bool_set_false:N \l__leanify_same_bool
+        \clist_map_inline:Nn \leanify@source
+          { \str_if_eq:eeT { ##1 } { \l__leanify_sum_str } { \bool_set_true:N \l__leanify_same_bool } }
+        \bool_lazy_or:nnF { \l__leanify_same_bool } { \str_if_empty_p:N \l__leanify_sum_str }
+          {
+            \msg_warning:nne { leanify } { stale }
+              {
+                \sys_if_shell_unrestricted:TF
+                  { the ~ checker ~ gave ~ no ~ report, ~ see ~ \c__leanify_log_str }
+                  { shell ~ escape ~ is ~ off }
+              }
+          }
+      }
+  }
+\str_new:N \l__leanify_sum_str
+\bool_new:N \l__leanify_same_bool
+
+\AtBeginDocument
+  {
+    \__leanify_run:
+    % the status file: its entries are stored, and typeset only by the option
+    % `status', \leanifyreport and \leanifyreadings
+    \file_if_exist:nTF { \c__leanify_status_str }
+      { \file_input:n { \c__leanify_status_str } \__leanify_stale: }
+      {
+        \bool_if:NT \l__leanify_status_bool
+          {
+            \PackageWarningNoLine { leanify }
+              { No ~ status ~ file ~ \c__leanify_status_str }
+          }
+      }
+  }
+\ExplSyntaxOff
+
+% wrap \label after every package has set it up (hyperref redefines it)
+\ExplSyntaxOn
+\AddToHook { begindocument/end }
+  {
+    \bool_if:NT \l__leanify_status_bool
+      {
+        \cs_set_eq:NN \leanify@label \label
+        \renewcommand* \label [1] { \leanify@label {#1} \leanify@mark {#1} }
+      }
+  }
+\ExplSyntaxOff
+\endinput

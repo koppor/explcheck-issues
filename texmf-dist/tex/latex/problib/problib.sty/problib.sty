@@ -1,0 +1,861 @@
+%%
+%% This is file `problib.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% problib.dtx  (with options: `package')
+%% 
+%% This is a generated file.
+%% problib.sty -- problem library with usage tracking for the exam class
+%% 
+%% Copyright (C) 2026 Kyle Monette
+%% 
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008/05/04 or later.
+%% 
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Kyle Monette.
+%% 
+\NeedsTeXFormat{LaTeX2e}[2023-11-01]
+\ProvidesExplPackage{problib}{2026-10-04}{1.0}
+  {Problem library with usage tracking for the exam class}
+\msg_new:nnn { problib } { no-exam }
+  { The~problib~package~requires~the~exam~document~class. }
+\msg_new:nnn { problib } { no-luatex }
+  { Catalog~mode~requires~LuaLaTeX. }
+\msg_new:nnn { problib } { not-catalog }
+  { \token_to_str:N \problibcatalog \ requires~the~'catalog'~package~option. }
+\msg_new:nnn { problib } { missing }
+  { Problem~file~'#1.tex'~not~found. }
+\msg_new:nnn { problib } { no-db }
+  {
+    No~usage~database~at~'#1'.~Compile~the~library~catalog~with~LuaLaTeX~
+    to~create~it.
+  }
+\msg_new:nnn { problib } { bad-date }
+  { Assignment~date~'#1'~is~not~YYYY-MM-DD;~reuse~warnings~disabled. }
+\msg_new:nnn { problib } { reuse }
+  { Problem~'#1'~was~used~in~'#2'~on~#3. }
+\msg_new:nnn { problib } { bad-show }
+  { Unknown~catalog~'show'~item~'#1'. }
+
+\IfClassLoadedTF { exam } { } { \msg_error:nn { problib } { no-exam } }
+\RequirePackage { xcolor }
+\RequirePackage { tabularx }
+\str_new:N   \l__problib_library_str
+\str_new:N   \l__problib_roots_str
+\tl_new:N    \l__problib_problemspace_tl
+\clist_new:N \l__problib_partspace_clist
+\clist_new:N \l__problib_subpartspace_clist
+\str_new:N   \l__problib_spacestyle_str
+\bool_new:N  \l__problib_showdata_bool
+\bool_new:N  \l__problib_keyspace_bool
+\int_new:N   \l__problib_warnreuse_int
+\bool_new:N  \g__problib_catalog_bool
+
+\keys_define:nn { problib }
+  {
+    library      .code:n      = \__problib_set_library:n {#1} ,
+    roots        .code:n      = \str_set:Nn \l__problib_roots_str {#1} ,
+    problemspace .tl_set:N    = \l__problib_problemspace_tl ,
+    partspace    .clist_set:N = \l__problib_partspace_clist ,
+    subpartspace .clist_set:N = \l__problib_subpartspace_clist ,
+    spacestyle   .choices:nn  = { blank, lines, dottedlines, box, grid }
+      { \str_set:NV \l__problib_spacestyle_str \l_keys_choice_tl } ,
+    spacestyle   .initial:n   = blank ,
+    showdata     .bool_set:N  = \l__problib_showdata_bool ,
+    keyspace     .bool_set:N  = \l__problib_keyspace_bool ,
+    warnreuse    .int_set:N   = \l__problib_warnreuse_int ,
+    catalog      .bool_gset:N = \g__problib_catalog_bool ,
+    catalog      .usage:n     = load ,
+  }
+
+\cs_new_protected:Npn \__problib_set_library:n #1
+  {
+    \str_set:Nn \l__problib_library_str {#1}
+    \tl_trim_spaces:N \l__problib_library_str
+    \str_if_empty:NF \l__problib_library_str
+      {
+        \str_if_eq:eeF { \str_item:Nn \l__problib_library_str { -1 } } { / }
+          { \str_put_right:Nn \l__problib_library_str { / } }
+      }
+  }
+
+\NewDocumentCommand \problibsetup { m } { \keys_set:nn { problib } {#1} }
+\tl_new:N   \l__problib_points_tl
+\bool_new:N \l__problib_newpage_bool
+\bool_new:N \l__problib_active_bool
+
+\keys_define:nn { problib / use }
+  {
+    space        .meta:nn    = { problib } { problemspace = {#1} } ,
+    partspace    .meta:nn    = { problib } { partspace = {#1} } ,
+    subpartspace .meta:nn    = { problib } { subpartspace = {#1} } ,
+    spacestyle   .meta:nn    = { problib } { spacestyle = {#1} } ,
+    points       .tl_set:N   = \l__problib_points_tl ,
+    newpage      .bool_set:N = \l__problib_newpage_bool ,
+    newpage      .default:n  = true ,
+  }
+\prop_new:N  \g__problib_assign_prop
+\bool_new:N  \g__problib_record_bool
+\str_new:N   \g__problib_current_str
+\int_new:N   \g__problib_today_int
+\iow_new:N   \g__problib_iow
+\bool_gset_true:N \g__problib_record_bool
+
+\keys_define:nn { problib / assignment }
+  {
+    name   .prop_gput:N = \g__problib_assign_prop ,
+    course .prop_gput:N = \g__problib_assign_prop ,
+    term   .prop_gput:N = \g__problib_assign_prop ,
+    type   .prop_gput:N = \g__problib_assign_prop ,
+    date   .prop_gput:N = \g__problib_assign_prop ,
+    record .bool_gset:N = \g__problib_record_bool ,
+  }
+
+\NewDocumentCommand \problibassignment { m }
+  { \keys_set:nn { problib / assignment } {#1} }
+\@onlypreamble \problibassignment
+
+\cs_new:Npn \__problib_two:n #1
+  { \int_compare:nNnT {#1} < { 10 } { 0 } \int_eval:n {#1} }
+
+\cs_new:Npn \__problib_field:n #1
+  { #1 = { \prop_item:Nn \g__problib_assign_prop {#1} } , }
+
+\cs_new_protected:Npn \__problib_begin_assignment:
+  {
+    \prop_if_in:NnF \g__problib_assign_prop { name }
+      { \prop_gput:NnV \g__problib_assign_prop { name } \c_sys_jobname_str }
+    \prop_if_in:NnF \g__problib_assign_prop { date }
+      {
+        \prop_gput:Nne \g__problib_assign_prop { date }
+          {
+            \int_use:N \c_sys_year_int -
+            \__problib_two:n { \c_sys_month_int } -
+            \__problib_two:n { \c_sys_day_int }
+          }
+      }
+    \str_gset:Ne \g__problib_current_str
+      {
+        \prop_item:Nn \g__problib_assign_prop { name } |
+        \prop_item:Nn \g__problib_assign_prop { course } |
+        \prop_item:Nn \g__problib_assign_prop { term }
+      }
+    \__problib_set_today:e { \prop_item:Nn \g__problib_assign_prop { date } }
+    \iow_open:Nn \g__problib_iow { \c_sys_jobname_str .pbu }
+    \iow_now:Ne \g__problib_iow
+      {
+        \token_to_str:N \problibrecord
+        {
+          \__problib_field:n { name }
+          \__problib_field:n { course }
+          \__problib_field:n { term }
+          \__problib_field:n { type }
+          \__problib_field:n { date }
+          record = { \bool_if:NTF \g__problib_record_bool { true } { false } }
+        }
+      }
+    \__problib_load_db:e { \l__problib_library_str usage-db.tex }
+  }
+\regex_const:Nn \c__problib_date_regex
+  { \A \d{4} - (0?[1-9]|1[0-2]) - (0?[1-9]|[12]\d|3[01]) \Z }
+
+\cs_new:Npn \__problib_days:n #1 { \__problib_days:w #1 \q_stop }
+\cs_new:Npn \__problib_days:w #1 - #2 - #3 \q_stop
+  {
+    \__problib_days:ffn
+      { \int_eval:n { #1 + 4800 - \int_div_truncate:nn { 14 - #2 } { 12 } } }
+      { \int_eval:n { #2 + 12 * \int_div_truncate:nn { 14 - #2 } { 12 } - 3 } }
+      {#3}
+  }
+\cs_new:Npn \__problib_days:nnn #1#2#3
+  {
+    \int_eval:n
+      {
+        #3 + \int_div_truncate:nn { 153 * #2 + 2 } { 5 } + 365 * #1
+        + \int_div_truncate:nn {#1} { 4 }
+        - \int_div_truncate:nn {#1} { 100 }
+        + \int_div_truncate:nn {#1} { 400 }
+      }
+  }
+\cs_generate_variant:Nn \__problib_days:nnn { ff }
+
+\cs_new_protected:Npn \__problib_set_today:n #1
+  {
+    \regex_match:NnTF \c__problib_date_regex {#1}
+      { \int_gset:Nn \g__problib_today_int { \__problib_days:n {#1} } }
+      {
+        \msg_warning:nnn { problib } { bad-date } {#1}
+        \int_set_eq:NN \l__problib_warnreuse_int \c_zero_int
+      }
+  }
+\cs_generate_variant:Nn \__problib_set_today:n { e }
+\prop_new:N \g__problib_usage_prop
+\bool_new:N \g__problib_db_bool
+
+\cs_new_protected:Npn \__problib_load_db:n #1
+  {
+    \file_if_exist:nTF {#1}
+      {
+        \group_begin:
+          \clist_map_inline:nn { \#, \$, \%, \&, \^, \_, \~ }
+            { \char_set_catcode_other:N ##1 }
+          \cs_set_protected:Npn \problibusage ##1##2
+            { \prop_gput:Nnn \g__problib_usage_prop {##1} {##2} }
+          \file_input:n {#1}
+        \group_end:
+        \bool_gset_true:N \g__problib_db_bool
+      }
+      { \msg_warning:nnn { problib } { no-db } {#1} }
+  }
+\cs_generate_variant:Nn \__problib_load_db:n { e }
+\str_new:N \l__problib_path_str
+\tl_new:N  \l__problib_uses_tl
+\tl_new:N  \l__problib_last_tl
+
+\cs_new_protected:Npn \__problib_scan_usage:
+  {
+    \tl_clear:N \l__problib_last_tl
+    \prop_get:NVNF \g__problib_usage_prop \l__problib_path_str \l__problib_uses_tl
+      { \tl_clear:N \l__problib_uses_tl }
+    \cs_set_protected:Npn \problibentry ##1##2##3##4##5##6
+      {
+        \tl_if_empty:NT \l__problib_last_tl
+          {
+            \str_if_eq:eeF { \tl_to_str:n { ##2 | ##3 | ##4 } } { \g__problib_current_str }
+              { \tl_set:Nn \l__problib_last_tl { {##1} {##2} {##3} {##4} } }
+          }
+      }
+    \l__problib_uses_tl
+  }
+
+\cs_new_protected:Npn \__problib_check_reuse:
+  {
+    \bool_lazy_and:nnT
+      { \int_compare_p:nNn \l__problib_warnreuse_int > \c_zero_int }
+      { ! \tl_if_empty_p:N \l__problib_last_tl }
+      { \exp_after:wN \__problib_check_reuse:nnnn \l__problib_last_tl }
+  }
+\cs_new_protected:Npn \__problib_check_reuse:nnnn #1#2#3#4
+  {
+    \regex_match:NnT \c__problib_date_regex {#1}
+      {
+        \int_compare:nNnT
+          { \g__problib_today_int - \__problib_days:n {#1} } < \l__problib_warnreuse_int
+          {
+            \msg_warning:nneee { problib } { reuse } { \l__problib_path_str }
+              { \exp_not:n {#2} \tl_if_blank:nF {#4} { ~( \exp_not:n {#4} ) } } {#1}
+          }
+      }
+  }
+\cs_new_protected:Npn \__problib_space:n #1
+  {
+    \bool_lazy_or:nnF
+      { \tl_if_blank_p:n {#1} }
+      {
+        \bool_lazy_and_p:nn
+          { \legacy_if_p:n { printanswers } } { ! \l__problib_keyspace_bool }
+      }
+      {
+        \tl_if_head_eq_catcode:nNTF {#1} \scan_stop:
+          { \__problib_fill:n {#1} }
+          { \dim_compare:nNnF {#1} = \c_zero_dim { \__problib_fill:n {#1} } }
+      }
+  }
+\cs_generate_variant:Nn \__problib_space:n { V, e }
+
+\cs_new_protected:Npn \__problib_fill:n #1
+  { \par \use:c { __problib_fill_ \l__problib_spacestyle_str :n } {#1} }
+\cs_new_protected:Npn \__problib_fill_blank:n       { \vspace }
+\cs_new_protected:Npn \__problib_fill_lines:n       { \fillwithlines }
+\cs_new_protected:Npn \__problib_fill_dottedlines:n { \fillwithdottedlines }
+\cs_new_protected:Npn \__problib_fill_box:n         { \makeemptybox }
+\cs_new_protected:Npn \__problib_fill_grid:n        { \fillwithgrid }
+
+\NewDocumentCommand \problemspace { o m }
+  {
+    \group_begin:
+      \IfValueT {#1} { \keys_set:nn { problib } { spacestyle = #1 } }
+      \__problib_space:n {#2}
+    \group_end:
+  }
+\int_new:N  \g__problib_part_int
+\int_new:N  \g__problib_subpart_int
+\bool_new:N \g__problib_has_sub_bool
+
+\cs_new:Npn \__problib_item:Nn #1#2
+  { \clist_item:Nn #1 { \int_min:nn {#2} { \clist_count:N #1 } } }
+
+\cs_new_protected:Npn \__problib_unless_solution:n #1
+  { \legacy_if:nF { @insolution } {#1} }
+
+\cs_new_protected:Npn \__problib_part_space:
+  {
+    \bool_if:NF \g__problib_has_sub_bool
+      {
+        \__problib_space:e
+          { \__problib_item:Nn \l__problib_partspace_clist \g__problib_part_int }
+      }
+  }
+\cs_new_protected:Npn \__problib_subpart_space:
+  {
+    \__problib_space:e
+      { \__problib_item:Nn \l__problib_subpartspace_clist \g__problib_subpart_int }
+  }
+
+\cs_new_protected:Npn \__problib_next_part:
+  {
+    \__problib_unless_solution:n
+      {
+        \int_compare:nNnT \g__problib_part_int > \c_zero_int { \__problib_part_space: }
+        \int_gincr:N \g__problib_part_int
+        \int_gzero:N \g__problib_subpart_int
+        \bool_gset_false:N \g__problib_has_sub_bool
+      }
+  }
+\cs_new_protected:Npn \__problib_next_subpart:
+  {
+    \__problib_unless_solution:n
+      {
+        \int_compare:nNnT \g__problib_subpart_int > \c_zero_int
+          { \__problib_subpart_space: }
+        \int_gincr:N \g__problib_subpart_int
+      }
+  }
+
+\cs_new_protected:Npn \__problib_wrap:NNN #1#2#3
+  {
+    \cs_set_eq:cN { __problib_ \cs_to_str:N #1 :w } #1
+    \cs_set_eq:cN { __problib_ \cs_to_str:N #2 :w } #2
+    \cs_set_protected:Npe #1 { \exp_not:N #3 \exp_not:c { __problib_ \cs_to_str:N #1 :w } }
+    \cs_set_protected:Npe #2 { \exp_not:N #3 \exp_not:c { __problib_ \cs_to_str:N #2 :w } }
+  }
+
+\AddToHook { cmd/parts/after }
+  {
+    \bool_if:NT \l__problib_active_bool
+      { \__problib_wrap:NNN \part \bonuspart \__problib_next_part: }
+  }
+\AddToHook { cmd/subparts/after }
+  {
+    \bool_if:NT \l__problib_active_bool
+      { \__problib_wrap:NNN \subpart \bonussubpart \__problib_next_subpart: }
+  }
+\AddToHook { env/parts/end }
+  {
+    \bool_if:NT \l__problib_active_bool
+      {
+        \__problib_unless_solution:n
+          { \int_compare:nNnT \g__problib_part_int > \c_zero_int { \__problib_part_space: } }
+      }
+  }
+\AddToHook { env/subparts/end }
+  {
+    \bool_if:NT \l__problib_active_bool
+      {
+        \__problib_unless_solution:n
+          {
+            \int_compare:nNnT \g__problib_subpart_int > \c_zero_int
+              { \__problib_subpart_space: }
+            \bool_gset_true:N \g__problib_has_sub_bool
+          }
+      }
+  }
+\prop_new:N \l__problib_meta_prop
+\regex_const:Nn \c__problib_ext_regex { \A (\./)+ | \.tex \Z }
+
+\cs_new_protected:Npn \__problib_meta:n #1
+  { \prop_put:Nnn \l__problib_meta_prop {#1} { } }
+\cs_new_protected:Npn \__problib_meta:nn #1#2
+  { \prop_put:Nnn \l__problib_meta_prop {#1} {#2} }
+
+\NewExpandableDocumentCommand \problemmeta { m }
+  { \prop_item:Nn \l__problib_meta_prop {#1} }
+
+\NewDocumentCommand \useproblem { O{} m }
+  {
+    \group_begin:
+      \bool_set_true:N \l__problib_active_bool
+      \keys_set:nn { problib / use } {#1}
+      \str_set:Nn \l__problib_path_str {#2}
+      \tl_trim_spaces:N \l__problib_path_str
+      \regex_replace_all:NnN \c__problib_ext_regex { } \l__problib_path_str
+      \file_if_exist:nTF { \l__problib_library_str \l__problib_path_str .tex }
+        {
+          \__problib_scan_usage:
+          \bool_if:NF \g__problib_catalog_bool
+            {
+              \iow_now:Ne \g__problib_iow
+                { \token_to_str:N \problibuse { \l__problib_path_str } }
+              \__problib_check_reuse:
+            }
+          \file_input:n { \l__problib_library_str \l__problib_path_str .tex }
+        }
+        { \msg_error:nne { problib } { missing } { \l__problib_path_str } }
+    \group_end:
+  }
+
+\NewDocumentEnvironment { problem } { O{} }
+  {
+    \prop_clear:N \l__problib_meta_prop
+    \keyval_parse:nnn \__problib_meta:n \__problib_meta:nn {#1}
+    \int_gzero:N \g__problib_part_int
+    \bool_if:NT \l__problib_newpage_bool { \newpage }
+    \tl_if_empty:NT \l__problib_points_tl
+      { \prop_get:NnNF \l__problib_meta_prop { points } \l__problib_points_tl { } }
+    \tl_if_blank:VTF \l__problib_points_tl
+      { \question }
+      { \use:e { \exp_not:N \question [ \l__problib_points_tl ] } }
+    \bool_if:NTF \g__problib_catalog_bool
+      { \__problib_catalog_note: }
+      { \bool_if:NT \l__problib_showdata_bool { \__problib_data_note: } }
+  }
+  {
+    \int_compare:nNnT \g__problib_part_int = \c_zero_int
+      { \__problib_space:V \l__problib_problemspace_tl }
+  }
+\tl_new:N  \l__problib_rows_tl
+\int_new:N \l__problib_cell_int
+\bool_new:N \l__problib_show_metadata_bool
+\bool_new:N \l__problib_show_usage_bool
+\bool_new:N \l__problib_show_solution_bool
+
+\cs_new_protected:Npn \__problib_meta_key: { \leavevmode \sffamily \color { gray } }
+
+\cs_new_protected:Npn \__problib_heading:
+  {
+    \texttt { \l__problib_path_str }
+    \prop_get:NnNT \l__problib_meta_prop { title } \l__problib_rows_tl
+      { \quad \textit { \mdseries \l__problib_rows_tl } }
+    \par
+  }
+\cs_new_protected:Npn \__problib_meta_table:
+  {
+    \tl_clear:N \l__problib_rows_tl
+    \int_zero:N \l__problib_cell_int
+    \prop_map_inline:Nn \l__problib_meta_prop
+      {
+        \str_if_eq:nnF {##1} { title }
+          {
+            \int_incr:N \l__problib_cell_int
+            \tl_put_right:Nn \l__problib_rows_tl { ##1 & ##2 }
+            \tl_put_right:Ne \l__problib_rows_tl
+              { \int_if_odd:nTF \l__problib_cell_int { & } { \exp_not:N \\ } }
+          }
+      }
+    \tl_if_empty:NF \l__problib_rows_tl
+      {
+        \begin{tabularx} { \linewidth }
+          {
+            @{} >{ \__problib_meta_key: } l >{ \raggedright \arraybackslash } X
+            @{ \hspace { 1.5em } }
+            >{ \__problib_meta_key: } l >{ \raggedright \arraybackslash } X @{}
+          }
+          \l__problib_rows_tl
+        \end{tabularx}
+        \par
+      }
+  }
+\cs_new_protected:Npn \__problib_usage_table:
+  {
+    \tl_clear:N \l__problib_rows_tl
+    \cs_set_protected:Npn \problibentry ##1##2##3##4##5##6
+      {
+        \str_if_eq:eeF { \tl_to_str:n { ##2 | ##3 | ##4 } } { \g__problib_current_str }
+          { \tl_put_right:Nn \l__problib_rows_tl { ##1 & ##3 & ##4 & ##5 & ##2 \\ } }
+      }
+    \l__problib_uses_tl
+    \tl_if_empty:NTF \l__problib_rows_tl
+      { { \__problib_meta_key: Not~used~before. } \par }
+      {
+        \begin{tabularx} { \linewidth }
+          { @{} l l l l >{ \raggedright \arraybackslash } X @{} }
+          \__problib_meta_key: date & \__problib_meta_key: course &
+          \__problib_meta_key: term & \__problib_meta_key: type &
+          \__problib_meta_key: assignment \\
+          \l__problib_rows_tl
+        \end{tabularx}
+        \par
+      }
+  }
+
+\cs_new_protected:Npn \__problib_data_note:
+  {
+    \leavevmode
+    \group_begin:
+      \footnotesize \color { gray }
+      \__problib_heading:
+      \__problib_usage_table:
+    \group_end:
+    \smallskip
+  }
+
+\cs_new_protected:Npn \__problib_catalog_note:
+  {
+    { \bfseries \__problib_heading: }
+    \group_begin:
+      \footnotesize
+      \bool_if:NT \l__problib_show_metadata_bool { \__problib_meta_table: }
+      \bool_lazy_and:nnT \l__problib_show_metadata_bool \l__problib_show_usage_bool
+        { \smallskip }
+      \bool_if:NT \l__problib_show_usage_bool { \__problib_usage_table: }
+    \group_end:
+    \smallskip
+  }
+\str_new:N   \l__problib_cat_folders_str
+\str_new:N   \l__problib_cat_tags_str
+\str_new:N   \l__problib_cat_topics_str
+\str_new:N   \l__problib_cat_difficulty_str
+\str_new:N   \l__problib_cat_unusedsince_str
+\str_new:N   \l__problib_cat_sort_str
+\clist_new:N \l__problib_cat_clist
+
+\cs_new_protected:Npn \__problib_set_show:n #1
+  {
+    \clist_map_inline:nn { metadata, usage, solution }
+      { \bool_set_false:c { l__problib_show_ ##1 _bool } }
+    \clist_map_inline:nn {#1}
+      {
+        \bool_if_exist:cTF { l__problib_show_ ##1 _bool }
+          { \bool_set_true:c { l__problib_show_ ##1 _bool } }
+          { \msg_error:nnn { problib } { bad-show } {##1} }
+      }
+  }
+
+\keys_define:nn { problib / filter }
+  {
+    folders     .str_set:N  = \l__problib_cat_folders_str ,
+    tags        .str_set:N  = \l__problib_cat_tags_str ,
+    topics      .str_set:N  = \l__problib_cat_topics_str ,
+    difficulty  .str_set:N  = \l__problib_cat_difficulty_str ,
+    unusedsince .str_set:N  = \l__problib_cat_unusedsince_str ,
+    sort        .choices:nn = { path, difficulty, lastused }
+      { \str_set:NV \l__problib_cat_sort_str \l_keys_choice_tl } ,
+    sort        .initial:n  = path ,
+    show        .code:n     = \__problib_set_show:n {#1} ,
+    show        .initial:n  = { metadata, usage } ,
+  }
+
+\cs_new:Npn \__problib_lua_opt:nN #1#2 { #1 = " \lua_escape:e {#2} " , }
+
+\NewDocumentCommand \problibcatalog { O{} }
+  {
+    \bool_if:NTF \g__problib_catalog_bool
+      { \__problib_catalog:n {#1} }
+      { \msg_error:nn { problib } { not-catalog } }
+  }
+
+\cs_new_protected:Npn \__problib_catalog:n #1
+  {
+    \group_begin:
+      \keys_set:nn { problib / filter } {#1}
+      \clist_set:Ne \l__problib_cat_clist
+        {
+          \lua_now:e
+            {
+              problib.catalog {
+                \__problib_lua_opt:nN { roots }       \l__problib_roots_str
+                \__problib_lua_opt:nN { folders }     \l__problib_cat_folders_str
+                \__problib_lua_opt:nN { tags }        \l__problib_cat_tags_str
+                \__problib_lua_opt:nN { topics }      \l__problib_cat_topics_str
+                \__problib_lua_opt:nN { difficulty }  \l__problib_cat_difficulty_str
+                \__problib_lua_opt:nN { unusedsince } \l__problib_cat_unusedsince_str
+                \__problib_lua_opt:nN { sort }        \l__problib_cat_sort_str
+              }
+            }
+        }
+      \bool_if:NF \g__problib_db_bool { \__problib_load_db:n { usage-db.tex } }
+      \str_clear:N \l__problib_library_str
+      \tl_clear:N \l__problib_problemspace_tl
+      \clist_clear:N \l__problib_partspace_clist
+      \clist_clear:N \l__problib_subpartspace_clist
+      \bool_if:NTF \l__problib_show_solution_bool
+        { \legacy_if_set_true:n { printanswers } }
+        { \legacy_if_set_false:n { printanswers } }
+      \clist_if_empty:NTF \l__problib_cat_clist
+        { \emph { No~problems~match. } \par }
+        {
+          \begin { questions }
+            \clist_map_inline:Nn \l__problib_cat_clist { \useproblem {##1} }
+          \end { questions }
+        }
+    \group_end:
+  }
+\ProcessKeyOptions [ problib ]
+
+\bool_if:NTF \g__problib_catalog_bool
+  {
+    \sys_if_engine_luatex:TF
+      {
+        \lua_now:n
+          {
+            local~f=io.open(kpse.find_file("problib.sty"));
+            local~src=f:read("a");
+            f:close();
+            local~_,s=src:find("--[[problib"..".lua]]",1,true);
+            local~t=s~and~src:find("--[[/problib"..".lua]]",s,true);
+            assert(t,"problib:~Lua~code~not~found~in~problib.sty");
+            problib=load(src:sub(s+1,t-1),"=problib.lua")();
+          }
+      }
+      { \msg_error:nn { problib } { no-luatex } }
+  }
+  {
+    \AtBeginDocument { \__problib_begin_assignment: }
+    \AtEndDocument { \iow_close:N \g__problib_iow }
+  }
+
+\file_input_stop:
+--[[problib.lua]]
+
+local problib = {}
+
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local s = f:read("a")
+  f:close()
+  return s
+end
+
+local function warn(msg)
+  texio.write_nl("term and log", "Package problib Warning: " .. msg)
+end
+
+local function trim(s)
+  s = s:match("^%s*(.-)%s*$")
+  if s:match("^%b{}$") then s = s:sub(2, -2):match("^%s*(.-)%s*$") end
+  return s
+end
+
+-- Split on commas outside braces.
+local function split(s)
+  local items, depth, start = {}, 0, 1
+  for i = 1, #s do
+    local c = s:byte(i)
+    if c == 123 then depth = depth + 1
+    elseif c == 125 then depth = depth - 1
+    elseif c == 44 and depth == 0 then
+      items[#items + 1] = s:sub(start, i - 1)
+      start = i + 1
+    end
+  end
+  items[#items + 1] = s:sub(start)
+  return items
+end
+
+local function set_of(s)
+  local t = {}
+  for _, item in ipairs(split(s or "")) do
+    item = trim(item):lower()
+    if item ~= "" then t[item] = true end
+  end
+  return t
+end
+
+local function walk(dir, ext, out, rel)
+  local ok, iter, state = pcall(lfs.dir, dir)
+  if not ok then return out end
+  for name in iter, state do
+    if name:sub(1, 1) ~= "." then
+      local full = dir .. "/" .. name
+      local mode = lfs.symlinkattributes(full, "mode")
+      if mode == "directory" then
+        walk(full, ext, out, rel .. name .. "/")
+      elseif mode == "file" and name:sub(-#ext) == ext then
+        out[#out + 1] = { full = full, rel = rel .. name:sub(1, -#ext - 1) }
+      end
+    end
+  end
+  return out
+end
+
+-- Returns the metadata table of a problem file, or nil if it is not one.
+local function parse_problem(text)
+  text = ("\n" .. text):gsub("([^\\])%%[^\n]*", "%1")
+  if text:find("\\documentclass") then return nil end
+  local _, e = text:find("\\begin%s*{problem}%s*")
+  if not e then return nil end
+  local meta = {}
+  if text:sub(e + 1, e + 1) ~= "[" then return meta end
+  local depth = 0
+  for i = e + 2, #text do
+    local c = text:byte(i)
+    if c == 123 then depth = depth + 1
+    elseif c == 125 then depth = depth - 1
+    elseif c == 93 and depth == 0 then
+      for _, item in ipairs(split(text:sub(e + 2, i - 1))) do
+        local k, v = item:match("^%s*([^=]-)%s*=(.*)$")
+        if k and k ~= "" then meta[k] = trim(v) end
+      end
+      break
+    end
+  end
+  return meta
+end
+local function collect_usage(roots)
+  local usage, seen = {}, {}
+  local home = os.getenv("HOME") or "~"
+  for _, root in ipairs(split(roots)) do
+    root = trim(root):gsub("^~", home):gsub("/$", "")
+    if root ~= "" then
+      if lfs.attributes(root, "mode") ~= "directory" then
+        warn("usage root '" .. root .. "' not found")
+      end
+      for _, f in ipairs(walk(root, ".pbu", {}, "")) do
+        local s = read_file(f.full)
+        local rec = s and s:match("\\problibrecord%s*(%b{})")
+        if rec then
+          local r = {}
+          for k, v in rec:sub(2, -2):gmatch("(%w+)%s*=%s*(%b{})") do r[k] = v:sub(2, -2) end
+          if r.record ~= "false" then
+            local entry = {
+              r.date or "", r.name or "", r.course or "", r.term or "", r.type or "", f.full
+            }
+            local id = table.concat(entry, "\0", 1, 4)
+            for p in s:gmatch("\\problibuse%s*(%b{})") do
+              p = p:sub(2, -2)
+              local key = p .. "\0" .. id
+              if not seen[key] then
+                seen[key] = true
+                usage[p] = usage[p] or {}
+                table.insert(usage[p], entry)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  for _, uses in pairs(usage) do
+    table.sort(uses, function(a, b)
+      if a[1] ~= b[1] then return a[1] > b[1] end
+      return a[2] < b[2]
+    end)
+  end
+  return usage
+end
+
+local function write_db(usage, path)
+  local paths = {}
+  for p in pairs(usage) do paths[#paths + 1] = p end
+  table.sort(paths)
+  local lines = {}
+  for i, p in ipairs(paths) do
+    local entries = {}
+    for j, u in ipairs(usage[p]) do
+      entries[j] = "\\problibentry{" .. table.concat(u, "}{") .. "}"
+    end
+    lines[i] = "\\problibusage{" .. p .. "}{" .. table.concat(entries) .. "}"
+  end
+  local f = io.open(path, "w")
+  if not f then
+    warn("cannot write '" .. path .. "'")
+    return
+  end
+  f:write(table.concat(lines, "\n"), "\n")
+  f:close()
+end
+
+local cache
+
+local function scan(roots)
+  if cache then return cache end
+  local problems = {}
+  for _, f in ipairs(walk(lfs.currentdir(), ".tex", {}, "")) do
+    local text = read_file(f.full)
+    local meta = text and parse_problem(text)
+    if meta then problems[#problems + 1] = { path = f.rel, meta = meta } end
+  end
+  local usage = collect_usage(roots)
+  write_db(usage, "usage-db.tex")
+  cache = { problems = problems, usage = usage }
+  return cache
+end
+local function any(want, have)
+  for w in pairs(want) do
+    if have[w] then return true end
+  end
+  return false
+end
+
+function problib.catalog(opts)
+  local data = scan(opts.roots)
+  local usage = data.usage
+
+  local folders = {}
+  for _, f in ipairs(split(opts.folders)) do
+    f = trim(f):gsub("/$", "")
+    if f ~= "" then folders[#folders + 1] = f end
+  end
+  local tags, topics = set_of(opts.tags), set_of(opts.topics)
+  local lo, hi
+  if opts.difficulty ~= "" then
+    lo, hi = opts.difficulty:match("^%s*(%d+)%s*%-?%s*(%d*)%s*$")
+    if lo then
+      lo, hi = tonumber(lo), tonumber(hi) or tonumber(lo)
+    else
+      warn("ignoring difficulty filter '" .. opts.difficulty .. "'")
+    end
+  end
+  local since = trim(opts.unusedsince)
+
+  local function last(p)
+    local u = usage[p.path]
+    return u and u[1][1] or ""
+  end
+
+  local function keep(p)
+    if #folders > 0 then
+      local hit = false
+      for _, f in ipairs(folders) do
+        if p.path == f or p.path:sub(1, #f + 1) == f .. "/" then hit = true break end
+      end
+      if not hit then return false end
+    end
+    if next(tags) and not any(tags, set_of(p.meta.tags)) then return false end
+    if next(topics) and not any(topics, set_of(p.meta.topics)) then return false end
+    if lo then
+      local d = tonumber(p.meta.difficulty)
+      if not d or d < lo or d > hi then return false end
+    end
+    if since ~= "" and last(p) >= since then return false end
+    return true
+  end
+
+  local result = {}
+  for _, p in ipairs(data.problems) do
+    if keep(p) then result[#result + 1] = p end
+  end
+
+  local key
+  if opts.sort == "difficulty" then
+    key = function(p) return tonumber(p.meta.difficulty) or math.huge end
+  elseif opts.sort == "lastused" then
+    key = last
+  end
+  table.sort(result, function(a, b)
+    if key then
+      local x, y = key(a), key(b)
+      if x ~= y then return x < y end
+    end
+    return a.path < b.path
+  end)
+
+  local paths = {}
+  for i, p in ipairs(result) do paths[i] = p.path end
+  tex.sprint(-2, table.concat(paths, ","))
+end
+
+return problib
+--[[/problib.lua]]
+\endinput
+%%
+%% End of file `problib.sty'.

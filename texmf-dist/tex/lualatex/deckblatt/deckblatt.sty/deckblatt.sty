@@ -1,0 +1,1035 @@
+%% deckblatt.sty
+%% Cover pages for self-archiving, generated from BibTeX/biblatex data.
+%% Requires LuaLaTeX and the file deckblatt.lua.
+%%
+%% Copyright (C) 2026 Daniel Tibi
+%%
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c of this license or (at
+%% your option) any later version. The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX version
+%% 2008 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Daniel Tibi.
+%%
+%% This work consists of the files deckblatt.sty and deckblatt.lua.
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesPackage{deckblatt}
+  [2026-11-23 v1.0 Cover pages for self-archiving from BibTeX data]
+
+\RequirePackage{iftex}
+\RequireLuaTeX
+\RequirePackage{xcolor}
+\RequirePackage{graphicx}
+\RequirePackage{qrcode}
+\RequirePackage{pdfpages}
+
+\directlua{
+  deckblatt = require("deckblatt")
+  if not (deckblatt.version == "1.0") then
+    tex.error("Package deckblatt Error: deckblatt.lua has version "
+      .. tostring(deckblatt.version) .. ", but deckblatt.sty expects 1.0")
+  end
+}
+
+\ExplSyntaxOn
+
+% ---------------------------------------------------------------------
+% Variables
+% ---------------------------------------------------------------------
+\tl_new:N    \l__deckblatt_variant_tl
+\tl_new:N    \l__deckblatt_side_tl
+\tl_new:N    \l__deckblatt_language_tl
+\tl_new:N    \l__deckblatt_lang_tl
+\tl_new:N    \l__deckblatt_key_tl
+\tl_new:N    \l__deckblatt_file_tl
+\tl_new:N    \l__deckblatt_file_options_tl
+\tl_new:N    \l__deckblatt_citation_text_tl
+\tl_new:N    \l__deckblatt_tmp_tl
+\tl_new:N    \l__deckblatt_font_tl
+\tl_new:N    \l__deckblatt_param_tl
+\clist_new:N \l__deckblatt_bibfiles_clist
+\clist_new:N \g__deckblatt_loaded_clist
+\bool_new:N  \l__deckblatt_note_bool
+\bool_new:N  \l__deckblatt_qr_bool
+\bool_new:N  \l__deckblatt_citation_bool
+\bool_new:N  \l__deckblatt_bibtex_bool
+\bool_new:N  \l__deckblatt_meta_bool
+\bool_new:N  \l__deckblatt_jobname_bool
+\bool_new:N  \l__deckblatt_withqr_bool
+\bool_new:N  \g__deckblatt_meta_bool
+\dim_new:N   \l__deckblatt_qr_dim
+\dim_new:N   \l__deckblatt_x_dim
+\dim_new:N   \l__deckblatt_y_dim
+\dim_new:N   \l__deckblatt_w_dim
+\dim_new:N   \l__deckblatt_h_dim
+\dim_new:N   \l__deckblatt_stripe_x_dim
+\dim_new:N   \l__deckblatt_tmp_dim
+\dim_new:N   \l__deckblatt_inner_dim
+\dim_new:N   \l__deckblatt_padl_dim
+\dim_new:N   \l__deckblatt_padr_dim
+\dim_new:N   \l__deckblatt_padt_dim
+\dim_new:N   \l__deckblatt_padb_dim
+\box_new:N   \l__deckblatt_page_box
+\box_new:N   \l__deckblatt_tmp_box
+\box_new:N   \g__deckblatt_shipout_box
+\prop_new:N  \l__deckblatt_color_prop
+\prop_new:N  \l__deckblatt_font_prop
+\prop_new:N  \l__deckblatt_param_prop
+\prop_new:N  \l__deckblatt_text_prop
+
+\tl_set:Nn   \l__deckblatt_variant_tl { banner }
+\tl_set:Nn   \l__deckblatt_side_tl { left }
+\tl_set:Nn   \l__deckblatt_language_tl { auto }
+\tl_set:Nn   \l__deckblatt_lang_tl { en }
+\tl_set:Nn   \l__deckblatt_file_options_tl { pages = - }
+\bool_set_true:N \l__deckblatt_qr_bool
+\bool_set_true:N \l__deckblatt_citation_bool
+\bool_set_true:N \l__deckblatt_bibtex_bool
+\bool_set_true:N \l__deckblatt_meta_bool
+\bool_set_true:N \l__deckblatt_jobname_bool
+\dim_set:Nn  \l__deckblatt_qr_dim { 30mm }
+
+\newlength \deckblatt@ch
+\newlength \deckblatt@indent
+\newlength \deckblatt@namewidth
+
+% ---------------------------------------------------------------------
+% Defaults of the two variants (black, white and grey)
+% ---------------------------------------------------------------------
+% The order of the colour roles matters: later roles may refer to earlier.
+\clist_const:Nn \c__deckblatt_color_roles_clist
+  {
+    main , main-text , accent , label , title , subtitle , author , note ,
+    bibtex , bibtex-background , bibtex-rule , bibtex-type , bibtex-key ,
+    bibtex-field , bibtex-value
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_banner_color_prop
+  {
+    main              = black ,
+    main-text         = white ,
+    accent            = black ,
+    label             = deckblatt-accent ,
+    title             = deckblatt-main-text ,
+    subtitle          = deckblatt-main-text!85!deckblatt-main ,
+    author            = deckblatt-main-text ,
+    note              = black!65 ,
+    bibtex            = black!75 ,
+    bibtex-background = none ,
+    bibtex-rule       = deckblatt-accent ,
+    bibtex-type       = deckblatt-bibtex ,
+    bibtex-key        = deckblatt-bibtex ,
+    bibtex-field      = deckblatt-bibtex ,
+    bibtex-value      = deckblatt-bibtex
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_sidebar_color_prop
+  {
+    main              = black ,
+    main-text         = white ,
+    accent            = black ,
+    label             = black!65 ,
+    title             = black!88 ,
+    subtitle          = black!65 ,
+    author            = deckblatt-accent ,
+    note              = black!65 ,
+    bibtex            = black ,
+    bibtex-background = black!7 ,
+    bibtex-rule       = deckblatt-accent ,
+    bibtex-type       = deckblatt-accent ,
+    bibtex-key        = black ,
+    bibtex-field      = deckblatt-accent ,
+    bibtex-value      = black!85
+  }
+
+\clist_const:Nn \c__deckblatt_font_roles_clist
+  {
+    text , author , title , subtitle , label , source , bibtex , note ,
+    sidebar , smallcaps , doi
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_banner_font_prop
+  {
+    text      = \fontsize {10} {12.5} \selectfont ,
+    author    = \sffamily \fontsize {12} {14.5} \selectfont ,
+    title     = \fontsize {27} {32} \selectfont ,
+    subtitle  = \itshape \fontsize {14} {18} \selectfont ,
+    label     = \sffamily \bfseries \fontsize {7.5} {9} \selectfont ,
+    source    = \fontsize {12} {14.5} \selectfont ,
+    bibtex    = \ttfamily \fontsize {8} {10.6} \selectfont ,
+    note      = \fontsize {8} {10} \selectfont ,
+    sidebar   = \bfseries \fontsize {8.5} {10} \selectfont ,
+    smallcaps = { } ,
+    doi       = { }
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_sidebar_font_prop
+  {
+    text      = \fontsize {10} {12.5} \selectfont ,
+    author    = \bfseries \fontsize {12} {14.5} \selectfont ,
+    title     = \bfseries \fontsize {26} {30} \selectfont ,
+    subtitle  = \fontsize {15} {19} \selectfont ,
+    label     = \bfseries \fontsize {7.5} {9} \selectfont ,
+    source    = \fontsize {10} {12.5} \selectfont ,
+    bibtex    = \ttfamily \fontsize {8} {10.6} \selectfont ,
+    note      = \fontsize {8} {10} \selectfont ,
+    sidebar   = \bfseries \fontsize {8.5} {10} \selectfont ,
+    smallcaps = { } ,
+    doi       = { }
+  }
+
+\clist_const:Nn \c__deckblatt_param_roles_clist
+  {
+    label-letterspace , sidebar-letterspace , smallcaps-scale ,
+    smallcaps-letterspace , bibtex-rule-width
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_banner_param_prop
+  {
+    label-letterspace     = 10 ,
+    sidebar-letterspace   = 22 ,
+    smallcaps-scale       = 0.78 ,
+    smallcaps-letterspace = 4 ,
+    bibtex-rule-width     = 1.5pt
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_sidebar_param_prop
+  {
+    label-letterspace     = 9 ,
+    sidebar-letterspace   = 22 ,
+    smallcaps-scale       = 0.78 ,
+    smallcaps-letterspace = 4 ,
+    bibtex-rule-width     = 0pt
+  }
+
+% Texts in German and English
+\clist_const:Nn \c__deckblatt_label_roles_clist
+  {
+    published-in , published , citation , bibtex , doi , volume , issue ,
+    publisher , date , year , pages , isbn
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_de_text_prop
+  {
+    published-in = Erschienen~in ,
+    published    = Erschienen ,
+    citation     = Zitiervorschlag ,
+    bibtex       = BibTeX ,
+    doi          = DOI ,
+    volume       = Jahrgang ,
+    issue        = Heft ,
+    publisher    = Verlag ,
+    date         = Datum ,
+    year         = Jahr ,
+    pages        = Seiten ,
+    isbn         = ISBN ,
+    sidebar      = Zweitveröffentlichung ,
+    note         = Dies~ist~eine~Zweitveröffentlichung~(Self-Archiving).~
+                   Bitte~zitieren~Sie~nach~der~oben~genannten~
+                   Erstveröffentlichung.
+  }
+\prop_const_from_keyval:Nn \c__deckblatt_en_text_prop
+  {
+    published-in = Published~in ,
+    published    = Published ,
+    citation     = Suggested~citation ,
+    bibtex       = BibTeX ,
+    doi          = DOI ,
+    volume       = Volume ,
+    issue        = Issue ,
+    publisher    = Publisher ,
+    date         = Date ,
+    year         = Year ,
+    pages        = Pages ,
+    isbn         = ISBN ,
+    sidebar      = Self-archived~version ,
+    note         = This~is~a~self-archived~version.~Please~cite~the~
+                   original~publication~given~above.
+  }
+
+% ---------------------------------------------------------------------
+% Keys
+% ---------------------------------------------------------------------
+\keys_define:nn { deckblatt }
+  {
+    variant .choices:nn = { banner , sidebar }
+      { \tl_set_eq:NN \l__deckblatt_variant_tl \l_keys_choice_tl } ,
+    sidebar .choices:nn = { left , right }
+      { \tl_set_eq:NN \l__deckblatt_side_tl \l_keys_choice_tl } ,
+    sidebar-text .code:n =
+      { \prop_put:Nnn \l__deckblatt_text_prop { sidebar } {#1} } ,
+    note .bool_set:N = \l__deckblatt_note_bool ,
+    note-text .code:n =
+      {
+        \prop_put:Nnn \l__deckblatt_text_prop { note } {#1}
+        \bool_set_true:N \l__deckblatt_note_bool
+      } ,
+    qrcode .bool_set:N = \l__deckblatt_qr_bool ,
+    qrcode-size .dim_set:N = \l__deckblatt_qr_dim ,
+    citation .bool_set:N = \l__deckblatt_citation_bool ,
+    citation-text .tl_set:N = \l__deckblatt_citation_text_tl ,
+    bibtex .bool_set:N = \l__deckblatt_bibtex_bool ,
+    pdfmeta .bool_set:N = \l__deckblatt_meta_bool ,
+    jobname .bool_set:N = \l__deckblatt_jobname_bool ,
+    title-split .code:n =
+      {
+        \str_if_eq:nnTF {#1} { false }
+          { \lua_now:e { deckblatt.setsplit(false) } }
+          { \lua_now:e { deckblatt.setsplit(true) } }
+      } ,
+    title-split .default:n = true ,
+    language .choices:nn =
+      { auto , german , ngerman , austrian , naustrian , de , english , en }
+      {
+        \exp_args:NV \str_case:nnF \l_keys_choice_tl
+          {
+            { auto }    { \tl_set:Nn \l__deckblatt_language_tl { auto } }
+            { english } { \tl_set:Nn \l__deckblatt_language_tl { english } }
+            { en }      { \tl_set:Nn \l__deckblatt_language_tl { english } }
+          }
+          { \tl_set:Nn \l__deckblatt_language_tl { german } }
+      } ,
+    bibfile .clist_set:N = \l__deckblatt_bibfiles_clist ,
+    key .tl_set:N = \l__deckblatt_key_tl ,
+    file .tl_set:N = \l__deckblatt_file_tl ,
+    file-options .tl_set:N = \l__deckblatt_file_options_tl
+  }
+\clist_map_inline:Nn \c__deckblatt_color_roles_clist
+  {
+    \keys_define:nn { deckblatt }
+      { #1-color .code:n = \prop_put:Nnn \l__deckblatt_color_prop {#1} {##1} }
+  }
+\clist_map_inline:Nn \c__deckblatt_font_roles_clist
+  {
+    \keys_define:nn { deckblatt }
+      { #1-font .code:n = \prop_put:Nnn \l__deckblatt_font_prop {#1} {##1} }
+  }
+\clist_map_inline:Nn \c__deckblatt_param_roles_clist
+  {
+    \keys_define:nn { deckblatt }
+      { #1 .code:n = \prop_put:Nnn \l__deckblatt_param_prop {#1} {##1} }
+  }
+\clist_map_inline:Nn \c__deckblatt_label_roles_clist
+  {
+    \keys_define:nn { deckblatt }
+      { #1-label .code:n = \prop_put:Nnn \l__deckblatt_text_prop {#1} {##1} }
+  }
+
+\bool_new:N \g__deckblatt_document_bool
+\NewDocumentCommand \deckblattsetup { m }
+  {
+    \keys_set:nn { deckblatt } {#1}
+    \bool_if:NT \g__deckblatt_document_bool { \__deckblatt_ensure: }
+  }
+
+\ProcessKeyOptions [ deckblatt ]
+
+% ---------------------------------------------------------------------
+% Messages
+% ---------------------------------------------------------------------
+\msg_new:nnn { deckblatt } { no-entry }
+  {
+    No~bibliography~entry~selected.~Load~a~file~with~
+    \iow_char:N \\deckblattsetup{bibfile=...}~and~choose~an~entry~with~
+    \iow_char:N \\deckblattsetup{key=...}~or~\iow_char:N \\deckblatt[key=...].
+  }
+
+% ---------------------------------------------------------------------
+% Helpers
+% ---------------------------------------------------------------------
+% #1 = kind (color, font, param), #2 = role, #3 = token list for the result.
+% A value set by the user wins over the default of the variant.
+\cs_new_protected:Npn \__deckblatt_get:nnN #1#2#3
+  {
+    \prop_get:cnNF { l__deckblatt_ #1 _prop } {#2} #3
+      {
+        \prop_get:cnNF { c__deckblatt_ \l__deckblatt_variant_tl _ #1 _prop }
+          {#2} #3 { \tl_clear:N #3 }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_font:n #1
+  {
+    \__deckblatt_get:nnN { font } {#1} \l__deckblatt_font_tl
+    \tl_use:N \l__deckblatt_font_tl
+  }
+
+% Letter spacing works only with fontspec fonts.
+\cs_new_protected:Npn \__deckblatt_letterspace:n #1
+  {
+    \__deckblatt_get:nnN { param } {#1} \l__deckblatt_param_tl
+    \tl_if_blank:VF \l__deckblatt_param_tl
+      {
+        \cs_if_exist:NT \fontspec_if_fontspec_font:TF
+          {
+            \fontspec_if_fontspec_font:TF
+              {
+                \use:e
+                  {
+                    \exp_not:N \addfontfeature
+                      { LetterSpace = \exp_not:V \l__deckblatt_param_tl }
+                  }
+              }
+              { }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_setup_colors:
+  {
+    \clist_map_inline:Nn \c__deckblatt_color_roles_clist
+      {
+        \__deckblatt_get:nnN { color } {##1} \l__deckblatt_tmp_tl
+        \tl_if_blank:VF \l__deckblatt_tmp_tl
+          {
+            \str_if_eq:VnF \l__deckblatt_tmp_tl { none }
+              {
+                \use:e
+                  {
+                    \exp_not:N \colorlet { deckblatt-##1 }
+                      { \exp_not:V \l__deckblatt_tmp_tl }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_set_lang:
+  {
+    \exp_args:NV \str_case:nnF \l__deckblatt_language_tl
+      {
+        { german }  { \tl_set:Nn \l__deckblatt_lang_tl { de } }
+        { english } { \tl_set:Nn \l__deckblatt_lang_tl { en } }
+      }
+      {
+        \tl_set:Nn \l__deckblatt_lang_tl { en }
+        \cs_if_exist:NT \languagename
+          {
+            \exp_args:Ne \str_if_in:nnT { \languagename } { german }
+              { \tl_set:Nn \l__deckblatt_lang_tl { de } }
+            \exp_args:Ne \str_if_in:nnT { \languagename } { austrian }
+              { \tl_set:Nn \l__deckblatt_lang_tl { de } }
+          }
+      }
+    \lua_now:e { deckblatt.setlang("\l__deckblatt_lang_tl") }
+  }
+
+% Text in the current language (expandable once the language is set)
+\cs_new:Npn \__deckblatt_text:n #1
+  {
+    \prop_if_in:NnTF \l__deckblatt_text_prop {#1}
+      { \prop_item:Nn \l__deckblatt_text_prop {#1} }
+      { \prop_item:cn { c__deckblatt_ \l__deckblatt_lang_tl _text_prop } {#1} }
+  }
+
+\cs_new_protected:Npn \__deckblatt_lua:n #1
+  {
+    \__deckblatt_set_lang:
+    \lua_now:e { deckblatt.#1 }
+  }
+
+% Load the bibliography files, select the entry and set the PDF metadata
+\cs_new_protected:Npn \__deckblatt_ensure:
+  {
+    \clist_map_inline:Nn \l__deckblatt_bibfiles_clist
+      {
+        \clist_if_in:NnF \g__deckblatt_loaded_clist {##1}
+          {
+            \lua_now:e { deckblatt.load("\lua_escape:e{##1}") }
+            \clist_gput_right:Nn \g__deckblatt_loaded_clist {##1}
+          }
+      }
+    \lua_now:e
+      {
+        deckblatt.select("\lua_escape:e{\l__deckblatt_key_tl}",
+          "\lua_escape:e{\c_sys_jobname_str}",
+          \bool_if:NTF \l__deckblatt_jobname_bool { true } { false })
+      }
+    \bool_if:nT { \l__deckblatt_meta_bool && ! \g__deckblatt_meta_bool }
+      {
+        \__deckblatt_if_selected:TF
+          {
+            \bool_gset_true:N \g__deckblatt_meta_bool
+            \__deckblatt_lua:n { metadata() }
+            \hypersetup
+              { pdfcreator = { LuaLaTeX~with~deckblatt } , pdfdisplaydoctitle }
+          }
+          { }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_if_selected:TF  { \lua_now:e { deckblatt.ifselected() } }
+\cs_new_protected:Npn \__deckblatt_if_doi:TF       { \__deckblatt_lua:n { ifdoi() } }
+\cs_new_protected:Npn \__deckblatt_if_article:TF   { \__deckblatt_lua:n { ifarticle() } }
+\cs_new_protected:Npn \__deckblatt_if_subtitle:TF  { \__deckblatt_lua:n { ifsubtitle() } }
+\cs_new_protected:Npn \__deckblatt_if_fulldate:TF  { \__deckblatt_lua:n { iffulldate() } }
+\cs_new_protected:Npn \__deckblatt_if_publisher:TF { \__deckblatt_lua:n { ifpublisher() } }
+\cs_new_protected:Npn \__deckblatt_if_part:TF      { \__deckblatt_lua:n { ifpart() } }
+
+% ---------------------------------------------------------------------
+% Data commands
+% ---------------------------------------------------------------------
+\NewDocumentCommand \dbfield    { m } { \__deckblatt_lua:n { field("\lua_escape:e{#1}") } }
+\NewDocumentCommand \dbrawfield { m } { \__deckblatt_lua:n { rawfield("\lua_escape:e{#1}") } }
+\NewDocumentCommand \dbiffield  { m } { \__deckblatt_lua:n { iffield("\lua_escape:e{#1}") } }
+\NewDocumentCommand \dbiftype   { m } { \__deckblatt_lua:n { iftype("\lua_escape:e{#1}") } }
+\NewDocumentCommand \dbifarticle   { } { \__deckblatt_if_article:TF }
+\NewDocumentCommand \dbifsubtitle  { } { \__deckblatt_if_subtitle:TF }
+\NewDocumentCommand \dbifdoi       { } { \__deckblatt_if_doi:TF }
+\NewDocumentCommand \dbiffulldate  { } { \__deckblatt_if_fulldate:TF }
+\NewDocumentCommand \dbifpublisher { } { \__deckblatt_if_publisher:TF }
+\NewDocumentCommand \dbkey         { } { \__deckblatt_lua:n { key() } }
+\NewDocumentCommand \dbtype        { } { \__deckblatt_lua:n { type() } }
+\NewDocumentCommand \dbauthors     { } { \__deckblatt_lua:n { authors() } }
+\NewDocumentCommand \dbauthorssc   { } { \__deckblatt_lua:n { authorssc() } }
+\NewDocumentCommand \dbauthorscite { } { \__deckblatt_lua:n { authorscite() } }
+\NewDocumentCommand \dbtitle       { } { \__deckblatt_lua:n { title() } }
+\NewDocumentCommand \dbsubtitle    { } { \__deckblatt_lua:n { subtitle() } }
+\NewDocumentCommand \dbyear        { } { \__deckblatt_lua:n { year() } }
+\NewDocumentCommand \dbdate        { } { \__deckblatt_lua:n { date() } }
+\NewDocumentCommand \dbjournal     { } { \__deckblatt_lua:n { journal() } }
+\NewDocumentCommand \dbsource      { } { \__deckblatt_lua:n { source() } }
+\NewDocumentCommand \dbcollection  { } { \__deckblatt_lua:n { collection() } }
+\NewDocumentCommand \dbpublisher   { } { \__deckblatt_lua:n { publisher() } }
+\NewDocumentCommand \dbcitation    { } { \__deckblatt_lua:n { citation() } }
+\NewDocumentCommand \dbdoi         { } { \__deckblatt_lua:n { doi("doi") } }
+\NewDocumentCommand \dbdoiurl      { } { \__deckblatt_lua:n { doi("url") } }
+\NewDocumentCommand \dbdoiqr { O{ height = \dim_use:N \l__deckblatt_qr_dim } }
+  { \__deckblatt_lua:n { doiqr("hyperlink,level=M,\lua_escape:e{#1}") } }
+\NewDocumentCommand \dbtext { m } { \__deckblatt_set_lang: \__deckblatt_text:n {#1} }
+
+\cs_new_protected:Npn \deckblatt@doifont { \__deckblatt_font:n { doi } }
+
+% ---------------------------------------------------------------------
+% Small caps for last names
+% ---------------------------------------------------------------------
+% \dbsc{Name} uses real small caps if the current font has them (fontspec
+% fonts: OpenType feature smcp; other fonts: a declared sc shape). Otherwise
+% lowercase letters are replaced by reduced uppercase letters.
+\cs_new_protected:Npn \deckblatt@scsmall
+  {
+    \__deckblatt_font:n { smallcaps }
+    \__deckblatt_get:nnN { param } { smallcaps-scale } \l__deckblatt_param_tl
+    \fontsize { \fp_eval:n { \l__deckblatt_param_tl * \f@size } } { \f@baselineskip }
+    \selectfont
+    \__deckblatt_letterspace:n { smallcaps-letterspace }
+  }
+\cs_new_protected:Npn \__deckblatt_sc_fallback:n #1
+  { \lua_now:e { deckblatt.scfallback("\lua_escape:e{\tl_to_str:n {#1}}") } }
+% A shape that is only substituted (sub, ssub, subf) does not count.
+\cs_new_protected:Npn \__deckblatt_if_nfss_sc:TF #1#2
+  {
+    \cs_if_exist:cTF { \f@encoding / \f@family / \f@series / sc }
+      {
+        \exp_args:Ne \str_if_in:nnTF
+          { \cs_meaning:c { \f@encoding / \f@family / \f@series / sc } }
+          { sub }
+          {#2} {#1}
+      }
+      {#2}
+  }
+\cs_new_protected:Npn \__deckblatt_if_real_sc:TF #1#2
+  {
+    \cs_if_exist:NTF \fontspec_if_fontspec_font:TF
+      {
+        \fontspec_if_fontspec_font:TF
+          { \fontspec_if_feature:nTF { smcp } {#1} {#2} }
+          { \__deckblatt_if_nfss_sc:TF {#1} {#2} }
+      }
+      { \__deckblatt_if_nfss_sc:TF {#1} {#2} }
+  }
+\DeclareRobustCommand \dbsc [1]
+  { \__deckblatt_if_real_sc:TF { \textsc {#1} } { \__deckblatt_sc_fallback:n {#1} } }
+
+% ---------------------------------------------------------------------
+% BibTeX code
+% ---------------------------------------------------------------------
+\cs_new_protected:Npn \deckblatt@bibhead #1#2
+  {
+    \noindent
+    { \color { deckblatt-bibtex-type } #1 }
+    \{ { \color { deckblatt-bibtex-key } #2 } , \par
+  }
+\cs_new_protected:Npn \deckblatt@bibfield #1#2#3
+  {
+    \dim_set:Nn \hangindent
+      { \deckblatt@indent + \deckblatt@namewidth + 4 \deckblatt@ch }
+    \int_set:Nn \hangafter { 1 }
+    \noindent
+    \hbox_to_wd:nn { \deckblatt@indent } { }
+    \hbox_to_wd:nn { \deckblatt@namewidth }
+      { \color { deckblatt-bibtex-field } #1 \hfil }
+    \hbox_to_wd:nn { 4 \deckblatt@ch }
+      { \skip_horizontal:N \deckblatt@ch = \skip_horizontal:N \deckblatt@ch \{ \hfil }
+    { \color { deckblatt-bibtex-value } #2 } \} #3 \par
+  }
+\cs_new_protected:Npn \deckblatt@bibend { \noindent \} \par }
+
+\NewDocumentCommand \dbbibtex { }
+  {
+    \par
+    \group_begin:
+      \__deckblatt_font:n { bibtex }
+      \color { deckblatt-bibtex }
+      \settowidth \deckblatt@ch { 0 }
+      \setlength \deckblatt@indent { 2 \deckblatt@ch }
+      \dim_zero:N \parindent
+      \skip_zero:N \parskip
+      \raggedright
+      \int_set:Nn \hyphenpenalty { 10000 }
+      \int_set:Nn \exhyphenpenalty { 10000 }
+      \__deckblatt_lua:n
+        {
+          bibtex(\dim_to_decimal_in_sp:n { \linewidth },
+                 \dim_to_decimal_in_sp:n { \deckblatt@ch }, "\f@size")
+        }
+      \par
+    \group_end:
+  }
+
+% ---------------------------------------------------------------------
+% Building blocks of the cover page
+% ---------------------------------------------------------------------
+\cs_new_protected:Npn \__deckblatt_label:n #1
+  {
+    \mode_leave_vertical:
+    \group_begin:
+      \__deckblatt_font:n { label }
+      \color { deckblatt-label }
+      \__deckblatt_letterspace:n { label-letterspace }
+      \MakeUppercase {#1}
+    \group_end:
+  }
+
+% #1 = font role, #2 = colour (empty: current colour), #3 = content
+\cs_new_protected:Npn \__deckblatt_block:nnn #1#2#3
+  {
+    \group_begin:
+      \__deckblatt_font:n {#1}
+      \mode_leave_vertical:
+      \tl_if_blank:nF {#2} { \color {#2} }
+      #3 \par
+    \group_end:
+  }
+
+\cs_new_protected:Npn \__deckblatt_note:
+  {
+    \group_begin:
+      \__deckblatt_font:n { note }
+      \mode_leave_vertical:
+      \color { deckblatt-note }
+      \__deckblatt_text:n { note } \par
+    \group_end:
+  }
+
+\cs_new_protected:Npn \__deckblatt_qr:
+  { \dbdoiqr [ height = \dim_use:N \l__deckblatt_qr_dim ] }
+
+\cs_new_protected:Npn \__deckblatt_citation:
+  {
+    \tl_if_blank:VTF \l__deckblatt_citation_text_tl
+      { \dbcitation }
+      { \tl_use:N \l__deckblatt_citation_text_tl }
+  }
+
+% #1 = vertical space between label and text
+\cs_new_protected:Npn \__deckblatt_citation_part:n #1
+  {
+    \__deckblatt_label:n { \__deckblatt_text:n { citation } : } \par
+    \skip_vertical:n {#1}
+    \mode_leave_vertical: \__deckblatt_citation: \par
+  }
+
+% Is a QR code to be printed?
+\cs_new_protected:Npn \__deckblatt_set_withqr:
+  {
+    \bool_set_false:N \l__deckblatt_withqr_bool
+    \bool_if:NT \l__deckblatt_qr_bool
+      { \__deckblatt_if_doi:TF { \bool_set_true:N \l__deckblatt_withqr_bool } { } }
+  }
+
+% Box with the BibTeX code: background and/or rule on the left
+\cs_new_protected:Npn \__deckblatt_bibtex_box:
+  {
+    \use:c { __deckblatt_bibtex_padding_ \l__deckblatt_variant_tl : }
+    \dim_set:Nn \l__deckblatt_inner_dim
+      { \linewidth - \l__deckblatt_padl_dim - \l__deckblatt_padr_dim }
+    \vbox_set:Nn \l__deckblatt_tmp_box
+      {
+        \dim_set_eq:NN \hsize \l__deckblatt_inner_dim
+        \dim_set_eq:NN \linewidth \hsize
+        \__deckblatt_label:n { \__deckblatt_text:n { bibtex } : } \par
+        \skip_vertical:n { 2.5mm }
+        \dbbibtex
+      }
+    \dim_set:Nn \l__deckblatt_tmp_dim
+      {
+        \box_ht_plus_dp:N \l__deckblatt_tmp_box
+        + \l__deckblatt_padt_dim + \l__deckblatt_padb_dim
+      }
+    \__deckblatt_get:nnN { color } { bibtex-background } \l__deckblatt_tmp_tl
+    \__deckblatt_get:nnN { param } { bibtex-rule-width } \l__deckblatt_param_tl
+    \par
+    \hbox:n
+      {
+        \str_if_eq:VnF \l__deckblatt_tmp_tl { none }
+          {
+            \hbox_overlap_right:n
+              {
+                \color { deckblatt-bibtex-background }
+                \rule { \linewidth } { \l__deckblatt_tmp_dim }
+              }
+          }
+        \dim_compare:nNnT { \l__deckblatt_param_tl } > { 0pt }
+          {
+            \hbox_overlap_right:n
+              {
+                \color { deckblatt-bibtex-rule }
+                \rule { \l__deckblatt_param_tl } { \l__deckblatt_tmp_dim }
+              }
+          }
+        \skip_horizontal:N \l__deckblatt_padl_dim
+        \vbox_to_ht:nn { \l__deckblatt_tmp_dim }
+          {
+            \skip_vertical:N \l__deckblatt_padt_dim
+            \box_use_drop:N \l__deckblatt_tmp_box
+            \vss
+          }
+      }
+  }
+\cs_new_protected:Npn \__deckblatt_bibtex_padding_banner:
+  {
+    \dim_set:Nn \l__deckblatt_padl_dim { 5mm }
+    \dim_set:Nn \l__deckblatt_padr_dim { 0mm }
+    \dim_set:Nn \l__deckblatt_padt_dim { 1mm }
+    \dim_set:Nn \l__deckblatt_padb_dim { 1mm }
+  }
+\cs_new_protected:Npn \__deckblatt_bibtex_padding_sidebar:
+  {
+    \dim_set:Nn \l__deckblatt_padl_dim { 5mm }
+    \dim_set:Nn \l__deckblatt_padr_dim { 5mm }
+    \dim_set:Nn \l__deckblatt_padt_dim { 4mm }
+    \dim_set:Nn \l__deckblatt_padb_dim { 4mm }
+  }
+
+% ---------------------------------------------------------------------
+% Variant "banner": band over the full width at the top of the page
+% ---------------------------------------------------------------------
+\cs_new_protected:Npn \__deckblatt_geometry_banner:
+  {
+    \dim_set:Nn \l__deckblatt_x_dim { 25mm }
+    \dim_set:Nn \l__deckblatt_y_dim { 0mm }
+    \dim_set:Nn \l__deckblatt_w_dim { \paperwidth - 50mm }
+    \dim_set:Nn \l__deckblatt_h_dim { \paperheight - 20mm }
+  }
+\cs_new_protected:Npn \__deckblatt_background_banner: { }
+
+\cs_new_protected:Npn \__deckblatt_band:
+  {
+    \vbox_set:Nn \l__deckblatt_tmp_box
+      {
+        \dim_set_eq:NN \hsize \l__deckblatt_w_dim
+        \dim_set_eq:NN \linewidth \hsize
+        \__deckblatt_block:nnn { author } { deckblatt-author } { \dbauthorssc }
+        \skip_vertical:n { 5mm }
+        \__deckblatt_block:nnn { title } { deckblatt-title } { \dbtitle }
+        \__deckblatt_if_subtitle:TF
+          {
+            \skip_vertical:n { 3.5mm }
+            \__deckblatt_block:nnn { subtitle } { deckblatt-subtitle } { \dbsubtitle }
+          }
+          { }
+      }
+    \dim_set:Nn \l__deckblatt_tmp_dim
+      {
+        \dim_max:nn { 112mm }
+          { \dim_min:nn { 170mm } { \box_ht_plus_dp:N \l__deckblatt_tmp_box + 32mm } }
+      }
+    \hbox:n
+      {
+        \skip_horizontal:n { - \l__deckblatt_x_dim }
+        \hbox_overlap_right:n
+          {
+            \color { deckblatt-main }
+            \rule { \paperwidth } { \l__deckblatt_tmp_dim }
+          }
+        \skip_horizontal:N \l__deckblatt_x_dim
+        \vbox_to_ht:nn { \l__deckblatt_tmp_dim }
+          {
+            \vss
+            \box_use_drop:N \l__deckblatt_tmp_box
+            \skip_vertical:n { 14mm }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_layout_banner:
+  {
+    \__deckblatt_band:
+    \skip_vertical:n { 11mm }
+    \skip_vertical:n { 0pt plus 1fill }
+    \__deckblatt_if_part:TF
+      { \__deckblatt_label:n { \__deckblatt_text:n { published-in } : } }
+      { \__deckblatt_label:n { \__deckblatt_text:n { published } : } }
+    \par
+    \skip_vertical:n { 1.5mm }
+    \__deckblatt_block:nnn { source } { } { \dbsource }
+    \skip_vertical:n { 9mm }
+    \__deckblatt_set_withqr:
+    \bool_if:NTF \l__deckblatt_withqr_bool
+      {
+        \noindent
+        \bool_if:NT \l__deckblatt_citation_bool
+          {
+            \begin{minipage}[t]
+              { \dim_eval:n { \linewidth - \l__deckblatt_qr_dim - 10mm } }
+              \vspace{0pt}
+              \raggedright
+              \__deckblatt_citation_part:n { 1.5mm }
+            \end{minipage}
+          }
+        \hfill
+        \begin{minipage}[t]{ \l__deckblatt_qr_dim }
+          \vspace{0pt} \hfill \__deckblatt_qr:
+        \end{minipage}
+        \par
+      }
+      {
+        \bool_if:NT \l__deckblatt_citation_bool
+          { \__deckblatt_citation_part:n { 1.5mm } }
+      }
+    \skip_vertical:n { 0pt plus 1.6fill }
+    \bool_if:NT \l__deckblatt_bibtex_bool { \__deckblatt_bibtex_box: }
+    \bool_if:NT \l__deckblatt_note_bool
+      {
+        \skip_vertical:n { 4mm }
+        \__deckblatt_note:
+      }
+  }
+
+% ---------------------------------------------------------------------
+% Variant "sidebar": coloured stripe at the left or right edge
+% ---------------------------------------------------------------------
+\cs_new_protected:Npn \__deckblatt_geometry_sidebar:
+  {
+    \str_if_eq:VnTF \l__deckblatt_side_tl { left }
+      {
+        \dim_set:Nn \l__deckblatt_x_dim { 33mm }
+        \dim_zero:N \l__deckblatt_stripe_x_dim
+      }
+      {
+        \dim_set:Nn \l__deckblatt_x_dim { 22mm }
+        \dim_set:Nn \l__deckblatt_stripe_x_dim { \paperwidth - 15mm }
+      }
+    \dim_set:Nn \l__deckblatt_y_dim { 25mm }
+    \dim_set:Nn \l__deckblatt_w_dim { \paperwidth - 55mm }
+    \dim_set:Nn \l__deckblatt_h_dim { \paperheight - 45mm }
+  }
+
+\cs_new_protected:Npn \__deckblatt_background_sidebar:
+  {
+    \hbox_overlap_right:n
+      {
+        \skip_horizontal:N \l__deckblatt_stripe_x_dim
+        \box_move_down:nn { \paperheight }
+          {
+            \hbox:n
+              {
+                \color { deckblatt-main }
+                \rule { 15mm } { \paperheight }
+              }
+          }
+      }
+    \hbox_set:Nn \l__deckblatt_tmp_box
+      {
+        \rotatebox { 90 }
+          {
+            \__deckblatt_font:n { sidebar }
+            \color { deckblatt-main-text }
+            \__deckblatt_letterspace:n { sidebar-letterspace }
+            \MakeUppercase { \__deckblatt_text:n { sidebar } }
+          }
+      }
+    \hbox_overlap_right:n
+      {
+        \skip_horizontal:n
+          { \l__deckblatt_stripe_x_dim + ( 15mm - \box_wd:N \l__deckblatt_tmp_box ) / 2 }
+        \box_move_down:nn { \paperheight - 22mm }
+          { \box_use_drop:N \l__deckblatt_tmp_box }
+      }
+  }
+
+% #1 = text role of the label, #2 = content
+\cs_new_protected:Npn \__deckblatt_row:nn #1#2
+  {
+    \par
+    \noindent
+    \dim_set:Nn \hangindent { 30mm }
+    \int_set:Nn \hangafter { 1 }
+    \makebox [ 30mm ] [ l ] { \__deckblatt_label:n { \__deckblatt_text:n {#1} : } }
+    #2 \par
+    \skip_vertical:n { 1.6mm }
+  }
+
+\cs_new_protected:Npn \__deckblatt_sidebar_data:
+  {
+    \__deckblatt_set_withqr:
+    \noindent
+    \begin{minipage}[t]
+      {
+        \bool_if:NTF \l__deckblatt_withqr_bool
+          { \dim_eval:n { \linewidth - \l__deckblatt_qr_dim - 8mm } }
+          { \linewidth }
+      }
+      \vspace{0pt}
+      \raggedright
+      \__deckblatt_if_article:TF
+        {
+          \__deckblatt_row:nn { published-in } { \dbjournal }
+          \dbiffield { volume } { \__deckblatt_row:nn { volume } { \dbfield { volume } } } { }
+          \dbiffield { number }
+            { \__deckblatt_row:nn { issue } { \dbfield { number } } }
+            {
+              \dbiffield { issue }
+                { \__deckblatt_row:nn { issue } { \dbfield { issue } } } { }
+            }
+        }
+        {
+          \dbiffield { booktitle }
+            { \__deckblatt_row:nn { published-in } { \dbcollection } } { }
+          \__deckblatt_if_publisher:TF
+            { \__deckblatt_row:nn { publisher } { \dbpublisher } } { }
+        }
+      \__deckblatt_if_fulldate:TF
+        { \__deckblatt_row:nn { date } { \dbdate } }
+        { \__deckblatt_row:nn { year } { \dbdate } }
+      \dbiffield { pages } { \__deckblatt_row:nn { pages } { \dbfield { pages } } } { }
+      \dbiffield { isbn } { \__deckblatt_row:nn { isbn } { \dbfield { isbn } } } { }
+      \__deckblatt_if_doi:TF { \__deckblatt_row:nn { doi } { \dbdoi } } { }
+    \end{minipage}
+    \bool_if:NT \l__deckblatt_withqr_bool
+      {
+        \hfill
+        \begin{minipage}[t]{ \l__deckblatt_qr_dim }
+          \vspace{0pt} \hfill \__deckblatt_qr:
+        \end{minipage}
+      }
+    \par
+  }
+
+\cs_new_protected:Npn \__deckblatt_layout_sidebar:
+  {
+    \__deckblatt_block:nnn { author } { deckblatt-author } { \dbauthorssc }
+    \skip_vertical:n { 7mm }
+    \__deckblatt_block:nnn { title } { deckblatt-title } { \dbtitle }
+    \__deckblatt_if_subtitle:TF
+      {
+        \skip_vertical:n { 4mm }
+        \__deckblatt_block:nnn { subtitle } { deckblatt-subtitle } { \dbsubtitle }
+      }
+      { }
+    \skip_vertical:n { 15mm }
+    \__deckblatt_sidebar_data:
+    \skip_vertical:n { 0pt plus 1fill }
+    \bool_if:NT \l__deckblatt_citation_bool
+      {
+        \__deckblatt_citation_part:n { 2mm }
+        \bool_if:NT \l__deckblatt_bibtex_bool { \skip_vertical:n { 9mm } }
+      }
+    \bool_if:NT \l__deckblatt_bibtex_bool { \__deckblatt_bibtex_box: }
+    \bool_if:NT \l__deckblatt_note_bool
+      {
+        \skip_vertical:n { 4mm }
+        \__deckblatt_note:
+      }
+  }
+
+% ---------------------------------------------------------------------
+% The cover page
+% ---------------------------------------------------------------------
+% The page is set in a box of its own size and placed in the background of
+% an otherwise empty page. The layout of the document stays untouched.
+\cs_new_protected:Npn \__deckblatt_page_setup:
+  {
+    \dim_set_eq:NN \hsize \l__deckblatt_w_dim
+    \@parboxrestore
+    \dim_set_eq:NN \textwidth \hsize
+    \dim_set_eq:NN \columnwidth \hsize
+    \normalfont
+    \normalcolor
+    \__deckblatt_font:n { text }
+    \raggedright
+    \cs_if_exist:NT \hypersetup { \hypersetup { hidelinks } }
+    \cs_if_exist:NT \urlstyle { \urlstyle { same } }
+    \cs_if_exist:NT \UrlBreaks { \tl_put_right:Nn \UrlBreaks { \do \- } }
+  }
+
+\cs_new_protected:Npn \__deckblatt_build:
+  {
+    \use:c { __deckblatt_geometry_ \l__deckblatt_variant_tl : }
+    \vbox_set_to_ht:Nnn \l__deckblatt_page_box { \l__deckblatt_h_dim }
+      {
+        \__deckblatt_page_setup:
+        \use:c { __deckblatt_layout_ \l__deckblatt_variant_tl : }
+      }
+    \hbox_gset:Nn \g__deckblatt_shipout_box
+      {
+        \use:c { __deckblatt_background_ \l__deckblatt_variant_tl : }
+        \hbox_overlap_right:n
+          {
+            \skip_horizontal:N \l__deckblatt_x_dim
+            \box_move_down:nn { \l__deckblatt_y_dim + \l__deckblatt_h_dim }
+              { \box_use_drop:N \l__deckblatt_page_box }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__deckblatt_page:
+  {
+    \clearpage
+    \group_begin:
+      \__deckblatt_set_lang:
+      \__deckblatt_setup_colors:
+      \__deckblatt_build:
+    \group_end:
+    \thispagestyle { empty }
+    \AddToHookNext { shipout / background }
+      { \put (0,0) { \box_use_drop:N \g__deckblatt_shipout_box } }
+    \null
+    \clearpage
+  }
+
+\NewDocumentCommand \deckblatt { O{} }
+  {
+    \keys_set:nn { deckblatt } {#1}
+    \__deckblatt_ensure:
+    \__deckblatt_if_selected:TF
+      { \__deckblatt_page: }
+      { \msg_error:nn { deckblatt } { no-entry } }
+    \tl_if_blank:VF \l__deckblatt_file_tl
+      {
+        \use:e
+          {
+            \exp_not:N \includepdf
+              [ \exp_not:V \l__deckblatt_file_options_tl ]
+              { \exp_not:V \l__deckblatt_file_tl }
+          }
+      }
+    \tl_clear:N \l__deckblatt_file_tl
+  }
+
+% ---------------------------------------------------------------------
+% Loading at the end of the preamble
+% ---------------------------------------------------------------------
+% hyperref and csquotes are loaded only if the document has not done so,
+% to avoid option clashes.
+\AddToHook { begindocument / before }
+  {
+    \@ifpackageloaded { csquotes } { } { \RequirePackage [ autostyle ] { csquotes } }
+    \@ifpackageloaded { hyperref } { } { \RequirePackage { hyperref } }
+  }
+\AddToHook { begindocument }
+  {
+    \bool_gset_true:N \g__deckblatt_document_bool
+    \__deckblatt_setup_colors:
+    \__deckblatt_ensure:
+  }
+
+\ExplSyntaxOff
+\endinput

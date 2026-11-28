@@ -1,0 +1,289 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesExplPackage {spotxcolor-legacycolor} {2026-10-09} {1.8}
+  {Shared legacy-compatibility layer for spotxcolor-spotcolor / spotxcolor-xespotcolor}
+
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%%
+
+% This file implements the two pieces of machinery that both the
+% spotxcolor-spotcolor and spotxcolor-xespotcolor compatibility packages
+% need, but which core spotxcolor does not provide on its own:
+%
+%   1. Lazy ("on first use") registration of bulk color tables (HKS,
+%      PANTONE) so that loading a 1089-entry PANTONE table does not create
+%      a PDF object and a page-resource entry for every single color,
+%      regardless of how many are actually used in the document.
+%
+%   2. A `spotcolor' xcolor color model, so that legacy code such as
+%      \definecolor{Spots}{spotcolor}{SOMECOLOR,1.0} keeps working. Real
+%      spot color output is obtained by delegating to xcolor's own tinting
+%      (SOMECOLOR!100) once SOMECOLOR is a genuine spotxcolor-registered
+%      color: spotxcolor's \set@color patch auto-detects the resulting
+%      CMYK values and swaps in true Separation operators.
+
+\RequirePackage {xcolor}
+\RequirePackage {spotxcolor}
+
+% --- Shared scratch variables (declared up front; used throughout) ---
+\tl_new:N \l__spotxcolorlegacy_tmpa_tl
+\tl_new:N \l__spotxcolorlegacy_pdfname_tl
+\tl_new:N \l__spotxcolorlegacy_cmyk_tl
+
+% =====================================================================
+% --- 0. Re-flushing the /ColorSpace page resource for body-time colors ---
+% =====================================================================
+% Legacy documents idiomatically call \NewSpotColorSpace/\AddSpotColor
+% *inside* the document body (see e.g. the original spotcolor package's own
+% readme.tex example), not in the preamble. Core spotxcolor, when neither
+% PGF/TikZ nor pdfmanagement is active, only ever copies its accumulated
+% \g_spotxcolor_resource_tl into \pdfpageresources once, from an
+% \AtBeginDocument hook -- so a color registered after \begin{document} has
+% already missed that single flush and its /ColorSpace entry never reaches
+% the page resources (dvipdfmx/XeTeX are unaffected: their \special-based
+% resource injection is applied immediately, in stream order).
+%
+% The fix: capture the pristine \pdfpageresources value once, as early as
+% possible (right now, while this file loads, which is necessarily still in
+% the preamble), and provide an idempotent "recompute \pdfpageresources
+% from scratch" step that can safely be called again every time a color is
+% registered, however late. It is a no-op whenever PGF or pdfmanagement is
+% already handling resources on its own.
+\tl_new:N \g__spotxcolorlegacy_pdfres_baseline_tl
+\legacy_if:nT { pdf }
+  {
+    \sys_if_engine_pdftex:T
+      { \tl_gset:Nx \g__spotxcolorlegacy_pdfres_baseline_tl { \the\pdfpageresources } }
+    \sys_if_engine_luatex:T
+      { \tl_gset:Nx \g__spotxcolorlegacy_pdfres_baseline_tl { \the\pdfvariable pageresources } }
+  }
+
+\cs_new_protected:Npn \__spotxcolorlegacy_reflush_pdfpageresources:
+  {
+    \bool_if:NF \g__spotxcolor_pdfmanagement_bool
+      {
+        \cs_if_exist:NF \pgfutil@addpdfresource@colorspaces
+          {
+            \legacy_if:nT { pdf }
+              {
+                \tl_if_empty:NF \g_spotxcolor_resource_tl
+                  {
+                    \sys_if_engine_pdftex:T
+                      {
+                        \tl_set:Nx \l__spotxcolorlegacy_tmpa_tl
+                          {
+                            \g__spotxcolorlegacy_pdfres_baseline_tl
+                            \space /ColorSpace << \g_spotxcolor_resource_tl >>
+                          }
+                        \pdfpageresources = \exp_after:wN { \l__spotxcolorlegacy_tmpa_tl }
+                      }
+                    \sys_if_engine_luatex:T
+                      {
+                        \tl_set:Nx \l__spotxcolorlegacy_tmpa_tl
+                          {
+                            \g__spotxcolorlegacy_pdfres_baseline_tl
+                            \space /ColorSpace << \g_spotxcolor_resource_tl >>
+                          }
+                        \pdfvariable pageresources = \exp_after:wN { \l__spotxcolorlegacy_tmpa_tl }
+                      }
+                  }
+              }
+          }
+      }
+  }
+
+% =====================================================================
+% --- 1. Lazy registration of bulk color tables ---
+% =====================================================================
+
+% --- Pending metadata store ---
+% Maps legacy spot-color name -> PDF name, and -> "c,m,y,k" (comma-separated).
+% Populated cheaply while \input-ing a HKS/PANTONE table; consumed by
+% \__spotxcolorlegacy_ensure:n the first time a name is actually used.
+\prop_new:N \g__spotxcolorlegacy_pending_pdfname_prop
+\prop_new:N \g__spotxcolorlegacy_pending_cmyk_prop
+
+% --- "Cheap" \AddSpotColor: records metadata only ---
+% Mirrors the legacy signature {colorspace}{name}{pdfname}{cmyk} (the
+% colorspace argument is, as in spotxcolor's own \AddSpotColor wrapper,
+% a no-op kept only for source compatibility).
+\cs_new_protected:Npn \__spotxcolorlegacy_store_pending:nnnn #1#2#3#4
+  {
+    \tl_set:Nn \l__spotxcolorlegacy_tmpa_tl {#4}
+    \tl_replace_all:Nnn \l__spotxcolorlegacy_tmpa_tl { ~ } { , }
+    \prop_gput:Nnn \g__spotxcolorlegacy_pending_pdfname_prop {#2} {#3}
+    \prop_gput:NnV \g__spotxcolorlegacy_pending_cmyk_prop {#2} \l__spotxcolorlegacy_tmpa_tl
+  }
+
+% --- \AddSpotColor, permanently upgraded with a resource re-flush ---
+% Same eager, full-registration body as core spotxcolor's own \AddSpotColor
+% (spotxcolor.sty), plus \__spotxcolorlegacy_reflush_pdfpageresources: so
+% that colors registered inside the document body (the idiomatic legacy
+% calling convention) still reach the page resources -- see part 0 above.
+% This *replaces* \AddSpotColor outright rather than saving-and-delegating
+% to the old one: xparse's "optimized" fast path makes a
+% NewDocumentCommand-defined macro look itself back up *by name* on every
+% call, so a save-then-call-old pattern here would recurse forever the same
+% way it did for \SpotColor (see the note below).
+\cs_generate_variant:Nn \spotxcolor_define_spotcolor:nnn { nnV }
+\RenewDocumentCommand \AddSpotColor { m m m m }
+  {
+    \tl_set:Nn \l__spotxcolorlegacy_tmpa_tl {#4}
+    \tl_replace_all:Nnn \l__spotxcolorlegacy_tmpa_tl { ~ } { , }
+    \spotxcolor_define_spotcolor:nnV {#2} {#3} \l__spotxcolorlegacy_tmpa_tl
+    \__spotxcolorlegacy_reflush_pdfpageresources:
+  }
+
+% --- Preload helper ---
+% Temporarily swaps the *public* \AddSpotColor for the cheap variant above,
+% \input's the given data file (a plain sequence of legacy \AddSpotColor
+% calls, e.g. spotxcolor-hks.def / spotxcolor-pantone.def), then restores
+% \AddSpotColor to the (permanent, reflush-enabled) version just defined,
+% for the rest of the document. This save/restore is safe -- unlike the
+% \SpotColor case -- because it restores to an *identical* binding rather
+% than delegating to it from a newly-introduced, different implementation.
+\cs_new_protected:Npn \spotxcolorlegacy_preload:n #1
+  {
+    \cs_set_eq:NN \__spotxcolorlegacy_saved_AddSpotColor \AddSpotColor
+    \RenewDocumentCommand \AddSpotColor { m m m m }
+      { \__spotxcolorlegacy_store_pending:nnnn {##1} {##2} {##3} {##4} }
+    \input {#1}
+    \cs_set_eq:NN \AddSpotColor \__spotxcolorlegacy_saved_AddSpotColor
+  }
+
+% Plain-name (no `_'/`:') public entry point, so it can be called from
+% ordinary LaTeX2e package files (spotxcolor-spotcolor.sty,
+% spotxcolor-xespotcolor.sty) without an \ExplSyntaxOn/Off wrapper.
+\NewDocumentCommand \spotxcolorlegacypreload { m }
+  { \spotxcolorlegacy_preload:n {#1} }
+
+% --- Ensure a legacy spot color name is actually registered ---
+% No-op if it already is (either because it was registered eagerly via a
+% direct \AddSpotColor/\definespotcolor call, or because \__spotxcolorlegacy_ensure:n
+% already ran for it earlier). Otherwise looks it up in the pending table
+% and performs the real (PDF-object-creating) registration exactly once.
+\cs_generate_variant:Nn \spotxcolor_define_spotcolor:nnn { nVV }
+
+\msg_new:nnnn { spotxcolor-legacycolor } { unknown-spot-color }
+  { Unknown~legacy~spot~color~'#1'. }
+  {
+    The~name~'#1'~was~never~registered~via~\token_to_str:N\AddSpotColor,
+    \token_to_str:N\definespotcolor,~or~a~preloaded~HKS/PANTONE~table.\\
+    Define~it~first,~or~check~for~a~typo~in~the~color~name.
+  }
+
+\cs_new_protected:Npn \__spotxcolorlegacy_ensure:n #1
+  {
+    \prop_if_in:NnF \g_spotxcolor_db_prop {#1}
+      {
+        \prop_if_in:NnTF \g__spotxcolorlegacy_pending_pdfname_prop {#1}
+          {
+            \prop_get:NnN \g__spotxcolorlegacy_pending_pdfname_prop {#1}
+              \l__spotxcolorlegacy_pdfname_tl
+            \prop_get:NnN \g__spotxcolorlegacy_pending_cmyk_prop {#1}
+              \l__spotxcolorlegacy_cmyk_tl
+            \spotxcolor_define_spotcolor:nVV {#1}
+              \l__spotxcolorlegacy_pdfname_tl \l__spotxcolorlegacy_cmyk_tl
+            \__spotxcolorlegacy_reflush_pdfpageresources:
+          }
+          { \msg_error:nnn { spotxcolor-legacycolor } { unknown-spot-color } {#1} }
+      }
+  }
+
+% Plain-name public entry point (see \spotxcolorlegacypreload above for why).
+\NewDocumentCommand \spotxcolorlegacyensure { m }
+  { \__spotxcolorlegacy_ensure:n {#1} }
+
+% =====================================================================
+% --- 2. The `spotcolor' xcolor color model ---
+% =====================================================================
+% \definecolor{<name>}{spotcolor}{<spot-name>,<tint>} is turned into:
+%   1. ensure <spot-name> is registered (see above)
+%   2. \colorlet{<name>}{<spot-name>!<tint*100>}
+% Step 2 reuses xcolor's own (exactly proportional, in CMYK) tint mixing,
+% which is precisely what spotxcolor's \set@color patch already knows how
+% to recognize and convert back into true Separation operators -- so no
+% driver-specific code is needed here at all.
+
+\cs_new_protected:Npn \__spotxcolorlegacy_apply_spotcolor_model:nn #1#2
+  {
+    \seq_set_split:Nnn \l__spotxcolorlegacy_spec_seq { , } {#2}
+    % \seq_item:Nn is expandable but \tl_trim_spaces:n does not itself force
+    % expansion of its argument, so extract-then-trim must be two separate
+    % x-expanding steps (otherwise the trimmed result is the *unexpanded*
+    % \seq_item:Nn call rather than its value).
+    \tl_set:Nx \l__spotxcolorlegacy_name_tl
+      { \seq_item:Nn \l__spotxcolorlegacy_spec_seq {1} }
+    \tl_set:Nx \l__spotxcolorlegacy_name_tl
+      { \exp_args:NV \tl_trim_spaces:n \l__spotxcolorlegacy_name_tl }
+    \tl_set:Nx \l__spotxcolorlegacy_tint_tl
+      { \seq_item:Nn \l__spotxcolorlegacy_spec_seq {2} }
+    \tl_set:Nx \l__spotxcolorlegacy_tint_tl
+      { \exp_args:NV \tl_trim_spaces:n \l__spotxcolorlegacy_tint_tl }
+    \exp_args:NV \__spotxcolorlegacy_ensure:n \l__spotxcolorlegacy_name_tl
+    \fp_set:Nn \l__spotxcolorlegacy_pct_fp { \l__spotxcolorlegacy_tint_tl * 100 }
+    \tl_set:Nx \l__spotxcolorlegacy_pct_tl
+      { \fp_eval:n { round( \l__spotxcolorlegacy_pct_fp , 4 ) } }
+    \exp_args:Nnx \colorlet {#1}
+      { \l__spotxcolorlegacy_name_tl ! \l__spotxcolorlegacy_pct_tl }
+  }
+\seq_new:N \l__spotxcolorlegacy_spec_seq
+\tl_new:N \l__spotxcolorlegacy_name_tl
+\tl_new:N \l__spotxcolorlegacy_tint_tl
+\fp_new:N \l__spotxcolorlegacy_pct_fp
+\tl_new:N \l__spotxcolorlegacy_pct_tl
+
+% --- Hook into xcolor's low-level color-definition routine ---
+% This is the same interception point (and the same technique, via
+% \XC@sdef\XC@mod@spotcolor{spotcolor} + patching \XC@definec@lor) used by
+% the xcolor branch of the legacy xespotcolor package since 2014; only the
+% action taken for a matched `spotcolor' model differs (see above).
+\ExplSyntaxOff
+\makeatletter
+\@ifundefined{XC@mod@spotcolor}{\XC@sdef\XC@mod@spotcolor{spotcolor}}{}
+\let\spotxcolorlegacy@orig@XCdefineclor\XC@definec@lor
+\def\XC@definec@lor[#1]#2[#3]#4#5{%
+  \expandafter\ifx\csname XC@mod@#4\endcsname\XC@mod@spotcolor
+    \csname __spotxcolorlegacy_apply_spotcolor_model:nn\endcsname{#2}{#5}%
+  \else
+    \spotxcolorlegacy@orig@XCdefineclor[#1]{#2}[#3]{#4}{#5}%
+  \fi
+}
+\makeatother
+\ExplSyntaxOn
+
+% =====================================================================
+% --- 3. \SpotColor must also ensure registration before emitting ---
+% =====================================================================
+% Legacy documents call \SpotColor{name}{tint} directly (without ever
+% going through \definecolor{...}{spotcolor}{...}), most commonly for the
+% HKS/PANTONE preset tables. \SpotColor emits a raw PDF literal referencing
+% "/name" as a page-resource name, so the color must already be registered.
+%
+% NOTE: this intentionally re-emits the same body as core spotxcolor's own
+% \SpotColor (spotxcolor.sty) rather than saving-and-delegating to it.
+% xparse's "optimized" fast path makes a NewDocumentCommand-defined macro
+% look itself back up *by name* on every call; \cs_set_eq:NN-copying such a
+% macro before \RenewDocumentCommand-ing the same name therefore does not
+% preserve the old behavior -- the "saved" copy ends up calling whatever
+% \SpotColor currently is, i.e. itself, causing infinite recursion.
+\RenewDocumentCommand \SpotColor { m m }
+  {
+    \__spotxcolorlegacy_ensure:n {#1}
+    \legacy_if:nTF { pdf }
+      {
+        \sys_if_engine_pdftex:T { \pdfliteral { /#1~cs~/#1~CS~#2~sc~#2~SC } }
+        \sys_if_engine_luatex:T { \pdfextension literal { /#1~cs~/#1~CS~#2~sc~#2~SC } }
+      }
+      { \special { pdf:code~/#1~cs~/#1~CS~#2~sc~#2~SC } }
+  }
+
+\endinput

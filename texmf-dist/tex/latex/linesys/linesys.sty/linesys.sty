@@ -1,0 +1,2601 @@
+%% linesys.sty
+%% Copyright 2026 Fernando de Lacerda Mortari
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Fernando de Lacerda Mortari.
+%%
+%% linesys -- linear systems and linear expressions from matrix-like input
+
+\NeedsTeXFormat{LaTeX2e}[2020-10-01]
+\ProvidesPackage{linesys}[2026/10/10 v1.0 Linear systems and linear expressions from matrix-like input]
+
+% -----------------------------------------------------------------------------
+% Package dependencies and public pivot marker
+% -----------------------------------------------------------------------------
+% `amsmath` supplies the array machinery used to typeset systems and expressions.
+% `xparse` supplies the body-capturing public environments and commands.  TikZ is
+% required only by the built-in pivot marker `\linesyscircled`; custom pivot
+% highlighters still use the package's ordinary one-argument highlighter interface.
+\RequirePackage{amsmath}
+\RequirePackage{xparse}
+\RequirePackage{tikz}
+
+% The default pivot marker is intentionally a small public command rather than an
+% internal implementation detail.  `pivots=true` delegates to this command, and
+% users may also call or redefine it directly.  The TikZ baseline anchor keeps
+% the circled coefficient aligned with the surrounding mathematics.
+\newcommand*{\linesyscircled}[1]{\tikz[baseline=(char.base)]{\node[shape=circle,draw,inner sep=1pt] (char) {$#1$};}}
+
+% The remainder of the implementation uses expl3 naming and data structures.
+% Public commands are defined explicitly below; names beginning `\__linesys_`
+% are private implementation functions and names beginning `\l__linesys_` are
+% local package state.
+\ExplSyntaxOn
+
+
+% -----------------------------------------------------------------------------
+% State model
+% -----------------------------------------------------------------------------
+% Rendering is performed in two phases.  First the captured input is parsed,
+% validated, classified, and converted into token lists representing complete
+% rows.  Only after validation succeeds is the LaTeX array opened and those
+% token lists emitted.  This separation is important: package diagnostics do
+% not abort TeX execution automatically, so invalid input must never leave a
+% half-open array behind.
+%
+% The variables below are grouped by purpose.  Most are reused by both public
+% renderers; each environment copies its persistent defaults into these working
+% variables before applying local options.
+% Core rendering and local-option scratch.  `coeff`, `term`, and `sign` are
+% deliberately distinct: ordinary rendering can separate an operation sign from
+% a coefficient magnitude while preserving the original cell tokens intact.
+\tl_new:N    \l__linesys_align_tl
+\tl_new:N    \l__linesys_coeff_tl
+\tl_new:N    \l__linesys_term_tl
+\tl_new:N    \l__linesys_rhs_tl
+\tl_new:N    \l__linesys_sign_tl
+\tl_new:N    \l__linesys_cell_tl
+\tl_new:N    \l__linesys_row_tl
+\tl_new:N    \l__linesys_output_tl
+\tl_new:N    \l__linesys_preamble_tl
+\tl_new:N    \l__linesys_var_tl
+\tl_new:N    \l__linesys_var_spec_tl
+% Wrapper-parser scratch begins here.  Target/filter/code fields describe one
+% declaration while it is being normalized; the remainder token list drives the
+% custom outer option parser.
+\tl_new:N    \l__linesys_wrap_target_tl
+\clist_new:N \l__linesys_wrap_rows_clist
+\clist_new:N \l__linesys_wrap_cols_clist
+\clist_new:N \l__linesys_selector_clist
+\tl_new:N    \l__linesys_wrap_code_tl
+\tl_new:N    \l__linesys_wrap_remainder_tl
+\tl_new:N    \l__linesys_pivots_tl
+\tl_new:N    \l__linesys_pivotcols_tl
+\tl_new:N    \l__linesys_relation_tl
+\tl_new:N    \l__linesys_relations_tl
+\tl_new:N    \l__linesys_row_relation_tl
+\tl_new:N    \l__linesys_option_remainder_tl
+% Normalized wrapper rules and application scratch.  Each stored rule has the
+% shape {target}{rows}{columns}{wrapper-code}; sequence order defines nesting.
+\seq_new:N   \l__linesys_wrap_rules_seq
+\tl_new:N    \l__linesys_wrap_content_tl
+\tl_new:N    \l__linesys_wrapped_tl
+\bool_new:N  \l__linesys_wrap_parse_valid_bool
+% Persistent defaults for `linesys`.  These variables are changed only by the
+% default-setting API; an individual environment copies them into working state
+% so local options never mutate future defaults.
+\tl_new:N    \l__linesys_default_align_tl
+\tl_new:N    \l__linesys_default_var_spec_tl
+\tl_new:N    \l__linesys_default_pivots_tl
+\tl_new:N    \l__linesys_default_pivotcols_tl
+\tl_new:N    \l__linesys_default_relation_tl
+\tl_new:N    \l__linesys_default_relations_tl
+\bool_new:N  \l__linesys_default_custom_pivots_bool
+\bool_new:N  \l__linesys_default_hidezeros_bool
+\bool_new:N  \l__linesys_default_emptyzeros_bool
+\bool_new:N  \l__linesys_default_full_bool
+\bool_new:N  \l__linesys_default_pivotparen_bool
+\bool_new:N  \l__linesys_default_scalarops_bool
+\bool_new:N  \l__linesys_default_rhspivots_bool
+\clist_new:N \l__linesys_default_delim_clist
+\dim_new:N   \l__linesys_default_rowsep_dim
+\dim_new:N   \l__linesys_default_colsep_dim
+\tl_new:N    \l__linesys_default_scalaropsymbol_tl
+\tl_new:N    \l__linesys_default_index_token_tl
+\int_new:N   \l__linesys_default_indexstart_int
+\int_new:N   \l__linesys_default_indexstep_int
+\tl_new:N    \l__linesys_default_varmode_tl
+% Variable-generation working state.  Indexed templates are recognized and
+% rewritten lexically with an expl3 regular expression built from `varindex`;
+% no arbitrary macro expansion is performed.
+\tl_new:N    \l__linesys_index_token_tl
+\tl_new:N    \l__linesys_generated_var_tl
+\tl_new:N    \l__linesys_index_replacement_tl
+\tl_new:N    \l__linesys_index_pattern_tl
+\regex_new:N \l__linesys_index_regex
+\bool_new:N  \l__linesys_index_found_bool
+% Current-environment structural data: delimiters, spacing, parsed rows/cells,
+% resolved variables, and normalized manual-pivot/relation lists.
+\tl_new:N    \l__linesys_delim_tl
+\tl_new:N    \l__linesys_left_delim_tl
+\tl_new:N    \l__linesys_right_delim_tl
+\dim_new:N   \l__linesys_rowsep_dim
+\dim_new:N   \l__linesys_colsep_dim
+\tl_new:N    \l__linesys_scalaropsymbol_tl
+\seq_new:N   \l__linesys_rows_seq
+\seq_new:N   \l__linesys_pivotcols_seq
+\seq_new:N   \l__linesys_relations_seq
+\seq_new:N   \l__linesys_cells_seq
+\seq_new:N   \l__linesys_vars_seq
+\clist_new:N \l__linesys_explicit_vars_clist
+\seq_new:N   \l__linesys_generator_seq
+\clist_new:N \l__linesys_delim_clist
+% Current-environment flags and counters.  The `valid` boolean is the central
+% execution gate: every validation stage may clear it, and array output is
+% attempted only while it remains true.
+\bool_new:N  \l__linesys_hidezeros_bool
+\bool_new:N  \l__linesys_emptyzeros_bool
+\bool_new:N  \l__linesys_full_bool
+\bool_new:N  \l__linesys_pivotparen_bool
+\bool_new:N  \l__linesys_scalarops_bool
+\bool_new:N  \l__linesys_rhspivots_bool
+\bool_new:N  \l__linesys_seen_bool
+\bool_new:N  \l__linesys_pivot_bool
+\bool_new:N  \l__linesys_current_pivot_bool
+\bool_new:N  \l__linesys_pivot_highlighting_bool
+\bool_new:N  \l__linesys_custom_pivots_bool
+\bool_new:N  \l__linesys_manual_pivots_bool
+\bool_new:N  \l__linesys_valid_bool
+\bool_new:N  \l__linesys_wrap_enabled_bool
+\bool_set_true:N \l__linesys_wrap_enabled_bool
+\int_new:N   \l__linesys_nvars_int
+\int_new:N   \l__linesys_required_vars_int
+\int_new:N   \l__linesys_rowcount_int
+\int_new:N   \l__linesys_ncols_int
+\int_new:N   \l__linesys_indexstart_int
+\int_new:N   \l__linesys_indexstep_int
+\tl_new:N    \l__linesys_varmode_tl
+\int_new:N   \l__linesys_rowindex_int
+\int_new:N   \l__linesys_current_col_int
+\tl_new:N    \l__linesys_row_pivot_tl
+\clist_new:N \l__linesys_wrap_targets_clist
+\seq_new:N   \l__linesys_wrap_codes_seq
+
+% `linexp` has an independent persistent-default family.  It nevertheless reuses
+% the common working variables and coefficient renderer, so classification,
+% variable generation, wrapper behavior, and zero handling stay consistent
+% between a system row and a standalone linear expression.
+\tl_new:N    \l__linesys_linexp_default_var_spec_tl
+\bool_new:N  \l__linesys_linexp_default_hidezeros_bool
+\bool_new:N  \l__linesys_linexp_default_emptyzeros_bool
+\bool_new:N  \l__linesys_linexp_default_full_bool
+\bool_new:N  \l__linesys_linexp_default_scalarops_bool
+\dim_new:N   \l__linesys_linexp_default_colsep_dim
+\tl_new:N    \l__linesys_linexp_default_scalaropsymbol_tl
+\tl_new:N    \l__linesys_linexp_default_index_token_tl
+\int_new:N   \l__linesys_linexp_default_indexstart_int
+\int_new:N   \l__linesys_linexp_default_indexstep_int
+\tl_new:N    \l__linesys_linexp_default_varmode_tl
+\bool_new:N  \l__linesys_linexp_mode_bool
+\int_new:N   \l__linesys_visible_terms_int
+
+% This generated variant is used when both the compiled placeholder pattern and
+% replacement text are already stored in variables.
+\cs_generate_variant:Nn \regex_replace_all:NnN { NVN }
+
+% -----------------------------------------------------------------------------
+% Diagnostics
+% -----------------------------------------------------------------------------
+% Package errors are grouped by the stage that can detect them.  They are kept
+% at the package layer rather than allowing low-level array/key/parser failures,
+% so malformed input produces an actionable message and leaves TeX in a stable
+% state.
+%
+% Matrix shape and variable specification.
+\msg_new:nnnn { linesys } { no-variable-columns }
+{ system~must~have~at~least~one~variable~column }
+{ The~matrix~has~#1~column(s),~so~there~are~no~variable~columns. }
+\msg_new:nnnn { linesys } { too-few-variables }
+{ system~with~less~variables~specified~than~needed }
+{ The~system~requires~#1~variable(s),~but~only~#2~were~specified. }
+\msg_new:nnnn { linesys } { linexp-too-few-variables }
+{ linear~expression~with~fewer~variables~specified~than~needed }
+{ The~expression~requires~#1~variable(s),~but~only~#2~were~specified. }
+\msg_new:nnnn { linesys } { too-many-generated-roman }
+{ too~many~variables~requested~for~roman~generator }
+{ The~roman~generator~provides~at~most~26~variables,~but~#1~were~requested. }
+\msg_new:nnnn { linesys } { too-many-generated-Roman }
+{ too~many~variables~requested~for~Roman~generator }
+{ The~Roman~generator~provides~at~most~26~variables,~but~#1~were~requested. }
+\msg_new:nnnn { linesys } { too-many-generated-greek }
+{ too~many~variables~requested~for~greek~generator }
+{ The~greek~generator~provides~at~most~23~variables,~but~#1~were~requested. }
+\msg_new:nnnn { linesys } { indexed-template-missing-placeholder }
+{ indexed~variable~template~contains~no~'#1'~placeholder }
+{ varmode=indexed~requires~the~variable~specification~to~contain~the~token~selected~by~varindex. }
+
+% Cell, row-width, manual-pivot, and relation validation.
+\msg_new:nnnn { linesys } { empty-entry }
+{ empty~coefficient~or~constant~in~linear~system }
+{ An~empty~matrix~entry~was~found.~Use~emptyzeros=true~to~treat~empty~entries~as~zero. }
+\msg_new:nnnn { linesys } { inconsistent-row-width }
+{ inconsistent~number~of~columns~in~row~#1 }
+{ The~first~non-empty~row~has~#2~column(s),~but~row~#1~has~#3. }
+\msg_new:nnnn { linesys } { pivotcols-row-count }
+{ pivotcols~requires~one~selector~for~each~non-empty~row }
+{ This~system~has~#1~non-empty~row(s),~but~pivotcols~contains~#2~selector(s). }
+\msg_new:nnnn { linesys } { invalid-pivot-selector }
+{ invalid~pivotcols~selector~'#1'~for~row~#2 }
+{ Use~a~variable-column~number,~rhs,~or~none. }
+\msg_new:nnnn { linesys } { invalid-pivot-column }
+{ invalid~manual~pivot~column~'#1'~for~row~#2 }
+{ Variable-column~selectors~must~be~positive~integers~not~greater~than~#3. }
+\msg_new:nnnn { linesys } { relations-row-count }
+{ relations~requires~one~symbol~for~each~non-empty~row }
+{ This~system~has~#1~non-empty~row(s),~but~relations~contains~#2~symbol(s). }
+\msg_new:nnnn { linesys } { empty-relation }
+{ empty~relation~symbol }
+{ Each~relation~must~contain~math~material,~for~example~=,~\le,~or~\ge. }
+
+% `linexp`-specific input and wrapper validation.
+\msg_new:nnnn { linesys } { linexp-row-count }
+{ linexp~requires~exactly~one~non-empty~row }
+{ The~environment~contains~#1~non-empty~row(s).~Supply~one~coefficient~row. }
+\msg_new:nnnn { linesys } { linexp-empty-entry }
+{ empty~coefficient~in~linear~expression }
+{ An~empty~coefficient~was~found.~Use~emptyzeros=true~to~treat~empty~entries~as~zero. }
+\msg_new:nnnn { linesys } { linexp-invalid-wrap-target }
+{ invalid~linexp~wrapper~target~'#1' }
+{ Valid~targets~are~coefficients~and~variables. }
+\msg_new:nnnn { linesys } { linexp-invalid-wrap-filter }
+{ invalid~linexp~wrapper~filter~'#1' }
+{ The~linexp~environment~supports~only~the~columns~filter~(or~its~column~alias). }
+\msg_new:nnnn { linesys } { linexp-invalid-wrap-index }
+{ invalid~linexp~wrapper~column~index~'#1' }
+{ The~column~index~must~be~a~positive~integer~not~greater~than~#2~for~this~expression. }
+\msg_new:nnnn { linesys } { linexp-invalid-wrap-syntax }
+{ invalid~linexp~wrapper~syntax }
+{ Use~wrap={target,...}[columns=...]{wrapper,...}. }
+
+% Public transparent-wrapper declarations.
+\msg_new:nnnn { linesys } { invalid-transparent-wrapper }
+{ invalid~transparent-wrapper~declaration }
+{ The~argument~to~\string\linesysdeclaretransparentwrapper~must~be~exactly~one~control~sequence. }
+
+% `linesys` wrapper targets, selectors, and grammar.
+\msg_new:nnnn { linesys } { invalid-wrap-target }
+{ invalid~linesys~wrapper~target~'#1' }
+{ Valid~targets~are~entries,~coefficients,~constants,~variables,~and~relations. }
+\msg_new:nnnn { linesys } { invalid-wrap-index }
+{ invalid~linesys~wrapper~#1~index~'#2' }
+{ The~#1~index~must~be~a~positive~integer~not~greater~than~#3~for~this~system. }
+\msg_new:nnnn { linesys } { wrap-column-ignored-for-constants }
+{ column~selector~ignored~for~constants~wrapper }
+{ Constants~occupy~the~right-hand-side~column,~so~a~column~selector~has~no~effect~for~the~constants~target. }
+\msg_new:nnnn { linesys } { wrap-column-ignored-for-relations }
+{ column~selector~ignored~for~relations~wrapper }
+{ Relation~symbols~are~row-level~output,~so~a~column~selector~has~no~effect~for~the~relations~target. }
+\msg_new:nnnn { linesys } { invalid-wrap-syntax }
+{ invalid~linesys~wrapper~syntax }
+{ Use~wrap={target,...}[rows=...,columns=...]{wrapper,...}. }
+
+% -----------------------------------------------------------------------------
+% Runtime option families
+% -----------------------------------------------------------------------------
+% Internally, every pivot highlighter has the same one-argument calling
+% convention.  The built-in implementation simply forwards to the public
+% `\linesyscircled` command.
+\cs_new_protected:Npn \__linesys_default_pivot_highlighter:n #1
+{ \linesyscircled{#1} }
+
+% Options for one `linesys` environment.  These keys write only to working state.
+% The environment loads persistent defaults first and parses this key list
+% afterwards, so local options take precedence.
+%
+% Two options intentionally have sequential semantics:
+%   * `pivots=true` also sets `pivotparen=false`; a later `pivotparen=true` may
+%     override that choice.
+%   * `relation=<symbol>` clears any previously supplied per-row `relations`
+%     list, whereas a later `relations={...}` activates per-row relations.
+\keys_define:nn { linesys }
+{
+	align .choice:,
+	align / l .code:n = { \tl_set:Nn \l__linesys_align_tl { l } },
+	align / c .code:n = { \tl_set:Nn \l__linesys_align_tl { c } },
+	align / r .code:n = { \tl_set:Nn \l__linesys_align_tl { r } },
+	var .tl_set:N = \l__linesys_var_spec_tl,
+	hidezeros .bool_set:N = \l__linesys_hidezeros_bool,
+	emptyzeros .bool_set:N = \l__linesys_emptyzeros_bool,
+	full .bool_set:N = \l__linesys_full_bool,
+	pivots .code:n =
+	{
+		\str_case:nnF {#1}
+		{
+			{ true }
+			{
+				\tl_set:Nn \l__linesys_pivots_tl { \__linesys_default_pivot_highlighter:n }
+				\bool_set_false:N \l__linesys_custom_pivots_bool
+				\bool_set_false:N \l__linesys_pivotparen_bool
+			}
+			{ false }
+			{
+				\tl_clear:N \l__linesys_pivots_tl
+				\bool_set_false:N \l__linesys_custom_pivots_bool
+			}
+		}
+		{
+			\tl_set:Nn \l__linesys_pivots_tl {#1}
+			\bool_set_true:N \l__linesys_custom_pivots_bool
+		}
+	},
+	pivotcols .tl_set:N = \l__linesys_pivotcols_tl,
+	relation .code:n =
+	{
+		\tl_set:Nn \l__linesys_relation_tl {#1}
+		\tl_trim_spaces:N \l__linesys_relation_tl
+		\tl_clear:N \l__linesys_relations_tl
+	},
+	relations .code:n =
+	{
+		\tl_set:Nn \l__linesys_relations_tl {#1}
+		\tl_trim_spaces:N \l__linesys_relations_tl
+	},
+	pivotparen .bool_set:N = \l__linesys_pivotparen_bool,
+	rhspivots .bool_set:N = \l__linesys_rhspivots_bool,
+	scalarops .bool_set:N = \l__linesys_scalarops_bool,
+	scalaropsymbol .tl_set:N = \l__linesys_scalaropsymbol_tl,
+	delim .clist_set:N = \l__linesys_delim_clist,
+	rowsep .dim_set:N = \l__linesys_rowsep_dim,
+	colsep .dim_set:N = \l__linesys_colsep_dim,
+	varindex .tl_set:N = \l__linesys_index_token_tl,
+	varindexstart .int_set:N = \l__linesys_indexstart_int,
+	varindexstep .int_set:N = \l__linesys_indexstep_int,
+	varindexdecrease .choice:,
+	varindexdecrease / true .code:n = { \int_set:Nn \l__linesys_indexstep_int { -1 } },
+	varindexdecrease / false .code:n = { \int_set:Nn \l__linesys_indexstep_int { 1 } },
+	varindexdecrease .default:n = true,
+	varmode .choice:,
+	varmode / auto .code:n = { \tl_set:Nn \l__linesys_varmode_tl { auto } },
+	varmode / list .code:n = { \tl_set:Nn \l__linesys_varmode_tl { list } },
+	varmode / indexed .code:n = { \tl_set:Nn \l__linesys_varmode_tl { indexed } },
+	wrap .code:n = { \__linesys_add_wrapper:n {#1} },
+}
+
+% Options for one `linexp` environment.  Only concepts meaningful for a single
+% coefficient row are exposed: there is no RHS, relation, pivot selection,
+% delimiter pair, row spacing, or row alignment.
+\keys_define:nn { linesys/linexp }
+{
+	var .tl_set:N = \l__linesys_var_spec_tl,
+	hidezeros .bool_set:N = \l__linesys_hidezeros_bool,
+	emptyzeros .bool_set:N = \l__linesys_emptyzeros_bool,
+	full .bool_set:N = \l__linesys_full_bool,
+	scalarops .bool_set:N = \l__linesys_scalarops_bool,
+	scalaropsymbol .tl_set:N = \l__linesys_scalaropsymbol_tl,
+	colsep .dim_set:N = \l__linesys_colsep_dim,
+	varindex .tl_set:N = \l__linesys_index_token_tl,
+	varindexstart .int_set:N = \l__linesys_indexstart_int,
+	varindexstep .int_set:N = \l__linesys_indexstep_int,
+	varindexdecrease .choice:,
+	varindexdecrease / true .code:n = { \int_set:Nn \l__linesys_indexstep_int { -1 } },
+	varindexdecrease / false .code:n = { \int_set:Nn \l__linesys_indexstep_int { 1 } },
+	varindexdecrease .default:n = true,
+	varmode .choice:,
+	varmode / auto .code:n = { \tl_set:Nn \l__linesys_varmode_tl { auto } },
+	varmode / list .code:n = { \tl_set:Nn \l__linesys_varmode_tl { list } },
+	varmode / indexed .code:n = { \tl_set:Nn \l__linesys_varmode_tl { indexed } },
+	wrap .code:n = { },
+}
+
+% -----------------------------------------------------------------------------
+% Wrapper grammar and normalization
+% -----------------------------------------------------------------------------
+% Public wrapper syntax has three logical parts:
+%
+%   wrap={TARGETS}[FILTERS]{WRAPPERS}
+%
+% TARGETS and WRAPPERS may each be comma lists.  FILTERS is an optional l3keys
+% list containing row/column selectors.  Because square brackets do not group
+% commas at TeX's tokenization level, the ordinary outer key parser cannot parse
+% this syntax safely by itself.  The front-end below recognizes complete
+% `wrap=` declarations, parses their optional filter block, and normalizes each
+% target/wrapper combination into one internal four-field rule.
+%
+% The normalization step is deliberately separate from rendering.  Once rules
+% are stored, the rendering code only needs target/row/column matching and does
+% not need to know how the declaration was written.
+\keys_define:nn { linesys/wrap }
+{
+	rows .clist_set:N = \l__linesys_wrap_rows_clist,
+	columns .clist_set:N = \l__linesys_wrap_cols_clist,
+	row .clist_set:N = \l__linesys_wrap_rows_clist,
+	column .clist_set:N = \l__linesys_wrap_cols_clist,
+}
+
+% `row`/`rows` are defined explicitly for `linexp` only to produce the package's
+% own diagnostic.  `linexp` has one mathematical row, so row filtering is not a
+% supported part of its public wrapper grammar.
+\keys_define:nn { linesys/linexp/wrap }
+{
+	columns .clist_set:N = \l__linesys_wrap_cols_clist,
+	column .clist_set:N = \l__linesys_wrap_cols_clist,
+	rows .code:n =
+	{
+		\msg_error:nnn { linesys } { linexp-invalid-wrap-filter } { rows }
+		\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+	},
+	row .code:n =
+	{
+		\msg_error:nnn { linesys } { linexp-invalid-wrap-filter } { row }
+		\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+	},
+}
+
+% Parse the outer `linesys` option list.  Appending a sentinel comma gives the
+% recursive splitter a uniform termination case for the last option.
+\cs_new_protected:Npn \__linesys_set_options:n #1
+{
+	\tl_set:Nn \l__linesys_option_remainder_tl {#1}
+	\tl_put_right:Nn \l__linesys_option_remainder_tl { , }
+	\__linesys_set_options_loop:
+}
+
+% At each iteration inspect the beginning of the remaining option text.  A
+% leading `wrap =` is diverted to the custom wrapper parser; every other item is
+% passed unchanged to the ordinary `linesys` key family.
+\cs_new_protected:Npn \__linesys_set_options_loop:
+{
+	\tl_trim_spaces:N \l__linesys_option_remainder_tl
+	\tl_if_blank:VF \l__linesys_option_remainder_tl
+	{
+		\exp_args:NnV \regex_match:nnTF
+		{ \A \s* wrap \s* = }
+		\l__linesys_option_remainder_tl
+		{
+			\regex_replace_once:nnN
+			{ \A \s* wrap \s* = }
+			{ }
+			\l__linesys_option_remainder_tl
+			\tl_trim_spaces:N \l__linesys_option_remainder_tl
+			\exp_after:wN \__linesys_parse_wrapper_option:w
+			\l__linesys_option_remainder_tl \q_stop
+		}
+		{
+			\exp_after:wN \__linesys_process_normal_option:w
+			\l__linesys_option_remainder_tl \q_stop
+		}
+	}
+}
+
+% Consume one ordinary comma-delimited option and continue with the remainder.
+\cs_new_protected:Npn \__linesys_process_normal_option:w #1,#2\q_stop
+{
+	\keys_set:nn { linesys } {#1}
+	\tl_set:Nn \l__linesys_option_remainder_tl {#2}
+	\__linesys_set_options_loop:
+}
+
+% Begin one wrapper declaration.  TeX has already supplied the mandatory target
+% group as #1.  Selector state is cleared here so filters are declaration-local:
+% omitting `rows` or `columns` means "all", never "reuse the previous rule".
+\cs_new_protected:Npn \__linesys_parse_wrapper_option:w #1#2\q_stop
+{
+	\clist_clear:N \l__linesys_wrap_rows_clist
+	\clist_clear:N \l__linesys_wrap_cols_clist
+	\tl_set:Nn \l__linesys_wrap_target_tl {#1}
+	\tl_set:Nn \l__linesys_wrap_remainder_tl {#2}
+	\tl_trim_spaces:N \l__linesys_wrap_target_tl
+	\tl_trim_spaces:N \l__linesys_wrap_remainder_tl
+	\bool_set_true:N \l__linesys_wrap_parse_valid_bool
+	
+	\clist_set:NV \l__linesys_wrap_targets_clist \l__linesys_wrap_target_tl
+	\clist_map_inline:Nn \l__linesys_wrap_targets_clist
+	{
+		\tl_set:Nn \l_tmpa_tl {##1}
+		\tl_trim_spaces:N \l_tmpa_tl
+		\str_case:VnF \l_tmpa_tl
+		{
+			{ entries }      { }
+			{ coefficients } { }
+			{ constants }    { }
+			{ variables }    { }
+			{ relations }    { }
+		}
+		{
+			\msg_error:nne { linesys } { invalid-wrap-target }
+			{ \l_tmpa_tl }
+			\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+		}
+	}
+	
+	\bool_if:NT \l__linesys_wrap_parse_valid_bool
+	{
+		\tl_if_head_eq_charcode:VNTF \l__linesys_wrap_remainder_tl [
+		{
+			\exp_after:wN \__linesys_parse_wrapper_filters:w
+			\l__linesys_wrap_remainder_tl \q_stop
+		}
+		{
+			\exp_after:wN \__linesys_parse_wrapper_code:w
+			\l__linesys_wrap_remainder_tl \q_stop
+		}
+	}
+}
+
+% Parse `[FILTERS]` with the wrapper key family, take the following mandatory
+% wrapper group as #2, normalize the declaration, and resume the outer option
+% loop at #3.  When TeX scans #2 its braces are already removed, so validation
+% operates on the resulting token list rather than attempting a second group
+% test.
+\cs_new_protected:Npn \__linesys_parse_wrapper_filters:w [#1]#2,#3\q_stop
+{
+	\keys_set:nn { linesys/wrap } {#1}
+	\tl_set:Nn \l__linesys_wrap_code_tl {#2}
+	\tl_trim_spaces:N \l__linesys_wrap_code_tl
+	\__linesys_finish_wrapper:
+	\tl_set:Nn \l__linesys_option_remainder_tl {#3}
+	\__linesys_set_options_loop:
+}
+
+% No filter block was present.  #1 is therefore the mandatory wrapper group and
+% #2 begins with the sentinel/next outer option.  A blank wrapper body is a
+% syntax error.
+\cs_new_protected:Npn \__linesys_parse_wrapper_code:w #1#2\q_stop
+{
+	\tl_set:Nn \l__linesys_wrap_code_tl {#1}
+	\tl_trim_spaces:N \l__linesys_wrap_code_tl
+	\tl_if_blank:VTF \l__linesys_wrap_code_tl
+	{
+		\msg_error:nn { linesys } { invalid-wrap-syntax }
+		\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+	}
+	{
+		\__linesys_finish_wrapper:
+		\tl_set:Nn \l__linesys_option_remainder_tl {#2}
+		\__linesys_set_options_loop:
+	}
+}
+
+% Split the wrapper list at top-level commas.  TeX grouping protects commas in
+% ordinary mandatory arguments, while optional-argument syntax remains literal
+% token material inside each resulting item.  Blank items are rejected.
+\cs_new_protected:Npn \__linesys_split_wrapper_codes:n #1
+{
+	\seq_set_split:Nnn \l__linesys_wrap_codes_seq { , } {#1}
+	\seq_map_inline:Nn \l__linesys_wrap_codes_seq
+	{
+		\tl_set:Nn \l_tmpa_tl {##1}
+		\tl_trim_spaces:N \l_tmpa_tl
+		\tl_if_blank:VTF \l_tmpa_tl
+		{ \msg_error:nn { linesys } { invalid-wrap-syntax } }
+		{ }
+	}
+}
+
+% Convenience variant for a wrapper list already stored in a token-list variable.
+\cs_new_protected:Npn \__linesys_split_wrapper_codes:V #1
+{ \exp_args:NV \__linesys_split_wrapper_codes:n #1 }
+
+% Convert the parsed public declaration into normalized rules.  Constants and
+% relation symbols are row-level output, so column filters cannot meaningfully
+% restrict those targets; such filters are warned about and discarded.  The
+% nested target/wrapper maps preserve declaration order exactly.
+\cs_new_protected:Npn \__linesys_finish_wrapper:
+{
+	\bool_if:NT \l__linesys_wrap_parse_valid_bool
+	{
+		\__linesys_split_wrapper_codes:V \l__linesys_wrap_code_tl
+		\seq_if_empty:NT
+		\l__linesys_wrap_codes_seq
+		{
+			\msg_error:nn { linesys } { invalid-wrap-syntax }
+			\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+		}
+		\bool_if:NT \l__linesys_wrap_parse_valid_bool
+		{
+			\clist_map_inline:Nn \l__linesys_wrap_targets_clist
+			{
+				\tl_set:Nn \l__linesys_wrap_target_tl {##1}
+				\tl_trim_spaces:N \l__linesys_wrap_target_tl
+				\tl_set:NV \l_tmpa_tl \l__linesys_wrap_cols_clist
+				\str_if_eq:VnT \l__linesys_wrap_target_tl { constants }
+				{
+					\clist_if_empty:NF \l_tmpa_tl
+					{
+						\msg_warning:nn { linesys } { wrap-column-ignored-for-constants }
+						\tl_clear:N \l_tmpa_tl
+					}
+				}
+				\str_if_eq:VnT \l__linesys_wrap_target_tl { relations }
+				{
+					\clist_if_empty:NF \l_tmpa_tl
+					{
+						\msg_warning:nn { linesys } { wrap-column-ignored-for-relations }
+						\tl_clear:N \l_tmpa_tl
+					}
+				}
+				\seq_map_inline:Nn \l__linesys_wrap_codes_seq
+				{
+					\seq_put_right:Nx \l__linesys_wrap_rules_seq
+					{
+						{ \exp_not:V \l__linesys_wrap_target_tl }
+						{ \exp_not:V \l__linesys_wrap_rows_clist }
+						{ \exp_not:V \l_tmpa_tl }
+						{ \exp_not:n {####1} }
+					}
+				}
+			}
+		}
+	}
+}
+
+
+% `linexp` uses the same public wrapper shape but a narrower target/filter set.
+% Its front-end mirrors the system parser so the two grammars can reject invalid
+% targets independently without complicating the shared rendering code.
+\cs_new_protected:Npn \__linesys_linexp_set_options:n #1
+{
+	\tl_set:Nn \l__linesys_option_remainder_tl {#1}
+	\tl_put_right:Nn \l__linesys_option_remainder_tl { , }
+	\__linesys_linexp_set_options_loop:
+}
+
+% Recursive dispatcher for the remaining `linexp` option text.
+\cs_new_protected:Npn \__linesys_linexp_set_options_loop:
+{
+	\tl_trim_spaces:N \l__linesys_option_remainder_tl
+	\tl_if_blank:VF \l__linesys_option_remainder_tl
+	{
+		\exp_args:NnV \regex_match:nnTF
+		{ \A \s* wrap \s* = }
+		\l__linesys_option_remainder_tl
+		{
+			\regex_replace_once:nnN
+			{ \A \s* wrap \s* = }
+			{ }
+			\l__linesys_option_remainder_tl
+			\tl_trim_spaces:N \l__linesys_option_remainder_tl
+			\exp_after:wN \__linesys_linexp_parse_wrapper_option:w
+			\l__linesys_option_remainder_tl \q_stop
+		}
+		{
+			\exp_after:wN \__linesys_linexp_process_normal_option:w
+			\l__linesys_option_remainder_tl \q_stop
+		}
+	}
+}
+
+% Consume one ordinary `linexp` option and resume parsing.
+\cs_new_protected:Npn \__linesys_linexp_process_normal_option:w #1,#2\q_stop
+{
+	\keys_set:nn { linesys/linexp } {#1}
+	\tl_set:Nn \l__linesys_option_remainder_tl {#2}
+	\__linesys_linexp_set_options_loop:
+}
+
+% Start one `linexp` wrapper declaration and validate its target list.  Only
+% `coefficients` and `variables` are meaningful targets.
+\cs_new_protected:Npn \__linesys_linexp_parse_wrapper_option:w #1#2\q_stop
+{
+	\clist_clear:N \l__linesys_wrap_rows_clist
+	\clist_clear:N \l__linesys_wrap_cols_clist
+	\tl_set:Nn \l__linesys_wrap_target_tl {#1}
+	\tl_set:Nn \l__linesys_wrap_remainder_tl {#2}
+	\tl_trim_spaces:N \l__linesys_wrap_target_tl
+	\tl_trim_spaces:N \l__linesys_wrap_remainder_tl
+	\bool_set_true:N \l__linesys_wrap_parse_valid_bool
+	\clist_set:NV \l__linesys_wrap_targets_clist \l__linesys_wrap_target_tl
+	\clist_map_inline:Nn \l__linesys_wrap_targets_clist
+	{
+		\tl_set:Nn \l_tmpa_tl {##1}
+		\tl_trim_spaces:N \l_tmpa_tl
+		\str_case:VnF \l_tmpa_tl
+		{
+			{ coefficients } { }
+			{ variables }    { }
+		}
+		{
+			\msg_error:nne { linesys } { linexp-invalid-wrap-target }
+			{ \l_tmpa_tl }
+			\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+		}
+	}
+	\bool_if:NT \l__linesys_wrap_parse_valid_bool
+	{
+		\tl_if_head_eq_charcode:VNTF \l__linesys_wrap_remainder_tl [
+		{
+			\exp_after:wN \__linesys_linexp_parse_wrapper_filters:w
+			\l__linesys_wrap_remainder_tl \q_stop
+		}
+		{
+			\exp_after:wN \__linesys_linexp_parse_wrapper_code:w
+			\l__linesys_wrap_remainder_tl \q_stop
+		}
+	}
+}
+
+% Parse a `linexp` column filter, finalize the wrapper rule, and continue with
+% the remaining outer options.
+\cs_new_protected:Npn \__linesys_linexp_parse_wrapper_filters:w [#1]#2,#3\q_stop
+{
+	\keys_set:nn { linesys/linexp/wrap } {#1}
+	\tl_set:Nn \l__linesys_wrap_code_tl {#2}
+	\tl_trim_spaces:N \l__linesys_wrap_code_tl
+	\__linesys_linexp_finish_wrapper:
+	\tl_set:Nn \l__linesys_option_remainder_tl {#3}
+	\__linesys_linexp_set_options_loop:
+}
+
+% Parse an unfiltered `linexp` wrapper declaration.
+\cs_new_protected:Npn \__linesys_linexp_parse_wrapper_code:w #1#2\q_stop
+{
+	\tl_set:Nn \l__linesys_wrap_code_tl {#1}
+	\tl_trim_spaces:N \l__linesys_wrap_code_tl
+	\tl_if_blank:VTF \l__linesys_wrap_code_tl
+	{
+		\msg_error:nn { linesys } { linexp-invalid-wrap-syntax }
+		\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+	}
+	{
+		\__linesys_linexp_finish_wrapper:
+		\tl_set:Nn \l__linesys_option_remainder_tl {#2}
+		\__linesys_linexp_set_options_loop:
+	}
+}
+
+% Normalize each `linexp` target/wrapper pair.  The row field is intentionally
+% stored empty because `linexp` does not support row selectors.
+\cs_new_protected:Npn \__linesys_linexp_finish_wrapper:
+{
+	\bool_if:NT \l__linesys_wrap_parse_valid_bool
+	{
+		\__linesys_split_wrapper_codes:V \l__linesys_wrap_code_tl
+		\seq_if_empty:NT \l__linesys_wrap_codes_seq
+		{
+			\msg_error:nn { linesys } { linexp-invalid-wrap-syntax }
+			\bool_set_false:N \l__linesys_wrap_parse_valid_bool
+		}
+		\bool_if:NT \l__linesys_wrap_parse_valid_bool
+		{
+			\clist_map_inline:Nn \l__linesys_wrap_targets_clist
+			{
+				\tl_set:Nn \l__linesys_wrap_target_tl {##1}
+				\tl_trim_spaces:N \l__linesys_wrap_target_tl
+				\seq_map_inline:Nn \l__linesys_wrap_codes_seq
+				{
+					\seq_put_right:Nx \l__linesys_wrap_rules_seq
+					{
+						{ \exp_not:V \l__linesys_wrap_target_tl }
+						{ }
+						{ \exp_not:V \l__linesys_wrap_cols_clist }
+						{ \exp_not:n {####1} }
+					}
+				}
+			}
+		}
+	}
+}
+
+% Validate normalized `linexp` wrapper selectors only after the expression width
+% is known.  This postponement lets diagnostics report the actual maximum column.
+\cs_new_protected:Npn \__linesys_linexp_validate_wrap_indices:
+{
+	\bool_set_true:N \l__linesys_valid_bool
+	\seq_map_inline:Nn \l__linesys_wrap_rules_seq
+	{
+		\__linesys_linexp_validate_one_wrap_rule:n {##1}
+		\bool_if:NF \l__linesys_valid_bool { \seq_map_break: }
+	}
+}
+
+% Adapter from one stored four-field rule to the delimited validator below.
+\cs_new_protected:Npn \__linesys_linexp_validate_one_wrap_rule:n #1
+{ \__linesys_linexp_validate_one_wrap_rule:w #1 \q_stop }
+
+% `linexp` validates only the column field (#3).  Every selector must be a
+% positive decimal integer no larger than the number of expression variables.
+\cs_new_protected:Npn \__linesys_linexp_validate_one_wrap_rule:w #1#2#3#4\q_stop
+{
+	\clist_set:Nn \l__linesys_wrap_cols_clist {#3}
+	\clist_map_inline:Nn \l__linesys_wrap_cols_clist
+	{
+		\regex_match:nnTF { \A [1-9][0-9]* \Z } {##1}
+		{
+			\int_compare:nNnTF {##1} > { \l__linesys_nvars_int }
+			{
+				\msg_error:nnnn { linesys } { linexp-invalid-wrap-index }
+				{##1} { \int_use:N \l__linesys_nvars_int }
+				\bool_set_false:N \l__linesys_valid_bool
+				\clist_map_break:
+			}
+			{ }
+		}
+		{
+			\msg_error:nnnn { linesys } { linexp-invalid-wrap-index }
+			{##1} { \int_use:N \l__linesys_nvars_int }
+			\bool_set_false:N \l__linesys_valid_bool
+			\clist_map_break:
+		}
+	}
+}
+
+% -----------------------------------------------------------------------------
+% Post-parse validation and wrapper matching
+% -----------------------------------------------------------------------------
+% Validate `pivotcols` after both the rendered row count and number of variable
+% columns are known.  `auto` keeps automatic pivot discovery.  Otherwise the
+% list supplies exactly one selector per non-empty row: a positive variable
+% column, `rhs`, or `none`.  Valid manual selectors are normalized into a
+% sequence indexed by rendered row number.
+\cs_new_protected:Npn \__linesys_validate_pivotcols:
+{
+    \seq_clear:N \l__linesys_pivotcols_seq
+    \bool_set_false:N \l__linesys_manual_pivots_bool
+    \tl_trim_spaces:N \l__linesys_pivotcols_tl
+    \tl_if_eq:VnF \l__linesys_pivotcols_tl { auto }
+    {
+        \bool_set_true:N \l__linesys_manual_pivots_bool
+        \exp_args:NNV \clist_set:Nn \l_tmpa_clist \l__linesys_pivotcols_tl
+        \int_compare:nNnTF { \clist_count:N \l_tmpa_clist } = { \l__linesys_rowcount_int }
+        {
+            \int_zero:N \l_tmpa_int
+            \clist_map_inline:Nn \l_tmpa_clist
+            {
+                \int_incr:N \l_tmpa_int
+                \tl_set:Nn \l_tmpa_tl {##1}
+                \tl_trim_spaces:N \l_tmpa_tl
+                \tl_if_eq:VnTF \l_tmpa_tl { rhs }
+                { \seq_put_right:Nn \l__linesys_pivotcols_seq { rhs } }
+                {
+                    \tl_if_eq:VnTF \l_tmpa_tl { none }
+                    { \seq_put_right:Nn \l__linesys_pivotcols_seq { none } }
+                    {
+                        \exp_args:NnV \regex_match:nnTF { \A [1-9][0-9]* \Z } \l_tmpa_tl
+                        {
+                            \int_compare:nNnTF { \l_tmpa_tl } > { \l__linesys_required_vars_int }
+                            {
+                                \msg_error:nneee { linesys } { invalid-pivot-column }
+                                    { \tl_use:N \l_tmpa_tl }
+                                    { \int_use:N \l_tmpa_int }
+                                    { \int_use:N \l__linesys_required_vars_int }
+                                \bool_set_false:N \l__linesys_valid_bool
+                                \clist_map_break:
+                            }
+                            { \seq_put_right:NV \l__linesys_pivotcols_seq \l_tmpa_tl }
+                        }
+                        {
+                            \msg_error:nnee { linesys } { invalid-pivot-selector }
+                                { \tl_use:N \l_tmpa_tl }
+                                { \int_use:N \l_tmpa_int }
+                            \bool_set_false:N \l__linesys_valid_bool
+                            \clist_map_break:
+                        }
+                    }
+                }
+            }
+        }
+        {
+            \msg_error:nnee { linesys } { pivotcols-row-count }
+                { \int_use:N \l__linesys_rowcount_int }
+                { \int_eval:n { \clist_count:N \l_tmpa_clist } }
+            \bool_set_false:N \l__linesys_valid_bool
+        }
+    }
+}
+
+% Validate per-row relations after blank rows have been discarded.  An empty
+% `relations` token list means the uniform `relation` value is active.  A
+% non-empty list must supply one nonblank math symbol for every rendered row.
+\cs_new_protected:Npn \__linesys_validate_relations:
+{
+    \seq_clear:N \l__linesys_relations_seq
+    \tl_trim_spaces:N \l__linesys_relation_tl
+    \tl_if_blank:VTF \l__linesys_relations_tl
+    {
+        \tl_if_blank:VT \l__linesys_relation_tl
+        {
+            \msg_error:nn { linesys } { empty-relation }
+            \bool_set_false:N \l__linesys_valid_bool
+        }
+    }
+    {
+        \exp_args:NNV \clist_set:Nn \l_tmpa_clist \l__linesys_relations_tl
+        \int_compare:nNnTF { \clist_count:N \l_tmpa_clist } = { \l__linesys_rowcount_int }
+        {
+            \int_zero:N \l_tmpa_int
+            \clist_map_inline:Nn \l_tmpa_clist
+            {
+                \int_incr:N \l_tmpa_int
+                \tl_set:Nn \l_tmpa_tl {##1}
+                \tl_trim_spaces:N \l_tmpa_tl
+                \tl_if_blank:VTF \l_tmpa_tl
+                {
+                    \msg_error:nn { linesys } { empty-relation }
+                    \bool_set_false:N \l__linesys_valid_bool
+                    \clist_map_break:
+                }
+                { \seq_put_right:NV \l__linesys_relations_seq \l_tmpa_tl }
+            }
+        }
+        {
+            \msg_error:nnee { linesys } { relations-row-count }
+                { \int_use:N \l__linesys_rowcount_int }
+                { \int_eval:n { \clist_count:N \l_tmpa_clist } }
+            \bool_set_false:N \l__linesys_valid_bool
+        }
+    }
+}
+
+% Validate every normalized `linesys` wrapper rule against the now-known system
+% dimensions.  Validation stops at the first invalid rule by clearing the shared
+% `valid` gate.
+\cs_new_protected:Npn \__linesys_validate_wrap_indices:
+{
+	\bool_set_true:N \l__linesys_valid_bool
+	\seq_map_inline:Nn \l__linesys_wrap_rules_seq
+	{
+		\__linesys_validate_one_wrap_rule:n {##1}
+		\bool_if:NF \l__linesys_valid_bool { \seq_map_break: }
+	}
+}
+
+% Adapter from a stored rule to the delimited four-field validator.
+\cs_new_protected:Npn \__linesys_validate_one_wrap_rule:n #1
+{ \__linesys_validate_one_wrap_rule:w #1 \q_stop }
+
+% Row selectors are checked against rendered non-empty rows.  Column coordinates
+% depend on the target: variables use 1..nvars, whereas coefficients/entries use
+% the full matrix width; constants and relations ignore columns by design.
+\cs_new_protected:Npn \__linesys_validate_one_wrap_rule:w #1#2#3#4\q_stop
+{
+	\clist_set:Nn \l__linesys_wrap_rows_clist {#2}
+	\clist_set:Nn \l__linesys_wrap_cols_clist {#3}
+	\clist_map_inline:Nn \l__linesys_wrap_rows_clist
+	{
+		\regex_match:nnTF { \A [1-9][0-9]* \Z } {##1}
+		{
+			\int_compare:nNnTF {##1} > { \l__linesys_rowcount_int }
+			{
+				\msg_error:nnnn { linesys } { invalid-wrap-index }
+				{ row } {##1} { \int_use:N \l__linesys_rowcount_int }
+				\bool_set_false:N \l__linesys_valid_bool
+				\clist_map_break:
+			}
+			{ }
+		}
+		{
+			\msg_error:nnnn { linesys } { invalid-wrap-index }
+			{ row } {##1} { \int_use:N \l__linesys_rowcount_int }
+			\bool_set_false:N \l__linesys_valid_bool
+			\clist_map_break:
+		}
+	}
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\bool_set_true:N \l_tmpa_bool
+		\str_if_eq:nnT {#1} { constants } { \bool_set_false:N \l_tmpa_bool }
+		\str_if_eq:nnT {#1} { relations } { \bool_set_false:N \l_tmpa_bool }
+		\bool_if:NT \l_tmpa_bool
+		{
+			\int_set:Nn \l_tmpa_int { \l__linesys_ncols_int }
+			\str_if_eq:nnT {#1} { variables }
+			{ \int_set:Nn \l_tmpa_int { \l__linesys_nvars_int } }
+			\clist_map_inline:Nn \l__linesys_wrap_cols_clist
+			{
+				\regex_match:nnTF { \A [1-9][0-9]* \Z } {##1}
+				{
+					\int_compare:nNnTF {##1} > { \l_tmpa_int }
+					{
+						\msg_error:nnnn { linesys } { invalid-wrap-index }
+						{ column } {##1} { \int_use:N \l_tmpa_int }
+						\bool_set_false:N \l__linesys_valid_bool
+						\clist_map_break:
+					}
+					{ }
+				}
+				{
+					\msg_error:nnnn { linesys } { invalid-wrap-index }
+					{ column } {##1} { \int_use:N \l_tmpa_int }
+					\bool_set_false:N \l__linesys_valid_bool
+					\clist_map_break:
+				}
+			}
+		}
+	}
+}
+
+% Test one optional selector list against one current index.  The result is
+% returned in the scratch boolean `\l_tmpa_bool`: an empty selector means all
+% indices, otherwise membership is tested after expansion so expl3 integer
+% variables can be compared with literal selector text.
+\cs_new_protected:Npn \__linesys_index_selected:nn #1#2
+{
+	\tl_if_blank:nTF {#1}
+	{ \bool_set_true:N \l_tmpa_bool }
+	{
+		\bool_set_false:N \l_tmpa_bool
+		\clist_set:Nn \l__linesys_selector_clist {#1}
+		\clist_map_inline:Nn \l__linesys_selector_clist
+		{
+			\str_if_eq:eeT {##1} {#2}
+			{ \bool_set_true:N \l_tmpa_bool }
+		}
+	}
+}
+
+% Apply all matching wrapper rules to one already-rendered component.  Arguments
+% are target, row, column, and a token-list variable containing the component.
+% Rules are traversed in declaration order, so each successive wrapper encloses
+% the result of the previous one.  `\linesyswrapdisable` bypasses application
+% without bypassing parsing or validation.
+\cs_new_protected:Npn \__linesys_apply_wrappers:nnnn #1#2#3#4
+{
+	\tl_set:NV \l__linesys_wrap_content_tl #4
+	\bool_if:NT \l__linesys_wrap_enabled_bool
+	{
+		\tl_set:Nn \l__linesys_wrap_target_tl {#1}
+		\tl_set:Nn \l__linesys_wrap_rows_clist {#2}
+		\tl_set:Nn \l__linesys_wrap_cols_clist {#3}
+		\int_set:Nn \l__linesys_current_col_int {#3}
+		\seq_map_inline:Nn \l__linesys_wrap_rules_seq
+		{ \__linesys_apply_one_wrapper:n {##1} }
+	}
+	\tl_set:NV \l__linesys_wrapped_tl \l__linesys_wrap_content_tl
+}
+
+% Adapter from one normalized rule to the four-field matcher.
+\cs_new_protected:Npn \__linesys_apply_one_wrapper:n #1
+{ \__linesys_apply_one_wrapper:w #1 \q_stop }
+
+% Match one rule against the current component.  The synthetic `entries` target
+% matches both coefficient and constant components, because together those are
+% precisely the entries of the augmented matrix.  A matching wrapper is stored
+% as a fresh TeX group around the previous content so declarations such as
+% `\color` cannot leak into neighboring output.
+\cs_new_protected:Npn \__linesys_apply_one_wrapper:w #1#2#3#4\q_stop
+{
+	\tl_set:Nn \l__linesys_wrap_code_tl {#4}
+	\bool_set_false:N \l_tmpa_bool
+	\str_if_eq:nnTF {#1} { entries}
+	{
+		\str_case:Vn \l__linesys_wrap_target_tl
+		{
+			{ coefficients } { \bool_set_true:N \l_tmpa_bool }
+			{ constants }    { \bool_set_true:N \l_tmpa_bool }
+		}
+	}
+	{
+		\str_if_eq:VnT \l__linesys_wrap_target_tl {#1}
+		{ \bool_set_true:N \l_tmpa_bool }
+	}
+	\bool_if:NT \l_tmpa_bool
+	{
+		\__linesys_index_selected:nn {#2} { \int_use:N \l__linesys_rowindex_int }
+		\bool_if:NT \l_tmpa_bool
+		{
+			\__linesys_index_selected:nn {#3} { \int_use:N \l__linesys_current_col_int }
+			\bool_if:NT \l_tmpa_bool
+			{
+				\tl_set:Nn \l__linesys_wrap_code_tl {#4}
+				\tl_set:Nx \l__linesys_wrap_content_tl
+				{
+					{ \exp_not:V \l__linesys_wrap_code_tl
+						{ \exp_not:V \l__linesys_wrap_content_tl } }
+				}
+			}
+		}
+	}
+}
+
+% -----------------------------------------------------------------------------
+% Persistent defaults
+% -----------------------------------------------------------------------------
+% This key family mirrors the runtime `linesys` options but writes to persistent
+% default variables.  Assignments use normal local expl3 variables, so ordinary
+% TeX grouping naturally scopes temporary default changes.
+\keys_define:nn { linesys/defaults }
+{
+	align .choice:,
+	align / l .code:n = { \tl_set:Nn \l__linesys_default_align_tl { l } },
+	align / c .code:n = { \tl_set:Nn \l__linesys_default_align_tl { c } },
+	align / r .code:n = { \tl_set:Nn \l__linesys_default_align_tl { r } },
+	var .tl_set:N = \l__linesys_default_var_spec_tl,
+	hidezeros .bool_set:N = \l__linesys_default_hidezeros_bool,
+	emptyzeros .bool_set:N = \l__linesys_default_emptyzeros_bool,
+	full .bool_set:N = \l__linesys_default_full_bool,
+	pivots .code:n =
+	{
+		\str_case:nnF {#1}
+		{
+			{ true }
+			{
+				\tl_set:Nn \l__linesys_default_pivots_tl { \__linesys_default_pivot_highlighter:n }
+				\bool_set_false:N \l__linesys_default_custom_pivots_bool
+				\bool_set_false:N \l__linesys_default_pivotparen_bool
+			}
+			{ false }
+			{
+				\tl_clear:N \l__linesys_default_pivots_tl
+				\bool_set_false:N \l__linesys_default_custom_pivots_bool
+			}
+		}
+		{
+			\tl_set:Nn \l__linesys_default_pivots_tl {#1}
+			\bool_set_true:N \l__linesys_default_custom_pivots_bool
+		}
+	},
+	pivotcols .tl_set:N = \l__linesys_default_pivotcols_tl,
+	relation .code:n =
+	{
+		\tl_set:Nn \l__linesys_default_relation_tl {#1}
+		\tl_trim_spaces:N \l__linesys_default_relation_tl
+		\tl_clear:N \l__linesys_default_relations_tl
+	},
+	relations .code:n =
+	{
+		\tl_set:Nn \l__linesys_default_relations_tl {#1}
+		\tl_trim_spaces:N \l__linesys_default_relations_tl
+	},
+	pivotparen .bool_set:N = \l__linesys_default_pivotparen_bool,
+	rhspivots .bool_set:N = \l__linesys_default_rhspivots_bool,
+	scalarops .bool_set:N = \l__linesys_default_scalarops_bool,
+	scalaropsymbol .tl_set:N = \l__linesys_default_scalaropsymbol_tl,
+	delim .clist_set:N = \l__linesys_default_delim_clist,
+	rowsep .dim_set:N = \l__linesys_default_rowsep_dim,
+	colsep .dim_set:N = \l__linesys_default_colsep_dim,
+	varindex .tl_set:N = \l__linesys_default_index_token_tl,
+	varindexstart .int_set:N = \l__linesys_default_indexstart_int,
+	varindexstep .int_set:N = \l__linesys_default_indexstep_int,
+	varindexdecrease .choice:,
+	varindexdecrease / true .code:n = { \int_set:Nn \l__linesys_default_indexstep_int { -1 } },
+	varindexdecrease / false .code:n = { \int_set:Nn \l__linesys_default_indexstep_int { 1 } },
+	varindexdecrease .default:n = true,
+	varmode .choice:,
+	varmode / auto .code:n = { \tl_set:Nn \l__linesys_default_varmode_tl { auto } },
+	varmode / list .code:n = { \tl_set:Nn \l__linesys_default_varmode_tl { list } },
+	varmode / indexed .code:n = { \tl_set:Nn \l__linesys_default_varmode_tl { indexed } },
+}
+
+% Built-in `linesys` defaults.  The variable list may contain more names than a
+% particular system requires; only the required prefix is rendered.  `colsep`
+% captures LaTeX's current `\arraycolsep` at package initialization.
+\keys_set:nn { linesys/defaults }
+{
+	align = r,
+	var = { x,y,z,w,t },
+	hidezeros = true,
+	emptyzeros = false,
+	full = false,
+	pivotparen = true,
+	pivots = false,
+	pivotcols = auto,
+	relation = { = },
+	rhspivots = true,
+	scalarops = false,
+	scalaropsymbol = \cdot,
+	delim = { .,. },
+	rowsep = 0pt,
+	colsep = \arraycolsep,
+	varindex = i,
+	varindexstart = 1,
+	varindexstep = 1,
+	varmode = auto,
+}
+
+% Independent persistent defaults for `linexp`.  Common option names start with
+% the same built-in values as `linesys`, but changing this family does not mutate
+% the system defaults.
+\keys_define:nn { linesys/linexp/defaults }
+{
+	var .tl_set:N = \l__linesys_linexp_default_var_spec_tl,
+	hidezeros .bool_set:N = \l__linesys_linexp_default_hidezeros_bool,
+	emptyzeros .bool_set:N = \l__linesys_linexp_default_emptyzeros_bool,
+	full .bool_set:N = \l__linesys_linexp_default_full_bool,
+	scalarops .bool_set:N = \l__linesys_linexp_default_scalarops_bool,
+	scalaropsymbol .tl_set:N = \l__linesys_linexp_default_scalaropsymbol_tl,
+	colsep .dim_set:N = \l__linesys_linexp_default_colsep_dim,
+	varindex .tl_set:N = \l__linesys_linexp_default_index_token_tl,
+	varindexstart .int_set:N = \l__linesys_linexp_default_indexstart_int,
+	varindexstep .int_set:N = \l__linesys_linexp_default_indexstep_int,
+	varindexdecrease .choice:,
+	varindexdecrease / true .code:n = { \int_set:Nn \l__linesys_linexp_default_indexstep_int { -1 } },
+	varindexdecrease / false .code:n = { \int_set:Nn \l__linesys_linexp_default_indexstep_int { 1 } },
+	varindexdecrease .default:n = true,
+	varmode .choice:,
+	varmode / auto .code:n = { \tl_set:Nn \l__linesys_linexp_default_varmode_tl { auto } },
+	varmode / list .code:n = { \tl_set:Nn \l__linesys_linexp_default_varmode_tl { list } },
+	varmode / indexed .code:n = { \tl_set:Nn \l__linesys_linexp_default_varmode_tl { indexed } },
+}
+
+% Built-in `linexp` defaults.
+\keys_set:nn { linesys/linexp/defaults }
+{
+	var = { x,y,z,w,t },
+	hidezeros = true,
+	emptyzeros = false,
+	full = false,
+	scalarops = false,
+	scalaropsymbol = \cdot,
+	colsep = \arraycolsep,
+	varindex = i,
+	varindexstart = 1,
+	varindexstep = 1,
+	varmode = auto,
+}
+
+% Set one key in both established default families.  Delegation preserves each
+% family's own parsing and sequential semantics instead of duplicating those
+% semantics in the common-default layer.
+\cs_new_protected:Npn \__linesys_set_common_default:nn #1#2
+{
+	\keys_set:nn { linesys/defaults } { #1 = {#2} }
+	\keys_set:nn { linesys/linexp/defaults } { #1 = {#2} }
+}
+
+% The common-default API exposes only keys with the same meaning in both public
+% renderers.  Environment-specific concepts such as pivots, relations,
+% delimiters, alignment, and wrapper declarations are intentionally absent.
+\keys_define:nn { linesys/common/defaults }
+{
+	var .code:n = { \__linesys_set_common_default:nn { var } {#1} },
+	hidezeros .code:n = { \__linesys_set_common_default:nn { hidezeros } {#1} },
+	hidezeros .default:n = true,
+	emptyzeros .code:n = { \__linesys_set_common_default:nn { emptyzeros } {#1} },
+	emptyzeros .default:n = true,
+	full .code:n = { \__linesys_set_common_default:nn { full } {#1} },
+	full .default:n = true,
+	scalarops .code:n = { \__linesys_set_common_default:nn { scalarops } {#1} },
+	scalarops .default:n = true,
+	scalaropsymbol .code:n = { \__linesys_set_common_default:nn { scalaropsymbol } {#1} },
+	colsep .code:n = { \__linesys_set_common_default:nn { colsep } {#1} },
+	varindex .code:n = { \__linesys_set_common_default:nn { varindex } {#1} },
+	varindexstart .code:n = { \__linesys_set_common_default:nn { varindexstart } {#1} },
+	varindexstep .code:n = { \__linesys_set_common_default:nn { varindexstep } {#1} },
+	varindexdecrease .choice:,
+	varindexdecrease / true .code:n =
+		{ \__linesys_set_common_default:nn { varindexdecrease } { true } },
+	varindexdecrease / false .code:n =
+		{ \__linesys_set_common_default:nn { varindexdecrease } { false } },
+	varindexdecrease .default:n = true,
+	varmode .choice:,
+	varmode / auto .code:n = { \__linesys_set_common_default:nn { varmode } { auto } },
+	varmode / list .code:n = { \__linesys_set_common_default:nn { varmode } { list } },
+	varmode / indexed .code:n = { \__linesys_set_common_default:nn { varmode } { indexed } },
+}
+
+% -----------------------------------------------------------------------------
+% Variable specification and generation
+% -----------------------------------------------------------------------------
+% Named generators append exactly the requested number of variable tokens to
+% `\l__linesys_vars_seq`, reporting a package error if the finite alphabet is
+% exhausted.
+\cs_new_protected:Npn \__linesys_generate_roman:n #1
+{
+	\int_compare:nNnTF {#1} > {26}
+	{ \msg_error:nnn { linesys } { too-many-generated-roman } {#1} \bool_set_false:N \l__linesys_valid_bool }
+	{
+		\int_step_inline:nn {#1}
+		{ \seq_put_right:Nx \l__linesys_vars_seq { \int_to_alph:n { ##1 } } }
+	}
+}
+
+% Uppercase Latin generator, A through Z.
+\cs_new_protected:Npn \__linesys_generate_Roman:n #1
+{
+	\int_compare:nNnTF {#1} > {26}
+	{ \msg_error:nnn { linesys } { too-many-generated-Roman } {#1} \bool_set_false:N \l__linesys_valid_bool }
+	{
+		\int_step_inline:nn {#1}
+		{ \seq_put_right:Nx \l__linesys_vars_seq { \int_to_Alph:n { ##1 } } }
+	}
+}
+
+% Lowercase Greek generator.  The sequence is explicit because TeX does not have
+% a contiguous character range for mathematical Greek control sequences.
+\cs_new_protected:Npn \__linesys_generate_greek:n #1
+{
+	\int_compare:nNnTF {#1} > {23}
+	{ \msg_error:nnn { linesys } { too-many-generated-greek } {#1} \bool_set_false:N \l__linesys_valid_bool }
+	{
+		\seq_set_from_clist:Nn \l__linesys_generator_seq
+		{ \alpha,\beta,\gamma,\delta,\epsilon,\zeta,\eta,\theta,\iota,\kappa,\lambda,\mu,\nu,\xi,\pi,\rho,\sigma,\tau,\upsilon,\phi,\chi,\psi,\omega }
+		\int_step_inline:nn {#1}
+		{ \seq_put_right:Nx \l__linesys_vars_seq { \seq_item:Nn \l__linesys_generator_seq { ##1 } } }
+	}
+}
+
+% Interpret `var` as a top-level comma list.  TeX grouping protects internal
+% commas, so a token such as `x_{2,i}` remains one list item.  Extra names are
+% permitted and ignored; too few names invalidate the environment.
+\cs_new_protected:Npn \__linesys_resolve_explicit_variables:
+{
+	\clist_set:NV \l__linesys_explicit_vars_clist \l__linesys_var_spec_tl
+	\int_set:Nn \l__linesys_nvars_int { \clist_count:N \l__linesys_explicit_vars_clist }
+	\int_compare:nNnTF { \l__linesys_nvars_int } < { \l__linesys_required_vars_int }
+	{
+		\bool_if:NTF \l__linesys_linexp_mode_bool
+		{
+			\msg_error:nnee { linesys } { linexp-too-few-variables }
+			{ \int_use:N \l__linesys_required_vars_int }
+			{ \int_use:N \l__linesys_nvars_int }
+		}
+		{
+			\msg_error:nnee { linesys } { too-few-variables }
+			{ \int_use:N \l__linesys_required_vars_int }
+			{ \int_use:N \l__linesys_nvars_int }
+		}
+		\bool_set_false:N \l__linesys_valid_bool
+	}
+	{
+		\int_step_inline:nn { \l__linesys_required_vars_int }
+		{
+			\seq_put_right:Nx \l__linesys_vars_seq
+			{ \clist_item:Nn \l__linesys_explicit_vars_clist { ##1 } }
+		}
+	}
+}
+
+% Compile a literal regex for the single placeholder token selected by
+% `varindex`.  Control sequences and character tokens require different regex
+% encodings, so this N-type helper branches on token kind.
+% Expand the configured `varindex` token from its token-list variable and compile
+% the corresponding placeholder regex.
+\cs_new_protected:Npn \__linesys_prepare_index_regex:N #1
+{
+	\token_if_cs:NTF #1
+	{
+		\tl_set:Nx \l__linesys_index_pattern_tl
+		{
+			\c_backslash_str c\c_left_brace_str
+			\cs_to_str:N #1
+			\c_right_brace_str
+		}
+	}
+	{
+		\tl_set:Nx \l__linesys_index_pattern_tl
+		{
+			\c_backslash_str x\c_left_brace_str
+			\int_to_Hex:n { `#1 }
+			\c_right_brace_str
+		}
+	}
+	\exp_args:NNV \regex_set:Nn
+		\l__linesys_index_regex
+		\l__linesys_index_pattern_tl
+}
+
+\cs_new_protected:Npn \__linesys_prepare_index_regex:
+{ \exp_args:NV \__linesys_prepare_index_regex:N \l__linesys_index_token_tl }
+
+% Test whether the complete variable template contains the configured
+% placeholder.  Regex matching sees tokens inside brace groups, allowing forms
+% such as `x_{2,i}` or repeated placeholders in deeper templates.
+\cs_new_protected:Npn \__linesys_probe_index_token:
+{
+	\__linesys_prepare_index_regex:
+	\exp_args:NNV \regex_match:NnTF
+		\l__linesys_index_regex
+		\l__linesys_var_spec_tl
+	{ \bool_set_true:N \l__linesys_index_found_bool }
+	{ \bool_set_false:N \l__linesys_index_found_bool }
+}
+
+% Generate the required variables from one indexed template.  Every placeholder
+% occurrence is replaced with a braced integer from the arithmetic progression
+%
+%   varindexstart + (position - 1) * varindexstep.
+%
+% The step may be positive, zero, or negative.
+\cs_new_protected:Npn \__linesys_generate_indexed_variables:
+{
+	\__linesys_probe_index_token:
+	\bool_if:NTF \l__linesys_index_found_bool
+	{
+		\int_step_inline:nn { \l__linesys_required_vars_int }
+		{
+			\tl_set:NV \l__linesys_generated_var_tl \l__linesys_var_spec_tl
+			\tl_set:Nx \l__linesys_index_replacement_tl
+			{
+				{
+					\int_eval:n
+					{
+						\l__linesys_indexstart_int
+						+ ( ##1 - 1 ) * \l__linesys_indexstep_int
+					}
+				}
+			}
+			\regex_replace_all:NVN
+				\l__linesys_index_regex
+				\l__linesys_index_replacement_tl
+				\l__linesys_generated_var_tl
+			\seq_put_right:NV \l__linesys_vars_seq \l__linesys_generated_var_tl
+		}
+	}
+	{
+		\msg_error:nnx { linesys } { indexed-template-missing-placeholder }
+		{ \tl_to_str:V \l__linesys_index_token_tl }
+		\bool_set_false:N \l__linesys_valid_bool
+	}
+}
+
+% Resolve `var` into exactly the sequence required for rendering.
+%
+% `varmode=list` and `varmode=indexed` force their interpretations.  In `auto`
+% mode the three named generators have highest precedence; a top-level list with
+% more than one item is explicit; a singleton exactly equal to the placeholder
+% is also explicit; otherwise presence of the placeholder selects indexed
+% generation and absence of it selects a one-item explicit list.
+\cs_new_protected:Npn \__linesys_resolve_variables:
+{
+	\seq_clear:N \l__linesys_vars_seq
+	\bool_set_true:N \l__linesys_valid_bool
+	\str_case:VnF \l__linesys_varmode_tl
+	{
+		{ list }
+		{ \__linesys_resolve_explicit_variables: }
+		{ indexed }
+		{ \__linesys_generate_indexed_variables: }
+		{ auto }
+		{
+			\str_case:VnF \l__linesys_var_spec_tl
+			{
+				{ roman } { \__linesys_generate_roman:n { \l__linesys_required_vars_int } }
+				{ Roman } { \__linesys_generate_Roman:n { \l__linesys_required_vars_int } }
+				{ greek } { \__linesys_generate_greek:n { \l__linesys_required_vars_int } }
+			}
+			{
+				\clist_set:NV \l__linesys_explicit_vars_clist \l__linesys_var_spec_tl
+				\int_compare:nNnTF { \clist_count:N \l__linesys_explicit_vars_clist } > { 1 }
+				{ \__linesys_resolve_explicit_variables: }
+				{
+					\tl_if_eq:NNTF \l__linesys_var_spec_tl \l__linesys_index_token_tl
+					{ \__linesys_resolve_explicit_variables: }
+					{
+						\__linesys_probe_index_token:
+						\bool_if:NTF \l__linesys_index_found_bool
+						{ \__linesys_generate_indexed_variables: }
+						{ \__linesys_resolve_explicit_variables: }
+					}
+				}
+			}
+		}
+	}
+	{ \__linesys_resolve_explicit_variables: }
+}
+
+% -----------------------------------------------------------------------------
+% Public configuration commands
+% -----------------------------------------------------------------------------
+% Change persistent defaults for future `linesys` environments.  Unspecified
+% keys are left unchanged, and grouping can be used for temporary changes.
+\NewDocumentCommand \linesyssetdefaultoptions { m }
+{
+	\keys_set:nn { linesys/defaults } {#1}
+}
+
+% Change persistent defaults for future `linexp` environments independently of
+% the `linesys` default family.
+\NewDocumentCommand \linexpsetdefaultoptions { m }
+{
+	\keys_set:nn { linesys/linexp/defaults } {#1}
+}
+
+
+% Change only the defaults shared by both public renderers.
+\NewDocumentCommand \linesyssetcommonoptions { m }
+{
+	\keys_set:nn { linesys/common/defaults } {#1}
+}
+
+% Disable or re-enable visual wrapper application.  These toggles are local to
+% the current TeX group.  Wrapper declarations continue to be parsed and
+% validated while disabled, which keeps configuration errors deterministic.
+\NewDocumentCommand \linesyswrapdisable { }
+{ \bool_set_false:N \l__linesys_wrap_enabled_bool }
+\NewDocumentCommand \linesyswrapenable { }
+{ \bool_set_true:N \l__linesys_wrap_enabled_bool }
+
+% -----------------------------------------------------------------------------
+% Lexical coefficient classification
+% -----------------------------------------------------------------------------
+% Coefficient classification is deliberately lexical, not algebraic.  The
+% renderer needs to recognize only four facts about an entry: whether it begins
+% with a plus or minus sign, whether its magnitude is literally zero, and
+% whether its magnitude is literally one.  It never evaluates expressions such
+% as `1-1` or expands arbitrary user macros.
+%
+% Classification runs on a temporary copy; rendering always retains the user's
+% original tokens.  A small set of formatting forms is transparent to this
+% lexical inspection.  Users can extend that set with one-argument wrappers
+% declared by `\linesysdeclaretransparentwrapper`.
+%
+% The registry and matching scratch state below are local variables.  Therefore
+% declarations follow ordinary TeX grouping and duplicate registrations are
+% harmless.
+\seq_new:N  \l__linesys_transparent_wrappers_seq
+\bool_new:N \l__linesys_declared_transparent_match_bool
+\tl_new:N   \l__linesys_declared_transparent_wrapper_tl
+\tl_new:N   \l__linesys_declared_transparent_content_tl
+\tl_new:N   \l__linesys_declared_transparent_head_tl
+\tl_new:N   \l__linesys_declared_transparent_tail_tl
+
+% Register a formatting command that classification may look through without
+% expanding it.
+%
+% The argument must be exactly one control-sequence token, for example
+%
+%   \linesysdeclaretransparentwrapper{\foo}
+%
+% Registration recognizes only the source shape `\foo{<content>}`.  Optional
+% arguments or additional mandatory arguments remain opaque.  This narrow
+% contract makes matching predictable and lets the original wrapper be rebuilt
+% exactly when a leading sign must later be separated from its magnitude.
+\NewDocumentCommand \linesysdeclaretransparentwrapper { m }
+{
+    \tl_if_single_token:nTF {#1}
+    {
+        \token_if_cs:NTF #1
+        {
+            \seq_if_in:NnF \l__linesys_transparent_wrappers_seq {#1}
+            { \seq_put_right:Nn \l__linesys_transparent_wrappers_seq {#1} }
+        }
+        { \msg_error:nn { linesys } { invalid-transparent-wrapper } }
+    }
+    { \msg_error:nn { linesys } { invalid-transparent-wrapper } }
+}
+
+% Match one token-list variable against the registered source shape without
+% expansion.  A match requires the head token to be registered and the entire
+% tail to consist of one brace group.  The matching command and its braced
+% content are returned in dedicated scratch token lists.
+\cs_new_protected:Npn \__linesys_match_declared_transparent:N #1
+{
+    \bool_set_false:N \l__linesys_declared_transparent_match_bool
+    \tl_clear:N \l__linesys_declared_transparent_wrapper_tl
+    \tl_clear:N \l__linesys_declared_transparent_content_tl
+    \tl_if_empty:NF #1
+    {
+        \tl_set:Nx \l__linesys_declared_transparent_head_tl { \tl_head:V #1 }
+        \tl_set:Nx \l__linesys_declared_transparent_tail_tl { \tl_tail:V #1 }
+        \tl_if_single:NT \l__linesys_declared_transparent_tail_tl
+        {
+            \exp_args:NV \tl_if_head_is_group:nT \l__linesys_declared_transparent_tail_tl
+            {
+                \seq_map_inline:Nn \l__linesys_transparent_wrappers_seq
+                {
+                    \tl_if_eq:NnT \l__linesys_declared_transparent_head_tl {##1}
+                    {
+                        \tl_set:Nn \l__linesys_declared_transparent_wrapper_tl {##1}
+                        \tl_set:Nx \l__linesys_declared_transparent_content_tl
+                            { \tl_head:V \l__linesys_declared_transparent_tail_tl }
+                        \bool_set_true:N \l__linesys_declared_transparent_match_bool
+                        \seq_map_break:
+                    }
+                }
+            }
+        }
+    }
+}
+
+% Scratch state for classification results and regex captures.  The four booleans
+% describe the normalized lexical coefficient and are consumed by both renderers.
+\tl_new:N   \l__linesys_sign_probe_tl
+\tl_new:N   \l__linesys_magnitude_probe_tl
+\seq_new:N  \l__linesys_sign_probe_seq
+\bool_new:N \l__linesys_negative_bool
+\bool_new:N \l__linesys_positive_bool
+\bool_new:N \l__linesys_zero_bool
+\bool_new:N \l__linesys_unit_bool
+
+% Repeatedly peel transparent *outer* formatting from a classification copy.
+% Each recognized form must consume the entire current token list.  This avoids
+% mistaking a leading group or formatting command for transparent structure when
+% unrelated material follows it.
+%
+% Built-in transparent forms are an outer brace group, `\color{...}` followed
+% by content, and `\textcolor{...}{...}`.  Registered one-argument wrappers are
+% tried last.  No recognized form is expanded.
+\cs_new_protected:Npn \__linesys_unwrap_for_classification:N #1
+{
+    \bool_set_true:N \l_tmpa_bool
+    \bool_while_do:nn { \l_tmpa_bool }
+    {
+        \bool_set_false:N \l_tmpa_bool
+        \tl_trim_spaces:N #1
+
+        \seq_clear:N \l__linesys_sign_probe_seq
+        \exp_args:NnV \regex_extract_once:nnN
+            { ^ \{ (.*) \} $ }
+            #1
+            \l__linesys_sign_probe_seq
+        \seq_if_empty:NF \l__linesys_sign_probe_seq
+        {
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+            \seq_pop_left:NN \l__linesys_sign_probe_seq #1
+            \bool_set_true:N \l_tmpa_bool
+        }
+
+        \bool_if:NF \l_tmpa_bool
+        {
+            \seq_clear:N \l__linesys_sign_probe_seq
+            \exp_args:NnV \regex_extract_once:nnN
+                { ^ \c{color} \{ [^{}]* \} (.*) $ }
+                #1
+                \l__linesys_sign_probe_seq
+            \seq_if_empty:NF \l__linesys_sign_probe_seq
+            {
+                \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+                \seq_pop_left:NN \l__linesys_sign_probe_seq #1
+                \bool_set_true:N \l_tmpa_bool
+            }
+        }
+
+        \bool_if:NF \l_tmpa_bool
+        {
+            \seq_clear:N \l__linesys_sign_probe_seq
+            \exp_args:NnV \regex_extract_once:nnN
+                { ^ \c{textcolor} \{ [^{}]* \} \{ (.*) \} $ }
+                #1
+                \l__linesys_sign_probe_seq
+            \seq_if_empty:NF \l__linesys_sign_probe_seq
+            {
+                \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+                \seq_pop_left:NN \l__linesys_sign_probe_seq #1
+                \bool_set_true:N \l_tmpa_bool
+            }
+        }
+
+        \bool_if:NF \l_tmpa_bool
+        {
+            \__linesys_match_declared_transparent:N #1
+            \bool_if:NT \l__linesys_declared_transparent_match_bool
+            {
+                \tl_set:NV #1 \l__linesys_declared_transparent_content_tl
+                \bool_set_true:N \l_tmpa_bool
+            }
+        }
+    }
+}
+
+% Classify one original coefficient.  Transparent wrappers are removed only from
+% the probe copy.  At most one leading `+` or `-` is then stripped from a second
+% magnitude copy before literal comparison with `0` and `1`.  Consequently
+% `+0`, `-0`, `+1`, and `-1` have the expected lexical classes, while symbolic
+% expressions remain ordinary nonzero, nonunit material.
+\cs_new_protected:Npn \__linesys_classify_coeff:N #1
+{
+    \bool_set_false:N \l__linesys_negative_bool
+    \bool_set_false:N \l__linesys_positive_bool
+    \bool_set_false:N \l__linesys_zero_bool
+    \bool_set_false:N \l__linesys_unit_bool
+
+    \tl_set:NV \l__linesys_sign_probe_tl #1
+    \__linesys_unwrap_for_classification:N \l__linesys_sign_probe_tl
+    \tl_trim_spaces:N \l__linesys_sign_probe_tl
+    \tl_set_eq:NN \l__linesys_magnitude_probe_tl \l__linesys_sign_probe_tl
+
+    \tl_if_head_eq_charcode:VNTF \l__linesys_sign_probe_tl -
+    {
+        \bool_set_true:N \l__linesys_negative_bool
+        \regex_replace_once:nnN { ^ - } { } \l__linesys_magnitude_probe_tl
+    }
+    {
+        \tl_if_head_eq_charcode:VNT \l__linesys_sign_probe_tl +
+        {
+            \bool_set_true:N \l__linesys_positive_bool
+            \regex_replace_once:nnN { ^ \+ } { } \l__linesys_magnitude_probe_tl
+        }
+    }
+    \tl_trim_spaces:N \l__linesys_magnitude_probe_tl
+
+    \tl_if_eq:VnT \l__linesys_magnitude_probe_tl { 0 }
+    { \bool_set_true:N \l__linesys_zero_bool }
+    \tl_if_eq:VnT \l__linesys_magnitude_probe_tl { 1 }
+    { \bool_set_true:N \l__linesys_unit_bool }
+}
+
+% The next helpers reconstruct each transparent wrapper after recursively
+% removing a classified leading sign from its content.  Wrapper metadata is
+% passed as macro arguments before recursion, so nested transparent wrappers
+% cannot overwrite information needed to rebuild an outer wrapper.
+\cs_new_protected:Npn \__linesys_strip_group:nN #1#2
+{
+    \__linesys_strip_leading_sign:nN {#1} #2
+    \tl_set:Nx #2 { { \exp_not:V #2 } }
+}
+
+\cs_new_protected:Npn \__linesys_strip_color:nnN #1#2#3
+{
+    \__linesys_strip_leading_sign:nN {#2} #3
+    \tl_set:Nx #3
+    {
+        \exp_not:N \color
+        { \exp_not:n {#1} }
+        \exp_not:V #3
+    }
+}
+
+\cs_new_protected:Npn \__linesys_strip_textcolor:nnN #1#2#3
+{
+    \__linesys_strip_leading_sign:nN {#2} #3
+    \tl_set:Nx #3
+    {
+        \exp_not:N \textcolor
+        { \exp_not:n {#1} }
+        { \exp_not:V #3 }
+    }
+}
+
+\cs_new_protected:Npn \__linesys_strip_declared:nnN #1#2#3
+{
+    \__linesys_strip_leading_sign:nN {#2} #3
+    \tl_set:Nx #3
+    {
+        \exp_not:n {#1}
+        { \exp_not:V #3 }
+    }
+}
+
+% Remove one leading sign from original rendering tokens while preserving any
+% transparent outer formatting.  The function mirrors the unwrapping grammar:
+% it descends through one recognized wrapper, removes the sign at the innermost
+% lexical coefficient, and reconstructs each wrapper on return.  If no wrapper
+% shape matches, a leading `+` or `-` is removed directly.
+\cs_new_protected:Npn \__linesys_strip_leading_sign:nN #1#2
+{
+    \bool_set_false:N \l_tmpa_bool
+
+    \seq_clear:N \l__linesys_sign_probe_seq
+    \regex_extract_once:nnN
+        { ^ \{ (.*) \} $ }
+        {#1}
+        \l__linesys_sign_probe_seq
+    \seq_if_empty:NF \l__linesys_sign_probe_seq
+    {
+        \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+        \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpb_tl
+        \exp_args:NV \__linesys_strip_group:nN \l_tmpb_tl #2
+        \bool_set_true:N \l_tmpa_bool
+    }
+
+    \bool_if:NF \l_tmpa_bool
+    {
+        \seq_clear:N \l__linesys_sign_probe_seq
+        \regex_extract_once:nnN
+            { ^ \c{color} \{ ([^{}]*) \} (.*) $ }
+            {#1}
+            \l__linesys_sign_probe_seq
+        \seq_if_empty:NF \l__linesys_sign_probe_seq
+        {
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpb_tl
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpc_tl
+            \exp_args:NVV \__linesys_strip_color:nnN \l_tmpb_tl \l_tmpc_tl #2
+            \bool_set_true:N \l_tmpa_bool
+        }
+    }
+
+    \bool_if:NF \l_tmpa_bool
+    {
+        \seq_clear:N \l__linesys_sign_probe_seq
+        \regex_extract_once:nnN
+            { ^ \c{textcolor} \{ ([^{}]*) \} \{ (.*) \} $ }
+            {#1}
+            \l__linesys_sign_probe_seq
+        \seq_if_empty:NF \l__linesys_sign_probe_seq
+        {
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpa_tl
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpb_tl
+            \seq_pop_left:NN \l__linesys_sign_probe_seq \l_tmpc_tl
+            \exp_args:NVV \__linesys_strip_textcolor:nnN \l_tmpb_tl \l_tmpc_tl #2
+            \bool_set_true:N \l_tmpa_bool
+        }
+    }
+
+    \bool_if:NF \l_tmpa_bool
+    {
+        \tl_set:Nn \l_tmpb_tl {#1}
+        \__linesys_match_declared_transparent:N \l_tmpb_tl
+        \bool_if:NT \l__linesys_declared_transparent_match_bool
+        {
+            \exp_args:NVV \__linesys_strip_declared:nnN
+                \l__linesys_declared_transparent_wrapper_tl
+                \l__linesys_declared_transparent_content_tl
+                #2
+            \bool_set_true:N \l_tmpa_bool
+        }
+    }
+
+    \bool_if:NF \l_tmpa_bool
+    {
+        \tl_set:Nn #2 {#1}
+        \regex_replace_once:nnN { ^ (?: \+ | - ) } { } #2
+    }
+}
+
+% In-place convenience wrapper around the recursion-safe two-argument function.
+\cs_new_protected:Npn \__linesys_strip_leading_sign:N #1
+{
+    \exp_args:NV \__linesys_strip_leading_sign:nN #1 #1
+}
+
+% Convert one coefficient into the two pieces used by row construction:
+% `\l__linesys_sign_tl` holds a separable operation sign and
+% `\l__linesys_term_tl` holds the coefficient magnitude/formatting.
+%
+% In full mode the coefficient stays indivisible.  Negative coefficients are
+% parenthesized unless the current cell is a pivot with `pivotparen=false`;
+% redundant leading plus signs are normalized away.
+%
+% In ordinary mode a leading sign may be split from the magnitude.  Literal unit
+% magnitudes are suppressed unless scalar-operation notation requires the `1`
+% or an active pivot highlighter needs actual coefficient material to mark.
+\cs_new_protected:Npn \__linesys_coeff_to_parts:N #1
+{
+    \tl_set_eq:NN \l__linesys_coeff_tl #1
+    \tl_clear:N \l__linesys_sign_tl
+    \tl_clear:N \l__linesys_term_tl
+    \__linesys_classify_coeff:N \l__linesys_coeff_tl
+
+    \bool_if:NTF \l__linesys_full_bool
+    {
+        \bool_if:NTF \l__linesys_negative_bool
+        {
+            \bool_if:nTF
+            { \l__linesys_current_pivot_bool && !\l__linesys_pivotparen_bool }
+            { \tl_set:NV \l__linesys_term_tl \l__linesys_coeff_tl }
+            {
+                \tl_set:Nn \l__linesys_term_tl { \left( }
+                \tl_put_right:NV \l__linesys_term_tl \l__linesys_coeff_tl
+                \tl_put_right:Nn \l__linesys_term_tl { \right) }
+            }
+        }
+        {
+            \tl_set:NV \l__linesys_term_tl \l__linesys_coeff_tl
+            \bool_if:NT \l__linesys_positive_bool
+            { \__linesys_strip_leading_sign:N \l__linesys_term_tl }
+        }
+    }
+    {
+        \bool_if:NTF \l__linesys_negative_bool
+        { \tl_set:Nn \l__linesys_sign_tl { - } }
+        { \tl_clear:N \l__linesys_sign_tl }
+
+        \tl_set:NV \l__linesys_term_tl \l__linesys_coeff_tl
+        \bool_if:nT { \l__linesys_negative_bool || \l__linesys_positive_bool }
+        { \__linesys_strip_leading_sign:N \l__linesys_term_tl }
+
+        \bool_if:NT \l__linesys_unit_bool
+        {
+            \bool_if:nF
+            {
+                \l__linesys_scalarops_bool
+                ||
+                ( \l__linesys_current_pivot_bool && \l__linesys_pivot_highlighting_bool )
+            }
+            { \tl_clear:N \l__linesys_term_tl }
+        }
+    }
+}
+
+% -----------------------------------------------------------------------------
+% Rendering helpers
+% -----------------------------------------------------------------------------
+% Build the array preamble for `linesys`.  Each variable contributes a centered
+% sign column followed by one aligned term column.  A final centered relation
+% column and aligned RHS column use the same `align` choice.
+\cs_new_protected:Npn \__linesys_make_preamble:
+{
+	\tl_clear:N \l__linesys_preamble_tl
+	\int_step_inline:nn { \l__linesys_nvars_int }
+	{
+		\tl_put_right:Nn \l__linesys_preamble_tl { c }
+		\tl_put_right:NV \l__linesys_preamble_tl \l__linesys_align_tl
+	}
+	\tl_put_right:Nn \l__linesys_preamble_tl { c }
+	\tl_put_right:NV \l__linesys_preamble_tl \l__linesys_align_tl
+}
+
+% Append one component inside an explicit TeX group.  Coefficients and constants
+% may contain declaration-style formatting such as `\color`; grouping at this
+% final output boundary prevents such state from leaking into variables or later
+% array cells.
+\cs_new_protected:Npn \__linesys_output_grouped:N #1
+{
+	\tl_put_right:Nn \l__linesys_output_tl { \group_begin: }
+	\tl_put_right:NV \l__linesys_output_tl #1
+	\tl_put_right:Nn \l__linesys_output_tl { \group_end: }
+}
+
+% Call the configured one-argument pivot highlighter without expanding its
+% argument and place the resulting token list in wrapper scratch state.  The
+% caller decides whether highlighting occurs before or after ordinary wrappers.
+\cs_new_protected:Npn \__linesys_highlight_pivot:NN #1#2
+{
+	\tl_set:Nn \l__linesys_wrap_content_tl { #1 { #2 } }
+}
+
+% Prepare one coefficient when `pivotcols` supplies an explicit row map.  Manual
+% selection changes only pivot identity: the ordinary visibility, sign, full
+% mode, scalar-operation, wrapper, and unit-coefficient rules remain active.
+% A manually selected lexical zero is forced visible so the user's explicit
+% selection can genuinely be rendered/highlighted as the pivot.
+\cs_new_protected:Npn \__linesys_prepare_manual_coefficient:n #1
+{
+    \tl_if_eq:VnT \l__linesys_row_pivot_tl {#1}
+    { \bool_set_true:N \l__linesys_current_pivot_bool }
+
+    \bool_if:nT
+    {
+        \l__linesys_full_bool
+        || !\l__linesys_hidezeros_bool
+        || !\l__linesys_zero_bool
+        || \l__linesys_current_pivot_bool
+    }
+    {
+        \__linesys_coeff_to_parts:N \l__linesys_cell_tl
+        \bool_if:NTF \l__linesys_full_bool
+        {
+            \bool_if:NT \l__linesys_seen_bool
+            { \tl_set:Nn \l__linesys_sign_tl { + } }
+        }
+        {
+            \bool_if:NTF \l__linesys_seen_bool
+            {
+                \bool_if:nT
+                { \l__linesys_current_pivot_bool && \l__linesys_pivot_highlighting_bool }
+                {
+                    \tl_if_eq:VnT \l__linesys_sign_tl { - }
+                    {
+                        \tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+                        \tl_clear:N \l__linesys_sign_tl
+                    }
+                }
+                \tl_if_blank:VT \l__linesys_sign_tl
+                { \tl_set:Nn \l__linesys_sign_tl { + } }
+            }
+            {
+                \tl_if_eq:VnT \l__linesys_sign_tl { - }
+                {
+                    \tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+                    \tl_clear:N \l__linesys_sign_tl
+                }
+            }
+        }
+        \bool_set_true:N \l__linesys_seen_bool
+        \bool_if:NT \l__linesys_current_pivot_bool
+        { \bool_set_true:N \l__linesys_pivot_bool }
+    }
+}
+
+% Build one complete rendered system row as tokens before the array is opened.
+% The input row is split at literal `&` tokens, paired with the resolved variable
+% sequence, and processed from left to right.  `seen` records whether any term
+% has already been displayed; `pivot` records whether automatic mode has already
+% found a coefficient pivot.
+%
+% Manual pivot and per-row relation selectors are resolved once at row start so
+% the inner coefficient loop can work with simple current-row state.
+\cs_new_protected:Npn \__linesys_build_row:
+{
+	\seq_set_split:NnV \l__linesys_cells_seq { & } \l__linesys_row_tl
+	\seq_set_eq:NN \l_tmpa_seq \l__linesys_vars_seq
+	\bool_set_false:N \l__linesys_seen_bool
+	\bool_set_false:N \l__linesys_pivot_bool
+	\tl_clear:N \l__linesys_row_pivot_tl
+	\bool_if:NT \l__linesys_manual_pivots_bool
+	{
+		\tl_set:Nx \l__linesys_row_pivot_tl
+		{ \seq_item:Nn \l__linesys_pivotcols_seq { \l__linesys_rowindex_int } }
+	}
+	\tl_set:NV \l__linesys_row_relation_tl \l__linesys_relation_tl
+	\tl_if_blank:VF \l__linesys_relations_tl
+	{
+		\tl_set:Nx \l__linesys_row_relation_tl
+		{ \seq_item:Nn \l__linesys_relations_seq { \l__linesys_rowindex_int } }
+	}
+	
+	\int_step_inline:nn { \l__linesys_nvars_int }
+	{
+		\seq_pop_left:NN \l__linesys_cells_seq \l__linesys_cell_tl
+		\seq_pop_left:NN \l_tmpa_seq \l__linesys_var_tl
+		\tl_trim_spaces:N \l__linesys_cell_tl
+		\tl_trim_spaces:N \l__linesys_var_tl
+% Normalize an empty coefficient to zero only when explicitly requested.
+% Otherwise invalidate the row before rendering begins.
+		\tl_if_blank:VTF \l__linesys_cell_tl
+		{
+			\bool_if:NTF \l__linesys_emptyzeros_bool
+			{ \tl_set:Nn \l__linesys_cell_tl { 0 } }
+			{
+				\msg_error:nn { linesys } { empty-entry }
+				\bool_set_false:N \l__linesys_valid_bool
+			}
+		}
+		{ }
+		\tl_clear:N \l__linesys_sign_tl
+		\tl_clear:N \l__linesys_term_tl
+		\bool_set_false:N \l__linesys_current_pivot_bool
+		\__linesys_classify_coeff:N \l__linesys_cell_tl
+		
+% Manual mode delegates visibility/sign preparation to the selector-aware
+% helper.  Automatic mode discovers the first lexical nonzero coefficient
+% while traversing the row.
+		\bool_if:NTF \l__linesys_manual_pivots_bool
+		{ \__linesys_prepare_manual_coefficient:n {##1} }
+		{
+			\bool_if:nTF { !\l__linesys_full_bool && \l__linesys_hidezeros_bool }
+			{
+				\bool_if:NF \l__linesys_zero_bool
+				{
+					\bool_if:NTF \l__linesys_pivot_bool
+					{
+						\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+						\bool_if:NT \l__linesys_seen_bool
+						{
+							\tl_if_blank:VTF \l__linesys_sign_tl
+							{ \tl_set:Nn \l__linesys_sign_tl { + } }
+							{ }
+						}
+					}
+					{
+						\bool_set_true:N \l__linesys_current_pivot_bool
+						\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+						\tl_if_eq:VnT \l__linesys_sign_tl { - }
+						{
+							\tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+							\tl_clear:N \l__linesys_sign_tl
+						}
+						\bool_set_true:N \l__linesys_pivot_bool
+					}
+					\bool_set_true:N \l__linesys_seen_bool
+				}
+			}
+			{
+				\bool_if:NTF \l__linesys_zero_bool
+				{
+					\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+					\int_compare:nNnT {##1} > {1}
+					{ \tl_set:Nn \l__linesys_sign_tl { + } }
+				}
+				{
+					\bool_if:NTF \l__linesys_pivot_bool
+					{
+						\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+						\bool_if:NT \l__linesys_seen_bool
+						{
+							\tl_if_blank:VTF \l__linesys_sign_tl
+							{ \tl_set:Nn \l__linesys_sign_tl { + } }
+							{ }
+						}
+					}
+					{
+						\bool_set_true:N \l__linesys_current_pivot_bool
+						\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+						\int_compare:nNnT {##1} = {1}
+						{
+							\tl_if_eq:VnT \l__linesys_sign_tl { - }
+							{
+								\tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+								\tl_clear:N \l__linesys_sign_tl
+							}
+						}
+						\bool_if:NT \l__linesys_pivot_highlighting_bool
+						{
+							\tl_if_eq:VnT \l__linesys_sign_tl { - }
+							{
+								\tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+								\tl_clear:N \l__linesys_sign_tl
+							}
+						}
+						\int_compare:nNnT {##1} > {1}
+						{
+							\tl_if_blank:VTF \l__linesys_sign_tl
+							{ \tl_set:Nn \l__linesys_sign_tl { + } }
+							{ }
+						}
+						\bool_set_true:N \l__linesys_pivot_bool
+					}
+					\bool_set_true:N \l__linesys_seen_bool
+				}
+			}
+		
+		}
+		
+% A still-separate minus sign is an operation sign.  When visible-zero mode
+% is active, an `entries` wrapper also applies to that sign so the signed
+% matrix entry remains visually coherent.
+		\tl_if_eq:VnTF \l__linesys_sign_tl { - }
+		{
+			\bool_if:nTF { !\l__linesys_full_bool && !\l__linesys_hidezeros_bool }
+			{
+				\__linesys_apply_wrappers:nnnn { entries } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_sign_tl }
+				\__linesys_output_grouped:N \l__linesys_wrapped_tl
+			}
+			{ \tl_put_right:NV \l__linesys_output_tl \l__linesys_sign_tl }
+		}
+		{ \tl_put_right:NV \l__linesys_output_tl \l__linesys_sign_tl }
+		\tl_put_right:Nn \l__linesys_output_tl { & }
+% Render the prepared coefficient/variable pair.  A blank term means either
+% a suppressed unit magnitude or a zero whose visibility is handled here.
+		\tl_if_blank:VTF \l__linesys_term_tl
+		{
+			\bool_if:NTF \l__linesys_zero_bool
+			{
+				\bool_if:nTF { \l__linesys_full_bool || !\l__linesys_hidezeros_bool }
+				{
+					\__linesys_apply_wrappers:nnnn { coefficients } { \l__linesys_rowindex_int } { ##1 } { 0 }
+					\tl_set:NV \l__linesys_wrap_content_tl \l__linesys_wrapped_tl
+					\__linesys_apply_wrappers:nnnn { entries } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_wrap_content_tl }
+					\__linesys_output_grouped:N \l__linesys_wrapped_tl
+					\bool_if:NT \l__linesys_scalarops_bool
+					{ \tl_put_right:NV \l__linesys_output_tl \l__linesys_scalaropsymbol_tl }
+					\__linesys_apply_wrappers:nnnn { variables } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_var_tl }
+					\tl_put_right:NV \l__linesys_output_tl \l__linesys_wrapped_tl
+				}
+				{
+					\int_compare:nNnT {##1} = {\l__linesys_nvars_int}
+					{
+						\bool_if:NF \l__linesys_pivot_bool
+						{ \tl_put_right:Nn \l__linesys_output_tl { 0 } }
+					}
+				}
+			}
+			{ \__linesys_apply_wrappers:nnnn { variables } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_var_tl } \tl_put_right:NV \l__linesys_output_tl \l__linesys_wrapped_tl }
+		}
+		{
+% Custom highlighters are intentionally applied *inside* ordinary wrappers,
+% allowing a custom declaration such as `\\color` to take precedence.
+% The built-in circle is applied afterwards so it encloses the normally
+% wrapped pivot.  The same ordering is used for RHS pivots below.
+			\bool_if:NT \l__linesys_current_pivot_bool
+			{
+				\bool_if:NT \l__linesys_pivot_highlighting_bool
+				{
+					\bool_if:NT \l__linesys_custom_pivots_bool
+					{
+						\exp_args:NVV \__linesys_highlight_pivot:NN
+						\l__linesys_pivots_tl \l__linesys_term_tl
+						\tl_set:NV \l__linesys_term_tl \l__linesys_wrap_content_tl
+					}
+				}
+			}
+			\__linesys_apply_wrappers:nnnn { coefficients } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_term_tl }
+			\tl_set:NV \l__linesys_wrap_content_tl \l__linesys_wrapped_tl
+			\__linesys_apply_wrappers:nnnn { entries } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_wrap_content_tl }
+			\bool_if:NT \l__linesys_current_pivot_bool
+			{
+				\bool_if:NT \l__linesys_pivot_highlighting_bool
+				{
+					\bool_if:NF \l__linesys_custom_pivots_bool
+					{
+						\exp_args:NVV \__linesys_highlight_pivot:NN
+						\l__linesys_pivots_tl \l__linesys_wrapped_tl
+						\tl_set:NV \l__linesys_wrapped_tl \l__linesys_wrap_content_tl
+					}
+				}
+			}
+			\__linesys_output_grouped:N \l__linesys_wrapped_tl
+			\bool_if:NT \l__linesys_scalarops_bool
+			{ \tl_put_right:NV \l__linesys_output_tl \l__linesys_scalaropsymbol_tl }
+			\__linesys_apply_wrappers:nnnn { variables } { \l__linesys_rowindex_int } { ##1 } { \l__linesys_var_tl }
+			\tl_put_right:NV \l__linesys_output_tl \l__linesys_wrapped_tl
+		}
+		\tl_put_right:Nn \l__linesys_output_tl { & }
+	}
+	
+% The relation is row-level output: apply relation wrappers once, then append
+% the RHS in the final aligned column.
+	\__linesys_apply_wrappers:nnnn { relations } { \l__linesys_rowindex_int } { 0 } { \l__linesys_row_relation_tl }
+	\__linesys_output_grouped:N \l__linesys_wrapped_tl
+	\tl_put_right:Nn \l__linesys_output_tl { & }
+	\seq_pop_left:NN \l__linesys_cells_seq \l__linesys_rhs_tl
+	\tl_trim_spaces:N \l__linesys_rhs_tl
+	\tl_if_blank:VTF \l__linesys_rhs_tl
+	{
+		\bool_if:NTF \l__linesys_emptyzeros_bool
+		{ \tl_set:Nn \l__linesys_rhs_tl { 0 } }
+		{
+			\msg_error:nn { linesys } { empty-entry }
+			\bool_set_false:N \l__linesys_valid_bool
+		}
+	}
+	{ }
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\__linesys_classify_coeff:N \l__linesys_rhs_tl
+% Manual `rhs` selection is authoritative even for lexical zero and even
+% when `rhspivots=false`.  Automatic RHS pivots require no coefficient
+% pivot, `rhspivots=true`, and a lexical nonzero constant.
+		\bool_set_false:N \l__linesys_current_pivot_bool
+		\bool_if:NTF \l__linesys_manual_pivots_bool
+		{
+			\tl_if_eq:VnT \l__linesys_row_pivot_tl { rhs }
+			{ \bool_set_true:N \l__linesys_current_pivot_bool }
+		}
+		{
+			\bool_if:nT { \l__linesys_rhspivots_bool && !\l__linesys_pivot_bool && !\l__linesys_zero_bool }
+			{ \bool_set_true:N \l__linesys_current_pivot_bool }
+		}
+		\bool_if:NT \l__linesys_current_pivot_bool
+		{
+			\bool_if:NT \l__linesys_pivot_highlighting_bool
+			{
+				\bool_if:NT \l__linesys_custom_pivots_bool
+				{
+					\exp_args:NVV \__linesys_highlight_pivot:NN
+					\l__linesys_pivots_tl \l__linesys_rhs_tl
+					\tl_set:NV \l__linesys_rhs_tl \l__linesys_wrap_content_tl
+				}
+			}
+		}
+		\__linesys_apply_wrappers:nnnn { constants } { \l__linesys_rowindex_int } { \l__linesys_ncols_int } { \l__linesys_rhs_tl }
+		\tl_set:NV \l__linesys_wrap_content_tl \l__linesys_wrapped_tl
+		\__linesys_apply_wrappers:nnnn { entries } { \l__linesys_rowindex_int } { \l__linesys_ncols_int } { \l__linesys_wrap_content_tl }
+		\bool_if:NT \l__linesys_current_pivot_bool
+		{
+			\bool_if:NT \l__linesys_pivot_highlighting_bool
+			{
+				\bool_if:NF \l__linesys_custom_pivots_bool
+				{
+					\exp_args:NVV \__linesys_highlight_pivot:NN
+					\l__linesys_pivots_tl \l__linesys_wrapped_tl
+					\tl_set:NV \l__linesys_wrapped_tl \l__linesys_wrap_content_tl
+				}
+			}
+		}
+		\__linesys_output_grouped:N \l__linesys_wrapped_tl
+	}
+	\tl_put_right:Nn \l__linesys_output_tl { \\[ }
+	\tl_put_right:NV \l__linesys_output_tl \l__linesys_rowsep_dim
+	\tl_put_right:Nn \l__linesys_output_tl { ] }
+}
+
+% Traverse the captured row sequence and concatenate only non-empty mathematical
+% rows.  Wrapper row selectors therefore use rendered row numbers rather than
+% raw positions created by blank lines or a trailing `\\`.
+\cs_new_protected:Npn \__linesys_build_output:
+{
+	\tl_clear:N \l__linesys_output_tl
+	\int_zero:N \l__linesys_rowindex_int
+	\seq_map_inline:Nn \l__linesys_rows_seq
+	{
+		\tl_set:Nn \l__linesys_row_tl {##1}
+		\tl_trim_spaces:N \l__linesys_row_tl
+		\tl_if_blank:VF \l__linesys_row_tl
+		{
+			\int_incr:N \l__linesys_rowindex_int
+			\__linesys_build_row:
+		}
+	}
+}
+
+% -----------------------------------------------------------------------------
+% `linesys` environment
+% -----------------------------------------------------------------------------
+% The `+b` argument captures the complete environment body before any array is
+% opened.  This permits literal `&` and `\\` input to be parsed as data first.
+%
+% Environment setup follows a strict pipeline:
+%   1. copy persistent defaults into working state;
+%   2. parse local options and wrapper declarations;
+%   3. split/count non-empty rows and verify a consistent matrix width;
+%   4. validate pivot/relation/variable specifications;
+%   5. validate wrapper coordinates;
+%   6. build all output tokens;
+%   7. only if every stage succeeded, open the array and emit the result.
+%
+% This validity gate is essential because `\msg_error:...` reports an error but
+% does not stop TeX.  Opening an array before validation is complete could turn a
+% package diagnostic into an unmatched-array/runaway error.
+\NewDocumentEnvironment{linesys}{ O{} +b }
+{
+	\bool_set_false:N \l__linesys_valid_bool
+	\bool_set_false:N \l__linesys_linexp_mode_bool
+	\tl_set:NV      \l__linesys_align_tl      \l__linesys_default_align_tl
+	\tl_set:NV      \l__linesys_var_spec_tl    \l__linesys_default_var_spec_tl
+	\bool_set_eq:NN \l__linesys_hidezeros_bool \l__linesys_default_hidezeros_bool
+	\bool_set_eq:NN \l__linesys_emptyzeros_bool \l__linesys_default_emptyzeros_bool
+	\bool_set_eq:NN \l__linesys_full_bool      \l__linesys_default_full_bool
+	\bool_set_eq:NN \l__linesys_pivotparen_bool \l__linesys_default_pivotparen_bool
+	\tl_set:NV      \l__linesys_pivots_tl \l__linesys_default_pivots_tl
+	\tl_set:NV      \l__linesys_pivotcols_tl \l__linesys_default_pivotcols_tl
+	\tl_set:NV      \l__linesys_relation_tl \l__linesys_default_relation_tl
+	\tl_set:NV      \l__linesys_relations_tl \l__linesys_default_relations_tl
+	\bool_set_eq:NN \l__linesys_custom_pivots_bool \l__linesys_default_custom_pivots_bool
+	\bool_set_eq:NN \l__linesys_rhspivots_bool \l__linesys_default_rhspivots_bool
+	\bool_set_eq:NN \l__linesys_scalarops_bool \l__linesys_default_scalarops_bool
+	\clist_set_eq:NN \l__linesys_delim_clist   \l__linesys_default_delim_clist
+	\dim_set:Nn     \l__linesys_rowsep_dim     { \l__linesys_default_rowsep_dim }
+	\dim_set:Nn     \l__linesys_colsep_dim     { \l__linesys_default_colsep_dim }
+	\tl_set:NV      \l__linesys_scalaropsymbol_tl \l__linesys_default_scalaropsymbol_tl
+	\tl_set:NV      \l__linesys_index_token_tl \l__linesys_default_index_token_tl
+	\int_set:Nn     \l__linesys_indexstart_int { \l__linesys_default_indexstart_int }
+	\int_set:Nn     \l__linesys_indexstep_int { \l__linesys_default_indexstep_int }
+	\tl_set:NV      \l__linesys_varmode_tl \l__linesys_default_varmode_tl
+	\seq_clear:N \l__linesys_wrap_rules_seq
+	\__linesys_set_options:n {#1}
+	\tl_if_blank:VTF \l__linesys_pivots_tl
+	{ \bool_set_false:N \l__linesys_pivot_highlighting_bool }
+	{ \bool_set_true:N \l__linesys_pivot_highlighting_bool }
+	
+% Split the captured body into raw row items.  Blank items are ignored when
+% counting mathematical rows, including the blank item created by a trailing
+% row separator.
+	\seq_set_split:Nnn \l__linesys_rows_seq { \\ } {#2}
+	\int_zero:N \l__linesys_rowcount_int
+	\int_zero:N \l__linesys_ncols_int
+	\bool_set_true:N \l__linesys_valid_bool
+	\seq_map_inline:Nn \l__linesys_rows_seq
+	{
+		\tl_set:Nn \l__linesys_row_tl {##1}
+		\tl_trim_spaces:N \l__linesys_row_tl
+		\tl_if_blank:VF \l__linesys_row_tl
+		{
+			\int_incr:N \l__linesys_rowcount_int
+			\seq_set_split:NnV \l__linesys_cells_seq { & } \l__linesys_row_tl
+			\int_compare:nNnTF { \l__linesys_ncols_int } = {0}
+			{ \int_set:Nn \l__linesys_ncols_int { \seq_count:N \l__linesys_cells_seq } }
+			{
+				\int_compare:nNnF { \seq_count:N \l__linesys_cells_seq } = { \l__linesys_ncols_int }
+				{
+					\msg_error:nneee { linesys } { inconsistent-row-width }
+						{ \int_use:N \l__linesys_rowcount_int }
+						{ \int_use:N \l__linesys_ncols_int }
+						{ \int_eval:n { \seq_count:N \l__linesys_cells_seq } }
+					\bool_set_false:N \l__linesys_valid_bool
+				}
+			}
+		}
+	}
+	
+% A system needs at least one coefficient column plus one RHS column.
+	\int_compare:nNnTF { \l__linesys_ncols_int } < { 2 }
+	{
+		\msg_error:nnn { linesys } { no-variable-columns }
+		{ \int_use:N \l__linesys_ncols_int }
+		\bool_set_false:N \l__linesys_valid_bool
+	}
+	{
+		\bool_if:NT \l__linesys_valid_bool
+		{
+			\int_set:Nn \l__linesys_required_vars_int
+			{ \l__linesys_ncols_int - 1 }
+			\__linesys_validate_pivotcols:
+			\bool_if:NT \l__linesys_valid_bool
+			{ \__linesys_validate_relations: }
+			\bool_if:NT \l__linesys_valid_bool
+			{ \__linesys_resolve_variables: }
+		}
+		
+% Dimension-dependent wrapper validation and token construction occur only
+% after the earlier structural checks have succeeded.
+		\bool_if:NT \l__linesys_valid_bool
+		{
+			\int_set:Nn \l__linesys_nvars_int { \l__linesys_required_vars_int }
+			\__linesys_validate_wrap_indices:
+			\bool_if:NT \l__linesys_valid_bool
+			{
+				\__linesys_build_output:
+			}
+			\bool_if:NT \l__linesys_valid_bool
+			{
+				\__linesys_make_preamble:
+				
+% `colsep` is localized by the environment grouping supplied by xparse/TeX.
+% Delimiter values are emitted after `\\left`/`\\right`; a dot therefore
+% has the usual TeX meaning of an invisible delimiter.
+				\dim_set:Nn \arraycolsep { \l__linesys_colsep_dim }
+				
+				\seq_set_from_clist:NN \l__linesys_generator_seq \l__linesys_delim_clist
+				\seq_pop_left:NN \l__linesys_generator_seq \l__linesys_left_delim_tl
+				\seq_pop_left:NN \l__linesys_generator_seq \l__linesys_right_delim_tl
+				\tl_trim_spaces:N \l__linesys_left_delim_tl
+				\tl_trim_spaces:N \l__linesys_right_delim_tl
+				\tl_clear:N \l__linesys_delim_tl
+				\tl_put_right:Nn \l__linesys_delim_tl { \left }
+				\tl_put_right:NV \l__linesys_delim_tl \l__linesys_left_delim_tl
+				\tl_use:N \l__linesys_delim_tl
+				\exp_args:Nx \array { \l__linesys_preamble_tl }
+				\tl_use:N \l__linesys_output_tl
+			}
+		}
+	}
+}
+{
+% Close the array and right delimiter only if begin-code actually opened it.
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\endarray
+		\tl_clear:N \l__linesys_delim_tl
+		\tl_put_right:Nn \l__linesys_delim_tl { \right }
+		\tl_put_right:NV \l__linesys_delim_tl \l__linesys_right_delim_tl
+		\tl_use:N \l__linesys_delim_tl
+	}
+}
+
+
+
+% -----------------------------------------------------------------------------
+% `linexp` and `\linexpr`
+% -----------------------------------------------------------------------------
+% Build a one-row linear expression dynamically from visible terms.  Unlike a
+% multi-row system, hidden coefficients do not need placeholder columns for
+% alignment, so the array preamble is assembled only for terms that survive
+% zero suppression.  If every term is hidden, the expression is the literal `0`.
+\cs_new_protected:Npn \__linesys_linexp_build_output:
+{
+	\tl_clear:N \l__linesys_output_tl
+	\tl_clear:N \l__linesys_preamble_tl
+	\seq_set_split:NnV \l__linesys_cells_seq { & } \l__linesys_row_tl
+	\seq_set_eq:NN \l_tmpa_seq \l__linesys_vars_seq
+	\int_zero:N \l__linesys_visible_terms_int
+	\int_set:Nn \l__linesys_rowindex_int { 1 }
+	\bool_set_false:N \l__linesys_pivot_highlighting_bool
+	\bool_set_false:N \l__linesys_current_pivot_bool
+	\int_step_inline:nn { \l__linesys_nvars_int }
+	{
+		\seq_pop_left:NN \l__linesys_cells_seq \l__linesys_cell_tl
+		\seq_pop_left:NN \l_tmpa_seq \l__linesys_var_tl
+		\tl_trim_spaces:N \l__linesys_cell_tl
+		\tl_trim_spaces:N \l__linesys_var_tl
+		\tl_if_blank:VTF \l__linesys_cell_tl
+		{
+			\bool_if:NTF \l__linesys_emptyzeros_bool
+			{ \tl_set:Nn \l__linesys_cell_tl { 0 } }
+			{
+				\msg_error:nn { linesys } { linexp-empty-entry }
+				\bool_set_false:N \l__linesys_valid_bool
+			}
+		}
+		{ }
+		\bool_if:NT \l__linesys_valid_bool
+		{
+			\__linesys_classify_coeff:N \l__linesys_cell_tl
+			\bool_set_true:N \l_tmpa_bool
+			\bool_if:nT { !\l__linesys_full_bool && \l__linesys_hidezeros_bool }
+			{
+				\bool_if:NT \l__linesys_zero_bool
+				{ \bool_set_false:N \l_tmpa_bool }
+			}
+			\bool_if:NT \l_tmpa_bool
+			{
+				\tl_clear:N \l__linesys_sign_tl
+				\tl_clear:N \l__linesys_term_tl
+				\bool_set_false:N \l__linesys_current_pivot_bool
+				\__linesys_coeff_to_parts:N \l__linesys_cell_tl
+				\int_compare:nNnTF { \l__linesys_visible_terms_int } = { 0 }
+				{
+					\tl_if_eq:VnT \l__linesys_sign_tl { - }
+					{
+						\tl_put_left:NV \l__linesys_term_tl \l__linesys_sign_tl
+						\tl_clear:N \l__linesys_sign_tl
+					}
+				}
+				{
+					\tl_if_blank:VTF \l__linesys_sign_tl
+					{ \tl_set:Nn \l__linesys_sign_tl { + } }
+					{ }
+				}
+				\int_incr:N \l__linesys_visible_terms_int
+				\int_compare:nNnT { \l__linesys_visible_terms_int } > { 1 }
+				{ \tl_put_right:Nn \l__linesys_output_tl { & } }
+				\tl_put_right:NV \l__linesys_output_tl \l__linesys_sign_tl
+				\tl_put_right:Nn \l__linesys_output_tl { & }
+				\tl_put_right:Nn \l__linesys_preamble_tl { c r }
+				\tl_if_blank:VTF \l__linesys_term_tl
+				{
+					\__linesys_apply_wrappers:nnnn { variables } { 1 } { ##1 } { \l__linesys_var_tl }
+					\tl_put_right:NV \l__linesys_output_tl \l__linesys_wrapped_tl
+				}
+				{
+					\__linesys_apply_wrappers:nnnn { coefficients } { 1 } { ##1 } { \l__linesys_term_tl }
+					\__linesys_output_grouped:N \l__linesys_wrapped_tl
+					\bool_if:NT \l__linesys_scalarops_bool
+					{ \tl_put_right:NV \l__linesys_output_tl \l__linesys_scalaropsymbol_tl }
+					\__linesys_apply_wrappers:nnnn { variables } { 1 } { ##1 } { \l__linesys_var_tl }
+					\tl_put_right:NV \l__linesys_output_tl \l__linesys_wrapped_tl
+				}
+			}
+		}
+	}
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\int_compare:nNnT { \l__linesys_visible_terms_int } = { 0 }
+		{
+			\tl_set:Nn \l__linesys_preamble_tl { r }
+			\tl_set:Nn \l__linesys_output_tl { 0 }
+		}
+	}
+}
+
+% `linexp` captures its body for the same reason as `linesys`, but requires
+% exactly one non-empty row and treats every `&`-separated cell as a coefficient.
+% It copies its own persistent defaults, resolves exactly one variable per input
+% coefficient, validates column-only wrapper selectors, builds the expression,
+% and opens the array only after validation succeeds.
+\NewDocumentEnvironment{linexp}{ O{} +b }
+{
+	\bool_set_false:N \l__linesys_valid_bool
+	\bool_set_true:N \l__linesys_linexp_mode_bool
+	\tl_set:NV      \l__linesys_var_spec_tl \l__linesys_linexp_default_var_spec_tl
+	\bool_set_eq:NN \l__linesys_hidezeros_bool \l__linesys_linexp_default_hidezeros_bool
+	\bool_set_eq:NN \l__linesys_emptyzeros_bool \l__linesys_linexp_default_emptyzeros_bool
+	\bool_set_eq:NN \l__linesys_full_bool \l__linesys_linexp_default_full_bool
+	\bool_set_eq:NN \l__linesys_scalarops_bool \l__linesys_linexp_default_scalarops_bool
+	\dim_set:Nn     \l__linesys_colsep_dim { \l__linesys_linexp_default_colsep_dim }
+	\tl_set:NV      \l__linesys_scalaropsymbol_tl \l__linesys_linexp_default_scalaropsymbol_tl
+	\tl_set:NV      \l__linesys_index_token_tl \l__linesys_linexp_default_index_token_tl
+	\int_set:Nn     \l__linesys_indexstart_int { \l__linesys_linexp_default_indexstart_int }
+	\int_set:Nn     \l__linesys_indexstep_int { \l__linesys_linexp_default_indexstep_int }
+	\tl_set:NV      \l__linesys_varmode_tl \l__linesys_linexp_default_varmode_tl
+	\seq_clear:N \l__linesys_wrap_rules_seq
+	\__linesys_linexp_set_options:n {#1}
+	\seq_set_split:Nnn \l__linesys_rows_seq { \\ } {#2}
+	\int_zero:N \l__linesys_rowcount_int
+	\tl_clear:N \l__linesys_row_tl
+	\seq_map_inline:Nn \l__linesys_rows_seq
+	{
+		\tl_set:Nn \l_tmpa_tl {##1}
+		\tl_trim_spaces:N \l_tmpa_tl
+		\tl_if_blank:VF \l_tmpa_tl
+		{
+			\int_incr:N \l__linesys_rowcount_int
+			\int_compare:nNnT { \l__linesys_rowcount_int } = { 1 }
+			{ \tl_set:NV \l__linesys_row_tl \l_tmpa_tl }
+		}
+	}
+	\int_compare:nNnTF { \l__linesys_rowcount_int } = { 1 }
+	{ \bool_set_true:N \l__linesys_valid_bool }
+	{
+		\msg_error:nne { linesys } { linexp-row-count }
+		{ \int_use:N \l__linesys_rowcount_int }
+		\bool_set_false:N \l__linesys_valid_bool
+	}
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\seq_set_split:NnV \l__linesys_cells_seq { & } \l__linesys_row_tl
+		\int_set:Nn \l__linesys_ncols_int { \seq_count:N \l__linesys_cells_seq }
+		\int_set_eq:NN \l__linesys_required_vars_int \l__linesys_ncols_int
+		\__linesys_resolve_variables:
+	}
+	\bool_if:NT \l__linesys_valid_bool
+	{
+% Explicit variable lists may legally contain extra names.  Rendering still
+% uses exactly one variable for each coefficient supplied in this expression.
+		\int_set_eq:NN \l__linesys_nvars_int \l__linesys_required_vars_int
+		\__linesys_linexp_validate_wrap_indices:
+		\bool_if:NT \l__linesys_valid_bool
+		{ \__linesys_linexp_build_output: }
+	}
+	\bool_if:NT \l__linesys_valid_bool
+	{
+		\dim_set:Nn \arraycolsep { \l__linesys_colsep_dim }
+		\exp_args:Nx \array { \l__linesys_preamble_tl }
+		\tl_use:N \l__linesys_output_tl
+	}
+}
+{
+	\bool_if:NT \l__linesys_valid_bool
+	{ \endarray }
+}
+
+
+% Inline command form.  Delegating to the environment guarantees one renderer,
+% one validation path, and identical option/default semantics.  `\ensuremath`
+% allows the command in text or within an existing math context.
+\NewDocumentCommand \linexpr { O{} m }
+{
+	\ensuremath{\begin{linexp}[#1]#2\end{linexp}}
+}
+
+% End of the expl3 implementation.
+\ExplSyntaxOff

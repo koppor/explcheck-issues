@@ -1,0 +1,384 @@
+%%
+%% This is file `gmap-figuras.sty', part of the gmap-ufrgs bundle.
+%% Copyright (C) 2026 Boris N. Rojo Tanzi and GMAp/UFRGS
+%% LaTeX Project Public License, version 1.3c or later.
+%% Maintainer: Boris N. Rojo Tanzi. See gmap-ufrgs.cls for the full notice.
+%%
+%% Figuras com subfiguras (cortadas em paginas, com "continuacao"), series
+%% de figuras geradas a partir de uma lista de valores e mapas chave=valor.
+%% Requer a classe gmap-ufrgs: usa a mesma maquinaria do \figura (chaves,
+%% fonte, legenda acima no perfil ABNT e abaixo no classico) e as subfiguras
+%% nativas do memoir (\subbottom/\contsubbottom), sem carregar caption ou
+%% subcaption (que mudariam o formato das legendas da classe).
+%%
+%%   \figuras[chaves]{legenda}{{arq1}{sublegenda1}, {arq2}{sublegenda2}, ...}
+%%   \figuras*[...]{...}{...}         exatamente aqui ([H])
+%%   \serieFiguras[chaves]{padrao do arquivo com #1}{valores}{sublegenda com #1}{legenda}
+%%   \serieFiguras*[...]              exatamente aqui ([H])
+%%   \definirmapa{nome}{chave=valor, ..., *=padrao}
+%%   \mapa{nome}{chave}               valor (expansivel: serve em nomes de arquivo)
+%%
+%% Chaves de \figuras e \serieFiguras (alem das do \figura: fonte, rotulo, pos,
+%% tamanho, escala, largura, altura e as do \includegraphics):
+%%   porpagina={1,2}  subfiguras por bloco (pagina); o ultimo numero se repete
+%%                    (porpagina=2: de 2 em 2). Sem a chave: tudo num bloco.
+%%   colunas=2        subfiguras lado a lado (padrao 1)
+%%   espaco=0.5cm     espaco vertical entre linhas de subfiguras (padrao 0.5cm)
+%%   continuacao={..} texto apos a legenda dos blocos seguintes
+%%                    (padrao "(continuacao)" / "(continued)")
+%%   decimal={,}      (\serieFiguras) separador decimal do #1 na sublegenda
+%% Cada subfigura ocupa a largura da sua coluna; tamanho=0.8 = 80% da coluna.
+%% Rotulos: o da figura (rotulo=..., padrao fig:<primeiro arquivo>) e, em
+%% cada subfigura, <rotulo>-<n> (n = 1, 2, ...) em \figuras ou
+%% <rotulo>-<valor> em \serieFiguras.
+%%
+\NeedsTeXFormat{LaTeX2e}[2022/06/01]
+\ProvidesExplPackage{gmap-figuras}{2026/11/20}{v0.1}
+  {Figuras com subfiguras, series de figuras e mapas do GMAp}
+
+\msg_new:nnn { gmap-figuras } { sem-classe }
+  { O~pacote~gmap-figuras~requer~a~classe~gmap-ufrgs. }
+\msg_new:nnn { gmap-figuras } { porpagina }
+  { porpagina~deve~ter~so~inteiros~positivos~(recebido~'#1'). }
+\msg_new:nnn { gmap-figuras } { lista-vazia }
+  { \token_to_str:N \figuras / \token_to_str:N \serieFiguras \c_space_tl sem~nenhuma~figura. }
+\msg_new:nnn { gmap-figuras } { mapa-inexistente }
+  { Mapa~'#1'~nao~definido~(use~\token_to_str:N \definirmapa). }
+\msg_new:nnn { gmap-figuras } { chave-inexistente }
+  { Chave~'#2'~nao~existe~no~mapa~'#1'~(e~o~mapa~nao~tem~'*'). }
+
+\@ifclassloaded { gmap-ufrgs } { }
+  {
+    \msg_error:nn { gmap-figuras } { sem-classe }
+    \file_input_stop:
+  }
+
+% subfiguras nativas do memoir: (a), (b), ... e \ref = 3(a)
+\cs_if_exist:cF { c@subfigure } { \newsubfloat { figure } }
+
+%---------------------------------------------------------------------
+% Textos fixos por idioma
+%---------------------------------------------------------------------
+\providecommand \figurascontname { (continua\c{c}\~ao) }
+\addto \captionsbrazil  { \renewcommand \figurascontname { (continua\c{c}\~ao) } }
+\addto \captionsenglish { \renewcommand \figurascontname { (continued) } }
+
+%---------------------------------------------------------------------
+% Variaveis
+% (as chaves comuns com o \figura sao repassadas a ele e ficam nas
+% variaveis \l__gmap_fig_* da classe: fonte, rotulo, pos, opcoes da imagem)
+%---------------------------------------------------------------------
+\seq_new:N   \l__gmap_figs_itens_seq   % itens {arquivo}{sublegenda}{sufixo}
+\seq_new:N   \l__gmap_figs_tmp_seq
+\clist_new:N \l__gmap_figs_porpagina_clist
+\clist_new:N \l__gmap_figs_valores_clist
+\int_new:N   \l__gmap_figs_colunas_int
+\int_new:N   \l__gmap_figs_total_int
+\int_new:N   \l__gmap_figs_i_int        % primeiro item do bloco
+\int_new:N   \l__gmap_figs_n_int        % itens no bloco
+\int_new:N   \l__gmap_figs_bloco_int
+\int_new:N   \l__gmap_figs_j_int
+\int_new:N   \l__gmap_figs_linhas_int
+\dim_new:N   \l__gmap_figs_largura_dim
+\dim_new:N   \l__gmap_figs_altura_dim
+\dim_new:N   \l__gmap_figs_sep_dim
+\dim_set:Nn  \l__gmap_figs_sep_dim { 1em }
+\tl_new:N    \l__gmap_figs_espaco_tl
+\tl_new:N    \l__gmap_figs_cont_tl
+\tl_new:N    \l__gmap_figs_decimal_tl
+\tl_new:N    \l__gmap_figs_legenda_tl
+\tl_new:N    \l__gmap_figs_valor_tl
+\bool_new:N  \l__gmap_figs_cont_bool    % bloco de continuacao?
+
+\keys_define:nn { gmap/figuras }
+  {
+    porpagina   .clist_set:N = \l__gmap_figs_porpagina_clist ,
+    colunas     .int_set:N   = \l__gmap_figs_colunas_int ,
+    espaco      .tl_set:N    = \l__gmap_figs_espaco_tl ,
+    continuacao .tl_set:N    = \l__gmap_figs_cont_tl ,
+    decimal     .tl_set:N    = \l__gmap_figs_decimal_tl ,
+    % todo o resto (fonte, rotulo, pos, tamanho, escala, angle, [0.6], ...)
+    % vai para as chaves do \figura
+    unknown .code:n =
+      {
+        \tl_if_blank:nTF {#1}
+          { \keys_set:nV { gmap/figura } \l_keys_key_str }
+          { \use:e { \keys_set:nn { gmap/figura } { \l_keys_key_str = { \exp_not:n {#1} } } } }
+      } ,
+  }
+
+\cs_new_protected:Npn \__gmap_figs_iniciar:nn #1#2
+  {
+    \tl_clear:N \l__gmap_fig_gopts_tl
+    \tl_clear:N \l__gmap_fig_fonte_tl
+    \tl_clear:N \l__gmap_fig_rotulo_tl
+    \bool_set_false:N \l__gmap_fig_tamanho_bool
+    \tl_set_eq:NN \l__gmap_fig_pos_tl \g__gmap_fig_posdefault_tl
+    \clist_clear:N \l__gmap_figs_porpagina_clist
+    \int_set:Nn \l__gmap_figs_colunas_int { 1 }
+    \tl_set:Nn \l__gmap_figs_espaco_tl { 0.5cm }
+    \tl_set:Nn \l__gmap_figs_cont_tl { \figurascontname }
+    \tl_set:Nn \l__gmap_figs_decimal_tl { , }
+    \seq_clear:N \l__gmap_figs_itens_seq
+    \keys_set:nn { gmap/figuras } {#2}
+    \IfBooleanT {#1} { \tl_set:Nn \l__gmap_fig_pos_tl { H } }
+    \int_compare:nNnT { \l__gmap_figs_colunas_int } < { 1 }
+      { \int_set:Nn \l__gmap_figs_colunas_int { 1 } }
+  }
+
+%---------------------------------------------------------------------
+% Uma subfigura: #1 = \subbottom ou \contsubbottom, #2 = arquivo,
+% #3 = sublegenda, #4 = sufixo do rotulo
+%---------------------------------------------------------------------
+\cs_new_protected:Npn \__gmap_figs_sub:Nnnn #1#2#3#4
+  {
+    \begin{minipage}[t]{\l__gmap_figs_largura_dim}
+      \centering
+      #1 [ {#3} ]
+         [ { #3 \exp_args:Ne \label { \l__gmap_fig_rotulo_tl - #4 } } ]
+         {
+           \use:e
+             {
+               \exp_not:N \includegraphics
+                 [
+                   \bool_if:NF \l__gmap_fig_tamanho_bool
+                     {
+                       width = \exp_not:N \linewidth ,
+                       height = \dim_use:N \l__gmap_figs_altura_dim ,
+                       keepaspectratio
+                     }
+                   \exp_not:V \l__gmap_fig_gopts_tl
+                 ]
+             }
+             {#2}
+         }
+    \end{minipage}
+  }
+
+% item numero #2 do bloco; #1 = \subbottom ou \contsubbottom
+\cs_new_protected:Npn \__gmap_figs_item:Nn #1#2
+  {
+    \use:e
+      {
+        \exp_not:N \__gmap_figs_sub:Nnnn \exp_not:N #1
+        \seq_item:Nn \l__gmap_figs_itens_seq {#2}
+      }
+  }
+
+% subfiguras do bloco atual, em linhas de \l__gmap_figs_colunas_int
+\cs_new_protected:Npn \__gmap_figs_subfiguras:
+  {
+    \dim_set:Nn \l__gmap_figs_largura_dim
+      {
+        ( \linewidth - \l__gmap_figs_sep_dim * ( \l__gmap_figs_colunas_int - 1 ) )
+        / \l__gmap_figs_colunas_int
+      }
+    % altura maxima de cada subfigura (sem tamanho proprio): o bloco cabe
+    % na pagina, descontando legenda, sublegendas e espacos
+    \int_set:Nn \l__gmap_figs_linhas_int
+      {
+        \int_div_truncate:nn
+          { \l__gmap_figs_n_int + \l__gmap_figs_colunas_int - 1 }
+          { \l__gmap_figs_colunas_int }
+      }
+    \dim_set:Nn \l__gmap_figs_altura_dim
+      {
+        ( 0.85 \textheight - 3 \baselineskip
+          - \dim_eval:n { 2.5 \baselineskip } * \l__gmap_figs_linhas_int
+          - \dim_eval:n { \l__gmap_figs_espaco_tl } * ( \l__gmap_figs_linhas_int - 1 ) )
+        / \l__gmap_figs_linhas_int
+      }
+    \int_zero:N \l__gmap_figs_j_int
+    \int_step_inline:nnn { \l__gmap_figs_i_int }
+      { \l__gmap_figs_i_int + \l__gmap_figs_n_int - 1 }
+      {
+        \int_compare:nNnF { \l__gmap_figs_j_int } = { 0 }
+          {
+            \int_compare:nNnTF
+              { \int_mod:nn { \l__gmap_figs_j_int } { \l__gmap_figs_colunas_int } } = { 0 }
+              { \par \vspace { \l__gmap_figs_espaco_tl } }
+              { \hspace { \l__gmap_figs_sep_dim } }
+          }
+        \int_incr:N \l__gmap_figs_j_int
+        \bool_if:NTF \l__gmap_figs_cont_bool
+          { \__gmap_figs_item:Nn \contsubbottom {##1} }
+          { \__gmap_figs_item:Nn \subbottom {##1} }
+      }
+    \par
+  }
+
+% legenda: no primeiro bloco a legenda (com rotulo e entrada na lista de
+% figuras); nos seguintes, mesmo numero, sem entrada na lista
+\cs_new_protected:Npn \__gmap_figs_legenda:
+  {
+    \bool_if:NTF \l__gmap_figs_cont_bool
+      {
+        \exp_args:Ne \contcaption
+          { \exp_not:V \l__gmap_figs_legenda_tl \c_space_tl \exp_not:V \l__gmap_figs_cont_tl }
+      }
+      {
+        \exp_args:NV \__gmap_fig_legenda:n \l__gmap_figs_legenda_tl
+        % o \caption do hyperref nao marca a legenda como feita: sem isto o
+        % memoir somaria 1 ao numero das subfiguras abaixo da legenda (ABNT)
+        \legacy_if_set_true:n { donemaincaption }
+      }
+  }
+
+\cs_new_protected:Npn \__gmap_figs_bloco:
+  {
+    \use:e { \exp_not:N \begin {figure} [ \l__gmap_fig_pos_tl ] }
+      \centering
+      % ancoras unicas do hyperref nos blocos de continuacao
+      \bool_if:NT \l__gmap_figs_cont_bool
+        {
+          \cs_set:Npx \theHfigure
+            { \exp_not:N \arabic {figure} - cont \int_use:N \l__gmap_figs_bloco_int }
+        }
+      \legacy_if:nTF { gmap@classico }
+        {
+          \__gmap_figs_subfiguras:
+          \__gmap_figs_legenda:
+          \__gmap_fig_fonte:
+        }
+        {
+          \__gmap_figs_legenda:
+          \__gmap_figs_subfiguras:
+          \__gmap_fig_fonte:
+        }
+    \end {figure}
+  }
+
+% corta os itens em blocos conforme porpagina e compoe cada bloco
+\cs_new_protected:Npn \__gmap_figs_compor:n #1
+  {
+    \tl_set:Nn \l__gmap_figs_legenda_tl {#1}
+    \int_set:Nn \l__gmap_figs_total_int { \seq_count:N \l__gmap_figs_itens_seq }
+    \int_compare:nNnTF { \l__gmap_figs_total_int } = { 0 }
+      { \msg_error:nn { gmap-figuras } { lista-vazia } }
+      {
+        \clist_map_inline:Nn \l__gmap_figs_porpagina_clist
+          {
+            \regex_match:nnF { \A \d+ \Z } {##1}
+              { \msg_error:nnn { gmap-figuras } { porpagina } {##1} }
+          }
+        \tl_if_empty:NT \l__gmap_fig_rotulo_tl
+          {
+            \tl_set:Ne \l__gmap_figs_valor_tl
+              { \seq_item:Nn \l__gmap_figs_itens_seq { 1 } }
+            \tl_set:Ne \l__gmap_figs_valor_tl
+              { \exp_last_unbraced:NV \use_i:nnn \l__gmap_figs_valor_tl }
+            \exp_args:NV \filename@parse \l__gmap_figs_valor_tl
+            \tl_set:Ne \l__gmap_fig_rotulo_tl { fig: \filename@base }
+          }
+        \int_set:Nn \l__gmap_figs_i_int { 1 }
+        \int_set:Nn \l__gmap_figs_bloco_int { 1 }
+        \bool_set_false:N \l__gmap_figs_cont_bool
+        \int_while_do:nNnn { \l__gmap_figs_i_int } < { \l__gmap_figs_total_int + 1 }
+          {
+            \clist_if_empty:NTF \l__gmap_figs_porpagina_clist
+              { \int_set_eq:NN \l__gmap_figs_n_int \l__gmap_figs_total_int }
+              {
+                \int_set:Nn \l__gmap_figs_n_int
+                  {
+                    \int_compare:nNnTF { \l__gmap_figs_bloco_int }
+                      > { \clist_count:N \l__gmap_figs_porpagina_clist }
+                      { \clist_item:Nn \l__gmap_figs_porpagina_clist { -1 } }
+                      { \clist_item:Nn \l__gmap_figs_porpagina_clist { \l__gmap_figs_bloco_int } }
+                  }
+                \int_compare:nNnT { \l__gmap_figs_n_int } < { 1 }
+                  { \int_set:Nn \l__gmap_figs_n_int { 1 } }
+              }
+            \int_set:Nn \l__gmap_figs_n_int
+              {
+                \int_min:nn { \l__gmap_figs_n_int }
+                  { \l__gmap_figs_total_int - \l__gmap_figs_i_int + 1 }
+              }
+            \__gmap_figs_bloco:
+            \int_add:Nn \l__gmap_figs_i_int { \l__gmap_figs_n_int }
+            \int_incr:N \l__gmap_figs_bloco_int
+            \bool_set_true:N \l__gmap_figs_cont_bool
+          }
+      }
+  }
+
+%---------------------------------------------------------------------
+% \figuras[chaves]{legenda}{{arq}{sublegenda}, {arq}{sublegenda}, ...}
+% Um item so com o arquivo (sem chaves) sai sem sublegenda.
+%---------------------------------------------------------------------
+\NewDocumentCommand \figuras { s O{} m m }
+  {
+    \group_begin:
+    \__gmap_figs_iniciar:nn {#1} {#2}
+    \seq_set_from_clist:Nn \l__gmap_figs_tmp_seq {#4}
+    \seq_map_indexed_inline:Nn \l__gmap_figs_tmp_seq
+      {
+        \tl_if_head_is_group:nTF {##2}
+          { \seq_put_right:Nn \l__gmap_figs_itens_seq { ##2 {##1} } }
+          { \seq_put_right:Nn \l__gmap_figs_itens_seq { {##2} { } {##1} } }
+      }
+    \__gmap_figs_compor:n {#3}
+    \group_end:
+  }
+
+%---------------------------------------------------------------------
+% \serieFiguras[chaves]{padrao do arquivo}{valores}{sublegenda}{legenda}
+% No padrao do arquivo #1 e' o valor como escrito (4.0); na sublegenda,
+% com o separador decimal da chave decimal (4,0). valores pode ser um
+% comando que guarda a lista (p.ex. \espessuras).
+%---------------------------------------------------------------------
+\cs_new:Npn \__gmap_figs_arq:n #1 { }
+\cs_new:Npn \__gmap_figs_subleg:n #1 { }
+
+\cs_new_protected:Npn \__gmap_figs_serie_item:nn #1#2
+  {
+    \seq_put_right:Ne \l__gmap_figs_itens_seq
+      {
+        { \exp_not:o { \__gmap_figs_arq:n {#1} } }
+        { \exp_not:o { \__gmap_figs_subleg:n {#2} } }
+        { \exp_not:n {#1} }
+      }
+  }
+\cs_generate_variant:Nn \__gmap_figs_serie_item:nn { nV }
+\cs_generate_variant:Nn \tl_replace_all:Nnn { NnV }
+
+\NewDocumentCommand \serieFiguras { s O{} m m m m }
+  {
+    \group_begin:
+    \__gmap_figs_iniciar:nn {#1} {#2}
+    \cs_set:Npn \__gmap_figs_arq:n ##1 {#3}
+    \cs_set:Npn \__gmap_figs_subleg:n ##1 {#5}
+    \exp_args:NNo \clist_set:Nn \l__gmap_figs_valores_clist {#4}
+    \clist_map_inline:Nn \l__gmap_figs_valores_clist
+      {
+        \tl_set:Nn \l__gmap_figs_valor_tl {##1}
+        \tl_replace_all:NnV \l__gmap_figs_valor_tl { . } \l__gmap_figs_decimal_tl
+        \__gmap_figs_serie_item:nV {##1} \l__gmap_figs_valor_tl
+      }
+    \__gmap_figs_compor:n {#6}
+    \group_end:
+  }
+
+%---------------------------------------------------------------------
+% \definirmapa{nome}{chave=valor, ...}   ('*' = valor para chave ausente)
+% \mapa{nome}{chave}                      expansivel
+%---------------------------------------------------------------------
+\NewDocumentCommand \definirmapa { m m }
+  {
+    \prop_gclear_new:c { g__gmap_mapa_#1_prop }
+    \prop_gset_from_keyval:cn { g__gmap_mapa_#1_prop } {#2}
+  }
+
+\cs_new:Npn \mapa #1#2
+  {
+    \prop_if_exist:cTF { g__gmap_mapa_#1_prop }
+      {
+        \prop_if_in:cnTF { g__gmap_mapa_#1_prop } {#2}
+          { \prop_item:cn { g__gmap_mapa_#1_prop } {#2} }
+          {
+            \prop_if_in:cnTF { g__gmap_mapa_#1_prop } { * }
+              { \prop_item:cn { g__gmap_mapa_#1_prop } { * } }
+              { \msg_expandable_error:nnnn { gmap-figuras } { chave-inexistente } {#1} {#2} }
+          }
+      }
+      { \msg_expandable_error:nnn { gmap-figuras } { mapa-inexistente } {#1} }
+  }

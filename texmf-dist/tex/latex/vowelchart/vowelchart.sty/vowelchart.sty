@@ -1,0 +1,852 @@
+%%
+%% vowelchart.sty -- Vowel charts with TikZ
+%%
+%% Copyright (C) 2026 Daniel Bunčić <daniel.buncic@uni-koeln.de>
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008 or later.
+%%
+%% This work has the LPPL maintenance status "maintained".
+%%
+%% The Current Maintainer of this work is Daniel Bunčić.
+%%
+%% This work consists of the files vowelchart.sty, vowelchart.tex,
+%% vowelchart.pdf and README.md.
+%%
+%% vowelchart is a TikZ-based successor of the packages `vowel' by
+%% Fukui Rei and `pst-vowel' by Alan Munn.
+%%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{vowelchart}[2026/11/24 v1.1 Vowel charts with TikZ]
+\RequirePackage{xparse}
+\RequirePackage{tikz}
+\RequirePackage{contour}
+
+% ---------------------------------------------------------------
+% Defaults for all charts, given as package options
+%   \usepackage[<options>]{vowelchart}   or   \vowelchartset{<options>}
+% All options (also the ones of \vowelchartset) are collected in
+% \vc@defaults and applied at the beginning of every chart, before the
+% options of the environment itself.
+% ---------------------------------------------------------------
+\def\vc@defaults{}
+\newcommand\vowelchartset[1]{\g@addto@macro\vc@defaults{#1,}}
+\DeclareOption*{\expandafter\vowelchartset\expandafter{\CurrentOption}}
+\ProcessOptions\relax
+\usetikzlibrary{arrows.meta,backgrounds}
+
+% ---------------------------------------------------------------
+% Adjustable values
+% (most of them can be changed with options; see the documentation)
+% ---------------------------------------------------------------
+\newdimen\vc@unit                                 % length of one chart unit
+\newdimen\vc@target                               % requested width or height
+\newdimen\vowelchartline \vowelchartline=.2pt     % line width
+\newdimen\vowelchartdot  \vowelchartdot=1.4pt     % dot radius
+\newdimen\vowelchartarrow \vowelchartarrow=.6pt   % line width of diphthong arrows
+\newdimen\vowelcharthead  \vowelcharthead=6pt      % size (width) of arrowheads
+\newdimen\vc@ov \vc@ov=.5pt                       % overlap of the white strip
+\newdimen\vc@stripeh \vc@stripeh=1.5pt            % thickness of the white strip next to a dot
+\newdimen\vc@zh                                   % evaluated height of the white field
+% Units as in vowel.sty (-1pt = "not set"). They are only created here if
+% vowel.sty (which has to be loaded before vowelchart) has not defined them.
+\@ifundefined{vowelhunit}{\newlength\vowelhunit \setlength\vowelhunit{-\p@}}{}
+\@ifundefined{vowelvunit}{\newlength\vowelvunit \setlength\vowelvunit{-\p@}}{}
+\contourlength{0.06em}    % option "margin": width of the contour around a glyph
+\def\vc@padx{0.10em}      % option "pad": the white box is wider than the glyph by this much on each side
+\def\vc@gap{0.18em}       % option "gap": distance between the glyph and the dot next to it
+\def\vc@lift{.5ex}        % option "lift": the baseline lies this far below the dot
+\def\vc@boxh{1ex}         % option "boxh": height of the white box above the baseline
+\def\vc@boxd{0pt}         % option "boxd": depth of the white box below the baseline
+\def\vc@zonew{0.7em}      % option "zonew": width of the white field behind central vowels
+\def\vc@zoneh{1em}        % option "zoneh": height of that field (0pt = no field)
+\def\vc@zonecolor{}       % color of that field (empty = same as the label background)
+\def\vc@framex{0pt}       % margin of the chart background, left and right (option bgmargin)
+\def\vc@framey{0pt}       % margin of the chart background, top and bottom (option bgmargin)
+\def\vc@diphmargin{.15em} % option "diphmargin": contour around diphthong labels
+\def\vc@ipashorten{3pt}   % option "ipashorten": shortening of arrows at IPA positions (\putipadiphthong)
+\def\vc@labelbg{}         % option "labelbg": background of labels (empty = chart background)
+\def\vc@labelcon{}        % option "contour": color of the contour (empty = as labelbg)
+\def\vc@off{off}          % the value that switches labelbg/contour off
+\def\vc@curbg{}           % labelbg of the label that is being drawn
+\def\vc@curcon{}          % contour of the label that is being drawn
+\def\vc@dlp{above}        % option "diphlabelpos": above, below or on the arrow
+\def\vc@dllift{0pt}       % lowering of the label text (-.5ex for "on")
+
+% Tie bar (U+035C) between the two symbols of an automatic diphthong label ("*")
+\newcommand\vowelchartdiphtie{^^^^035c}
+
+\newif\ifvc@debug \vc@debugfalse    % set to true to get debugging messages in the log
+\newif\ifvc@dozone                  % draw the white field behind this vowel?
+\newif\ifvc@three                   % option "three": three heights instead of four
+\newif\ifvc@lookup \vc@lookupfalse  % IPA table in lookup mode: only find the position
+\newif\ifvc@bgoff                   % labelbg=off for the current label
+\newif\ifvc@conoff                  % contour=off for the current label
+
+\colorlet{vowelchartbg}{white}      % background color of the chart (option "bg")
+\def\vc@bg{vowelchartbg}
+\def\vc@fg{}                        % foreground color of the chart (empty = current color)
+\def\vc@paintstyle{vc paint}        % TikZ style that paints the background
+
+% ---------------------------------------------------------------
+% TikZ styles
+% ---------------------------------------------------------------
+\tikzset{
+  % paint the chart background (a rectangle around the chart)
+  vc paint/.style={show background rectangle,
+    background rectangle/.style={fill=\vc@bg, draw=none},
+    inner frame xsep=\vc@framex, inner frame ysep=\vc@framey},
+  vc bg/.style={fill=\vc@bg},
+  % diphthong arrow and the label in its middle
+  vc diph/.style={
+    line width=\vowelchartarrow,
+    vc arrowhead,
+    shorten >=1pt, shorten <=1pt,
+  },
+  % arrowhead: its size is read when the arrow is drawn
+  vc arrowhead/.code={%
+    \edef\vc@arrowspec{-{Latex[length=\the\dimexpr1.2\vowelcharthead\relax,
+      width=\the\vowelcharthead]}}%
+    \expandafter\pgfkeysalso\expandafter{\vc@arrowspec}},
+  vc diph label/.style={sloped, midway, inner sep=0pt, text=vowelchartcur, vc diph pos},
+  % the position of the label is chosen at the moment the node is created,
+  % so that diphlabelpos can also be given in the options of a single arrow
+  vc diph pos/.code={\pgfkeysalso{vc diph \vc@dlp}},
+  vc diph above/.style={above=0.5pt},
+  vc diph below/.style={below=0.15em},
+  vc diph on/.style={anchor=base},
+}
+
+% ---------------------------------------------------------------
+% Glyphs on a cleared background
+%
+% A label is cleared in three ways: a white box (\colorbox) behind
+% the glyph, a contour around the glyph (contour package) and, next to a
+% dot, a white strip that removes the rest of a horizontal line.
+% ---------------------------------------------------------------
+% Evaluate the settings \vc@curbg and \vc@curcon. Result: the colors
+% \vc@ebg (box) and \vc@econ (contour) and the switches \ifvc@bgoff and
+% \ifvc@conoff.
+\newcommand\vc@resolve{%
+  \ifx\vc@curbg\@empty
+    \edef\vc@ebg{\vc@bg}\vc@bgofffalse
+  \else
+    \ifx\vc@curbg\vc@off
+      \edef\vc@ebg{\vc@bg}\vc@bgofftrue
+    \else
+      \edef\vc@ebg{\vc@curbg}\vc@bgofffalse
+    \fi
+  \fi
+  \ifx\vc@curcon\@empty
+    \ifvc@bgoff\edef\vc@econ{\vc@bg}\else\edef\vc@econ{\vc@ebg}\fi
+    \vc@conofffalse
+  \else
+    \ifx\vc@curcon\vc@off
+      \edef\vc@econ{\vc@bg}\vc@conofftrue
+    \else
+      \edef\vc@econ{\vc@curcon}\vc@conofffalse
+    \fi
+  \fi}
+
+% Options of a single vowel command: l, r, x, labelbg, contour and the
+% fine-tuning options (they are local to this vowel, see \vc@putvowel)
+\pgfkeys{
+  /vc/lab/.cd,
+  l/.code       ={\def\vc@pmode{l}},
+  r/.code       ={\def\vc@pmode{r}},
+  x/.code       ={\def\vc@pmode{x}},
+  labelbg/.code ={\def\vc@curbg{#1}},
+  contour/.code ={\def\vc@curcon{#1}},
+  margin/.code  ={\contourlength{#1}},
+  pad/.code     ={\def\vc@padx{#1}},
+  boxh/.code    ={\def\vc@boxh{#1}},
+  boxd/.code    ={\def\vc@boxd{#1}},
+  gap/.code     ={\def\vc@gap{#1}},
+  lift/.code    ={\def\vc@lift{#1}},
+  stripe/.code  ={\setlength\vc@stripeh{#1}},
+  zonew/.code   ={\def\vc@zonew{#1}},
+  zoneh/.code   ={\def\vc@zoneh{#1}},
+}
+
+% \vowelchartlabels{labelbg=..., contour=...}: defaults for the following
+% labels (until the end of the current group)
+\pgfkeys{
+  /vc/deflab/.cd,
+  labelbg/.code ={\def\vc@labelbg{#1}},
+  contour/.code ={\def\vc@labelcon{#1}},
+}
+
+\newcommand\vowelchartlabels[1]{\pgfqkeys{/vc/deflab}{#1}}
+
+% Read the options of a vowel command (#1). The defaults for labelbg and
+% contour come from \vowelchartlabels or from the chart options.
+\newcommand\vc@parse[1]{%
+  \def\vc@pmode{x}%
+  \let\vc@curbg\vc@labelbg
+  \let\vc@curcon\vc@labelcon
+  \pgfqkeys{/vc/lab}{#1}%
+  \vc@resolve}
+
+% Typeset a glyph (or label) #1 on its cleared background
+\newdimen\vc@gh \newdimen\vc@gd
+\newcommand\vc@glyph[1]{%
+  \sbox\z@{#1}%
+  \setlength\fboxsep{0pt}%
+  % size reported to TikZ (and thus to the bounding box): at least the box
+  % set by boxh/boxd, but never smaller than the glyph itself (with its
+  % contour); otherwise tall glyphs (the dot of i) stick out of a background
+  \ifvc@conoff
+    \def\vc@gtext{#1}%
+    \vc@gh=\ht\z@ \vc@gd=\dp\z@
+  \else
+    \def\vc@gtext{\contour{\vc@econ}{#1}}%
+    \vc@gh=\dimexpr\ht\z@+\con@base@length\relax
+    \vc@gd=\dimexpr\dp\z@+\con@base@length\relax
+  \fi
+  \ifdim\vc@gh<\vc@boxh\relax \vc@gh=\vc@boxh\relax\fi
+  \ifdim\vc@gd<\vc@boxd\relax \vc@gd=\vc@boxd\relax\fi
+  \def\vc@gbox{\raisebox{0pt}[\vc@boxh][\vc@boxd]{%
+    \makebox[\dimexpr\wd\z@+\vc@padx+\vc@padx\relax][c]{\vc@gtext}}}%
+  \raisebox{0pt}[\vc@gh][\vc@gd]{%
+    \ifvc@bgoff
+      \vc@gbox
+    \else
+      \colorbox{\vc@ebg}{\vc@gbox}%
+    \fi}}
+
+% ---------------------------------------------------------------
+% Placement: \vc@place[l|r|x]{label}{x}{y}{node name}
+% (absolute coordinates; empty node name -> automatic name)
+%   l: label to the left of the dot, r: to the right, x: centered, no dot
+% ---------------------------------------------------------------
+\newcount\vc@cnt
+
+\newcommand\vc@place[5][x]{%
+  \edef\vc@nm{#5}%
+  \ifx\vc@nm\@empty
+    \global\advance\vc@cnt\@ne
+    \edef\vc@nm{vcauto\the\vc@cnt}%
+  \fi
+  \def\vc@tmp{#2}%
+  \ifx\vc@tmp\@empty
+    % empty label: only the dot (and an empty node, e.g. for arrows)
+    \node[inner sep=0pt, outer sep=0pt] (\vc@nm) at (#3,-#4) {};
+    \fill (#3,-#4) circle (\vowelchartdot);
+  \else
+    \ifx x#1%
+      \node[inner sep=0pt, anchor=base, yshift=-\vc@lift]
+        (\vc@nm) at (#3,-#4) {\vc@glyph{#2}};
+    \else
+      % \vc@bridge: the white strip between glyph and dot
+      \ifvc@bgoff
+        \def\vc@bridge{\kern\dimexpr\vc@gap-\vc@padx\relax}%
+      \else
+        \def\vc@bridge{%
+          \kern-\vc@ov
+          \textcolor{\vc@ebg}{%
+            \rule[\dimexpr\vc@lift-\vc@stripeh/2\relax]%
+                 {\dimexpr\vc@gap-\vc@padx+2\vc@ov\relax}%
+                 {\vc@stripeh}}%
+          \kern-\vc@ov}%
+      \fi
+      \ifx l#1%
+        \def\vc@anchor{base east}%
+        \def\vc@label{\vc@glyph{#2}\vc@bridge}%
+        \edef\vc@shift{-\the\vowelchartdot}%
+      \else
+        \def\vc@anchor{base west}%
+        \def\vc@label{\vc@bridge\vc@glyph{#2}}%
+        \edef\vc@shift{\the\vowelchartdot}%
+      \fi
+      \node[inner sep=0pt, anchor=\vc@anchor,
+            xshift=\vc@shift, yshift=-\vc@lift]
+        (\vc@nm) at (#3,-#4) {\vc@label};
+      \fill (#3,-#4) circle (\vowelchartdot);
+    \fi
+  \fi}
+
+% ---------------------------------------------------------------
+% Geometry: the quadrilateral is described by its four corners
+%   tl = top left, tr = top right, bl = bottom left, br = bottom right
+%   (each as x and y; y grows downwards)
+% Relative coordinates: h = 0..2 (left to right), v = 0..3 (top to bottom)
+% ---------------------------------------------------------------
+\newcommand\vc@setcorners[8]{%
+  \def\vc@tlx{#1}\def\vc@tly{#2}%
+  \def\vc@trx{#3}\def\vc@try{#4}%
+  \def\vc@blx{#5}\def\vc@bly{#6}%
+  \def\vc@brx{#7}\def\vc@bry{#8}}
+
+% \vc@corner{tl}{x,y}: set a single corner (option tl={x,y} etc.)
+\def\vc@corner#1#2{\vc@corner@i{#1}#2,\@nil}
+\def\vc@corner@i#1#2,#3,\@nil{%
+  \pgfmathsetmacro\vc@tmp{#2}%
+  \expandafter\let\csname vc@#1x\endcsname\vc@tmp
+  \pgfmathsetmacro\vc@tmp{#3}%
+  \expandafter\let\csname vc@#1y\endcsname\vc@tmp}
+
+% ---------------------------------------------------------------
+% Chart options (environment options, \vowelchartset, package options)
+% ---------------------------------------------------------------
+\pgfkeys{
+  /vowelchart/.cd,
+  % size
+  width/.code  ={\def\vc@size{#1}\def\vc@sizemode{w}},
+  height/.code ={\def\vc@size{#1}\def\vc@sizemode{h}},
+  % colors
+  bg/.code          ={\colorlet{vowelchartbg}{#1}\def\vc@bg{vowelchartbg}},
+  fg/.code          ={\def\vc@fg{#1}},
+  % line patterns
+  ipanew/.code      ={\def\vc@type{3}},
+  standard/.code    ={\def\vc@type{2}},
+  simple/.code      ={\def\vc@type{1}},
+  plain/.code       ={\def\vc@type{0}},
+  none/.code        ={\def\vc@type{-1}},
+  centralzone/.code ={\def\vc@type{4}},
+  centralcol/.code  ={\def\vc@type{5}},
+  three/.code       ={\vc@threetrue},
+  four/.code        ={\vc@threefalse},
+  % basic shapes (each one sets all four corners)
+  normal/.code    ={\vc@setcorners{0}{0}{4}{0}{2}{3}{4}{3}},
+  rectangle/.code ={\vc@setcorners{0}{0}{4}{0}{0}{3}{4}{3}},
+  triangle/.code  ={\vc@setcorners{0}{0}{4}{0}{2}{3}{2}{3}},
+  symmetric/.code ={\vc@setcorners{0}{0}{4}{0}{1}{3}{3}{3}},
+  slanted/.code   ={\vc@setcorners{0}{0}{3.6}{0.7}{2.4}{2.7}{4}{2.7}},
+  % individual corners: tl={x,y} etc.
+  tl/.code ={\vc@corner{tl}{#1}},
+  tr/.code ={\vc@corner{tr}{#1}},
+  bl/.code ={\vc@corner{bl}{#1}},
+  br/.code ={\vc@corner{br}{#1}},
+  % fine-tuning (margin, stripe, linewidth and dotsize are applied by
+  % \vc@applydims after all options have been read)
+  linewidth/.code  ={\def\vc@o@line{#1}},
+  dotsize/.code    ={\def\vc@o@dot{#1}},
+  arrowwidth/.code ={\def\vc@o@arrow{#1}},
+  arrowhead/.code  ={\def\vc@o@head{#1}},
+  bgmargin/.code   ={\def\vc@framex{#1}\def\vc@framey{#1}},
+  margin/.code     ={\def\vc@o@margin{#1}},
+  stripe/.code     ={\def\vc@o@stripe{#1}},
+  font/.code       ={#1},
+  fontsize/.code   ={\vc@setfontsize{#1}},
+  diphmargin/.code ={\def\vc@diphmargin{#1}},
+  diphlabelpos/.is choice,
+  diphlabelpos/above/.code={\def\vc@dlp{above}\def\vc@dllift{0pt}},
+  diphlabelpos/below/.code={\def\vc@dlp{below}\def\vc@dllift{0pt}},
+  diphlabelpos/on/.code   ={\def\vc@dlp{on}\def\vc@dllift{-.5ex}},
+  ipashorten/.code ={\def\vc@ipashorten{#1}},
+  gap/.code        ={\def\vc@gap{#1}},
+  pad/.code        ={\def\vc@padx{#1}},
+  lift/.code       ={\def\vc@lift{#1}},
+  boxh/.code       ={\def\vc@boxh{#1}},
+  boxd/.code       ={\def\vc@boxd{#1}},
+  zonew/.code      ={\def\vc@zonew{#1}},
+  zoneh/.code      ={\def\vc@zoneh{#1}},
+  labelbg/.code    ={\def\vc@labelbg{#1}},
+  contour/.code    ={\def\vc@labelcon{#1}},
+  % a value without a key (e.g. [6cm]) is taken as the width
+  .unknown/.code ={\edef\vc@size{\pgfkeyscurrentname}\def\vc@sizemode{w}},
+}
+
+% (h,v) -> absolute coordinates \vc@X, \vc@Y (y positive downwards).
+% Bilinear interpolation between the corners: first the points L and R on
+% the left and right edge at height v, then the point between them.
+\newcommand\vc@map[2]{%
+  \pgfmathsetmacro\vc@Lx{\vc@tlx+(\vc@blx-\vc@tlx)*(#2)/3}%
+  \pgfmathsetmacro\vc@Ly{\vc@tly+(\vc@bly-\vc@tly)*(#2)/3}%
+  \pgfmathsetmacro\vc@Rx{\vc@trx+(\vc@brx-\vc@trx)*(#2)/3}%
+  \pgfmathsetmacro\vc@Ry{\vc@try+(\vc@bry-\vc@try)*(#2)/3}%
+  \pgfmathsetmacro\vc@X{\vc@Lx+(#1)/2*(\vc@Rx-\vc@Lx)}%
+  \pgfmathsetmacro\vc@Y{\vc@Ly+(#1)/2*(\vc@Ry-\vc@Ly)}}
+
+% line from (h1,v1) to (h2,v2)
+\newcommand\vc@seg[4]{%
+  \vc@map{#1}{#2}\edef\vc@ax{\vc@X}\edef\vc@ay{\vc@Y}%
+  \vc@map{#3}{#4}%
+  \draw (\vc@ax,-\vc@ay) -- (\vc@X,-\vc@Y);}
+
+% horizontal line at height v = #1
+\newcommand\vc@hline[1]{\vc@seg{0}{#1}{2}{#1}}
+
+% Draw the outline and the grid lines. \vc@type: 0 plain, 1 simple,
+% 2 standard, 3 ipanew, 4 centralzone, 5 centralcol, -1 none (nothing)
+\newcommand\vc@drawframe{%
+  \ifnum\vc@type<0 \else \vc@drawframe@a \fi}
+\newcommand\vc@drawframe@a{%
+  \draw (\vc@tlx,-\vc@tly) -- (\vc@trx,-\vc@try)
+        -- (\vc@brx,-\vc@bry) -- (\vc@blx,-\vc@bly) -- cycle;
+  \ifnum\vc@type>0
+    \ifvc@three \vc@hline{1.5}\else \vc@hline{1}\vc@hline{2}\fi
+  \fi
+  \ifnum\vc@type=3
+    \vc@seg{1}{0}{1}{3}%
+  \fi
+  \ifnum\vc@type=2
+    \vc@seg{0.583}{0}{1}{2.5}%
+    \vc@seg{1}{0}{1}{2.5}%
+    \vc@seg{1.417}{0}{1}{2.5}%
+  \fi
+  \ifnum\vc@type=4
+    \vc@seg{0.583}{0}{1}{2.5}%
+    \vc@seg{1.417}{0}{1}{2.5}%
+  \fi
+  \ifnum\vc@type=5
+    \vc@seg{0.667}{0}{0.667}{3}%
+    \vc@seg{1.333}{0}{1.333}{3}%
+  \fi}
+
+% ---------------------------------------------------------------
+% Font size and lengths
+% ---------------------------------------------------------------
+\newcommand\vc@setfontsize[1]{%
+  \setlength\@tempdima{#1}%
+  \@tempdima=1.2\@tempdima
+  \fontsize{#1}{\the\@tempdima}\selectfont}
+
+\newcommand\vc@applydims{%
+  \ifx\vc@o@line\@empty\else\setlength\vowelchartline{\vc@o@line}\fi
+  \ifx\vc@o@dot\@empty\else\setlength\vowelchartdot{\vc@o@dot}\fi
+  \ifx\vc@o@arrow\@empty\else\setlength\vowelchartarrow{\vc@o@arrow}\fi
+  \ifx\vc@o@head\@empty\else\setlength\vowelcharthead{\vc@o@head}\fi
+  \ifx\vc@o@margin\@empty\else\contourlength{\vc@o@margin}\fi
+  \ifx\vc@o@stripe\@empty\else\setlength\vc@stripeh{\vc@o@stripe}\fi}
+
+% ---------------------------------------------------------------
+% Compute the unit from the requested width or height
+%   unit = width / (x extent of the four corners)   or
+%   unit = height / (y extent of the four corners)
+% If neither is given, the chart is 8em wide, unless the legacy lengths
+% \vowelhunit / \vowelvunit of vowel.sty have been set.
+% ---------------------------------------------------------------
+\newcommand\vc@computeunit{%
+  \def\vc@usedim{0}%
+  \if d\vc@sizemode
+    \ifdim\vowelhunit=-\p@\relax
+      \ifdim\vowelvunit=-\p@\relax
+      \else
+        \ifvc@three
+          \pgfmathsetlength\vc@unit{\strip@pt\vowelvunit/1.5}%
+        \else
+          \vc@unit=\vowelvunit
+        \fi
+        \def\vc@usedim{1}%
+      \fi
+    \else
+      \vc@unit=\vowelhunit
+      \def\vc@usedim{1}%
+    \fi
+  \fi
+  \if 1\vc@usedim\else
+    \pgfmathsetmacro\vc@xmin{min(\vc@tlx,\vc@trx,\vc@blx,\vc@brx)}%
+    \pgfmathsetmacro\vc@xmax{max(\vc@tlx,\vc@trx,\vc@blx,\vc@brx)}%
+    \pgfmathsetmacro\vc@ymin{min(\vc@tly,\vc@try,\vc@bly,\vc@bry)}%
+    \pgfmathsetmacro\vc@ymax{max(\vc@tly,\vc@try,\vc@bly,\vc@bry)}%
+    \if h\vc@sizemode
+      \pgfmathsetmacro\vc@extent{\vc@ymax-\vc@ymin}%
+    \else
+      \pgfmathsetmacro\vc@extent{\vc@xmax-\vc@xmin}%
+    \fi
+    \setlength\vc@target{\vc@size}%
+    \pgfmathsetlength\vc@unit{\strip@pt\vc@target/\vc@extent}%
+  \fi
+  % conversely: inside the chart, the lengths contain the actual unit
+  % (with "three", the vertical unit of vowel.sty is 1.5 times as large)
+  \vowelhunit=\vc@unit
+  \ifvc@three \vowelvunit=1.5\vc@unit \else \vowelvunit=\vc@unit \fi}
+
+% ---------------------------------------------------------------
+% The environment
+% ---------------------------------------------------------------
+\newcommand\vc@runkeys[1]{\pgfqkeys{/vowelchart}{#1}}
+
+\newenvironment{vowelchart}[1][]{%
+  % default values
+  \def\vc@size{8em}\def\vc@sizemode{d}\def\vc@type{3}%
+  \colorlet{vowelchartbg}{white}\def\vc@bg{vowelchartbg}%
+  \def\vc@fg{}\def\vc@paintstyle{vc paint}%
+  \def\vc@o@line{}\def\vc@o@dot{}\def\vc@o@arrow{}\def\vc@o@head{}\def\vc@o@margin{}\def\vc@o@stripe{}%
+  \vc@setcorners{0}{0}{4}{0}{2}{3}{4}{3}%
+  \vc@threefalse
+  \def\vc@labelbg{}\def\vc@labelcon{}%
+  % first the defaults of the package, then the options of this chart
+  \expandafter\vc@runkeys\expandafter{\vc@defaults}%
+  \vc@runkeys{#1}%
+  \vc@applydims
+  \vc@computeunit
+  % the commands exist only inside the environment
+  \let\putvowel\vc@putvowel
+  \let\putcvowel\vc@putcvowel
+  \let\putipavowel\vc@putipavowel
+  \let\putdiphthong\vc@putdiphthong
+  \let\putipadiphthong\vc@putipadiphthong
+  \ifx\vc@fg\@empty
+    \colorlet{vowelchartfg}{.}%
+  \else
+    \colorlet{vowelchartfg}{\vc@fg}%
+  \fi
+  \tikzpicture[x=\vc@unit, y=\vc@unit, line width=\vowelchartline,
+               \vc@paintstyle]%
+  \color{vowelchartfg}%
+  \vc@drawframe
+}{\endtikzpicture}
+
+% ---------------------------------------------------------------
+% Coordinate system "vowel": (vowel cs:h=1.5,v=1)
+% ---------------------------------------------------------------
+\pgfkeys{
+  /vc/cs/.cd,
+  h/.store in=\vc@csh,
+  x/.store in=\vc@csh,
+  v/.store in=\vc@csv,
+  y/.store in=\vc@csv,
+}
+
+\tikzdeclarecoordinatesystem{vowel}{%
+  \def\vc@csh{0}\def\vc@csv{0}%
+  \pgfkeys{/vc/cs/.cd,#1}%
+  \vc@map{\vc@csh}{\vc@csv}%
+  \pgfpointxy{\vc@X}{-\vc@Y}}
+
+% ---------------------------------------------------------------
+% White field behind central vowels (option x, h = 1): the center
+% line would otherwise run through the label
+% ---------------------------------------------------------------
+\newcommand\vc@zone[1]{%
+  \ifx\vc@zonecolor\@empty
+    \edef\vc@zfill{\vc@ebg}%
+  \else
+    \edef\vc@zfill{\vc@zonecolor}%
+  \fi
+  \node[draw=none, fill=\vc@zfill, inner sep=0pt, outer sep=0pt,
+        anchor=center, minimum width=\vc@zonew, minimum height=\vc@zoneh]
+    at (\vc@X,-\vc@Y) {};}
+
+% ---------------------------------------------------------------
+% \putvowel[l|r|x]{label}{h}{v}[node name]       h: 0..2, v: 0..3
+% \putvowel*[...]{label}{x}{y}[node name]        legacy: absolute lengths
+%
+% The commands work inside a group, so that the options of a single vowel
+% (e.g. pad=...) do not influence the following vowels. (TikZ nodes are
+% global, so the node names remain available.)
+% ---------------------------------------------------------------
+\NewDocumentCommand\vc@putvowel{s O{} m m m O{}}{%
+  \begingroup
+  \vc@parse{#2}%
+  \IfBooleanTF{#1}
+    {\expandafter\vc@putvowel@abs\expandafter{\vc@pmode}{#3}{#4}{#5}{#6}}
+    {\expandafter\vc@putvowel@i\expandafter{\vc@pmode}{#3}{#4}{#5}{#6}}%
+  \endgroup}
+
+% absolute coordinates as in vowel.sty: lengths, origin at the top left,
+% y downwards
+\newcommand\vc@putvowel@abs[5]{%
+  \setlength\@tempdima{#3}%
+  \setlength\@tempdimb{#4}%
+  \pgfmathsetmacro\vc@X{\strip@pt\@tempdima/\strip@pt\vc@unit}%
+  \pgfmathsetmacro\vc@Y{\strip@pt\@tempdimb/\strip@pt\vc@unit}%
+  \vc@place[#1]{#2}{\vc@X}{\vc@Y}{#5}}
+
+% relative coordinates; #1 = l|r|x, #2 = label, #3 = h, #4 = v, #5 = name
+\newcommand\vc@putvowel@i[5]{%
+  \vc@map{#3}{#4}%
+  \def\vc@mode{#1}%
+  % h = 1 (center line)? Only then the white field may be needed.
+  \pgfmathtruncatemacro\vc@hflag{ifthenelse(abs((#3)-1)<0.001,1,0)}%
+  \setlength\vc@zh{\vc@zoneh}%
+  \vc@dozonefalse
+  \if x\vc@mode
+    \ifnum\vc@hflag=\@ne
+      \ifdim\vc@zh>\z@
+        \vc@dozonetrue
+      \fi
+    \fi
+  \fi
+  \def\vc@symtmp{#2}%
+  \ifx\vc@symtmp\@empty\vc@dozonefalse\fi
+  \ifvc@bgoff\vc@dozonefalse\fi
+  \ifvc@debug
+    \typeout{vowelchart: mode=\vc@mode\space
+      hflag=\vc@hflag\space zh=\the\vc@zh\space
+      zone=\ifvc@dozone yes\else no\fi}%
+  \fi
+  \ifvc@dozone\vc@zone{#2}\fi
+  \vc@place[#1]{#2}{\vc@X}{\vc@Y}{#5}}
+
+% ---------------------------------------------------------------
+% \putcvowel[l|r|x]{label}{number}[node name]
+% Cardinal vowel positions 1..16 (default node name: v<number>)
+% ---------------------------------------------------------------
+\NewDocumentCommand\vc@putcvowel{O{} m m O{}}{%
+  \begingroup
+  \vc@parse{#1}%
+  \expandafter\vc@putcvowel@i\expandafter{\vc@pmode}{#2}{#3}{#4}%
+  \endgroup}
+
+\newcommand\vc@putcvowel@i[4]{%
+  \def\vc@cn{#4}%
+  \ifx\vc@cn\@empty \edef\vc@cn{v\number#3}\fi
+  \ifcase#3\or
+    \vc@putvowel@i{#1}{#2}{0}{0}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{0}{1}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{0}{2}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{0}{3}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{2}{3}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{2}{2}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{2}{1}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{2}{0}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1}{0}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1}{1}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1}{1.5}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1}{2}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{0.5}{0.5}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1.5}{0.5}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{1}{2.5}{\vc@cn}\or
+    \vc@putvowel@i{#1}{#2}{0}{2.5}{\vc@cn}\else\fi}
+
+% ---------------------------------------------------------------
+% IPA table and \putipavowel[options][label]{IPA or X-SAMPA}[node name]
+%
+% \vc@ipa{symbol}{l|r|x}{h}{v}: in normal mode, place the vowel; in lookup
+% mode (\ifvc@lookup, used by \putipadiphthong), only remember the symbol
+% and the position in \vc@lsym, \vc@lh and \vc@lv.
+% ---------------------------------------------------------------
+\newcommand\vc@ipaname{}        % node name
+\newcommand\vc@ipaopts{}        % options of this vowel
+\newcommand\vc@ipalabel{}       % label given by the user
+\newif\ifvc@ipahaslabel         % was a label given? (it may be empty)
+
+\newcommand\vc@ipa[4]{%
+  \ifvc@lookup
+    \def\vc@lsym{#1}\def\vc@lh{#3}\def\vc@lv{#4}%
+  \else
+    % the position given by the table (l, r or x) comes first, so that the
+    % user's options can override it
+    \edef\vc@ipaall{#2,\vc@ipaopts}%
+    \ifvc@ipahaslabel
+      \expandafter\vc@putvowel\expandafter[\vc@ipaall]{\vc@ipalabel}{#3}{#4}[\vc@ipaname]%
+    \else
+      \expandafter\vc@putvowel\expandafter[\vc@ipaall]{#1}{#3}{#4}[\vc@ipaname]%
+    \fi
+  \fi}
+
+% The table: input (IPA in Unicode or X-SAMPA) -> symbol, dot position
+% (l, r or x = no dot), h and v. Several inputs can lead to the same
+% position. An apostrophe selects another position or dot side.
+% (No backslash is used in X-SAMPA: write u- or @- ...)
+\ExplSyntaxOn
+\cs_new_protected:Npn \vc@iptable #1
+  {
+    \str_case:nnF {#1}
+      {
+        % --- close (v = 0) ---
+        {i}{\vc@ipa{i}{l}{0}{0}}
+        {y}{\vc@ipa{y}{r}{0}{0}}
+        {ɨ}{\vc@ipa{ɨ}{l}{1}{0}}
+        {1}{\vc@ipa{ɨ}{l}{1}{0}}
+        {ʉ}{\vc@ipa{ʉ}{r}{1}{0}}
+        {\}}{\vc@ipa{ʉ}{r}{1}{0}}
+        {u-}{\vc@ipa{ʉ}{r}{1}{0}}
+        {ɯ}{\vc@ipa{ɯ}{l}{2}{0}}
+        {M}{\vc@ipa{ɯ}{l}{2}{0}}
+        {u}{\vc@ipa{u}{r}{2}{0}}
+        % --- near-close (v = 0.5) ---
+        {ɪ}{\vc@ipa{ɪ}{l}{0.33}{0.5}}
+        {I}{\vc@ipa{ɪ}{l}{0.33}{0.5}}
+        {ʏ}{\vc@ipa{ʏ}{r}{0.33}{0.5}}
+        {Y}{\vc@ipa{ʏ}{r}{0.33}{0.5}}
+        {ʊ}{\vc@ipa{ʊ}{r}{1.67}{0.5}}
+        {U}{\vc@ipa{ʊ}{r}{1.67}{0.5}}
+        % --- close-mid (v = 1) ---
+        {e}{\vc@ipa{e}{l}{0}{1}}
+        {ø}{\vc@ipa{ø}{r}{0}{1}}
+        {2}{\vc@ipa{ø}{r}{0}{1}}
+        {ɘ}{\vc@ipa{ɘ}{l}{1}{1}}
+        {@-}{\vc@ipa{ɘ}{l}{1}{1}}
+        {ɵ}{\vc@ipa{ɵ}{r}{1}{1}}
+        {8}{\vc@ipa{ɵ}{r}{1}{1}}
+        {ɤ}{\vc@ipa{ɤ}{l}{2}{1}}
+        {7}{\vc@ipa{ɤ}{l}{2}{1}}
+        {o}{\vc@ipa{o}{r}{2}{1}}
+        % --- mid (v = 1.5) ---
+        {e'}{\vc@ipa{e}{l}{0}{1.5}}
+        {ø'}{\vc@ipa{ø}{r}{0}{1.5}}
+        {2'}{\vc@ipa{ø}{r}{0}{1.5}}
+        {o'}{\vc@ipa{ɔ}{r}{2}{1.5}}
+        {ə}{\vc@ipa{ə}{x}{1}{1.5}}
+        {@}{\vc@ipa{ə}{x}{1}{1.5}}
+        {ə'}{\vc@ipa{ə}{l}{1}{1.5}}
+        {@'}{\vc@ipa{ə}{l}{1}{1.5}}
+        {'ə}{\vc@ipa{ə}{r}{1}{1.5}}
+        {'@}{\vc@ipa{ə}{r}{1}{1.5}}
+        {ɛ'}{\vc@ipa{ɛ}{l}{0}{1.5}}
+        {E'}{\vc@ipa{ɛ}{l}{0}{1.5}}
+        {œ'}{\vc@ipa{œ}{r}{0}{1.5}}
+        {oe'}{\vc@ipa{œ}{r}{0}{1.5}}
+        {9'}{\vc@ipa{œ}{r}{0}{1.5}}
+        {ɔ'}{\vc@ipa{ɔ}{r}{2}{1.5}}
+        {O'}{\vc@ipa{ɔ}{r}{2}{1.5}}
+        % --- open-mid (v = 2) ---
+        {ɛ}{\vc@ipa{ɛ}{l}{0}{2}}
+        {E}{\vc@ipa{ɛ}{l}{0}{2}}
+        {œ}{\vc@ipa{œ}{r}{0}{2}}
+        {oe}{\vc@ipa{œ}{r}{0}{2}}
+        {9}{\vc@ipa{œ}{r}{0}{2}}
+        {ɜ}{\vc@ipa{ɜ}{l}{1}{2}}
+        {3}{\vc@ipa{ɜ}{l}{1}{2}}
+        {ɞ}{\vc@ipa{ɞ}{r}{1}{2}}
+        {3-}{\vc@ipa{ɞ}{r}{1}{2}}
+        {ʌ}{\vc@ipa{ʌ}{l}{2}{2}}
+        {V}{\vc@ipa{ʌ}{l}{2}{2}}
+        {ɔ}{\vc@ipa{ɔ}{r}{2}{2}}
+        {O}{\vc@ipa{ɔ}{r}{2}{2}}
+        % --- near-open (v = 2.5) ---
+        {æ}{\vc@ipa{æ}{l}{0}{2.5}}
+        {\{}{\vc@ipa{æ}{l}{0}{2.5}}
+        {ae}{\vc@ipa{æ}{l}{0}{2.5}}
+        {ɐ}{\vc@ipa{ɐ}{x}{1}{2.5}}
+        {6}{\vc@ipa{ɐ}{x}{1}{2.5}}
+        {ɐ'}{\vc@ipa{ɐ}{l}{1}{2.5}}
+        {6'}{\vc@ipa{ɐ}{l}{1}{2.5}}
+        {'ɐ}{\vc@ipa{ɐ}{r}{1}{2.5}}
+        {'6}{\vc@ipa{ɐ}{r}{1}{2.5}}
+        % --- open (v = 3) ---
+        {a}{\vc@ipa{a}{l}{0}{3}}
+        {æ'}{\vc@ipa{æ}{l}{0}{3}}
+        {ae'}{\vc@ipa{æ}{l}{0}{3}}
+        {\{'}{\vc@ipa{æ}{l}{0}{3}}
+        {a'}{\vc@ipa{a}{l}{1}{3}}
+        {'a'}{\vc@ipa{a}{x}{1}{3}}
+        {ɶ}{\vc@ipa{ɶ}{r}{0}{3}}
+        {&}{\vc@ipa{ɶ}{r}{0}{3}}
+        {OE}{\vc@ipa{ɶ}{r}{0}{3}}
+        {ɑ}{\vc@ipa{ɑ}{l}{2}{3}}
+        {A}{\vc@ipa{ɑ}{l}{2}{3}}
+        {ɒ}{\vc@ipa{ɒ}{r}{2}{3}}
+        {Q}{\vc@ipa{ɒ}{r}{2}{3}}
+      }
+      {
+        \PackageError{vowelchart}
+          {Unknown~vowel~symbol~'#1'}
+          {The~IPA~commands~know~the~IPA~vowel~symbols~and~their~SAMPA~equivalents.}
+      }
+  }
+
+% \putipavowel[<options>][<label>]{<symbol>}[<node name>]
+% With only one optional argument, this is the label.
+\NewDocumentCommand\vc@putipavowel{ o o m O{} }
+  {
+    \IfNoValueTF{#1}
+      {\vc@ipahaslabelfalse \def\vc@ipaopts{}}
+      {\IfNoValueTF{#2}
+        {\vc@ipahaslabeltrue \def\vc@ipalabel{#1}\def\vc@ipaopts{}}
+        {\vc@ipahaslabeltrue \def\vc@ipalabel{#2}\def\vc@ipaopts{#1}}}
+    \def\vc@ipaname{#4}
+    \vc@iptable{#3}
+  }
+
+\ExplSyntaxOff
+
+% ---------------------------------------------------------------
+% Diphthongs
+% ---------------------------------------------------------------
+% These keys can be used in the TikZ options of a single arrow. They are
+% evaluated while the arrow is drawn, i.e. before the label node is made.
+\tikzset{
+  labelbg/.code ={\def\vc@curbg{#1}},
+  contour/.code ={\def\vc@curcon{#1}},
+  diphmargin/.code ={\def\vc@diphmargin{#1}},
+  diphlabelpos/.is choice,
+  diphlabelpos/above/.code={\def\vc@dlp{above}\def\vc@dllift{0pt}},
+  diphlabelpos/below/.code={\def\vc@dlp{below}\def\vc@dllift{0pt}},
+  diphlabelpos/on/.code   ={\def\vc@dlp{on}\def\vc@dllift{-.5ex}},
+}
+
+% The label of a diphthong arrow, with a contour (but no box) so that the
+% arrow and the lines are cleared around it
+\newcommand\vc@diphlabel[1]{%
+  \vc@resolve
+  \ifvc@conoff
+    #1%
+  \else
+    {\contourlength{\vc@diphmargin}\contour{\vc@econ}{#1}}%
+  \fi}
+
+% Draw the arrow from \vc@epa to \vc@epb; the label is in \vc@lbl.
+% #1 = TikZ options, #2 = node name (of the label node in the middle)
+\newcommand\vc@diphdraw[2]{%
+  \edef\vc@dname{#2}%
+  \ifx\vc@dname\@empty
+    \def\vc@dnameopt{}%
+  \else
+    \edef\vc@dnameopt{, name=\vc@dname}%
+  \fi
+  \ifx\vc@lbl\@empty
+    \ifx\vc@dname\@empty
+      \def\vc@dnode{}%
+    \else
+      \edef\vc@dnode{node[vc diph label\vc@dnameopt]{}}%
+    \fi
+  \else
+    \edef\vc@dnode{node[vc diph label\vc@dnameopt]%
+      {\noexpand\raisebox{\noexpand\vc@dllift}%
+        {\noexpand\vc@diphlabel{\unexpanded\expandafter{\vc@lbl}}}}}%
+  \fi
+  % remember the current color: the label inherits the color of the arrow
+  % (needed because a rotated node does not always do so, e.g. in XeLaTeX)
+  \colorlet{vowelchartcur}{.}%
+  % defaults from \vowelchartlabels / the chart options; options of this
+  % arrow (labelbg=, contour=) override them while the arrow is drawn
+  \let\vc@curbg\vc@labelbg
+  \let\vc@curcon\vc@labelcon
+  \edef\vc@allopts{vc diph,\vc@dopts}%
+  \expandafter\draw\expandafter[\vc@allopts #1] \vc@epa -- \vc@epb \vc@dnode;}
+
+% \putdiphthong[TikZ options]{label}{h1}{v1}{h2}{v2}[node name]
+\NewDocumentCommand\vc@putdiphthong{ O{} m m m m m O{} }{%
+  \def\vc@lbl{#2}%
+  \def\vc@dopts{}%
+  \edef\vc@epa{(vowel cs:h=#3,v=#4)}%
+  \edef\vc@epb{(vowel cs:h=#5,v=#6)}%
+  \vc@diphdraw{#1}{#7}}
+
+% End point of \putipadiphthong: "(...)" is a TikZ coordinate, anything
+% else an IPA or X-SAMPA symbol that is looked up in the table
+\def\vc@endpoint#1{\vc@endpoint@a{#1}#1\@nil}
+\def\vc@endpoint@a#1#2#3\@nil{%
+  \ifx#2(%
+    \def\vc@ep{#1}\def\vc@epsym{}%
+  \else
+    \def\vc@lh{0}\def\vc@lv{0}\def\vc@lsym{}%
+    \vc@lookuptrue
+    \vc@iptable{#1}%
+    \vc@lookupfalse
+    \edef\vc@ep{(vowel cs:h=\vc@lh,v=\vc@lv)}%
+    \let\vc@epsym\vc@lsym
+  \fi}
+
+% \putipadiphthong[TikZ options]{label}{start}{end}[node name]
+% The label "*" stands for the symbols of start and end joined by a tie bar.
+\NewDocumentCommand\vc@putipadiphthong{ O{} m m m O{} }{%
+  \vc@endpoint{#3}\let\vc@epa\vc@ep \let\vc@syma\vc@epsym
+  \vc@endpoint{#4}\let\vc@epb\vc@ep \let\vc@symb\vc@epsym
+  \def\vc@lbl{#2}\def\vc@star{*}%
+  \ifx\vc@lbl\vc@star
+    \def\vc@lbl{\vc@syma\vowelchartdiphtie\vc@symb}%
+  \fi
+  % shorten the arrow only at ends that are IPA positions (not at nodes
+  % or coordinates)
+  \def\vc@opta{}\def\vc@optb{}%
+  \ifx\vc@syma\@empty\else
+    \edef\vc@opta{shorten <=\vc@ipashorten,}%
+  \fi
+  \ifx\vc@symb\@empty\else
+    \edef\vc@optb{shorten >=\vc@ipashorten,}%
+  \fi
+  \edef\vc@dopts{\vc@opta\vc@optb}%
+  \vc@diphdraw{#1}{#5}}
+
+\endinput

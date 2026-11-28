@@ -1,0 +1,805 @@
+%%
+%% tcbnestbreak.sty
+%% ================
+%% Breakable tcolorboxes inside breakable tcolorboxes.
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This package is licensed under the conditions of the LaTeX Project
+%% Public License, either version 1.3c of this license or (at your
+%% option) any later version.  The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Munehiro Yamamoto.
+%%
+%% Background
+%%   tcolorbox typesets the content of a breakable box as one vbox and
+%%   splits it with \vsplit.  A box inside is one picture in this vbox
+%%   and cannot be split: tcolorbox ignores "breakable" for a box
+%%   inside another box.
+%%
+%% What this package does
+%%   With this package, "breakable" works for a box at the top level of
+%%   the content of a breakable box (and of such a box inside):
+%%     (1) the box "flows": its content is typeset indented, as in a
+%%         list, and put line by line into the list of the box around
+%%         it, with the space of its frame above and below and with a
+%%         TeX mark (\marks) at its start, at its end and between its
+%%         upper and its lower part.  tcolorbox then splits the outer
+%%         box between these lines as usual;
+%%     (2) before a part of the outer box is drawn, the positions of
+%%         the marks in the part are measured: a copy of the part is
+%%         taken apart with \vsplit, piece by piece;
+%%     (3) the frame of each inner box in the part is drawn with the
+%%         code of tcolorbox, as an unbroken box or as a first, middle
+%%         or last part, with the segmentation line if the part has
+%%         it, and put behind the text of the part.
+%%   This is done in one run and with every engine, in yoko and in
+%%   tate.  With the tcbpagefootnote package, the footnotes of an inner
+%%   box with "page footnote" are put on the pages of their marks.
+%%
+%% Tested with TeX Live 2025 (frozen: LaTeX 2025-11-01, tcolorbox
+%% 6.9.0) and TeX Live 2026 (LaTeX 2026-11-01, tcolorbox 6.10.0).
+%%
+%% Internal macros of tcolorbox that are used
+%%   \tcb@layer@inc, \tcb@apply@box@options, \tcb@init@unbreakable,
+%%   \tcb@vbox, \tcb@savebox, \tcb@drawcolorbox,
+%%   \tcb@drawcolorbox@standalone, \tcb@draw@color@box,
+%%   \tcb@set@@dimensions, \tcb@sdraw@U, \tcb@sdraw@USL, \tcb@sdraw@L
+%%   (and, for the hooks, \tcb@sdraw@SL),
+%%   \tcb@split@setstate@first (and @middle, @last), \tcb@ch@natural,
+%%   and the lengths of a box, whose names start with \kvtcb@ and
+%%   \tcb@h@.
+%%
+\RequirePackage{expl3}
+\ProvidesExplPackage{tcbnestbreak}
+  {2026/11/22}{0.2}{Breakable tcolorboxes inside breakable tcolorboxes}
+
+\RequirePackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
+
+%% The marks of the start (S<number>) and the end (E<number>) of a box
+\newmarks \c__tcbnestbreak_marks_int
+%% The boxes that flow are numbered
+\int_new:N \g__tcbnestbreak_box_int
+\tl_new:N \l__tcbnestbreak_id_tl
+%% We are at the top level of the content of a breakable box or of a
+%% box that flows
+\bool_new:N \l__tcbnestbreak_top_bool
+%% This box can flow; it flows
+\bool_new:N \l__tcbnestbreak_can_bool
+\bool_new:N \l__tcbnestbreak_flow_bool
+%% A frame is being drawn
+\bool_new:N \l__tcbnestbreak_frame_bool
+%% \@totalleftmargin where the box starts, the options of the box
+\dim_new:N \l__tcbnestbreak_left_dim
+\tl_new:N \l__tcbnestbreak_opts_tl
+
+%% -----------------------------------------------------------------
+%% 1. Which boxes flow
+%%    The content of a breakable box is typeset by \tcb@vbox, that of
+%%    a box that flows by \__tcbnestbreak_flowbox:nnn: we are at the
+%%    top level of such a content until a minipage, a \parbox or the
+%%    like starts (\@arrayparboxrestore).
+%%    For a box that starts there, "breakable", which tcolorbox has
+%%    switched off (\tcb@layer@inc), makes the box flow.
+%% -----------------------------------------------------------------
+\cs_new_eq:NN \__tcbnestbreak_vbox:nnn \tcb@vbox
+\cs_gset_protected:Npn \tcb@vbox #1#2#3
+  {
+    \__tcbnestbreak_vbox:nnn {#1} {#2} {#3}
+    \bool_set_true:N \l__tcbnestbreak_top_bool
+  }
+\AddToHook { cmd/@arrayparboxrestore/after }
+  { \bool_set_false:N \l__tcbnestbreak_top_bool }
+
+\cs_new_protected:Npn \__tcbnestbreak_request:
+  { \bool_set_true:N \l__tcbnestbreak_flow_bool }
+
+\AddToHook { cmd/tcb@layer@inc/before }
+  {
+    \bool_set_eq:NN \l__tcbnestbreak_can_bool \l__tcbnestbreak_top_bool
+    \bool_set_false:N \l__tcbnestbreak_flow_bool
+    \dim_set_eq:NN \l__tcbnestbreak_left_dim \@totalleftmargin
+  }
+\AddToHook { cmd/tcb@layer@inc/after }
+  {
+    \bool_lazy_and:nnT
+      { \l__tcbnestbreak_can_bool } { ! \l__tcbnestbreak_frame_bool }
+      {
+        \tcbset
+          {
+            breakable@true/.code      = \__tcbnestbreak_request: ,
+            breakable@unlimited/.code = \__tcbnestbreak_request: ,
+            enforce~breakable/.code   = \__tcbnestbreak_request: ,
+            breakable@false/.append~code =
+              \bool_set_false:N \l__tcbnestbreak_flow_bool ,
+          }
+      }
+  }
+
+%% The options of the box are saved: the frame is drawn with them
+\cs_new_eq:NN \__tcbnestbreak_apply:n \tcb@apply@box@options
+\cs_gset_protected:Npn \tcb@apply@box@options #1
+  {
+    \tl_set:Nn \l__tcbnestbreak_opts_tl {#1}
+    \__tcbnestbreak_apply:n {#1}
+  }
+
+%% A box that flows is an unbreakable box for tcolorbox, with another
+%% code for typesetting its content and for drawing it.
+\AddToHook { cmd/tcb@init@unbreakable/after }
+  {
+    \bool_if:NT \l__tcbnestbreak_flow_bool
+      {
+        \bool_lazy_and:nnTF
+          { \str_if_eq_p:ee { \kvtcb@capture } { minipage } }
+          { \tl_if_empty_p:N \kvtcb@float }
+          {
+            \cs_set_eq:NN \tcb@savebox \__tcbnestbreak_flowbox:nnn
+            \cs_set_eq:NN \endtcb@savebox \__tcbnestbreak_flowbox_end:
+            \cs_set_eq:NN \tcb@drawcolorbox \__tcbnestbreak_flow:
+          }
+          { \bool_set_false:N \l__tcbnestbreak_flow_bool }
+      }
+  }
+
+%% -----------------------------------------------------------------
+%% 2. The content of a box that flows
+%%    It is typeset as by \tcb@vbox, but in the \hsize of the box
+%%    around it and indented as in a list (\@totalleftmargin,
+%%    \linewidth, \parshape): its lines go into the list of the box
+%%    around it as they are.
+%%    \nobreak keeps the color special at the start from being a
+%%    place where the list can be broken before the first line.
+%%    #1: box, #2: width of the text, #3: color
+%% -----------------------------------------------------------------
+\cs_new:Npn \__tcbnestbreak_inset:N #1
+  {
+    \kvtcb@left@rule + \kvtcb@boxsep +
+    \int_compare:nNnTF {#1} = { \tcb@titlebox }
+      { \kvtcb@lefttitle }
+      {
+        \int_compare:nNnTF {#1} = { \tcb@lowerbox }
+          { \kvtcb@leftlower } { \kvtcb@leftupper }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_flowbox:nnn #1#2#3
+  {
+    \__tcbnestbreak_vbox:nnn {#1} { \hsize } {#3}
+    \dim_set:Nn \@totalleftmargin
+      { \l__tcbnestbreak_left_dim + \__tcbnestbreak_inset:N #1 }
+    \dim_set:Nn \linewidth {#2}
+    \columnwidth \linewidth
+    \textwidth \linewidth
+    \parshape \@ne \@totalleftmargin \linewidth
+    \@setpar { { \@@par } }
+    \bool_set_true:N \l__tcbnestbreak_top_bool
+    \nobreak
+  }
+
+%%    At the end, the glue and the penalties after the last line are
+%%    removed; the footnotes of the box (as in a minipage) are put
+%%    below, indented.
+\cs_new_protected:Npn \__tcbnestbreak_flowbox_end:
+  {
+    \par
+    \unskip \unpenalty \unskip \unpenalty \unskip
+    \box_if_empty:NF \@mpfootins
+      {
+        \vskip \skip \@mpfootins
+        \moveright \@totalleftmargin \vbox
+          {
+            \normalcolor
+            \footnoterule
+            \unvbox \@mpfootins
+          }
+      }
+    \@minipagefalse
+    \color@endgroup
+  }
+
+%% -----------------------------------------------------------------
+%% 3. The box flows into the list of the box around it
+%%    (instead of \tcb@drawcolorbox)
+%%      penalty, mark S, space of the frame above, [title, space,]
+%%      the upper part, [half of the space between the parts, mark M,
+%%      penalty, the other half, the lower part,] space of the frame
+%%      below, mark E, penalty.
+%%    The spaces are rules without width: they are not discarded at a
+%%    break.  No break is possible between the mark S and the first
+%%    line, and between the last line and the mark E.  The penalty
+%%    before the mark S makes the mark the start of a piece, the
+%%    penalties after the marks M and E make them the end of a piece,
+%%    when the list is taken apart in 4.
+%%    What the frame needs is saved under the number of the box, and
+%%    the colors of its text as the colors tcbnestbreak@<number> and
+%%    tcbnestbreak@<number>@lower.
+%% -----------------------------------------------------------------
+%%    The hook tcbnestbreak/flow is used with the number of the box,
+%%    the height of all this, and 1 if the box has a lower part, else
+%%    0 (for tests).
+\NewHookWithArguments { tcbnestbreak/flow } { 3 }
+
+\cs_new_protected:Npn \__tcbnestbreak_space:n #1
+  {
+    \hrule height \dim_eval:n {#1} depth \z@ width \z@
+    \nobreak
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_save:nn #1#2
+  { \tl_gset:ce { g__tcbnestbreak_ #1 _ \l__tcbnestbreak_id_tl _tl } {#2} }
+
+\cs_new_protected:Npn \__tcbnestbreak_flow:
+  {
+    \int_gincr:N \g__tcbnestbreak_box_int
+    \tl_set:Ne \l__tcbnestbreak_id_tl { \int_use:N \g__tcbnestbreak_box_int }
+    \tl_gset_eq:cN { g__tcbnestbreak_opts_ \l__tcbnestbreak_id_tl _tl }
+      \l__tcbnestbreak_opts_tl
+    \__tcbnestbreak_save:nn { width } { \tcb@width }
+    \__tcbnestbreak_save:nn { left } { \dim_use:N \l__tcbnestbreak_left_dim }
+    \__tcbnestbreak_save:nn { layer } { \int_use:N \c@tcblayer }
+    \__tcbnestbreak_save:nn { title }
+      { \legacy_if:nT { tcb@hasTitle } { \tcb@h@title } }
+    \xglobal \colorlet { tcbnestbreak@ \l__tcbnestbreak_id_tl } { tcbcolupper }
+    \xglobal \colorlet { tcbnestbreak@ \l__tcbnestbreak_id_tl @lower }
+      { tcbcollower }
+    \UseHookWithArguments { tcbnestbreak/flow } { 3 }
+      { \l__tcbnestbreak_id_tl }
+      {
+        \dim_eval:n
+          {
+            \kvtcb@top@rule@stand + \kvtcb@boxsep + \kvtcb@top
+            + \legacy_if:nTF { tcb@hasTitle } { \tcb@h@padtitle } { 0pt }
+            + \box_ht:N \tcb@upperbox + \box_dp:N \tcb@upperbox
+            + \legacy_if:nTF { tcb@lowerspace }
+                {
+                  \tcb@h@segment
+                  + \box_ht:N \tcb@lowerbox + \box_dp:N \tcb@lowerbox
+                }
+                { 0pt }
+            + \kvtcb@bottom + \kvtcb@boxsep + \kvtcb@bottom@rule@stand
+          }
+      }
+      { \legacy_if:nTF { tcb@lowerspace } { 1 } { 0 } }
+    \kvtcb@beforebox
+    \par
+    \penalty \legacy_if:nTF { @nobreak } { 9999 } { \z@ }
+    \tex_marks:D \c__tcbnestbreak_marks_int { S \l__tcbnestbreak_id_tl }
+    \legacy_if:nTF { tcb@hasTitle }
+      {
+        \__tcbnestbreak_space:n
+          { \kvtcb@top@rule@stand + \kvtcb@boxsep + \kvtcb@toptitle }
+        \unvbox \tcb@titlebox
+        \__tcbnestbreak_space:n
+          {
+            \kvtcb@bottomtitle + \kvtcb@boxsep + \kvtcb@title@rule
+            + \kvtcb@boxsep + \kvtcb@top
+          }
+      }
+      {
+        \__tcbnestbreak_space:n
+          { \kvtcb@top@rule@stand + \kvtcb@boxsep + \kvtcb@top }
+      }
+    \unvbox \tcb@upperbox
+    \legacy_if:nT { tcb@lowerspace }
+      {
+        \__tcbnestbreak_space:n { \tcb@h@segment / 2 }
+        \tex_marks:D \c__tcbnestbreak_marks_int { M \l__tcbnestbreak_id_tl }
+        \penalty \z@
+        \__tcbnestbreak_space:n { \tcb@h@segment / 2 }
+        \unvbox \tcb@lowerbox
+      }
+    \__tcbnestbreak_space:n
+      { \kvtcb@bottom + \kvtcb@boxsep + \kvtcb@bottom@rule@stand }
+    \tex_marks:D \c__tcbnestbreak_marks_int { E \l__tcbnestbreak_id_tl }
+    \penalty \z@
+    \prevdepth \z@
+    \kvtcb@afterbox
+  }
+
+%% -----------------------------------------------------------------
+%% 4. Where the boxes are in a part of the outer box
+%%    A copy of the box register #1 is taken apart: "\vsplit to -1sp"
+%%    splits off the material up to the first breakpoint.  The height
+%%    of the pieces and of what is discarded between them
+%%    (\splitdiscards) adds up to the position in the box.
+%%    A mark S is at the start of its piece, a mark M or E at the
+%%    end.
+%%    (\scan_stop: ends the dimension: TeX would else expand what
+%%    follows, and read the marks, before it splits.)
+%%    \vsplit, \unvbox and \moveright are used by these names, not as
+%%    primitives: LuaTeX-ja redefines them, and its boxes cannot be
+%%    taken apart with the primitive \vsplit.
+%%    The boxes that have started and not ended yet are kept in
+%%    \g__tcbnestbreak_open_seq, also from one part to the next.
+%%    The boxes whose mark M has been passed, i.e. which are in their
+%%    lower part, are kept in \g__tcbnestbreak_lower_seq.
+%%    For each box in the part, \__tcbnestbreak_frame:nnnnn (number,
+%%    state, from, to, mid) is put before \g__tcbnestbreak_draw_tl: a
+%%    box comes before the boxes inside it.  "mid" is the position of
+%%    the mark M if it is in the part, L if the part has only the
+%%    lower part of the box, else empty.
+%%    \g__tcbnestbreak_on_seq has the colors of the text of the boxes
+%%    that go on from the part before, the outermost first.
+%% -----------------------------------------------------------------
+\cs_generate_variant:Nn \prop_put:Nnn { NVe }
+\cs_generate_variant:Nn \seq_gremove_all:Nn { NV }
+\seq_new:N \g__tcbnestbreak_open_seq
+\seq_new:N \g__tcbnestbreak_on_seq
+\seq_new:N \g__tcbnestbreak_lower_seq
+\prop_new:N \l__tcbnestbreak_mid_prop
+\tl_new:N \g__tcbnestbreak_draw_tl
+\prop_new:N \l__tcbnestbreak_from_prop
+\box_new:N \l__tcbnestbreak_copy_box
+\box_new:N \l__tcbnestbreak_piece_box
+\dim_new:N \l__tcbnestbreak_y_dim
+\tl_new:N \l__tcbnestbreak_first_tl
+\tl_new:N \l__tcbnestbreak_bot_tl
+\tl_new:N \l__tcbnestbreak_tmp_tl
+\int_new:N \l__tcbnestbreak_pieces_int
+\msg_new:nnn { tcbnestbreak } { stuck }
+  {
+    A~part~of~a~box~cannot~be~taken~apart.\\
+    The~frames~of~the~boxes~inside~may~be~wrong.
+  }
+
+%%    The state from "started in the part" (#1) and "ends in it" (#2)
+\cs_new:Npn \__tcbnestbreak_state:nn #1#2
+  {
+    \bool_if:nTF {#1}
+      { \bool_if:nTF {#2} { unbroken } { first } }
+      { \bool_if:nTF {#2} { last } { middle } }
+  }
+
+%%    #1: number, #2: whether the box ends in the part;
+%%    \l__tcbnestbreak_from_prop has whether it started in the part,
+%%    and where it starts
+\cs_new_protected:Npn \__tcbnestbreak_segment:nn #1#2
+  {
+    \prop_get:NnN \l__tcbnestbreak_from_prop {#1} \l__tcbnestbreak_tmp_tl
+    \exp_last_unbraced:Ne \__tcbnestbreak_segment:nnnn
+      { {#1} \exp_not:V \l__tcbnestbreak_tmp_tl {#2} }
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_segment:nnnn #1#2#3#4
+  {
+    \prop_get:NnNF \l__tcbnestbreak_mid_prop {#1} \l__tcbnestbreak_mid_tl
+      {
+        \seq_if_in:NnTF \g__tcbnestbreak_lower_seq {#1}
+          { \tl_set:Nn \l__tcbnestbreak_mid_tl { L } }
+          { \tl_clear:N \l__tcbnestbreak_mid_tl }
+      }
+    \tl_gput_left:Ne \g__tcbnestbreak_draw_tl
+      {
+        \__tcbnestbreak_frame:nnnnn {#1}
+          { \__tcbnestbreak_state:nn {#2} {#4} }
+          {#3}
+          { \dim_use:N \l__tcbnestbreak_y_dim }
+          { \l__tcbnestbreak_mid_tl }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_scan:N #1
+  {
+    \group_begin:
+      \splittopskip \z@skip
+      \splitmaxdepth \maxdimen
+      \vbadness \@M
+      \vfuzz \maxdimen
+      \tex_savingvdiscards:D \@ne
+      \tex_setbox:D \l__tcbnestbreak_copy_box \tex_copy:D #1
+      \dim_zero:N \l__tcbnestbreak_y_dim
+      \prop_clear:N \l__tcbnestbreak_from_prop
+      \prop_clear:N \l__tcbnestbreak_mid_prop
+      \seq_gclear:N \g__tcbnestbreak_on_seq
+      \seq_map_inline:Nn \g__tcbnestbreak_open_seq
+        {
+          \seq_if_in:NnTF \g__tcbnestbreak_lower_seq {##1}
+            {
+              \seq_gput_left:Nn \g__tcbnestbreak_on_seq
+                { tcbnestbreak@ ##1 @lower }
+            }
+            {
+              \seq_gput_left:Nn \g__tcbnestbreak_on_seq
+                { tcbnestbreak@ ##1 }
+            }
+          \prop_put:Nnn \l__tcbnestbreak_from_prop {##1}
+            { { \c_false_bool } { 0pt } }
+        }
+      \int_zero:N \l__tcbnestbreak_pieces_int
+      \bool_until_do:nn { \box_if_empty_p:N \l__tcbnestbreak_copy_box }
+        {
+          \int_incr:N \l__tcbnestbreak_pieces_int
+          \int_compare:nNnT { \l__tcbnestbreak_pieces_int } > { 20000 }
+            {
+              \msg_warning:nn { tcbnestbreak } { stuck }
+              \box_clear:N \l__tcbnestbreak_copy_box
+            }
+          \tex_setbox:D \l__tcbnestbreak_piece_box
+            \vsplit \l__tcbnestbreak_copy_box to -1sp \scan_stop:
+          \tl_set:Ne \l__tcbnestbreak_first_tl
+            { \tex_splitfirstmarks:D \c__tcbnestbreak_marks_int }
+          \tl_set:Ne \l__tcbnestbreak_bot_tl
+            { \tex_splitbotmarks:D \c__tcbnestbreak_marks_int }
+          \tex_setbox:D \l__tcbnestbreak_piece_box
+            \tex_vbox:D { \unvbox \l__tcbnestbreak_piece_box }
+          \str_if_eq:eeT { \tl_head:N \l__tcbnestbreak_first_tl } { S }
+            {
+              \tl_set:Ne \l__tcbnestbreak_tmp_tl
+                { \tl_tail:N \l__tcbnestbreak_first_tl }
+              \seq_gput_left:NV \g__tcbnestbreak_open_seq
+                \l__tcbnestbreak_tmp_tl
+              \prop_put:NVe \l__tcbnestbreak_from_prop
+                \l__tcbnestbreak_tmp_tl
+                { { \c_true_bool } { \dim_use:N \l__tcbnestbreak_y_dim } }
+            }
+          \dim_add:Nn \l__tcbnestbreak_y_dim
+            {
+              \box_ht:N \l__tcbnestbreak_piece_box
+              + \box_dp:N \l__tcbnestbreak_piece_box
+            }
+          \str_if_eq:eeT { \tl_head:N \l__tcbnestbreak_bot_tl } { M }
+            {
+              \tl_set:Ne \l__tcbnestbreak_tmp_tl
+                { \tl_tail:N \l__tcbnestbreak_bot_tl }
+              \seq_gput_left:NV \g__tcbnestbreak_lower_seq
+                \l__tcbnestbreak_tmp_tl
+              \prop_put:NVe \l__tcbnestbreak_mid_prop
+                \l__tcbnestbreak_tmp_tl
+                { \dim_use:N \l__tcbnestbreak_y_dim }
+            }
+          \str_if_eq:eeT { \tl_head:N \l__tcbnestbreak_bot_tl } { E }
+            {
+              \tl_set:Ne \l__tcbnestbreak_tmp_tl
+                { \tl_tail:N \l__tcbnestbreak_bot_tl }
+              \seq_gremove_all:NV \g__tcbnestbreak_open_seq
+                \l__tcbnestbreak_tmp_tl
+              \exp_args:NV \__tcbnestbreak_segment:nn
+                \l__tcbnestbreak_tmp_tl { \c_true_bool }
+              \seq_gremove_all:NV \g__tcbnestbreak_lower_seq
+                \l__tcbnestbreak_tmp_tl
+            }
+          \tex_setbox:D \l__tcbnestbreak_piece_box
+            \tex_vbox:D { \tex_splitdiscards:D }
+          \dim_add:Nn \l__tcbnestbreak_y_dim
+            {
+              \box_ht:N \l__tcbnestbreak_piece_box
+              + \box_dp:N \l__tcbnestbreak_piece_box
+            }
+        }
+      \seq_map_inline:Nn \g__tcbnestbreak_open_seq
+        { \__tcbnestbreak_segment:nn {##1} { \c_false_bool } }
+    \group_end:
+  }
+
+%% -----------------------------------------------------------------
+%% 5. The frame of a box in a part
+%%    #1: number, #2: state, #3: from, #4: to (positions in the part),
+%%    #5: mid (see 4.)
+%%    Where the outer box is broken, the frame is open and goes on
+%%    into the padding of the outer box (\l__tcbnestbreak_above_dim,
+%%    \l__tcbnestbreak_below_dim).
+%%    The frame is drawn by tcolorbox, with the options of the box and
+%%    without text, as an unbroken box or as a first, middle or last
+%%    part of the height that is needed.  With tcbpagefootnote, the
+%%    footnotes of the part of the outer box are waiting for the next
+%%    picture of tcolorbox (\l__tcbpagefootnote_part_bool): they must
+%%    not be put after the picture of a frame.
+%%    A broken box of the standard skin is drawn with the enhanced
+%%    skins, and the rule and the space at the break are set to zero:
+%%    the frame is open at the break.
+%%    The heights are given to tcolorbox as empty boxes for the upper
+%%    and the lower part.  With the mark M in the part, the box for
+%%    the lower part is as high as from the mark to the end of the
+%%    frame: tcolorbox puts the segmentation line above it.  A part
+%%    after the mark M is drawn as a part with the lower part only.
+%% -----------------------------------------------------------------
+%%    The hook tcbnestbreak/frame is used in the box of the frame,
+%%    with the arguments #1-#5 (for tests).
+\NewHookWithArguments { tcbnestbreak/frame } { 5 }
+\dim_new:N \l__tcbnestbreak_above_dim
+\dim_new:N \l__tcbnestbreak_below_dim
+\dim_new:N \l__tcbnestbreak_from_dim
+\dim_new:N \l__tcbnestbreak_height_dim
+\dim_new:N \l__tcbnestbreak_upper_dim
+\dim_new:N \l__tcbnestbreak_lower_dim
+\tl_new:N \l__tcbnestbreak_state_tl
+\tl_new:N \l__tcbnestbreak_mid_tl
+\box_new:N \l__tcbnestbreak_frame_box
+\box_new:N \l__tcbnestbreak_frames_box
+
+\cs_new_protected:Npn \__tcbnestbreak_frame:nnnnn #1#2#3#4#5
+  {
+    \dim_set:Nn \l__tcbnestbreak_from_dim {#3}
+    \dim_set:Nn \l__tcbnestbreak_height_dim {#4}
+    \str_case:nn {#2}
+      {
+        { first }
+          {
+            \dim_add:Nn \l__tcbnestbreak_height_dim
+              { \l__tcbnestbreak_below_dim }
+          }
+        { middle }
+          {
+            \dim_sub:Nn \l__tcbnestbreak_from_dim
+              { \l__tcbnestbreak_above_dim }
+            \dim_add:Nn \l__tcbnestbreak_height_dim
+              { \l__tcbnestbreak_below_dim }
+          }
+        { last }
+          {
+            \dim_sub:Nn \l__tcbnestbreak_from_dim
+              { \l__tcbnestbreak_above_dim }
+          }
+      }
+    \dim_sub:Nn \l__tcbnestbreak_height_dim { \l__tcbnestbreak_from_dim }
+    \dim_compare:nNnT { \l__tcbnestbreak_height_dim } > { \c_zero_dim }
+      {
+        \tex_setbox:D \l__tcbnestbreak_frame_box \tex_hbox:D
+          {
+            \UseHookWithArguments { tcbnestbreak/frame } { 5 }
+              {#1} {#2} {#3} {#4} {#5}
+            \__tcbnestbreak_picture:nnn {#1} {#2} {#5}
+          }
+        \tex_vbox:D to \z@
+          {
+            \tex_kern:D \l__tcbnestbreak_from_dim
+            \moveright \tl_use:c { g__tcbnestbreak_left_ #1 _tl }
+              \tex_box:D \l__tcbnestbreak_frame_box
+            \tex_vss:D
+          }
+      }
+  }
+
+\cs_new:Npn \__tcbnestbreak_open_skin:nn #1#2
+  { \str_if_eq:eeTF {#1} { standard } { enhanced #2 } {#1} }
+
+\cs_new_protected:Npn \__tcbnestbreak_picture:nnn #1#2#3
+  {
+    \group_begin:
+      \bool_set_true:N \l__tcbnestbreak_frame_bool
+      \bool_if_exist:NT \l__tcbpagefootnote_part_bool
+        { \bool_set_false:N \l__tcbpagefootnote_part_bool }
+      \tl_set:Nn \l__tcbnestbreak_state_tl {#2}
+      \tl_set:Nn \l__tcbnestbreak_mid_tl {#3}
+      \tcbset
+        {
+          breakable@true/.code      = ,
+          breakable@unlimited/.code = ,
+          enforce~breakable/.code   = ,
+        }
+      \int_compare:nNnTF { \tl_use:c { g__tcbnestbreak_layer_ #1 _tl } }
+        > { \tcb@managed@layers@max }
+        { \tcbset { every~box~on~higher~layers } }
+        {
+          \tcbset
+            {
+              every~box~on~layer~
+              \tl_use:c { g__tcbnestbreak_layer_ #1 _tl }
+            }
+        }
+      \exp_args:Ne \__tcbnestbreak_apply:n
+        {
+          \exp_not:v { g__tcbnestbreak_opts_ #1 _tl } ,
+          width = \tl_use:c { g__tcbnestbreak_width_ #1 _tl } ,
+          nobeforeafter
+        }
+      \tl_if_empty:NTF \l__tcbnestbreak_mid_tl
+        { \tcb@hasLowerfalse } { \tcb@hasLowertrue }
+      \tcb@hasTitlefalse
+      \bool_lazy_and:nnT
+        { ! \tl_if_empty_p:c { g__tcbnestbreak_title_ #1 _tl } }
+        {
+          \str_if_eq_p:nn {#2} { unbroken } || \str_if_eq_p:nn {#2} { first }
+        }
+        {
+          \tcb@hasTitletrue
+          \tex_setbox:D \tcb@titlebox \tex_vbox:D
+            to \tl_use:c { g__tcbnestbreak_title_ #1 _tl } { }
+        }
+      \tcb@set@@dimensions
+      \tex_setbox:D \tcb@upperbox \tex_vbox:D { }
+      \tex_setbox:D \tcb@lowerbox \tex_vbox:D { }
+      \cs_set_eq:NN \tcb@drawcolorbox \__tcbnestbreak_piece:
+      \tcb@draw@color@box
+    \group_end:
+  }
+
+%%    The empty boxes for the frame of the height
+%%    \l__tcbnestbreak_height_dim; #1, #2: the rules above and below
+\cs_new_protected:Npn \__tcbnestbreak_heights:nn #1#2
+  {
+    \dim_set:Nn \l__tcbnestbreak_upper_dim
+      {
+        \l__tcbnestbreak_height_dim - \tcb@h@padtitle - (#1) - (#2)
+        - \kvtcb@boxsep * 2 - \kvtcb@top - \kvtcb@bottom
+      }
+    \dim_zero:N \l__tcbnestbreak_lower_dim
+    \str_case:VnF \l__tcbnestbreak_mid_tl
+      {
+        { } { }
+        { L }
+          {
+            \dim_set_eq:NN \l__tcbnestbreak_lower_dim
+              \l__tcbnestbreak_upper_dim
+            \dim_zero:N \l__tcbnestbreak_upper_dim
+          }
+      }
+      {
+        \dim_set:Nn \l__tcbnestbreak_lower_dim
+          {
+            \l__tcbnestbreak_from_dim + \l__tcbnestbreak_height_dim
+            - ( \l__tcbnestbreak_mid_tl ) - \tcb@h@segment / 2
+            - \kvtcb@bottom - \kvtcb@boxsep - (#2)
+          }
+        \dim_set:Nn \l__tcbnestbreak_lower_dim
+          { \dim_max:nn { \l__tcbnestbreak_lower_dim } { \c_zero_dim } }
+        \dim_sub:Nn \l__tcbnestbreak_upper_dim
+          { \tcb@h@segment + \l__tcbnestbreak_lower_dim }
+      }
+    \dim_set:Nn \l__tcbnestbreak_upper_dim
+      { \dim_max:nn { \l__tcbnestbreak_upper_dim } { \c_zero_dim } }
+    \dim_set:Nn \l__tcbnestbreak_lower_dim
+      { \dim_max:nn { \l__tcbnestbreak_lower_dim } { \c_zero_dim } }
+    \tex_setbox:D \tcb@upperbox \tex_vbox:D
+      to \l__tcbnestbreak_upper_dim { }
+    \tex_setbox:D \tcb@lowerbox \tex_vbox:D
+      to \l__tcbnestbreak_lower_dim { }
+    \tcbdimto \tcb@h@upper { \l__tcbnestbreak_upper_dim }
+    \tcbdimto \tcb@h@lower { \l__tcbnestbreak_lower_dim }
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_piece:
+  {
+    \str_if_eq:VnTF \l__tcbnestbreak_state_tl { unbroken }
+      {
+        \__tcbnestbreak_heights:nn
+          { \kvtcb@top@rule@stand } { \kvtcb@bottom@rule@stand }
+        \cs_set_eq:NN \tcb@ch \tcb@ch@natural
+        \tcb@drawcolorbox@standalone
+      }
+      {
+        \cs_set_eq:cN { tcb@before@ \l__tcbnestbreak_state_tl }
+          \prg_do_nothing:
+        \cs_set_eq:cN { tcb@after@ \l__tcbnestbreak_state_tl }
+          \prg_do_nothing:
+        \tl_set:Ne \kvtcb@skin@@first
+          { \__tcbnestbreak_open_skin:nn { \kvtcb@skin@first } { first } }
+        \tl_set:Ne \kvtcb@skin@@middle
+          { \__tcbnestbreak_open_skin:nn { \kvtcb@skin@middle } { middle } }
+        \tl_set:Ne \kvtcb@skin@@last
+          { \__tcbnestbreak_open_skin:nn { \kvtcb@skin@last } { last } }
+        \cs_set_eq:NN \kvtcb@top@rule@break \tcb@zpt
+        \cs_set_eq:NN \kvtcb@bottom@rule@break \tcb@zpt
+        \cs_set_eq:NN \kvtcb@topsep \tcb@zpt
+        \cs_set_eq:NN \kvtcb@bottomsep \tcb@zpt
+        \cs_set_eq:NN \tcb@h@breaksep@first \tcb@zpt
+        \cs_set_eq:NN \tcb@h@breaksep@middle \tcb@zpt
+        \cs_set_eq:NN \tcb@h@breaksep@last \tcb@zpt
+        \use:c { tcb@split@setstate@ \l__tcbnestbreak_state_tl }
+        \__tcbnestbreak_heights:nn { \kvtcb@top@rule } { \kvtcb@bottom@rule }
+        \str_case:VnF \l__tcbnestbreak_mid_tl
+          {
+            { } { \tcb@sdraw@U }
+            { L } { \tcb@sdraw@L }
+          }
+          { \tcb@sdraw@USL }
+      }
+  }
+
+%% -----------------------------------------------------------------
+%% 6. Before a part of the outer box is drawn
+%%    #1: the state of the part, #2: the boxes of the part.
+%%    The frames of the boxes in the part are put into a box without
+%%    height before the text of the part, i.e. behind it.
+%%    The color of the text of a box is set where the box starts and
+%%    reset where it ends.  For a box that goes on from the part
+%%    before, the color is set again at the top of the part (without
+%%    the reset that \color does at the end of the group); for a box
+%%    that goes on in the next part, it is reset at the end.
+%% -----------------------------------------------------------------
+\cs_new_eq:NN \__tcbnestbreak_reset_color: \prg_do_nothing:
+\cs_new_protected:Npn \__tcbnestbreak_color:n #1
+  {
+    \cs_gset_eq:NN \__tcbnestbreak_reset_color: \reset@color
+    \group_begin:
+      \color {#1}
+      \cs_gset_eq:NN \reset@color \scan_stop:
+    \group_end:
+    \cs_gset_eq:NN \reset@color \__tcbnestbreak_reset_color:
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_frames:N #1
+  {
+    \box_if_empty:NF #1
+      {
+        \__tcbnestbreak_scan:N #1
+        \tl_if_empty:NF \g__tcbnestbreak_draw_tl
+          {
+            \tex_setbox:D \l__tcbnestbreak_frames_box \tex_vbox:D to \z@
+              {
+                \offinterlineskip
+                \g__tcbnestbreak_draw_tl
+                \tex_vss:D
+              }
+            \tl_gclear:N \g__tcbnestbreak_draw_tl
+            \dim_set:Nn \l__tcbnestbreak_y_dim { \box_ht:N #1 }
+            \tex_setbox:D #1 \tex_vbox:D
+              {
+                \tex_box:D \l__tcbnestbreak_frames_box
+                \seq_map_function:NN \g__tcbnestbreak_on_seq
+                  \__tcbnestbreak_color:n
+                \unvbox #1
+                \prg_replicate:nn
+                  { \seq_count:N \g__tcbnestbreak_open_seq }
+                  { \reset@color }
+              }
+            \dim_compare:nNnF { \box_ht:N #1 } = { \l__tcbnestbreak_y_dim }
+              {
+                \tex_setbox:D #1 \tex_vbox:D to \l__tcbnestbreak_y_dim
+                  { \unvbox #1 }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbnestbreak_part:nn #1#2
+  {
+    \bool_lazy_and:nnT
+      { ! \l__tcbnestbreak_frame_bool }
+      { \legacy_if_p:n { tcb@isbreakable } }
+      {
+        \dim_zero:N \l__tcbnestbreak_above_dim
+        \dim_zero:N \l__tcbnestbreak_below_dim
+        \str_case:en {#1}
+          {
+            { first }
+              {
+                \dim_set:Nn \l__tcbnestbreak_below_dim
+                  { \kvtcb@boxsep + \kvtcb@bottom + \kvtcb@bottomsep }
+              }
+            { middle }
+              {
+                \dim_set:Nn \l__tcbnestbreak_above_dim
+                  { \kvtcb@boxsep + \kvtcb@top + \kvtcb@topsep }
+                \dim_set:Nn \l__tcbnestbreak_below_dim
+                  { \kvtcb@boxsep + \kvtcb@bottom + \kvtcb@bottomsep }
+              }
+            { last }
+              {
+                \dim_set:Nn \l__tcbnestbreak_above_dim
+                  { \kvtcb@boxsep + \kvtcb@top + \kvtcb@topsep }
+              }
+          }
+        \tl_map_function:nN {#2} \__tcbnestbreak_frames:N
+      }
+  }
+%%    With tcbpagefootnote, this is done after its code for the part:
+%%    with LuaTeX, that code takes boxes with a height out of the part.
+\clist_map_inline:nn
+  {
+    tcb@drawcolorbox@standalone , tcb@sdraw@U , tcb@sdraw@USL ,
+    tcb@sdraw@SL , tcb@sdraw@L
+  }
+  {
+    \DeclareHookRule { cmd/#1/before }
+      { tcbnestbreak } { after } { tcbpagefootnote }
+  }
+\AddToHook { cmd/tcb@drawcolorbox@standalone/before }
+  { \__tcbnestbreak_part:nn { unbroken } { \tcb@upperbox \tcb@lowerbox } }
+\AddToHook { cmd/tcb@sdraw@U/before }
+  { \__tcbnestbreak_part:nn { \tcb@split@state } { \tcb@upperbox } }
+\AddToHook { cmd/tcb@sdraw@USL/before }
+  {
+    \__tcbnestbreak_part:nn { \tcb@split@state }
+      { \tcb@upperbox \tcb@lowerbox }
+  }
+\AddToHook { cmd/tcb@sdraw@SL/before }
+  { \__tcbnestbreak_part:nn { \tcb@split@state } { \tcb@lowerbox } }
+\AddToHook { cmd/tcb@sdraw@L/before }
+  { \__tcbnestbreak_part:nn { \tcb@split@state } { \tcb@lowerbox } }
+
+\endinput

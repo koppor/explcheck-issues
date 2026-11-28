@@ -1,0 +1,269 @@
+%%
+%% This is file `hideproofs.sty',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% hideproofs.dtx  (with options: `hideproofs.sty,package')
+%% 
+%%  hideproofs.dtx
+%%  Copyright 2025 pwintz
+%% 
+%%  This work may be distributed and/or modified under the
+%%  conditions of the LaTeX Project Public License, either version 1.3
+%%  of this license or (at your option) any later version.
+%%  The latest version of this license is in
+%%    http://www.latex-project.org/lppl.txt
+%%  and version 1.3 or later is part of all distributions of LaTeX
+%%  version 2005/12/01 or later.
+%% 
+%%  This work has the LPPL maintenance status `maintained'.
+%% 
+%%  The Current Maintainer of this work is pwintz.
+%% 
+%%  This work consists of the files hideproofs.dtx and hideproofs.ins and the derived file hideproofs.sty.
+%% 
+%% \CharacterTable
+%%  {Upper-case    \A\B\C\D\E\F\G\H\I\J\K\L\M\N\O\P\Q\R\S\T\U\V\W\X\Y\Z
+%%   Lower-case    \a\b\c\d\e\f\g\h\i\j\k\l\m\n\o\p\q\r\s\t\u\v\w\x\y\z
+%%   Digits        \0\1\2\3\4\5\6\7\8\9
+%%   Exclamation   \!     Double quote  \"     Hash (number) \#
+%%   Dollar        \$     Percent       \%     Ampersand     \&
+%%   Acute accent  \'     Left paren    \(     Right paren   \)
+%%   Asterisk      \*     Plus          \+     Comma         \,
+%%   Minus         \-     Point         \.     Solidus       \/
+%%   Colon         \:     Semicolon     \;     Less than     \<
+%%   Equals        \=     Greater than  \>     Question mark \?
+%%   Commercial at \@     Left bracket  \[     Backslash     \\
+%%   Right bracket \]     Circumflex    \^     Underscore    \_
+%%   Grave accent  \`     Left brace    \{     Vertical bar  \|
+%%   Right brace   \}     Tilde         \~}
+%%===================================
+%%===================================
+%% \section{Installation}
+%%
+%% Eventually, \texttt{hideproofs} may be bundled with \LaTeX{} installations.
+%% Until then, you must install it manually.
+%% The
+%% % TODO: Update this.
+%% Put \texttt{hideproofs.sty} in your project's directory or somewhere in your \TeX\ path.
+%%===================================
+%%===================================
+%% The follow options are also available, but they match the default behavior:
+%% \begin{description}
+%%   \item[\texttt{showInDraft}] Show proofs in \texttt{draft} mode. (Negation of \texttt{hideInDraft}. Default behavior)
+%%   \item[\texttt{showInDefault}] Show proofs in the default mode. (Negation of \texttt{hideInDraft}. Default behavior)
+%% \end{description}
+%% \makeatletter
+%% \makeatother
+%% \subsection*{Example: Custom Message}
+%% \subsection*{Example: Changing when proofs are hidden}
+%% \begin{lstlisting}[language=TeX]
+%% \usepackage[
+%%   hideInFinal=true,
+%%   message={Proof omitted.},
+%%   color=gray
+%% ]{hideproofs}
+%% \begin{lstlisting}[language=TeX]
+%% \usepackage[
+%%   hideInFinal=true,
+%%   message={Proof omitted.},
+%%   color=gray
+%% ]{hideproofs}
+%% \end{lstlisting}
+%% The ouput
+%%
+%% \makeatletter
+%%   \hideproofs@newSetup{
+%%     hideInFinal=true,
+%%     message={Proof omitted.},
+%%     color=red
+%%   }
+%% \makeatother
+%% \begin{proof*}
+%%   This is a proof
+%% \end{proof*}
+%% This program can be redistributed and/or modified under the terms
+%% of the LaTeX Project Public License Distributed from CTAN archives
+%% in directory macros/latex/base/lppl.txt.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{hideproofs}
+  [2025/06/15 v1.0 Define a starred proof environment "proof*" that hides contents when document is not "final".]
+
+\RequirePackage{amsthm}
+\RequirePackage{ifdraft} % Provides ifoptionfinal.
+\RequirePackage{environ} % Provides \NewEnviron.
+\RequirePackage{ifthen} % Provides conditionals.
+
+\newboolean{hideproofs@hideProofs}
+\setboolean{hideproofs@hideProofs}{false}
+
+\RequirePackage{expl3}
+\RequirePackage{l3keys2e}% To use \keys_define in LaTeX2e
+\ExplSyntaxOn % Enable LaTeX3 Programming layer
+
+  % Create booleans loaded from options
+  \bool_new:N \l__hideproofs_hide_in_default_mode_bool
+  \bool_new:N \l__hideproofs_hide_in_draft_mode_bool
+  \bool_new:N \l__hideproofs_hide_in_final_mode_bool
+  \bool_new:N \l__hideproofs_force_show_bool
+  \bool_new:N \l__hideproofs_force_hide_bool
+
+  % Set defaults
+
+  \newcommand{\hideproofs@setDefaults}{%
+    \cs_set:Npn \hideproofs@message {Proof~hidden.}
+    \cs_set:Npn \hideproofs@color {blue}
+    \bool_set:Nn \l__hideproofs_hide_in_draft_mode_bool   { \c_true_bool }
+    \bool_set:Nn \l__hideproofs_hide_in_default_mode_bool { \c_true_bool }
+    \bool_set:Nn \l__hideproofs_hide_in_final_mode_bool   { \c_false_bool }
+    \bool_set:Nn \l__hideproofs_force_show_bool { \c_false_bool }
+    \bool_set:Nn \l__hideproofs_force_hide_bool { \c_false_bool }
+  }
+  \hideproofs@setDefaults{}
+
+  \newcommand{\hideproofs@newSetup}[1]{
+    \hideproofs@setDefaults{}
+    \keys_set:nn { hideproofs }
+    {
+      #1
+    }
+    % After changing the setup, we need to update \hideproofs@hideProofs.
+    \hideproofs@updateHideProofs{}
+  }
+
+  \newcommand{\hideproofs@updateHideProofs}{
+    % ╭─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+    % │             Enable hidden proofs if any of the current mode is marked for hiding proofs             │
+    % ╰─────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+    % Reset hideproofs@hideProofs to false, in case it was previously set to true.
+    \setboolean{hideproofs@hideProofs}{false}
+
+    \bool_if:nT {\l__hideproofs_hide_in_draft_mode_bool && \l__mode_draft_bool}{
+      \setboolean{hideproofs@hideProofs}{true}
+    }
+    \bool_if:nT {\l__hideproofs_hide_in_final_mode_bool && \l__mode_final_bool}{
+      \setboolean{hideproofs@hideProofs}{true}
+    }
+    \bool_if:nT {\l__hideproofs_hide_in_default_mode_bool && (!\l__mode_draft_bool && !\l__mode_final_bool)} {
+      \setboolean{hideproofs@hideProofs}{true}
+    }
+    \bool_if:nT {\l__hideproofs_force_show_bool} {
+      \setboolean{hideproofs@hideProofs}{false}
+    }
+    \bool_if:nT {\l__hideproofs_force_hide_bool} {
+      \setboolean{hideproofs@hideProofs}{true}
+    }
+
+  }
+
+  % Declare boolean calculated from the package options and document options
+  \bool_new:N \l__hide_proofs
+
+  % ╭───────────────────────────────────────────────────────────────────╮
+  % │             Define key-value options for the package.             │
+  % ╰───────────────────────────────────────────────────────────────────╯
+  \keys_define:nn { hideproofs }{% Key-value list
+
+    % ───── Define Boolean Key-Value Option: "show" ─────
+    % Description: Override any automatic hiding or showing that is based on the document mode.
+    % Instead, always show the proofs.
+    show .bool_set:N = {\l__hideproofs_force_show_bool},
+
+    % ───── Define Boolean Key-Value Option: "hide" ─────
+    % Description: Override any automatic hiding or showing that is based on the document mode.
+    % Instead, always hide the proofs.
+    hide .bool_set:N = {\l__hideproofs_force_hide_bool},
+
+    % ───── Define String Key-Value Option: "message" ─────
+    % Description: Set the message that is shown when a proof is hidden.
+    message .str_set:N = {\hideproofs@message},
+
+    % ───── Define String Key-Value Option: "color" ─────
+    % Description: Set the color of the message when a proof is hidden.
+    color .str_set:N = {\hideproofs@color},
+
+    % ───── Define Boolean Key-Value Option: "hideInDefault" ─────
+    % Description: Hide proofs if the document mode is default (neither draft nor final)
+    hideInDefault .bool_set:N = {\l__hideproofs_hide_in_default_mode_bool},
+
+    % % ───── Define Negated Boolean Key-Value Option: "showInDefault" ─────
+    % % Description: Show proofs if the document mode is default (neither draft nor final)
+    % showInDefault .bool_set_inverse:N = {\l__hideproofs_hide_in_default_mode_bool},
+
+    % ───── Define Boolean Key-Value Option: "hideInDraft" ─────
+    % Description: Hide proofs if the document mode is draft
+    hideInDraft .bool_set:N = {\l__hideproofs_hide_in_draft_mode_bool},
+
+    % % ───── Define Negated Boolean Key-Value Option: "showInDraft" ─────
+    % % Description: Show proofs if the document mode is draft
+    % showInDraft .bool_set_inverse:N = {\l__hideproofs_hide_in_draft_mode_bool},
+
+    % ───── Define Boolean Key-Value Option: "hideInFinal" ─────
+    % Description: Hide proofs if the document mode is final
+    hideInFinal .bool_set:N = {\l__hideproofs_hide_in_final_mode_bool},
+
+    % % ───── Define Negated Boolean Key-Value Option: "showInFinal" ─────
+    % % Description: Show proofs if the document mode is final
+    % showInFinal .bool_set_inverse:N = {\l__hideproofs_hide_in_final_mode_bool}
+  }
+  \ProcessKeysOptions { hideproofs }
+
+  % ╭───────────────────────────────────────────────────────────────────────────────╮
+  % │             Create LaTeX3 booleans for draft mode and final mode.             │
+  % ╰───────────────────────────────────────────────────────────────────────────────╯
+  \bool_new:N \l__mode_draft_bool
+  \bool_new:N \l__mode_final_bool
+  % Set the booleans based on the whether in draft mode or final mode.
+  \ifoptiondraft{
+    \bool_set_true:N \l__mode_draft_bool
+  }{
+    \bool_set_false:N \l__mode_draft_bool
+  }%
+  \ifoptionfinal{
+    \bool_set_true:N \l__mode_final_bool
+  }{
+    \bool_set_false:N \l__mode_final_bool
+  }
+
+  % Update \hideproofs@hideProofs based on the options and document mode.
+  \hideproofs@updateHideProofs{}
+
+\ExplSyntaxOff% Disable LaTeX3 Programming layer
+
+\NewEnviron{proof*}[1][]{%
+  % ⋘────────── Open Proof ──────────⋙
+  % If optional argument is not given, then don't give proof an optional argument (o/w it would result in an empty string instead of "proof")
+  \ifthenelse{ \equal{#1}{} }{%  If optional argument is not given...
+      % ...then open the proof without optional argument.
+      \begin{proof}%
+  }{% If an optional argumnet is given...
+      % ...then open the proof with the optional argument.
+      \begin{proof}[#1]%
+  }%
+  %
+  % ⋘────────── Proof body ──────────⋙
+  \ifthenelse{\boolean{hideproofs@hideProofs}}{% If hideproofs@hideProofs is true...
+    {% Start color block
+      \@ifpackageloaded{color}{% If color package...
+        \color{\hideproofs@color}% Set color
+      }{}%
+      % Insert the message for the hidden proof.
+      \hideproofs@message
+    }% End color block
+  }{% If hideproofs@hideProofs is false
+    % Insert the actual proof.
+    \BODY%
+  }%
+  %
+  % ⋘────────── Close proof ──────────⋙
+  \end{proof}%
+}
+
+\endinput% Stop input here when this file is loaded.
+%%
+%% End of file `hideproofs.sty'.%\iffalse
+\endinput
+%%
+%% End of file `hideproofs.sty'.

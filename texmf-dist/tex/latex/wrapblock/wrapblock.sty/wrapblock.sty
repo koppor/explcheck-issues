@@ -1,0 +1,1485 @@
+%% wrapblock.sty
+%% A closed block: an image beside its own text, which wraps under it.
+%% Paragraphs, lists and displayed equations are wrapped; the image and the
+%% lines beside it stay on one page; pdfLaTeX and LuaLaTeX; tagged PDF.
+%%
+%% Copyright (C) 2026 Antonin Marchand
+%%
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c of this license or (at
+%% your option) any later version. The latest version of this license is in
+%% https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Antonin Marchand.
+% <ident>
+\NeedsTeXFormat{LaTeX2e}[2023-06-01]
+\ProvidesExplPackage{wrapblock}{2026-11-26}{0.1.5}
+  {Closed block with an image beside its text}
+% </ident>
+
+% <state>
+% ---------------------------------------------------------------- state
+% All positions are in page coordinates: the value \pagetotal would have
+% at that point, from the top of the text area.
+\box_new:N  \g__wrapblock_img_box
+\tl_new:N   \g__wrapblock_img_tl        % the image, as given
+\dim_new:N  \g__wrapblock_img_width_dim % its width key (-\maxdimen: natural)
+\dim_new:N  \l__wrapblock_width_dim
+\bool_new:N \g__wrapblock_active_bool   % a region is running
+\bool_new:N \g__wrapblock_pending_bool  % the image is not placed yet
+\dim_new:N  \g__wrapblock_bottom_dim    % bottom of the reserved area
+\dim_new:N  \g__wrapblock_height_dim    % image height + vsep
+\dim_new:N  \g__wrapblock_shift_dim     % room taken by image + hsep
+\dim_new:N  \g__wrapblock_left_dim      % left edge of the block
+\dim_new:N  \g__wrapblock_width_dim     % width of the block
+\dim_new:N  \g__wrapblock_prevdepth_dim % \prevdepth before the paragraph
+\int_new:N  \g__wrapblock_ship_int      % pages shipped so far
+\int_new:N  \g__wrapblock_origin_ship_int
+\tl_new:N   \g__wrapblock_side_tl
+\tl_new:N   \l__wrapblock_side_tl
+\int_new:N  \g__wrapblock_save_pre_int
+\int_new:N  \g__wrapblock_save_post_int
+\bool_new:N \g__wrapblock_global_bool
+\bool_new:N \l__wrapblock_outer_bool
+\bool_set_true:N \l__wrapblock_outer_bool
+\int_new:N  \g__wrapblock_save_item_int
+\int_new:N  \g__wrapblock_save_beginpar_int
+\int_new:N  \g__wrapblock_save_endpar_int
+\int_new:N  \l__wrapblock_lines_int
+\dim_new:N  \l__wrapblock_base_dim
+\dim_new:N  \l__wrapblock_rule_dim
+\dim_new:N  \l__wrapblock_i_dim
+\dim_new:N  \l__wrapblock_l_dim
+\dim_new:N  \l__wrapblock_ni_dim
+\dim_new:N  \l__wrapblock_nl_dim
+\tl_new:N   \g__wrapblock_parshape_tl  % the shape of the paragraph being set,
+\tl_new:N   \g__wrapblock_pen_tl       % and its penalties
+\bool_new:N \g__wrapblock_inpar_bool   % a narrowed paragraph is being set
+\dim_new:N  \g__wrapblock_avail_dim     % line width left beside the image
+\tl_new:N   \g__wrapblock_warned_tl     % input line of the last box warning
+\seq_new:N  \g__wrapblock_shapes_seq    % signatures of the shapes set
+\int_new:N  \g__wrapblock_narrowed_int  % lines narrowed in the paragraph
+\bool_new:N \l__wrapblock_inside_bool   % inside a wrapblock environment
+\bool_new:N \l__wrapblock_inbox_bool    % this block sits in a box
+\bool_new:N \l__wrapblock_inimage_bool  % inside the image of a block
+\bool_new:N \l__wrapblock_alone_bool    % the image is too wide: no wrapping
+\tl_new:N   \l__wrapblock_shape_tl
+\tl_new:N   \l__wrapblock_pen_tl
+% </state>
+% <statedefer>
+% A deferred image: it did not fit at the bottom of the page, and the text
+% is long enough to fill that bottom at full width. It goes to the top of
+% the next page, and the lines there are narrowed.
+\bool_new:N \g__wrapblock_wait_bool     % deferred, the page has not broken yet
+\int_new:N  \g__wrapblock_full_end_int  % last full-width line before the break
+\int_new:N  \l__wrapblock_full_int
+\int_new:N  \g__wrapblock_def_int       % deferred images so far
+\seq_new:N  \g__wrapblock_def_seq       % deferred images waiting for their page
+\int_new:N  \g__wrapblock_struct_int    % structure that holds the image
+\tl_new:N   \g__wrapblock_counters_tl
+\box_new:N  \l__wrapblock_measure_box
+\box_new:N  \l__wrapblock_labels_box
+\box_new:N  \g__wrapblock_float_box     % a float of the text, while it is measured
+\box_new:N  \g__wrapblock_mar_box       % a \marginpar, likewise
+\tl_new:N   \l__wrapblock_freelist_tl   % the lists of float boxes of LaTeX,
+\tl_new:N   \l__wrapblock_currlist_tl   % kept while the text is measured
+\dim_new:N  \g__wrapblock_text_dim      % height of the text at full width
+\int_new:N  \g__wrapblock_block_int     % blocks so far, to name them in the .aux
+\dim_new:N  \g__wrapblock_goal_dim      % \pagegoal where a deferred block starts
+\dim_new:N  \g__wrapblock_short_dim     % room the footnotes will take there
+\prop_new:N \g__wrapblock_short_prop    % that room, read from the .aux
+\prop_new:N \g__wrapblock_short_new_prop % and as found in this run
+\bool_new:N \l__wrapblock_defer_bool
+\bool_new:N \l__wrapblock_allow_defer_bool
+\bool_new:N \g__wrapblock_breakpar_bool  % this paragraph ends the page
+\seq_new:N \l__wrapblock_done_seq
+\dim_new:N  \g__wrapblock_top_dim       % height of the floats at the top of the page
+\dim_new:N  \wrapblocklinewidth         % the full line of the block, for the image
+\bool_new:N \l__wrapblock_fit_bool      % width=fit
+\fp_new:N   \l__wrapblock_fit_min_fp    % the bounds of the search, fractions
+\fp_new:N   \l__wrapblock_fit_max_fp    % of the line
+\fp_new:N   \l__wrapblock_fit_lo_fp     % the bracket of the search
+\fp_new:N   \l__wrapblock_fit_hi_fp
+\fp_new:N   \l__wrapblock_fit_mid_fp
+\bool_new:N \l__wrapblock_fit_lo_bool   % at lo, the image is the taller
+\bool_new:N \l__wrapblock_fit_mid_bool
+\dim_new:N  \l__wrapblock_fit_lo_dim    % height of the block at lo, at hi
+\dim_new:N  \l__wrapblock_fit_hi_dim
+\dim_new:N  \l__wrapblock_fit_w_dim     % width tried
+\dim_new:N  \l__wrapblock_fit_col_dim   % width left for the text
+\dim_new:N  \l__wrapblock_fit_img_dim   % height of the image at that width
+\dim_new:N  \l__wrapblock_fit_txt_dim   % height of the text beside it
+\int_new:N  \l__wrapblock_fit_int       % steps of the search
+\box_new:N  \g__wrapblock_fit_box
+% </statedefer>
+
+% <shipcount>
+\hook_gput_code:nnn { shipout / after } { wrapblock }
+  { \int_gincr:N \g__wrapblock_ship_int }
+% </shipcount>
+
+% <aux>
+% A footnote in the full-width lines of a deferred block shortens the page
+% after the lines were counted: the page breaks before the planned break,
+% at the end of a column whose \outputpenalty is not -10000. The room the
+% footnotes took is then written to the .aux, and the next run counts the
+% lines without it. A value found once is kept: the footnote may go below
+% the break on the next run.
+\cs_new_protected:cpn { wrapblock@short } #1#2
+  { \prop_gput:Nnn \g__wrapblock_short_prop {#1} {#2} }
+\hook_gput_code:nnn { build / column / before } { wrapblock }
+  {
+    \__wrapblock_top_floats:
+    \bool_lazy_and:nnT
+      { \g__wrapblock_wait_bool }
+      { \int_compare_p:nNn { \tex_outputpenalty:D } > { -10000 } }
+      {
+        \dim_set:Nn \l_tmpa_dim
+          {
+            \g__wrapblock_goal_dim - \tex_vsize:D
+            \box_if_empty:NF \footins
+              { + \box_ht:N \footins + \box_dp:N \footins + \tex_skip:D \footins }
+          }
+        \dim_compare:nNnF { \l_tmpa_dim } > { 0pt }
+          { \dim_set_eq:NN \l_tmpa_dim \baselineskip }
+        \prop_gput:Nee \g__wrapblock_short_new_prop
+          { \int_use:N \g__wrapblock_block_int }
+          { \dim_eval:n { \g__wrapblock_short_dim + \l_tmpa_dim } }
+      }
+  }
+\hook_gput_code:nnn { enddocument / afterlastpage } { wrapblock }
+  {
+    \iow_now:Nn \@auxout { \providecommand \wrapblock@short [2] { } }
+    \prop_map_inline:Nn \g__wrapblock_short_prop
+      {
+        \prop_if_in:NnF \g__wrapblock_short_new_prop {#1}
+          { \iow_now:Nn \@auxout { \wrapblock@short {#1} {#2} } }
+      }
+    \prop_map_inline:Nn \g__wrapblock_short_new_prop
+      { \iow_now:Nn \@auxout { \wrapblock@short {#1} {#2} } }
+  }
+% </aux>
+
+% <topfloats>
+% The floats LaTeX is about to put at the top of the page take room above
+% the text: a deferred image is drawn below them. Their height is that of
+% the boxes in \@toplist, \floatsep between them and \textfloatsep below.
+\cs_new_protected:Npn \__wrapblock_top_floats:
+  {
+    \dim_gzero:N \g__wrapblock_top_dim
+    \tl_if_empty:NF \@toplist
+      {
+        \group_begin:
+          \cs_set:Npn \@elt ##1
+            {
+              \dim_gadd:Nn \g__wrapblock_top_dim
+                { \box_ht:N ##1 + \box_dp:N ##1 + \floatsep }
+            }
+          \@toplist
+        \group_end:
+        \dim_gadd:Nn \g__wrapblock_top_dim { \textfloatsep - \floatsep }
+      }
+  }
+% </topfloats>
+
+% <overlay>
+% Deferred images are set on the page they belong to as it is shipped,
+% at the top of the text area: the lines beside them are already narrowed.
+% In a tagged PDF the image goes in a structure element made, empty, where
+% the block starts, so that it keeps its place in the reading order.
+% The foreground is asked for only when an image is waiting: once the hook
+% holds code, LaTeX builds a picture on every page, which made a document
+% without any block up to 40 % slower.
+\hook_gput_code:nnn { shipout / before } { wrapblock }
+  {
+    \seq_if_empty:NF \g__wrapblock_def_seq
+      { \hook_gput_next_code:nn { shipout / foreground } { \__wrapblock_overlays: } }
+  }
+\cs_new_protected:Npn \__wrapblock_overlays:
+  {
+    \seq_clear:N \l__wrapblock_done_seq
+    \seq_map_inline:Nn \g__wrapblock_def_seq
+      {
+        \exp_last_unbraced:Nv \__wrapblock_overlay:nnnnnnn
+          { g__wrapblock_def_ ##1 _data_tl } {##1}
+      }
+    \seq_map_inline:Nn \l__wrapblock_done_seq
+      { \seq_gremove_all:Nn \g__wrapblock_def_seq {##1} }
+  }
+% #1 page (pages shipped before it), #2 left edge and #3 width of the
+% block, #4 width key, #5 side, #6 structure, #7 number of the image
+\cs_new_protected:Npn \__wrapblock_overlay:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \int_compare:nNnT {#1} = { \g__wrapblock_ship_int }
+      {
+        \seq_put_right:Nn \l__wrapblock_done_seq {#7}
+        \bool_lazy_and:nnT
+          { \int_compare_p:nNn {#6} > { 0 } }
+          { \cs_if_exist_p:N \tag_struct_begin:n }
+          { \tag_struct_begin:n { tag = P , parent = #6 } }
+        \hbox_set:Nn \l_tmpa_box
+          {
+            \cs_if_exist_use:NT \tag_mc_begin:n { { } }
+            \dim_set:Nn \wrapblocklinewidth {#3}
+            \__wrapblock_image:nv {#4} { g__wrapblock_def_ #7 _tl }
+            \cs_if_exist_use:N \tag_mc_end:
+          }
+        \put
+          (
+            \dim_eval:n
+              {
+                1in + \hoffset
+                + \legacy_if:nTF { @twoside }
+                    { \int_if_odd:nTF { \c@page } { \oddsidemargin } { \evensidemargin } }
+                    { \oddsidemargin }
+                + #2
+                + \str_if_eq:nnTF {#5} { l } { 0pt } { #3 - \box_wd:N \l_tmpa_box }
+              } ,
+            \dim_eval:n
+              {
+                - 1in - \voffset - \topmargin - \headheight - \headsep
+                - \g__wrapblock_top_dim
+                - \topskip + \box_ht:N \strutbox - \box_ht:N \l_tmpa_box
+              }
+          )
+          { \box_use_drop:N \l_tmpa_box }
+        \bool_lazy_and:nnT
+          { \int_compare_p:nNn {#6} > { 0 } }
+          { \cs_if_exist_p:N \tag_struct_begin:n }
+          { \tag_struct_end: }
+        \cs_undefine:c { g__wrapblock_def_ #7 _tl }
+        \cs_undefine:c { g__wrapblock_def_ #7 _data_tl }
+      }
+  }
+% </overlay>
+
+% <keys>
+% ---------------------------------------------------------------- keys
+\keys_define:nn { wrapblock }
+  {
+    side  .choices:nn = { l , r } { \tl_set:Nn \l__wrapblock_side_tl {#1} } ,
+    side  .initial:n  = r ,
+    l     .meta:n     = { side = l } ,
+    r     .meta:n     = { side = r } ,
+    % natural: the width of the image itself, kept as -\maxdimen, which no
+    % length can be; 0pt is a room of no width, like any other length
+    % fit: searched between fit min and fit max (\__wrapblock_fit:n);
+    % natural until then, and if the search finds nothing
+    width .code:n     =
+      {
+        \bool_set_false:N \l__wrapblock_fit_bool
+        \str_case:nnF {#1}
+          {
+            { natural } { \dim_set:Nn \l__wrapblock_width_dim { - \c_max_dim } }
+            { fit }
+              {
+                \bool_set_true:N \l__wrapblock_fit_bool
+                \dim_set:Nn \l__wrapblock_width_dim { - \c_max_dim }
+              }
+          }
+          { \dim_set:Nn \l__wrapblock_width_dim {#1} }
+      } ,
+    width .initial:n  = natural ,
+    width .value_required:n = true ,
+    hsep  .dim_set:N  = \l__wrapblock_hsep_dim ,
+    hsep  .initial:n  = 1em ,
+    vsep  .dim_set:N  = \l__wrapblock_vsep_dim ,
+    vsep  .initial:n  = 0.5\baselineskip ,
+    defer .bool_set:N = \l__wrapblock_allow_defer_bool ,
+    defer .initial:n  = true ,
+    defer .default:n  = true ,
+    fit~min .fp_set:N = \l__wrapblock_fit_min_fp ,
+    fit~min .initial:n = 0.1 ,
+    fit~max .fp_set:N = \l__wrapblock_fit_max_fp ,
+    fit~max .initial:n = 0.9 ,
+  }
+\NewDocumentCommand \wrapblockset { m } { \keys_set:nn { wrapblock } {#1} }
+% </keys>
+
+% <baseline>
+% ---------------------------------------------------------------- helpers
+% The messages give the line where the block ends: its text is read as an
+% argument, and TeX is on the line of \end{wrapblock} when the code runs.
+% Baseline of the first line of the paragraph being started.
+\cs_new_protected:Npn \__wrapblock_first_baseline:N #1
+  {
+    \dim_compare:nNnTF { \pagegoal } = { \c_max_dim }
+      { \dim_set:Nn #1 { \topskip } }     % empty page
+      {
+        % the interline glue TeX will put: \baselineskip less the depth
+        % before and the height of the line, or \lineskip when that leaves
+        % less than \lineskiplimit (a deep box before: a tabular, a minipage)
+        \dim_compare:nNnTF { \g__wrapblock_prevdepth_dim } > { -1000pt }
+          {
+            \dim_set:Nn #1
+              { \baselineskip - \g__wrapblock_prevdepth_dim - \box_ht:N \strutbox }
+            \dim_compare:nNnT {#1} < { \lineskiplimit }
+              { \dim_set:Nn #1 { \lineskip } }
+            \dim_set:Nn #1 { \pagetotal + #1 + \box_ht:N \strutbox }
+          }
+          { \dim_set:Nn #1 { \pagetotal + \box_ht:N \strutbox } }
+      }
+  }
+% </baseline>
+
+% <checkship>
+% The region moved to a new page while it was running. This happens only
+% when insertions (footnotes) shrank the page under it. Assume it now sits
+% at the top of the page and say so.
+\cs_new_protected:Npn \__wrapblock_check_ship:
+  {
+    \int_compare:nNnF { \g__wrapblock_ship_int } = { \g__wrapblock_origin_ship_int }
+      {
+        \msg_warning:nn { wrapblock } { moved }
+        \int_gset_eq:NN \g__wrapblock_origin_ship_int \g__wrapblock_ship_int
+        \dim_gset:Nn \g__wrapblock_bottom_dim
+          { \topskip - \box_ht:N \strutbox + \g__wrapblock_height_dim }
+      }
+  }
+\msg_new:nnn { wrapblock } { moved }
+  { The~block~that~ends~on~input~line~\msg_line_number:\ moved~to~a~new~page~
+    while~its~text~was~set.~Its~wrapping~may~be~off~by~some~lines. }
+\msg_new:nnn { wrapblock } { nested }
+  { wrapblock~blocks~cannot~be~nested. }
+% </checkship>
+
+% <listpen>
+\cs_new_protected:Npn \__wrapblock_list_penalties_off:
+  {
+    \int_gset:Nn \@itempenalty     { 10000 }
+    \int_gset:Nn \@beginparpenalty { 10000 }
+    \int_gset:Nn \@endparpenalty   { 10000 }
+  }
+\cs_new_protected:Npn \__wrapblock_list_penalties_restore:
+  {
+    \int_gset_eq:NN \@itempenalty     \g__wrapblock_save_item_int
+    \int_gset_eq:NN \@beginparpenalty \g__wrapblock_save_beginpar_int
+    \int_gset_eq:NN \@endparpenalty   \g__wrapblock_save_endpar_int
+  }
+\cs_new_protected:Npn \__wrapblock_stop:
+  {
+    \bool_gset_false:N \g__wrapblock_active_bool
+    \__wrapblock_list_penalties_restore:
+  }
+% </listpen>
+
+% <shape>
+% Set \parshape so that the lines from index #1 (0 = first line of the
+% paragraph) whose top lies above the bottom of the image are narrowed.
+% #2 is the baseline of line #1.
+\cs_new_protected:Npn \__wrapblock_shape:nn { \__wrapblock_shape:Nnn \prg_do_nothing: }
+% #1 is \prg_do_nothing: or \tex_global:D: after a display the paragraph
+% may sit inside the group of an environment (amsmath), which would undo
+% a local \parshape.
+\cs_new_protected:Npn \__wrapblock_shape:Nnn #1#2#3
+  { \__wrapblock_shape:Nnnn #1 {#2} { 0 } {#3} }
+% With a deferred image, #3 lines keep their full width first, the last of
+% them ends the page, and the narrowed lines start at the top of the next
+% one; #4 is then the baseline of the first of them on that page.
+\cs_new_protected:Npn \__wrapblock_shape:Nnnn #1#2#3#4
+  {
+    \int_set:Nn \l__wrapblock_full_int {#3}
+    \int_set:Nn \l__wrapblock_lines_int
+      {
+        \fp_eval:n
+          {
+            ceil ( ( \dim_to_fp:n { \g__wrapblock_bottom_dim - #4 + \box_ht:N \strutbox } )
+                   / \dim_to_fp:n { \baselineskip } )
+          }
+      }
+    \int_compare:nNnF { \l__wrapblock_lines_int } > { 0 }
+      { \int_set:Nn \l__wrapblock_lines_int { 0 } }
+    % base line: what LaTeX gave this paragraph (lists set \parshape)
+    \int_compare:nNnTF { \parshape } > { 0 }
+      {
+        \dim_set:Nn \l__wrapblock_i_dim { \parshapeindent \parshape }
+        \dim_set:Nn \l__wrapblock_l_dim { \parshapelength \parshape }
+      }
+      {
+        \dim_zero:N \l__wrapblock_i_dim
+        \dim_set_eq:NN \l__wrapblock_l_dim \hsize
+      }
+    \str_if_eq:VnTF \g__wrapblock_side_tl { l }
+      {
+        \dim_set:Nn \l__wrapblock_ni_dim { \l__wrapblock_i_dim + \g__wrapblock_shift_dim }
+        \dim_set:Nn \l__wrapblock_nl_dim { \l__wrapblock_l_dim - \g__wrapblock_shift_dim }
+      }
+      {
+        \dim_set_eq:NN \l__wrapblock_ni_dim \l__wrapblock_i_dim
+        \dim_set:Nn \l__wrapblock_nl_dim
+          {
+            \dim_min:nn { \l__wrapblock_l_dim }
+              { \g__wrapblock_left_dim + \g__wrapblock_width_dim
+                - \g__wrapblock_shift_dim - \l__wrapblock_i_dim }
+          }
+      }
+    \dim_gset_eq:NN \g__wrapblock_avail_dim \l__wrapblock_nl_dim
+    \tl_clear:N \l__wrapblock_shape_tl
+    \tl_clear:N \l__wrapblock_pen_tl
+    \int_step_inline:nn { #2 }
+      {
+        \tl_put_right:Nx \l__wrapblock_shape_tl
+          { \dim_use:N \l__wrapblock_ni_dim \c_space_tl \dim_use:N \l__wrapblock_nl_dim \c_space_tl }
+        \tl_put_right:Nn \l__wrapblock_pen_tl { 10000 ~ }
+      }
+    \int_step_inline:nn { \l__wrapblock_full_int }
+      {
+        \tl_put_right:Nx \l__wrapblock_shape_tl
+          { \dim_use:N \l__wrapblock_i_dim \c_space_tl \dim_use:N \l__wrapblock_l_dim \c_space_tl }
+        % the page breaks after the last full-width line (-10000, as \newpage:
+        % LaTeX keeps lower values for its floats)
+        \tl_put_right:Nx \l__wrapblock_pen_tl
+          {
+            \int_compare:nNnTF {##1} = { \l__wrapblock_full_int }
+              { -10000 } { \int_use:N \interlinepenalty } ~
+          }
+      }
+    \int_step_inline:nn { \l__wrapblock_lines_int }
+      {
+        \tl_put_right:Nx \l__wrapblock_shape_tl
+          { \dim_use:N \l__wrapblock_ni_dim \c_space_tl \dim_use:N \l__wrapblock_nl_dim \c_space_tl }
+        \tl_put_right:Nn \l__wrapblock_pen_tl { 10000 ~ }
+      }
+    \int_set:Nn \l__wrapblock_lines_int
+      { #2 + \l__wrapblock_full_int + \l__wrapblock_lines_int }
+    \int_gset_eq:NN \g__wrapblock_narrowed_int \l__wrapblock_lines_int
+    \int_compare:nNnT { \l__wrapblock_lines_int } > { 0 }
+      {
+        \seq_gput_right:Ne \g__wrapblock_shapes_seq
+          {
+            \int_eval:n { \l__wrapblock_lines_int + 1 } /
+            \bool_lazy_and:nnTF
+              { \int_compare_p:nNn {#2} = { 0 } }
+              { \int_compare_p:nNn { \l__wrapblock_full_int } > { 0 } }
+              { \dim_use:N \l__wrapblock_i_dim / \dim_use:N \l__wrapblock_l_dim }
+              { \dim_use:N \l__wrapblock_ni_dim / \dim_use:N \l__wrapblock_nl_dim }
+          }
+      }
+    \tl_gset:Ne \g__wrapblock_parshape_tl
+      {
+        \exp_not:N \tex_parshape:D
+          \int_eval:n { \l__wrapblock_lines_int + 1 } \c_space_tl
+          \l__wrapblock_shape_tl
+          \dim_use:N \l__wrapblock_i_dim \c_space_tl \dim_use:N \l__wrapblock_l_dim
+          \exp_not:N \scan_stop:
+      }
+    \tl_gset:Ne \g__wrapblock_pen_tl
+      {
+        \exp_not:N \tex_interlinepenalties:D
+          \int_eval:n { \l__wrapblock_lines_int + 1 } \c_space_tl
+          \l__wrapblock_pen_tl \int_use:N \interlinepenalty
+          \exp_not:N \scan_stop:
+      }
+    #1 \g__wrapblock_parshape_tl
+    #1 \g__wrapblock_pen_tl
+    \int_compare:nNnT { \l__wrapblock_lines_int } > { 0 }
+      {
+        \bool_gset_true:N \g__wrapblock_inpar_bool
+        \__wrapblock_reshape_after_group:
+      }
+  }
+% </shape>
+
+% <reshape>
+% \parshape is local. A paragraph that starts inside a group and goes on
+% after it ({\bfseries Bold} text, a breakable tcolorbox) would lose
+% its shape when the group ends, and run over the image. The shape is set
+% again after every group that ends while the paragraph goes on.
+\cs_new_protected:Npn \__wrapblock_reshape_after_group:
+  {
+    \int_compare:nNnT { \tex_currentgrouplevel:D } > { 0 }
+      { \group_insert_after:N \__wrapblock_reshape: }
+  }
+\cs_new_protected:Npn \__wrapblock_reshape:
+  {
+    \bool_lazy_all:nT
+      {
+        { \g__wrapblock_inpar_bool }
+        { \mode_if_horizontal_p: }
+        { ! \mode_if_inner_p: }
+      }
+      {
+        \g__wrapblock_parshape_tl
+        \g__wrapblock_pen_tl
+        \__wrapblock_reshape_after_group:
+      }
+  }
+% </reshape>
+
+% <build>
+% The image #2, in horizontal mode, with the width key #1. With a length,
+% it is a minipage of that width, centred: it may hold paragraphs and a
+% caption. Its bottom line is on the baseline, as that of a lone image.
+% The image is not the text of the block: its boxes are not checked.
+\cs_new_protected:Npn \__wrapblock_image:nn #1#2
+  {
+    \bool_set_true:N \l__wrapblock_inimage_bool
+    \bool_set_false:N \l__wrapblock_outer_bool
+    \dim_compare:nNnTF {#1} = { - \c_max_dim }
+      {#2}
+      { \begin{minipage}[b]{#1} \centering #2 \end{minipage} }
+  }
+\cs_generate_variant:Nn \__wrapblock_image:nn { nv }
+% The image is built twice: once to be measured at the start of the
+% block, once where it is placed. Built outside a paragraph, a box with
+% text in it (\fbox, tabular, \parbox) would open its structure at the
+% wrong place in a tagged PDF.
+\cs_new_protected:Npn \__wrapblock_build:
+  {
+    \hbox_gset:Nn \g__wrapblock_img_box
+      { \__wrapblock_image:nv { \g__wrapblock_img_width_dim } { g__wrapblock_img_tl } }
+  }
+
+% The image, flat (no width, height or depth), at the start of line 1.
+\cs_new_protected:Npn \__wrapblock_place_image:
+  {
+    \__wrapblock_build:
+    \hbox_set:Nn \l_tmpa_box
+      {
+        \tex_kern:D \dim_eval:n
+          {
+            \str_if_eq:VnTF \g__wrapblock_side_tl { l }
+              { \g__wrapblock_left_dim }
+              { \g__wrapblock_left_dim + \g__wrapblock_width_dim - \box_wd:N \g__wrapblock_img_box }
+            - \l__wrapblock_ni_dim
+          }
+        \box_move_down:nn
+          { \box_ht:N \g__wrapblock_img_box - \box_ht:N \strutbox }
+          { \box_use:N \g__wrapblock_img_box }
+      }
+    \box_set_wd:Nn \l_tmpa_box { 0pt }
+    \box_set_ht:Nn \l_tmpa_box { 0pt }
+    \box_set_dp:Nn \l_tmpa_box { 0pt }
+    % Centred or ragged-left text: \leftskip comes before the image and
+    % would move it. The opposite glue takes it back to the start of the
+    % line, and the same glue after it puts the text where it was.
+    % After a heading with no indentation, \@afterheading removes the
+    % \lastbox of the line, meant to be the indentation box: a kern after
+    % the image keeps it from being taken instead.
+    \skip_if_eq:nnTF { \leftskip } { 0pt }
+      { \box_use_drop:N \l_tmpa_box \tex_kern:D 0pt \scan_stop: }
+      {
+        \tex_penalty:D 10000 ~
+        \skip_horizontal:n { - \leftskip }
+        \box_use_drop:N \l_tmpa_box
+        \tex_penalty:D 10000 ~
+        \skip_horizontal:N \leftskip
+      }
+    \bool_gset_false:N \g__wrapblock_pending_bool
+  }
+% </build>
+
+% <labels>
+% A block that comes first in an \item: the labels, which LaTeX sets at the start
+% of the first line, would follow the text past a left image and land on
+% it. Move them back to their place in the margin.
+\cs_new_protected:Npn \__wrapblock_labels_back:
+  {
+    \str_if_eq:VnT \g__wrapblock_side_tl { l }
+      {
+        \legacy_if:nT { @inlabel }
+          {
+            \hbox_gset:Nn \@labels
+              {
+                \tex_kern:D - \g__wrapblock_shift_dim
+                \hbox_unpack:N \@labels
+                \tex_kern:D \g__wrapblock_shift_dim
+              }
+          }
+      }
+  }
+% </labels>
+
+% <boxcheck>
+% A \parbox, minipage or p cell is not wrapped: its text keeps the width
+% it was given. Say so when that width does not fit beside the image.
+\cs_new_protected:Npn \__wrapblock_box_check:
+  {
+    \bool_lazy_and:nnT { \l__wrapblock_outer_bool } { \g__wrapblock_active_bool }
+      {
+        % group 11: a footnote, set apart at the foot of the page;
+        % \@captype: a float, which goes elsewhere on the page
+        \bool_lazy_all:nT
+          {
+            { ! \g__wrapblock_pending_bool }
+            { ! \g__wrapblock_wait_bool }
+            { \int_compare_p:n { \tex_currentgrouptype:D != 11 } }
+            { ! \cs_if_exist_p:N \@captype }
+            { \dim_compare_p:nNn { \pagetotal } < { \g__wrapblock_bottom_dim } }
+          }
+          {
+            \bool_lazy_and:nnT
+              { \dim_compare_p:nNn { \hsize } > { \g__wrapblock_avail_dim + 0.5pt } }
+              { ! \str_if_eq_p:ee { \msg_line_number: } { \g__wrapblock_warned_tl } }
+              {
+                \tl_gset:Ne \g__wrapblock_warned_tl { \msg_line_number: }
+                \msg_warning:nnxx { wrapblock } { box }
+                  { \dim_use:N \hsize } { \dim_use:N \g__wrapblock_avail_dim }
+              }
+          }
+      }
+  }
+\msg_new:nnn { wrapblock } { box }
+  { A~box~of~width~#1,~in~the~block~that~ends~on~input~line~
+    \msg_line_number:,~sits~beside~the~image,~where~only~#2~is~left.~
+    The~text~of~a~box~is~not~wrapped. }
+% </boxcheck>
+
+% <parahooks>
+% ---------------------------------------------------------------- hooks
+\hook_gput_code:nnn { para / before } { wrapblock }
+  {
+    \bool_if:NT \g__wrapblock_active_bool
+      { \bool_if:NT \l__wrapblock_outer_bool
+          { \dim_gset:Nn \g__wrapblock_prevdepth_dim { \prevdepth } } }
+  }
+
+\hook_gput_code:nnn { para / begin } { wrapblock }
+  {
+    \bool_if:NT \l__wrapblock_outer_bool { \__wrapblock_para_begin: }
+  }
+% </parahooks>
+
+% <unstale>
+% TeX clears \parshape at the end of a paragraph, but locally. A paragraph
+% ended inside a deeper group (an item that opens a nested list, a
+% tcolorbox that starts in the group of the next one) leaves its narrowed
+% shape behind, and a later paragraph gets it back, maybe only when some
+% group ends after it has started. It is looked for at the end of a
+% paragraph that was given no shape, just before the line breaking: it is
+% recognised among the shapes set in the block; its last entry is what
+% LaTeX had given.
+\hook_gput_code:nnn { para / end } { wrapblock }
+  {
+    \bool_lazy_all:nT
+      {
+        { \l__wrapblock_outer_bool }
+        { \l__wrapblock_inside_bool }
+        { ! \g__wrapblock_inpar_bool }
+      }
+      { \__wrapblock_unstale: }
+  }
+\cs_new_protected:Npn \__wrapblock_unstale:
+  {
+    \int_compare:nNnT { \parshape } > { 1 }
+      {
+        \seq_if_in:NeT \g__wrapblock_shapes_seq
+          {
+            \int_eval:n { \parshape } /
+            \dim_eval:n { \parshapeindent 1 } / \dim_eval:n { \parshapelength 1 }
+          }
+          {
+            \tex_parshape:D 1 ~
+              \dim_eval:n { \parshapeindent \parshape } \c_space_tl
+              \dim_eval:n { \parshapelength \parshape } \scan_stop:
+            \tex_interlinepenalties:D 0 ~
+          }
+      }
+  }
+% </unstale>
+
+% <parabegin>
+\cs_new_protected:Npn \__wrapblock_para_begin:
+  {
+    \bool_if:NT \g__wrapblock_active_bool
+      {
+        \__wrapblock_first_baseline:N \l__wrapblock_base_dim
+        \bool_if:NTF \g__wrapblock_wait_bool
+          { \__wrapblock_defer_para:N \prg_do_nothing: }
+          { \__wrapblock_para_begin_aux: }
+      }
+  }
+\cs_new_protected:Npn \__wrapblock_para_begin_aux:
+  {
+        \bool_if:NTF \g__wrapblock_pending_bool
+          {
+            \dim_gset:Nn \g__wrapblock_bottom_dim
+              { \l__wrapblock_base_dim - \box_ht:N \strutbox + \g__wrapblock_height_dim }
+            \int_gset_eq:NN \g__wrapblock_origin_ship_int \g__wrapblock_ship_int
+          }
+          { \__wrapblock_check_ship: }
+        \__wrapblock_shape:nn { 0 } { \l__wrapblock_base_dim }
+        \int_compare:nNnTF { \l__wrapblock_lines_int } > { 0 }
+          {
+            \int_set:Nn \predisplaypenalty  { 10000 }
+            \int_set:Nn \postdisplaypenalty { 10000 }
+            \bool_if:NT \g__wrapblock_pending_bool
+              {
+                \__wrapblock_labels_back:
+                \__wrapblock_place_image:
+              }
+          }
+          % past the image: the shape is the one LaTeX gave, keep it
+          { \__wrapblock_stop: }
+  }
+% </parabegin>
+
+% <deferpara>
+% A deferred image, before the page break. #1 is \prg_do_nothing: at the
+% start of a paragraph, \tex_global:D after a display. The baseline of the
+% next line is in \l__wrapblock_base_dim, and \prevgraf lines are set.
+% Count the full-width lines that still fit on the page: none, and the
+% page breaks before the next line; some, and it breaks after the last.
+\cs_new_protected:Npn \__wrapblock_defer_para:N #1
+  {
+    \int_compare:nNnTF { \g__wrapblock_ship_int } = { \g__wrapblock_origin_ship_int }
+      {
+        % the footnotes to come, as the last run found them
+        \dim_set:Nn \l_tmpa_dim
+          { \g__wrapblock_short_dim - \g__wrapblock_goal_dim + \pagegoal }
+        \dim_compare:nNnT { \l_tmpa_dim } < { 0pt } { \dim_zero:N \l_tmpa_dim }
+        \dim_set:Nn \l_tmpa_dim { \pagegoal - \l_tmpa_dim }
+        \dim_compare:nNnTF
+          { \l__wrapblock_base_dim + \box_dp:N \strutbox } > { \l_tmpa_dim }
+          { \int_zero:N \l__wrapblock_full_int }
+          {
+            \int_set:Nn \l__wrapblock_full_int
+              {
+                \fp_eval:n
+                  {
+                    floor ( \dim_to_fp:n { \l_tmpa_dim - \l__wrapblock_base_dim - \box_dp:N \strutbox }
+                            / \dim_to_fp:n { \baselineskip } ) + 1
+                  }
+              }
+          }
+        \int_compare:nNnT { \l__wrapblock_full_int } = { 0 }
+          { \tex_vadjust:D pre { \tex_penalty:D -10000 ~ } }
+      }
+      % the page already broke before this paragraph
+      { \int_zero:N \l__wrapblock_full_int }
+    \int_compare:nNnTF { \l__wrapblock_full_int } = { 0 }
+      {
+        % the image goes to the page after the coming break, or to the
+        % page being built if the page already broke
+        \__wrapblock_commit:n
+          {
+            \g__wrapblock_ship_int
+            \int_compare:nNnT { \g__wrapblock_ship_int } = { \g__wrapblock_origin_ship_int } { + 1 }
+          }
+        \__wrapblock_shape:Nnnn #1 { \tex_prevgraf:D } { 0 } { \topskip }
+      }
+      {
+        \int_gset:Nn \g__wrapblock_full_end_int
+          { \tex_prevgraf:D + \l__wrapblock_full_int }
+        \bool_gset_true:N \g__wrapblock_breakpar_bool
+        \__wrapblock_shape:Nnnn #1 { \tex_prevgraf:D } { \l__wrapblock_full_int } { \topskip }
+      }
+    \int_set:Nn \predisplaypenalty  { 10000 }
+    \int_set:Nn \postdisplaypenalty { 10000 }
+  }
+% </deferpara>
+
+% <commit>
+% The image goes to the top of the page shipped after #1 pages.
+\cs_new_protected:Npn \__wrapblock_commit:n #1
+  {
+    \bool_gset_false:N \g__wrapblock_wait_bool
+    \int_gset:Nn \g__wrapblock_origin_ship_int {#1}
+    \int_gincr:N \g__wrapblock_def_int
+    \tl_gset_eq:cN { g__wrapblock_def_ \int_use:N \g__wrapblock_def_int _tl }
+      \g__wrapblock_img_tl
+    \tl_gset:ce { g__wrapblock_def_ \int_use:N \g__wrapblock_def_int _data_tl }
+      {
+        { \int_use:N \g__wrapblock_origin_ship_int }
+        { \dim_use:N \g__wrapblock_left_dim }
+        { \dim_use:N \g__wrapblock_width_dim }
+        { \dim_use:N \g__wrapblock_img_width_dim }
+        { \g__wrapblock_side_tl }
+        { \int_use:N \g__wrapblock_struct_int }
+      }
+    \seq_gput_right:Ne \g__wrapblock_def_seq { \int_use:N \g__wrapblock_def_int }
+  }
+% </commit>
+
+% <display>
+% After a displayed equation the paragraph goes on; its remaining lines
+% are re-measured from where the display actually ended.
+\cs_new_protected:Npn \__wrapblock_after_display:
+  {
+    \bool_if:NT \g__wrapblock_active_bool
+      {
+        \dim_set:Nn \l__wrapblock_base_dim
+          { \pagetotal + \baselineskip - \box_dp:N \strutbox }
+        \bool_if:NTF \g__wrapblock_wait_bool
+          { \__wrapblock_defer_para:N \tex_global:D }
+          {
+            \__wrapblock_check_ship:
+            \__wrapblock_shape:Nnn \tex_global:D { \prevgraf } { \l__wrapblock_base_dim }
+          }
+        \bool_gset_true:N \g__wrapblock_global_bool
+      }
+  }
+\cs_new_protected:Npn \__wrapblock_display_hook:
+  {
+    \bool_if:NT \g__wrapblock_active_bool
+      { \bool_if:NT \l__wrapblock_outer_bool
+          { \group_insert_after:N \__wrapblock_after_display: } }
+  }
+\hook_gput_code:nnn { begindocument } { wrapblock }
+  {
+    \tex_everydisplay:D \exp_after:wN
+      { \tex_the:D \tex_everydisplay:D \__wrapblock_display_hook: }
+  }
+% </display>
+
+% <paraend>
+% TeX adds the club, widow and broken penalties to the -10000 that ends
+% the page, which then no longer forces the break. They are cleared at the
+% end of the paragraph, just before it is broken into lines: at its start,
+% the \everypar of LaTeX would set \clubpenalty again after the hook.
+\hook_gput_code:nnn { para / end } { wrapblock }
+  {
+    \bool_lazy_and:nnT { \l__wrapblock_outer_bool } { \g__wrapblock_breakpar_bool }
+      {
+        \bool_gset_false:N \g__wrapblock_breakpar_bool
+        \int_set:Nn \clubpenalty   { 0 }
+        \int_set:Nn \widowpenalty  { 0 }
+        \int_set:Nn \brokenpenalty { 0 }
+        \tex_clubpenalties:D  0 ~
+        \tex_widowpenalties:D 0 ~
+      }
+  }
+% </paraend>
+
+% <paraafter>
+\hook_gput_code:nnn { para / after } { wrapblock }
+  {
+    \bool_if:NT \l__wrapblock_outer_bool
+      {
+        \bool_gset_false:N \g__wrapblock_inpar_bool
+        \bool_if:NT \g__wrapblock_active_bool { \__wrapblock_para_after: }
+      }
+  }
+\cs_new_protected:Npn \__wrapblock_para_after:
+  {
+    \tex_interlinepenalties:D 0 ~
+    \bool_if:NT \g__wrapblock_global_bool
+      {
+        \tex_global:D \tex_parshape:D 0 ~
+        \tex_global:D \tex_interlinepenalties:D 0 ~
+        \bool_gset_false:N \g__wrapblock_global_bool
+      }
+    \int_set_eq:NN \predisplaypenalty  \g__wrapblock_save_pre_int
+    \int_set_eq:NN \postdisplaypenalty \g__wrapblock_save_post_int
+    % A deferred image waits until a paragraph goes past its last
+    % full-width line, which ends the page.
+    \bool_if:NTF \g__wrapblock_wait_bool
+      {
+        \int_compare:nNnT { \tex_prevgraf:D } > { \g__wrapblock_full_end_int }
+          {
+            % The \par that ended the paragraph ran the page builder, which
+            % met the forced break: the page is shipped, and the image goes
+            % to the page being built. It may come later than planned: a
+            % footnote in the full-width lines shortens the page, which then
+            % breaks twice.
+            \int_compare:nNnT
+              { \g__wrapblock_ship_int } > { \g__wrapblock_origin_ship_int + 1 }
+              { \msg_warning:nn { wrapblock } { early } }
+            \__wrapblock_commit:n { \g__wrapblock_ship_int }
+            \__wrapblock_zone_after:
+          }
+      }
+      { \__wrapblock_zone_after: }
+  }
+\cs_new_protected:Npn \__wrapblock_zone_after:
+  {
+    % A paragraph with more lines than were narrowed went on below the
+    % image: the zone is over, whatever page it ended on. Otherwise the
+    % zone may go on; it cannot break, so a new page means it moved.
+    \int_compare:nNnTF { \tex_prevgraf:D } > { \g__wrapblock_narrowed_int }
+      { \__wrapblock_stop: }
+      {
+        \__wrapblock_check_ship:
+        \dim_compare:nNnTF { \pagetotal + \pagedepth } < { \g__wrapblock_bottom_dim }
+          { \nobreak \__wrapblock_list_penalties_off: }
+          { \__wrapblock_stop: }
+      }
+  }
+% </paraafter>
+
+% <boxwidth>
+% A tcolorbox reads \linewidth for its width before it starts its line,
+% between two paragraphs, where \linewidth is the full line. One that
+% starts beside the image is given the width left there, which its line
+% gets. The width is set in the group of the box, and ends with it.
+\cs_new_protected:Npn \__wrapblock_box_width:
+  {
+    % A box right after a paragraph, with no blank line between them, comes
+    % while that paragraph is still open: end it first, so that the zone
+    % knows where it stands (a deferred image is committed at its end).
+    % Otherwise a key such as center, which fixes the width when it is
+    % read, would keep the full line.
+    \bool_lazy_all:nT
+      {
+        { \l__wrapblock_outer_bool }
+        { \g__wrapblock_active_bool }
+        { \mode_if_horizontal_p: }
+      }
+      { \par }
+    % A box that opens the block: it starts its own paragraph after a
+    % \nointerlineskip, on a line whose height is not that of a strut (an
+    % empty line for a breakable box, the box itself otherwise), and the
+    % image hung on it would go up or down. The image gets a line of its
+    % own first, placed as a first line of text, and the box comes after,
+    % with the height of a strut given back.
+    \bool_lazy_all:nT
+      {
+        { \l__wrapblock_outer_bool }
+        { \g__wrapblock_active_bool }
+        { \g__wrapblock_pending_bool }
+        { ! \g__wrapblock_wait_bool }
+        { \mode_if_vertical_p: }
+        { ! \mode_if_inner_p: }
+      }
+      {
+        \noindent \par \nobreak
+        \tex_kern:D - \box_ht:N \strutbox
+      }
+    \bool_lazy_all:nT
+      {
+        { \l__wrapblock_outer_bool }
+        { \g__wrapblock_active_bool }
+        { ! \g__wrapblock_wait_bool }
+        {
+          \bool_lazy_or_p:nn { \g__wrapblock_pending_bool }
+            { \dim_compare_p:nNn { \pagetotal } < { \g__wrapblock_bottom_dim } }
+        }
+      }
+      {
+        \str_if_eq:VnTF \g__wrapblock_side_tl { l }
+          { \dim_sub:Nn \linewidth { \g__wrapblock_shift_dim } }
+          {
+            \dim_set:Nn \linewidth
+              {
+                \dim_min:nn { \linewidth }
+                  { \g__wrapblock_left_dim + \g__wrapblock_width_dim
+                    - \g__wrapblock_shift_dim - \@totalleftmargin }
+              }
+          }
+      }
+  }
+\hook_gput_code:nnn { cmd / tcolorbox / before } { wrapblock }
+  { \__wrapblock_box_width: }
+% </boxwidth>
+
+% <inbox>
+% In a box (minipage, \parbox, tcolorbox) \pagetotal says nothing of the
+% position, and no page can break anyway: the text goes in a minipage and
+% the image beside it, aligned on the first line.
+\cs_new_protected:Npn \__wrapblock_inbox_image:
+  {
+    \__wrapblock_build:
+    \box_move_down:nn
+      { \box_ht:N \g__wrapblock_img_box - \box_ht:N \strutbox }
+      { \box_use:N \g__wrapblock_img_box }
+  }
+\cs_new_protected:Npn \__wrapblock_inbox_begin:
+  {
+    \msg_info:nn { wrapblock } { inbox }
+    \noindent
+    \str_if_eq:VnT \l__wrapblock_side_tl { l }
+      { \__wrapblock_inbox_image: \hfill }
+    \begin{minipage}[t]{ \dim_eval:n { \linewidth - \g__wrapblock_shift_dim } }
+  }
+\cs_new_protected:Npn \__wrapblock_inbox_end:
+  {
+    \end{minipage}
+    \str_if_eq:VnT \l__wrapblock_side_tl { r }
+      { \hfill \__wrapblock_inbox_image: }
+    \par
+  }
+\msg_new:nnn { wrapblock } { inbox }
+  { The~block~that~ends~on~input~line~\msg_line_number:\ is~inside~a~box:~its~text~
+    is~set~beside~the~image,~without~wrapping~under~it. }
+% </inbox>
+
+% <room>
+% The room left on the page. Right after a heading, the space below it is
+% not on the page yet: \pagetotal counts it only when the next paragraph
+% starts. It is the last item of the list, and \lastskip gives it. When
+% the page itself ends with glue, it is subtracted twice: the error only
+% makes the image less likely to fit.
+\cs_new:Npn \__wrapblock_room: { ( \pagegoal - \pagetotal - \lastskip ) }
+% </room>
+
+% <needspace>
+% Not enough room left for the image, or the page already holds more than
+% it can (TeX cuts it only at the next legal break). An invisible rule as
+% tall as the image makes the page overflow, and a breakpoint after it,
+% which TeX cannot take on a full page, makes TeX cut now at its best
+% earlier break: before a heading, which forbids a break after itself,
+% or before the previous paragraph. The rule is taller than the image by
+% the shrink of the page: otherwise, when the image is only a little too
+% tall, the page still fits by shrinking its glue, TeX takes the
+% breakpoint after the rule, and a heading is left alone at the bottom.
+% A negative skip then gives the room back, and \pagetotal measures the
+% page the block starts on.
+\cs_new_protected:Npn \__wrapblock_need_space:
+  {
+    % An image taller than the page fits nowhere: the rule below would
+    % leave an empty page. A plain page break, and the image overflows.
+    \dim_compare:nNnTF
+      { \g__wrapblock_height_dim + \baselineskip } > { \tex_vsize:D }
+      { \newpage }
+      { \__wrapblock_need_space_aux: }
+  }
+\cs_new_protected:Npn \__wrapblock_need_space_aux:
+  {
+    \dim_set_eq:NN \l__wrapblock_base_dim \prevdepth
+    \legacy_if:nF { @nobreak } { \tex_penalty:D 0 ~ }
+    \dim_set:Nn \l__wrapblock_rule_dim
+      { \g__wrapblock_height_dim + \baselineskip + \tex_pageshrink:D + 1sp }
+    \tex_hrule:D height \l__wrapblock_rule_dim depth 0pt width 0pt \scan_stop:
+    \tex_penalty:D 9999 ~
+    % in a group: the primitive \par clears \parshape, which a list needs
+    \group_begin: \tex_par:D \group_end:
+    \tex_penalty:D 10000 ~
+    \skip_vertical:n { - \l__wrapblock_rule_dim }
+    % An \item, a list or a heading that starts the block calls \addvspace,
+    % which would cancel a negative skip it finds last: hide it.
+    \tex_penalty:D 10000 ~
+    \tex_prevdepth:D \l__wrapblock_base_dim
+  }
+% </needspace>
+
+% <decide>
+% The image does not fit at the bottom of the page. With the text long
+% enough to fill that bottom at full width and run on to the next page,
+% the image is deferred to the top of that page. With a shorter text, the
+% image would end up alone: the whole block moves to the next page.
+% Columns (twocolumn, multicols) are not handled: the block moves.
+\cs_new_protected:Npn \__wrapblock_decide:n #1
+  {
+    \bool_set_false:N \l__wrapblock_defer_bool
+    \bool_lazy_or:nnTF
+      { \legacy_if_p:n { @twocolumn } }
+      {
+        \bool_lazy_and_p:nn
+          { \cs_if_exist_p:N \col@number }
+          { \int_compare_p:nNn { \col@number } > { 1 } }
+      }
+      { \__wrapblock_need_space: }
+      {
+        % defer=false: the body is not measured, the whole block moves
+        \bool_lazy_or:nnTF
+          { ! \l__wrapblock_allow_defer_bool }
+          { \dim_compare_p:nNn { \__wrapblock_room: } < { 2 \baselineskip } }
+          { \__wrapblock_need_space: }
+          {
+            \__wrapblock_measure:n {#1}
+            \dim_compare:nNnTF
+              { \g__wrapblock_text_dim } < { \__wrapblock_room: + 2 \baselineskip }
+              {
+                \msg_warning:nn { wrapblock } { short }
+                \__wrapblock_need_space:
+              }
+              { \bool_set_true:N \l__wrapblock_defer_bool }
+          }
+      }
+  }
+\msg_new:nnn { wrapblock } { short }
+  { The~image~of~the~block~that~ends~on~input~line~\msg_line_number:\ does~not~fit~
+    at~the~bottom~of~the~page,~and~its~text~is~too~short~to~run~on~to~
+    the~next~page:~the~whole~block~moves~to~the~next~page,~and~leaves~
+    room~at~the~bottom~of~this~one. }
+% </decide>
+
+% <measure>
+% The text of the block, set at full width in a box that is thrown away.
+% Counters are put back; labels, footnotes and index entries vanish with
+% the box. A block that comes first in an \item sets its label in the box too: the
+% label and the state of the list are put back as well.
+\cs_new_protected:Npn \__wrapblock_counters_save:
+  {
+    \tl_gclear:N \g__wrapblock_counters_tl
+    \group_begin:
+      \cs_set:Npn \@elt ##1
+        {
+          \tl_gput_right:Ne \g__wrapblock_counters_tl
+            { \int_gset:Nn \exp_not:c { c@##1 } { \int_use:c { c@##1 } } }
+        }
+      \cl@@ckpt
+    \group_end:
+  }
+\cs_new_protected:Npn \__wrapblock_measure:n #1
+  { \__wrapblock_measure:nn { \linewidth } {#1} }
+% #1 the width of the text, #2 the text
+\cs_new_protected:Npn \__wrapblock_measure:nn #1#2
+  {
+    \__wrapblock_counters_save:
+    \hbox_set:Nn \l__wrapblock_labels_box { \box_use:N \@labels }
+    \hbox_gset:Nn \@labels { \box_use:N \l__wrapblock_labels_box }
+    \clist_map_inline:nn { @inlabel , @newlist , @noparitem , @minipage , @nobreak }
+      {
+        \tl_gput_right:Ne \g__wrapblock_counters_tl
+          { \legacy_if:nTF {##1} { \exp_not:c { ##1true } } { \exp_not:c { ##1false } } }
+      }
+    \tl_set_eq:NN \l__wrapblock_freelist_tl \@freelist
+    \tl_set_eq:NN \l__wrapblock_currlist_tl \@currlist
+    \group_begin:
+      \cs_if_exist_use:NT \tag_suspend:n { { wrapblock } }
+      \vbox_set:Nn \l__wrapblock_measure_box
+        {
+          \bool_set_false:N \l__wrapblock_outer_bool
+          % A float or a \marginpar cannot leave a box. Between two
+          % paragraphs, LaTeX sees the box and gives an error: here they are
+          % set in boxes of the package, without the error. Inside a
+          % paragraph, LaTeX does not see it and takes a float box: the
+          % lists of float boxes are put back after the measure.
+          \cs_set_eq:NN \@parmoderr \prg_do_nothing:
+          \cs_set_eq:NN \@currbox \g__wrapblock_float_box
+          \cs_set_eq:NN \@marbox  \g__wrapblock_mar_box
+          \dim_set:Nn \hsize {#1}
+          \dim_set_eq:NN \linewidth \hsize
+          \dim_zero:N \@totalleftmargin
+          \tex_parshape:D 0 ~
+          \int_set:Nn \hbadness { 10000 }
+          \int_set:Nn \vbadness { 10000 }
+          \dim_set_eq:NN \hfuzz \c_max_dim
+          #2
+          \par
+        }
+      \dim_gset:Nn \g__wrapblock_text_dim
+        { \box_ht:N \l__wrapblock_measure_box + \box_dp:N \l__wrapblock_measure_box }
+      \cs_if_exist_use:NT \tag_resume:n { { wrapblock } }
+    \group_end:
+    \tl_use:N \g__wrapblock_counters_tl
+    \hbox_gset:Nn \@labels { \box_use:N \l__wrapblock_labels_box }
+    \tl_gset_eq:NN \@freelist \l__wrapblock_freelist_tl
+    \tl_gset_eq:NN \@currlist \l__wrapblock_currlist_tl
+  }
+% </measure>
+
+% <placeholder>
+% An empty structure element where the block starts: a deferred image is
+% put in it when its page is shipped.
+\cs_new_protected:Npn \__wrapblock_placeholder:
+  {
+    \int_gzero:N \g__wrapblock_struct_int
+    \cs_if_exist:NT \tag_if_active:T
+      {
+        \tag_if_active:T
+          {
+            \tag_struct_begin:n { tag = NonStruct }
+            \int_gset:Nn \g__wrapblock_struct_int { \tag_get:n { struct_num } }
+            \tag_struct_end:
+          }
+      }
+  }
+% </placeholder>
+% <msgs>
+\msg_new:nnn { wrapblock } { early }
+  { The~page~broke~too~early~in~the~text~of~the~block~that~ends~on~
+    input~line~\msg_line_number:,~before~its~image~was~set:~a~footnote~in~the~
+    full-width~lines~shortened~the~page,~and~a~page~with~a~few~lines~is~
+    left~before~the~image.~Rerun~LaTeX~to~get~it~right. }
+\msg_new:nnn { wrapblock } { alone }
+  { The~text~of~the~block~that~ends~on~input~line~\msg_line_number:\ ended~before~
+    the~bottom~of~the~page:~its~image~is~set~after~it. }
+% </msgs>
+
+% <fit>
+% width=fit. The block is tried at widths between fit min and fit max,
+% fractions of the line: at each, the image is built in a minipage of that
+% width, as with the key width, and the text set in the room left beside
+% it. The image may get shorter as the block widens (a caption on fewer
+% lines) or taller (an image whose width is a fraction of \linewidth);
+% the text gets taller. The block is lowest where the two cross: if the
+% image is the taller at one bound and the shorter at the other, a
+% bisection closes on the crossing, to 2% of the line (6 steps from the
+% default bounds). Otherwise there is
+% no crossing between the bounds, and the block keeps its natural width.
+% #1 is the text.
+\cs_new_protected:Npn \__wrapblock_fit:n #1
+  {
+    \fp_set_eq:NN \l__wrapblock_fit_lo_fp \l__wrapblock_fit_min_fp
+    \fp_set_eq:NN \l__wrapblock_fit_hi_fp \l__wrapblock_fit_max_fp
+    \__wrapblock_fit_eval:Nn \l__wrapblock_fit_lo_fp {#1}
+    \bool_set_eq:NN \l__wrapblock_fit_lo_bool \l__wrapblock_fit_mid_bool
+    \dim_set:Nn \l__wrapblock_fit_lo_dim
+      { \dim_max:nn { \l__wrapblock_fit_img_dim } { \l__wrapblock_fit_txt_dim } }
+    \__wrapblock_fit_eval:Nn \l__wrapblock_fit_hi_fp {#1}
+    \dim_set:Nn \l__wrapblock_fit_hi_dim
+      { \dim_max:nn { \l__wrapblock_fit_img_dim } { \l__wrapblock_fit_txt_dim } }
+    % The bounds agree. An image that grows with the block may still be the
+    % taller in the middle: at the bounds, the text is the taller, beside a
+    % small image or in a column that has all but vanished. One more trial,
+    % in the middle, which brackets the crossing if it differs.
+    \bool_if:NT
+      {
+        \bool_lazy_or_p:nn
+          { \bool_lazy_and_p:nn { \l__wrapblock_fit_lo_bool } { \l__wrapblock_fit_mid_bool } }
+          { \bool_lazy_and_p:nn { ! \l__wrapblock_fit_lo_bool } { ! \l__wrapblock_fit_mid_bool } }
+      }
+      {
+        \fp_set:Nn \l__wrapblock_fit_mid_fp
+          { ( \l__wrapblock_fit_lo_fp + \l__wrapblock_fit_hi_fp ) / 2 }
+        \__wrapblock_fit_eval:Nn \l__wrapblock_fit_mid_fp {#1}
+        \bool_if:NT
+          {
+            \bool_lazy_or_p:nn
+              { \bool_lazy_and_p:nn { \l__wrapblock_fit_lo_bool } { ! \l__wrapblock_fit_mid_bool } }
+              { \bool_lazy_and_p:nn { ! \l__wrapblock_fit_lo_bool } { \l__wrapblock_fit_mid_bool } }
+          }
+          {
+            \fp_set_eq:NN \l__wrapblock_fit_hi_fp \l__wrapblock_fit_mid_fp
+            \dim_set:Nn \l__wrapblock_fit_hi_dim
+              { \dim_max:nn { \l__wrapblock_fit_img_dim } { \l__wrapblock_fit_txt_dim } }
+          }
+      }
+    \bool_if:NTF \l__wrapblock_fit_lo_bool
+      { \bool_if:NTF \l__wrapblock_fit_mid_bool { \use_i:nn } { \use_ii:nn } }
+      { \bool_if:NTF \l__wrapblock_fit_mid_bool { \use_ii:nn } { \use_i:nn } }
+      {
+        \msg_warning:nne { wrapblock } { fit }
+          { \bool_if:NTF \l__wrapblock_fit_lo_bool { taller } { shorter } }
+      }
+      {
+        \int_zero:N \l__wrapblock_fit_int
+        \__wrapblock_fit_step:n {#1}
+        \dim_set:Nn \l__wrapblock_width_dim
+          {
+            \fp_to_dim:n
+              {
+                ( \dim_compare:nNnTF { \l__wrapblock_fit_lo_dim } > { \l__wrapblock_fit_hi_dim }
+                    { \l__wrapblock_fit_hi_fp } { \l__wrapblock_fit_lo_fp } )
+                * \linewidth
+              }
+          }
+        \msg_info:nnee { wrapblock } { fit-width }
+          { \dim_use:N \l__wrapblock_width_dim }
+          { \fp_eval:n { round ( \l__wrapblock_width_dim / \linewidth , 3 ) } }
+      }
+  }
+\cs_new_protected:Npn \__wrapblock_fit_step:n #1
+  {
+    \bool_lazy_and:nnT
+      {
+        \fp_compare_p:n
+          { \l__wrapblock_fit_hi_fp - \l__wrapblock_fit_lo_fp > 0.02 }
+      }
+      { \int_compare_p:nNn { \l__wrapblock_fit_int } < { 20 } }
+      {
+        \int_incr:N \l__wrapblock_fit_int
+        \fp_set:Nn \l__wrapblock_fit_mid_fp
+          { ( \l__wrapblock_fit_lo_fp + \l__wrapblock_fit_hi_fp ) / 2 }
+        \__wrapblock_fit_eval:Nn \l__wrapblock_fit_mid_fp {#1}
+        \bool_if:NTF
+          {
+            \bool_lazy_or_p:nn
+              { \bool_lazy_and_p:nn { \l__wrapblock_fit_lo_bool } { \l__wrapblock_fit_mid_bool } }
+              { \bool_lazy_and_p:nn { ! \l__wrapblock_fit_lo_bool } { ! \l__wrapblock_fit_mid_bool } }
+          }
+          {
+            \fp_set_eq:NN \l__wrapblock_fit_lo_fp \l__wrapblock_fit_mid_fp
+            \dim_set:Nn \l__wrapblock_fit_lo_dim
+              { \dim_max:nn { \l__wrapblock_fit_img_dim } { \l__wrapblock_fit_txt_dim } }
+          }
+          {
+            \fp_set_eq:NN \l__wrapblock_fit_hi_fp \l__wrapblock_fit_mid_fp
+            \dim_set:Nn \l__wrapblock_fit_hi_dim
+              { \dim_max:nn { \l__wrapblock_fit_img_dim } { \l__wrapblock_fit_txt_dim } }
+          }
+        \__wrapblock_fit_step:n {#1}
+      }
+  }
+% The block at the width #1 (a fraction of the line), its text #2: the
+% heights of the image and of the text beside it, and whether the image is
+% the taller (\l__wrapblock_fit_mid_bool). The image is built as it will
+% be, its counters put back; with less than 3em left, the text is taken
+% as endless.
+\cs_new_protected:Npn \__wrapblock_fit_eval:Nn #1#2
+  {
+    \dim_set:Nn \l__wrapblock_fit_w_dim { \fp_to_dim:n { #1 * \linewidth } }
+    \__wrapblock_counters_save:
+    \group_begin:
+      \cs_if_exist_use:NT \tag_suspend:n { { wrapblock } }
+      % a trial: an image wider than the block, a caption badly broken,
+      % are not reported. The minipage and a caption run \sloppy (through
+      % \@parboxrestore), which sets \hfuzz again: it is made quiet too.
+      \__wrapblock_quiet:
+      \tl_put_right:Nn \sloppy { \__wrapblock_quiet: }
+      \hbox_gset:Nn \g__wrapblock_fit_box
+        { \__wrapblock_image:nv { \l__wrapblock_fit_w_dim } { g__wrapblock_img_tl } }
+      \cs_if_exist_use:NT \tag_resume:n { { wrapblock } }
+    \group_end:
+    \tl_use:N \g__wrapblock_counters_tl
+    \dim_set:Nn \l__wrapblock_fit_img_dim
+      { \box_ht:N \g__wrapblock_fit_box + \box_dp:N \g__wrapblock_fit_box }
+    \dim_set:Nn \l__wrapblock_fit_col_dim
+      { \linewidth - \box_wd:N \g__wrapblock_fit_box - \l__wrapblock_hsep_dim }
+    \dim_compare:nNnTF { \l__wrapblock_fit_col_dim } < { 3em }
+      { \dim_set_eq:NN \l__wrapblock_fit_txt_dim \c_max_dim }
+      {
+        \__wrapblock_measure:nn { \l__wrapblock_fit_col_dim } {#2}
+        \dim_set_eq:NN \l__wrapblock_fit_txt_dim \g__wrapblock_text_dim
+      }
+    \bool_set:Nn \l__wrapblock_fit_mid_bool
+      { \dim_compare_p:nNn { \l__wrapblock_fit_img_dim } > { \l__wrapblock_fit_txt_dim } }
+  }
+\cs_new_protected:Npn \__wrapblock_quiet:
+  {
+    \int_set:Nn \hbadness { 10000 }
+    \int_set:Nn \vbadness { 10000 }
+    \dim_set_eq:NN \hfuzz \c_max_dim
+    \dim_set_eq:NN \vfuzz \c_max_dim
+  }
+\msg_new:nnn { wrapblock } { fit }
+  { The~image~of~the~block~that~ends~on~input~line~\msg_line_number:\
+    is~#1~than~its~text~at~every~width~between~fit~min~and~fit~max:~
+    width=fit~finds~no~crossing,~and~the~image~keeps~its~natural~width. }
+\msg_new:nnn { wrapblock } { fit-width }
+  { The~block~that~ends~on~input~line~\msg_line_number:\ is~#1~wide,~#2~of~
+    the~line~(width=fit). }
+% </fit>
+
+% <env>
+% ---------------------------------------------------------------- user
+\NewDocumentEnvironment { wrapblock } { O{} +m +b }
+  {
+    \par
+    \bool_if:NT \l__wrapblock_inimage_bool { \msg_error:nn { wrapblock } { nested } }
+    \int_gincr:N \g__wrapblock_block_int
+    \keys_set:nn { wrapblock } {#1}
+    \tl_gset:Nn \g__wrapblock_img_tl {#2}
+    \dim_gset_eq:NN \wrapblocklinewidth \linewidth
+    \bool_if:NT \l__wrapblock_fit_bool { \__wrapblock_fit:n {#3} }
+    \dim_gset_eq:NN \g__wrapblock_img_width_dim \l__wrapblock_width_dim
+    % measured here, with tagging suspended; built for good where it is
+    % placed, inside the first paragraph (see \__wrapblock_build:)
+    % the counters it steps (an equation, a caption) are put back
+    \cs_if_exist_use:NT \tag_suspend:n { { wrapblock } }
+    \__wrapblock_counters_save:
+    \__wrapblock_build:
+    \tl_use:N \g__wrapblock_counters_tl
+    \cs_if_exist_use:NT \tag_resume:n { { wrapblock } }
+    \dim_gset:Nn \g__wrapblock_height_dim
+      { \box_ht:N \g__wrapblock_img_box + \box_dp:N \g__wrapblock_img_box
+        + \l__wrapblock_vsep_dim }
+    \dim_gset:Nn \g__wrapblock_shift_dim
+      { \box_wd:N \g__wrapblock_img_box + \l__wrapblock_hsep_dim }
+    \dim_compare:nNnT { \g__wrapblock_height_dim } > { \textheight }
+      { \msg_warning:nn { wrapblock } { tall } }
+    % less than 3em left beside the image: no wrapping, the image is set
+    % on a line of its own, above the text
+    \dim_compare:nNnTF { \linewidth - \g__wrapblock_shift_dim } < { 3em }
+      {
+        \msg_warning:nne { wrapblock } { wide }
+          { \dim_eval:n { \linewidth - \g__wrapblock_shift_dim } }
+        \bool_set_true:N \l__wrapblock_alone_bool
+        \noindent \__wrapblock_build: \box_use:N \g__wrapblock_img_box
+        \par \nobreak
+      }
+      {
+        \mode_if_inner:TF
+          {
+            \bool_set_true:N \l__wrapblock_inbox_bool
+            \__wrapblock_inbox_begin:
+          }
+          { \__wrapblock_begin:n {#3} }
+      }
+    #3
+  }
+  {
+    \bool_if:NTF \l__wrapblock_alone_bool
+      { \par }
+      {
+        \bool_if:NTF \l__wrapblock_inbox_bool
+          { \__wrapblock_inbox_end: }
+          { \__wrapblock_end: }
+      }
+  }
+\msg_new:nnn { wrapblock } { wide }
+  { The~image~of~the~block~that~ends~on~input~line~\msg_line_number:\
+    leaves~only~#1~for~the~text~beside~it:~it~is~set~above~the~text,~
+    which~is~not~wrapped. }
+\msg_new:nnn { wrapblock } { tall }
+  { The~image~of~the~block~that~ends~on~input~line~\msg_line_number:\
+    is~taller~than~the~page. }
+% </env>
+
+% <begin>
+\cs_new_protected:Npn \__wrapblock_begin:n #1
+  {
+    \bool_if:NT \g__wrapblock_active_bool { \msg_error:nn { wrapblock } { nested } }
+    \dim_gset_eq:NN \g__wrapblock_left_dim  \@totalleftmargin
+    \dim_gset_eq:NN \g__wrapblock_width_dim \linewidth
+    \bool_set_false:N \l__wrapblock_defer_bool
+    \dim_compare:nNnF { \pagegoal } = { \c_max_dim }
+      {
+        \dim_compare:nNnT { \__wrapblock_room: }
+          < { \g__wrapblock_height_dim + \baselineskip }
+          { \__wrapblock_decide:n {#1} }
+      }
+    \tl_gset_eq:NN \g__wrapblock_side_tl \l__wrapblock_side_tl
+    \int_gset_eq:NN \g__wrapblock_save_pre_int  \predisplaypenalty
+    \int_gset_eq:NN \g__wrapblock_save_post_int \postdisplaypenalty
+    \int_gset_eq:NN \g__wrapblock_save_item_int     \@itempenalty
+    \int_gset_eq:NN \g__wrapblock_save_beginpar_int \@beginparpenalty
+    \int_gset_eq:NN \g__wrapblock_save_endpar_int   \@endparpenalty
+    \tl_put_left:Nn \@arrayparboxrestore
+      { \__wrapblock_box_check: \bool_set_false:N \l__wrapblock_outer_bool }
+    \bool_set_true:N \l__wrapblock_inside_bool
+    \seq_gclear:N \g__wrapblock_shapes_seq
+    \bool_if:NTF \l__wrapblock_defer_bool
+      {
+        \bool_gset_false:N \g__wrapblock_pending_bool
+        \bool_gset_true:N \g__wrapblock_wait_bool
+        \int_gset_eq:NN \g__wrapblock_origin_ship_int \g__wrapblock_ship_int
+        \dim_gset:Nn \g__wrapblock_bottom_dim
+          { \topskip - \box_ht:N \strutbox + \g__wrapblock_height_dim }
+        \dim_gset_eq:NN \g__wrapblock_goal_dim \pagegoal
+        \prop_get:NeNTF \g__wrapblock_short_prop { \int_use:N \g__wrapblock_block_int } \l_tmpa_tl
+          { \dim_gset:Nn \g__wrapblock_short_dim { \l_tmpa_tl } }
+          { \dim_gzero:N \g__wrapblock_short_dim }
+        \__wrapblock_placeholder:
+      }
+      {
+        \bool_gset_true:N \g__wrapblock_pending_bool
+        \bool_gset_false:N \g__wrapblock_wait_bool
+      }
+    \bool_gset_true:N \g__wrapblock_active_bool
+  }
+% </begin>
+
+% <end>
+\cs_new_protected:Npn \__wrapblock_end:
+  {
+    \par
+    % the measure was wrong: the text ended on the page it started on
+    \bool_if:NT \g__wrapblock_wait_bool
+      {
+        \msg_warning:nn { wrapblock } { alone }
+        \bool_gset_false:N \g__wrapblock_wait_bool
+        \bool_gset_true:N \g__wrapblock_pending_bool
+        \dim_compare:nNnT { \__wrapblock_room: }
+          < { \g__wrapblock_height_dim + \baselineskip }
+          { \__wrapblock_need_space: }
+      }
+    \bool_if:NT \g__wrapblock_pending_bool { \noindent \strut \par }
+    \bool_if:NT \g__wrapblock_active_bool
+      {
+        \__wrapblock_check_ship:
+        % The room down to the bottom of the image is a kern, and only the
+        % space below the image (vsep) a skip. \addpenalty (a heading, a
+        % list) takes the last skip back and puts its penalty before it:
+        % were the whole room a skip, the page could break there, and the
+        % image run out of the page. \addvspace still takes the larger of
+        % its space and vsep, as after a line of text. The penalties keep
+        % the kern and the skip from being breakpoints.
+        \dim_compare:nNnT { \pagetotal + \pagedepth } < { \g__wrapblock_bottom_dim }
+          {
+            \dim_set:Nn \l_tmpa_dim
+              { \g__wrapblock_bottom_dim - \pagetotal - \pagedepth }
+            \dim_set:Nn \l_tmpb_dim
+              { \dim_min:nn { \l__wrapblock_vsep_dim } { \l_tmpa_dim } }
+            \nobreak
+            \tex_kern:D \dim_eval:n { \l_tmpa_dim - \l_tmpb_dim }
+            \nobreak
+            \skip_vertical:N \l_tmpb_dim
+          }
+        \__wrapblock_stop:
+      }
+  }
+% </end>

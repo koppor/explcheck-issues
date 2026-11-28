@@ -1,0 +1,162 @@
+% Feature module: index
+
+\ifdefined\NextFeatureIndexLoaded
+  \endinput
+\fi
+\def\NextFeatureIndexLoaded{1}
+
+\RequirePackage[xindy]{imakeidx}
+
+\providecommand{\IndexTitle}{}
+\makeatletter
+\ifx\IndexTitle\@empty
+  \makeindex[intoc]
+\else
+  \makeindex[title={\IndexTitle}, intoc]
+\fi
+\makeatother
+
+\indexsetup{
+  othercode = {
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{0pt}
+    \linespread{1.10}\selectfont
+  }
+}
+
+\DeclareRobustCommand{\NextIndexCjkDescription}[1]{（#1）}
+\DeclareRobustCommand{\NextIndexWesternDescription}[1]{%
+  \nobreakspace(#1)%
+}
+\DeclareRobustCommand{\NextIndexBareDescription}[1]{%
+  \nobreakspace#1%
+}
+
+\ExplSyntaxOn
+
+\prop_new:N \g__next_index_seen_prop
+\int_new:N \g__next_index_target_int
+\tl_new:N \l__next_index_parentheses_tl
+\tl_new:N \l__next_index_description_tl
+\tl_new:N \l__next_index_display_tl
+\tl_new:N \l__next_index_sort_tl
+\tl_new:N \l__next_index_key_tl
+\tl_new:N \l__next_index_target_tl
+
+\keys_define:nn { next/index/term }
+  {
+    sort .tl_set:N = \l__next_index_sort_tl,
+    key .tl_set:N = \l__next_index_key_tl,
+    parentheses .choice:,
+    parentheses / auto .code:n =
+      { \tl_set:Nn \l__next_index_parentheses_tl { auto } },
+    parentheses / cjk .code:n =
+      { \tl_set:Nn \l__next_index_parentheses_tl { cjk } },
+    parentheses / western .code:n =
+      { \tl_set:Nn \l__next_index_parentheses_tl { western } },
+    parentheses / none .code:n =
+      { \tl_set:Nn \l__next_index_parentheses_tl { none } },
+    parentheses .value_required:n = true,
+    parens .meta:n = { parentheses = #1 },
+  }
+
+\cs_new_protected:Npn \__next_index_resolve_parentheses:
+  {
+    \str_if_eq:VnT \l__next_index_parentheses_tl { auto }
+      {
+        \tl_set:Nn \l__next_index_parentheses_tl { western }
+        \cs_if_exist:NT \NextSystemUiTag
+          {
+            \str_if_eq:eeT { \NextSystemUiTag } { zh }
+              { \tl_set:Nn \l__next_index_parentheses_tl { cjk } }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__next_index_set_description:n #1
+  {
+    \tl_clear:N \l__next_index_description_tl
+    \tl_if_blank:nF {#1}
+      {
+        \str_case:Vn \l__next_index_parentheses_tl
+          {
+            { cjk }
+              {
+                \tl_set:Nn \l__next_index_description_tl
+                  { \NextIndexCjkDescription{#1} }
+              }
+            { western }
+              {
+                \tl_set:Nn \l__next_index_description_tl
+                  { \NextIndexWesternDescription{#1} }
+              }
+            { none }
+              {
+                \tl_set:Nn \l__next_index_description_tl
+                  { \NextIndexBareDescription{#1} }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__next_index_emit_term:nnnn #1#2#3#4
+  {
+    \textbf{#3}#4\unskip\nobreak\hspace{0pt}
+    \prop_if_in:NnF \g__next_index_seen_prop {#1}
+      {
+        \prop_gput:Nnn \g__next_index_seen_prop {#1} { indexed }
+        \int_gincr:N \g__next_index_target_int
+        \tl_set:Nx \l__next_index_target_tl
+          { idx:\int_use:N \g__next_index_target_int }
+        \cs_if_exist:NT \hypertarget
+          { \hypertarget{\l__next_index_target_tl}{} }
+        \cs_if_exist:NTF \hyperlink
+          {
+            \index
+              {
+                #2@\protect\hyperlink
+                  {\l__next_index_target_tl}
+                  {#3#4}
+              }
+          }
+          { \index{#2@#3#4} }
+      }
+  }
+\cs_generate_variant:Nn \__next_index_emit_term:nnnn { VVVV }
+
+\NewDocumentCommand{\Term}{ O{} m o g g }
+  {
+    \group_begin:
+      \tl_set:Nn \l__next_index_parentheses_tl { auto }
+      \tl_set:Nn \l__next_index_display_tl {#2}
+      \tl_set:Nn \l__next_index_sort_tl {#2}
+      \tl_set:Nn \l__next_index_key_tl {#2}
+      \tl_clear:N \l__next_index_description_tl
+      \IfNoValueTF{#5}
+        {
+          \IfNoValueTF{#3}
+            {
+              % Also accept the recently introduced braced optional form.
+              \IfNoValueF{#4}
+                { \tl_set:Nn \l__next_index_description_tl {#4} }
+            }
+            { \tl_set:Nn \l__next_index_description_tl {#3} }
+        }
+        {
+          % Legacy form: \Term{key}{display}{description}
+          \tl_set:Nn \l__next_index_display_tl {#4}
+          \tl_set:Nn \l__next_index_description_tl {#5}
+        }
+      \keys_set:nn { next/index/term } {#1}
+      \__next_index_resolve_parentheses:
+      \exp_args:NV \__next_index_set_description:n
+        \l__next_index_description_tl
+      \__next_index_emit_term:VVVV
+        \l__next_index_key_tl
+        \l__next_index_sort_tl
+        \l__next_index_display_tl
+        \l__next_index_description_tl
+    \group_end:
+  }
+
+\ExplSyntaxOff

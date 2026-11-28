@@ -1,0 +1,1659 @@
+% Font declaration interface and routing logic.
+% This layer owns the declaration entry points and public builders.
+
+\ExplSyntaxOn
+
+\tl_new:N \l__font_name_tl
+\tl_new:N \l__font_path_tl
+\tl_new:N \l__font_bold_path_tl
+\tl_new:N \l__font_italic_path_tl
+\tl_new:N \l__font_bolditalic_path_tl
+\tl_new:N \l__font_sans_path_tl
+\tl_new:N \l__font_sans_bold_path_tl
+\tl_new:N \l__font_sans_italic_path_tl
+\tl_new:N \l__font_sans_bolditalic_path_tl
+\tl_new:N \l__font_mono_path_tl
+\tl_new:N \l__font_mono_bold_path_tl
+\tl_new:N \l__font_regular_tl
+\tl_new:N \l__font_bold_tl
+\tl_new:N \l__font_italic_tl
+\tl_new:N \l__font_bolditalic_tl
+\tl_new:N \l__font_sans_tl
+\tl_new:N \l__font_sans_bold_tl
+\tl_new:N \l__font_sans_italic_tl
+\tl_new:N \l__font_sans_bolditalic_tl
+\tl_new:N \l__font_mono_tl
+\tl_new:N \l__font_mono_bold_tl
+\tl_new:N \l__font_script_tl
+\tl_new:N \l__font_language_tl
+\tl_new:N \l__font_features_tl
+\tl_new:N \l__font_cjk_fallback_tl
+\tl_new:N \l__font_command_tl
+\tl_new:N \l__font_layout_tl
+\tl_new:N \l__font_special_module_tl
+\tl_new:N \l__font_missing_face_tl
+\tl_new:N \l__font_resolved_bold_path_tl
+\tl_new:N \l__font_resolved_italic_path_tl
+\tl_new:N \l__font_resolved_bolditalic_path_tl
+\tl_new:N \l__font_resolved_sans_path_tl
+\tl_new:N \l__font_resolved_sans_bold_path_tl
+\tl_new:N \l__font_resolved_sans_italic_path_tl
+\tl_new:N \l__font_resolved_sans_bolditalic_path_tl
+\tl_new:N \l__font_resolved_mono_path_tl
+\tl_new:N \l__font_resolved_mono_bold_path_tl
+\tl_new:N \l__font_main_options_tl
+\tl_new:N \l__font_sans_options_tl
+\tl_new:N \l__font_mono_options_tl
+\tl_new:N \l__font_feature_options_tl
+\tl_new:N \l__font_special_entry_tl
+\tl_new:N \l__font_decl_family_id_tl
+\tl_new:N \l__font_external_command_tl
+\tl_new:N \l__font_external_engine_tl
+\tl_new:N \l__font_external_render_command_tl
+\tl_new:N \l__font_external_clusterwise_tl
+\clist_new:N \l__font_unicode_blocks_clist
+\bool_new:N \l__font_use_latex_fallback_bool
+\bool_new:N \l__font_nextsystem_installed_bool
+\bool_new:N \l__font_reapply_style_bool
+\bool_new:N \l__font_local_override_bool
+\bool_new:N \g__font_cjk_main_declared_bool
+\seq_new:N \g__font_loaded_special_modules_seq
+\seq_new:N \g__font_range_global_blocks_seq
+\prop_new:N \g__font_range_global_name_prop
+\prop_new:N \g__font_unicode_block_range_prop
+\prop_new:N \g__font_cjk_fallback_applied_prop
+\tl_new:N \g__font_devanagari_akshara_name_tl
+\int_new:N \g__font_range_known_class_max_int
+
+\cs_generate_variant:Nn \prop_if_in:NnF { NVF }
+\cs_generate_variant:Nn \prop_gput:Nnn { NVn }
+\cs_generate_variant:Nn \tl_to_str:n { V }
+
+\cs_new_protected:Npn \__font_declare_unicode_block:nnn #1#2#3
+  { \prop_gput:Nnn \g__font_unicode_block_range_prop {#1} { {#2} {#3} } }
+
+\__font_declare_unicode_block:nnn { DevanagariPreMarks } { "0900 } { "0950 }
+\__font_declare_unicode_block:nnn { DevanagariMarks } { "0951 } { "0954 }
+\__font_declare_unicode_block:nnn { DevanagariPostMarks } { "0955 } { "0963 }
+\__font_declare_unicode_block:nnn { DevanagariDanDa } { "0964 } { "0965 }
+\__font_declare_unicode_block:nnn { DevanagariPostDanDa } { "0966 } { "097F }
+\__font_declare_unicode_block:nnn { DevanagariExtended } { "A8E0 } { "A8FF }
+\__font_declare_unicode_block:nnn { DevanagariExtendedA } { "11B00 } { "11B5F }
+\__font_declare_unicode_block:nnn { VedicExtensions } { "1CD0 } { "1CFF }
+\__font_declare_unicode_block:nnn { Tibetan } { "0F00 } { "0FFF }
+
+\cs_new_protected:Npn \__font_devanagari_akshara_break:
+  { \penalty 300 \hskip 0pt \relax }
+
+\cs_new_protected:Npn \__font_devanagari_danda_break:
+  { \penalty 50 \hskip 0pt \relax }
+
+\cs_if_exist:NTF \ifNextSystemInstalled
+  {
+    \ifNextSystemInstalled
+      \bool_gset_true:N \l__font_nextsystem_installed_bool
+    \else
+      \bool_gset_false:N \l__font_nextsystem_installed_bool
+    \fi
+  }
+  { \bool_gset_false:N \l__font_nextsystem_installed_bool }
+
+\cs_new_protected:Npn \__font_reset_state:
+  {
+    \tl_clear:N \l__font_name_tl
+    \tl_clear:N \l__font_path_tl
+    \tl_clear:N \l__font_bold_path_tl
+    \tl_clear:N \l__font_italic_path_tl
+    \tl_clear:N \l__font_bolditalic_path_tl
+    \tl_clear:N \l__font_sans_path_tl
+    \tl_clear:N \l__font_sans_bold_path_tl
+    \tl_clear:N \l__font_sans_italic_path_tl
+    \tl_clear:N \l__font_sans_bolditalic_path_tl
+    \tl_clear:N \l__font_mono_path_tl
+    \tl_clear:N \l__font_mono_bold_path_tl
+    \tl_clear:N \l__font_regular_tl
+    \tl_clear:N \l__font_bold_tl
+    \tl_clear:N \l__font_italic_tl
+    \tl_clear:N \l__font_bolditalic_tl
+    \tl_clear:N \l__font_sans_tl
+    \tl_clear:N \l__font_sans_bold_tl
+    \tl_clear:N \l__font_sans_italic_tl
+    \tl_clear:N \l__font_sans_bolditalic_tl
+    \tl_clear:N \l__font_mono_tl
+    \tl_clear:N \l__font_mono_bold_tl
+    \tl_clear:N \l__font_script_tl
+    \tl_clear:N \l__font_language_tl
+    \tl_clear:N \l__font_features_tl
+    \tl_clear:N \l__font_cjk_fallback_tl
+    \tl_clear:N \l__font_command_tl
+    \tl_clear:N \l__font_layout_tl
+    \tl_clear:N \l__font_special_module_tl
+    \tl_clear:N \l__font_missing_face_tl
+    \tl_clear:N \l__font_decl_family_id_tl
+    \tl_clear:N \l__font_external_command_tl
+    \tl_clear:N \l__font_external_engine_tl
+    \tl_clear:N \l__font_external_render_command_tl
+    \tl_clear:N \l__font_external_clusterwise_tl
+    \clist_clear:N \l__font_unicode_blocks_clist
+    \tl_clear:N \l__font_backend_tl
+    \tl_clear:N \l__font_script_class_tl
+    \tl_clear:N \l__font_scope_tl
+    \tl_clear:N \l__font_inline_axis_tl
+    \tl_clear:N \l__font_inline_direction_tl
+    \tl_clear:N \l__font_block_progression_tl
+    \tl_clear:N \l__font_preserve_spaces_tl
+    \tl_clear:N \l__font_inline_behavior_tl
+    \tl_clear:N \l__font_vertical_strategy_tl
+    \bool_set_false:N \l__font_use_latex_fallback_bool
+  }
+
+\keys_define:nn { font/declare }
+  {
+    scope        .tl_set:N = \l__font_scope_tl,
+    name         .tl_set:N = \l__font_name_tl,
+    path         .tl_set:N = \l__font_path_tl,
+    boldpath     .tl_set:N = \l__font_bold_path_tl,
+    italicpath   .tl_set:N = \l__font_italic_path_tl,
+    bolditalicpath .tl_set:N = \l__font_bolditalic_path_tl,
+    sanspath     .tl_set:N = \l__font_sans_path_tl,
+    sansboldpath .tl_set:N = \l__font_sans_bold_path_tl,
+    sansitalicpath .tl_set:N = \l__font_sans_italic_path_tl,
+    sansbolditalicpath .tl_set:N = \l__font_sans_bolditalic_path_tl,
+    monopath     .tl_set:N = \l__font_mono_path_tl,
+    monoboldpath .tl_set:N = \l__font_mono_bold_path_tl,
+    regular      .tl_set:N = \l__font_regular_tl,
+    bold         .tl_set:N = \l__font_bold_tl,
+    italic       .tl_set:N = \l__font_italic_tl,
+    bolditalic   .tl_set:N = \l__font_bolditalic_tl,
+    sans         .tl_set:N = \l__font_sans_tl,
+    sansbold     .tl_set:N = \l__font_sans_bold_tl,
+    sansitalic   .tl_set:N = \l__font_sans_italic_tl,
+    sansbolditalic .tl_set:N = \l__font_sans_bolditalic_tl,
+    mono         .tl_set:N = \l__font_mono_tl,
+    monobold     .tl_set:N = \l__font_mono_bold_tl,
+    script       .tl_set:N = \l__font_script_tl,
+    language     .tl_set:N = \l__font_language_tl,
+    scriptclass  .tl_set:N = \l__font_script_class_tl,
+    inlineaxis   .tl_set:N = \l__font_inline_axis_tl,
+    inlinedirection .tl_set:N = \l__font_inline_direction_tl,
+    blockprogression .tl_set:N = \l__font_block_progression_tl,
+    preservespaces .tl_set:N = \l__font_preserve_spaces_tl,
+    inlinebehavior .tl_set:N = \l__font_inline_behavior_tl,
+    verticalstrategy .tl_set:N = \l__font_vertical_strategy_tl,
+    verticalrotation .tl_set:N = \l__font_vertical_rotation_override_tl,
+    verticalorigin .tl_set:N = \l__font_vertical_origin_override_tl,
+    verticaltopcorrection .tl_set:N = \l__font_vertical_top_correction_override_tl,
+    features     .tl_set:N = \l__font_features_tl,
+    cjkfallback  .tl_set:N = \l__font_cjk_fallback_tl,
+    cjkfallbacks .tl_set:N = \l__font_cjk_fallback_tl,
+    command      .tl_set:N = \l__font_command_tl,
+    layout       .tl_set:N = \l__font_layout_tl,
+    familyid     .tl_set:N = \l__font_decl_family_id_tl,
+    backend      .tl_set:N = \l__font_backend_tl,
+    fallbackmode .tl_set:N = \l__font_fallback_mode_tl,
+    specialmodule .tl_set:N = \l__font_special_module_tl,
+    specialbuilder .tl_set:N = \l__font_special_module_tl,
+    externalcommand .tl_set:N = \l__font_external_command_tl,
+    externalengine .tl_set:N = \l__font_external_engine_tl,
+    externalrendercommand .tl_set:N = \l__font_external_render_command_tl,
+    externalclusterwise .tl_set:N = \l__font_external_clusterwise_tl,
+    unicodeblocks .clist_set:N = \l__font_unicode_blocks_clist,
+    unicodeblock .clist_set:N = \l__font_unicode_blocks_clist,
+  }
+
+\cs_new_protected:Npn \__font_special_use_generic:
+  {
+    \__font_define_local_families_generic:
+  }
+
+\prg_new_conditional:Npnn \__font_special_is_builtin:n #1 { TF }
+  {
+    \str_case:nnF {#1}
+      { }
+      { \prg_return_false: }
+  }
+
+\cs_new_protected:Npn \__font_import_special_module:
+  {
+    \exp_args:NV \__font_special_is_builtin:nTF \l__font_special_module_tl
+      { }
+      {
+        \seq_if_in:NVF \g__font_loaded_special_modules_seq \l__font_special_module_tl
+          {
+            \bool_if:NTF \l__font_nextsystem_installed_bool
+              {
+                \use:x
+                  {
+                    \exp_not:N \subimport
+                      { modules/fonts/ }
+                      { impe-font-\l__font_special_module_tl .tex }
+                  }
+              }
+              {
+                \use:x
+                  {
+                    \exp_not:N \subimport
+                      { ../../modules/fonts/ }
+                      { impe-font-\l__font_special_module_tl .tex }
+                  }
+              }
+            \seq_gput_right:NV \g__font_loaded_special_modules_seq \l__font_special_module_tl
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_layout_compat:
+  {
+    \str_if_eq:VnT \l__font_special_module_tl { vertical }
+      {
+        \PackageWarning{font-defaults}
+          {specialmodule=vertical~is~deprecated.~Use~layout=vertical~instead}
+        \tl_set:Nn \l__font_layout_tl { vertical }
+        \tl_clear:N \l__font_special_module_tl
+      }
+  }
+
+\cs_new_protected:Npn \__font_note_missing_face:nn #1#2
+  {
+    \tl_if_blank:VTF \l__font_missing_face_tl
+      { \tl_set:Nn \l__font_missing_face_tl { #1 = #2 } }
+      { }
+  }
+
+\cs_new_protected:Npn \__font_check_face:nnVV #1#2#3#4
+  {
+    \tl_if_blank:VTF #4
+      {
+        \exp_args:NV \IfFontExistsTF #3
+          { }
+          { \__font_note_missing_face:nn {#1} {#2} }
+      }
+      {
+        \exp_args:Nx \file_if_exist:nTF
+          { \tl_use:N #4 \tl_use:N #3 }
+          { }
+          { \__font_note_missing_face:nn {#1} {#2} }
+      }
+  }
+
+\prg_new_conditional:Npnn \__font_all_faces_exist: { TF }
+  {
+    \tl_clear:N \l__font_missing_face_tl
+    \__font_check_face:nnVV {regular} { \l__font_regular_tl } \l__font_regular_tl \l__font_path_tl
+    \__font_check_face:nnVV {bold} { \l__font_resolved_bold_tl } \l__font_resolved_bold_tl \l__font_resolved_bold_path_tl
+    \__font_check_face:nnVV {italic} { \l__font_resolved_italic_tl } \l__font_resolved_italic_tl \l__font_resolved_italic_path_tl
+    \__font_check_face:nnVV {bolditalic} { \l__font_resolved_bolditalic_tl } \l__font_resolved_bolditalic_tl \l__font_resolved_bolditalic_path_tl
+    \__font_check_face:nnVV {sans} { \l__font_resolved_sans_tl } \l__font_resolved_sans_tl \l__font_resolved_sans_path_tl
+    \__font_check_face:nnVV {sansbold} { \l__font_resolved_sans_bold_tl } \l__font_resolved_sans_bold_tl \l__font_resolved_sans_bold_path_tl
+    \__font_check_face:nnVV {sansitalic} { \l__font_resolved_sans_italic_tl } \l__font_resolved_sans_italic_tl \l__font_resolved_sans_italic_path_tl
+    \__font_check_face:nnVV {sansbolditalic} { \l__font_resolved_sans_bolditalic_tl } \l__font_resolved_sans_bolditalic_tl \l__font_resolved_sans_bolditalic_path_tl
+    \__font_check_face:nnVV {mono} { \l__font_resolved_mono_tl } \l__font_resolved_mono_tl \l__font_resolved_mono_path_tl
+    \__font_check_face:nnVV {monobold} { \l__font_resolved_mono_bold_tl } \l__font_resolved_mono_bold_tl \l__font_resolved_mono_bold_path_tl
+    \tl_if_blank:VTF \l__font_missing_face_tl
+      { \prg_return_true: }
+      { \prg_return_false: }
+  }
+
+\cs_new_protected:Npn \__font_warn_soft_fallback:
+  {
+    \PackageWarning{font-defaults}
+      {Font~declaration~`\tl_use:N \l__font_name_tl`~could~not~be~resolved~(\tl_use:N \l__font_missing_face_tl).~Falling~back~to~LaTeX~default~families}
+  }
+
+\cs_new_protected:Npn \__font_error_missing_faces:
+  {
+    \PackageError{font-defaults}
+      {Font~declaration~`\tl_use:N \l__font_name_tl`~could~not~be~resolved~(\tl_use:N \l__font_missing_face_tl)}
+      {Check~the~font~name~or~font~file~path,~or~set~fallbackmode=soft.}
+  }
+
+\cs_new_protected:Npn \__font_define_local_families_fallback:
+  {
+    \cs_set_protected:cpn { __fontrm_\l__font_name_tl } { \rmfamily }
+    \cs_set_protected:cpn { __fontsf_\l__font_name_tl } { \sffamily }
+    \cs_set_protected:cpn { __fonttt_\l__font_name_tl } { \ttfamily }
+    \exp_args:NV \__font_define_behavior_hooks:n \l__font_name_tl
+    \exp_args:NVV \__font_define_public_command:nn
+      \l__font_command_tl
+      \l__font_name_tl
+    \tl_if_blank:VF \l__font_external_command_tl
+      {
+        \use:x
+          {
+            \exp_not:N \__font_define_externalized_command:nnnnn
+              { \tl_use:N \l__font_external_command_tl }
+              { \tl_use:N \l__font_external_engine_tl }
+              { \tl_use:N \l__font_decl_family_id_tl }
+              { \tl_use:N \l__font_external_render_command_tl }
+              { \tl_use:N \l__font_external_clusterwise_tl }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_special_local:
+  {
+    \__font_import_special_module:
+    \tl_set:Nx \l__font_special_entry_tl
+      { __font_define_special_\l__font_special_module_tl : }
+    \exp_args:NV \cs_if_exist:cTF \l__font_special_entry_tl
+      { \exp_args:NV \use:c \l__font_special_entry_tl }
+      {
+        \PackageWarning{font-defaults}
+          {Special~module~`\tl_use:N \l__font_special_module_tl`~has~no~entry~point.~Using~generic~local~font~definition}
+        \__font_define_local_families_generic:
+      }
+  }
+
+\cs_new_protected:Npn \__font_append_script_language_feature_options:N #1
+  {
+    \tl_if_blank:VF \l__font_script_tl
+      { \tl_put_right:Nx #1 { Script = \exp_not:V \l__font_script_tl , } }
+    \tl_if_blank:VF \l__font_language_tl
+      { \tl_put_right:Nx #1 { Language = \exp_not:V \l__font_language_tl , } }
+    \tl_if_blank:VF \l__font_effective_features_tl
+      { \tl_put_right:Nx #1 { \l__font_effective_features_tl, } }
+  }
+
+\cs_new_protected:Npn \__font_append_path_option:NV #1#2
+  {
+    \tl_if_blank:VTF #2
+      { }
+      { \tl_put_right:Nx #1 { Path = { \exp_not:V #2 } , } }
+  }
+
+\cs_new_protected:Npn \__font_append_backend_options:N #1
+  {
+    \str_case:VnF \l__font_backend_tl
+      {
+        { generic } { }
+        { native } { }
+        { harfbuzz }
+          {
+            \sys_if_engine_luatex:T
+              { \tl_put_right:Nn #1 { Renderer = HarfBuzz, } }
+          }
+        { graphite }
+          {
+            \sys_if_engine_xetex:T
+              { \tl_put_right:Nn #1 { Renderer = Graphite, } }
+          }
+      }
+      { }
+  }
+
+\cs_new_protected:Npn \__font_set_feature_path_option:NV #1#2
+  {
+    \tl_clear:N #1
+    \tl_if_blank:VTF #2
+      { }
+      { \tl_put_right:Nx #1 { Path = { \exp_not:V #2 } , } }
+  }
+
+\cs_new_protected:Npn \__font_build_main_options:
+  {
+    \tl_clear:N \l__font_main_options_tl
+    \__font_append_backend_options:N \l__font_main_options_tl
+    \__font_append_path_option:NV \l__font_main_options_tl \l__font_path_tl
+    \tl_put_right:Nx \l__font_main_options_tl
+      { BoldFont = { \l__font_resolved_bold_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_bold_path_tl
+    \tl_put_right:Nx \l__font_main_options_tl
+      { BoldFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_main_options_tl
+      { ItalicFont = { \l__font_resolved_italic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_italic_path_tl
+    \tl_put_right:Nx \l__font_main_options_tl
+      { ItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_main_options_tl
+      { BoldItalicFont = { \l__font_resolved_bolditalic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_bolditalic_path_tl
+    \tl_put_right:Nx \l__font_main_options_tl
+      { BoldItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \__font_append_script_language_feature_options:N \l__font_main_options_tl
+  }
+
+\cs_new_protected:Npn \__font_build_sans_options:
+  {
+    \tl_clear:N \l__font_sans_options_tl
+    \__font_append_backend_options:N \l__font_sans_options_tl
+    \__font_append_path_option:NV \l__font_sans_options_tl \l__font_resolved_sans_path_tl
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { BoldFont = { \l__font_resolved_sans_bold_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_sans_bold_path_tl
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { BoldFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { ItalicFont = { \l__font_resolved_sans_italic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_sans_italic_path_tl
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { ItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { BoldItalicFont = { \l__font_resolved_sans_bolditalic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_sans_bolditalic_path_tl
+    \tl_put_right:Nx \l__font_sans_options_tl
+      { BoldItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \__font_append_script_language_feature_options:N \l__font_sans_options_tl
+  }
+
+\cs_new_protected:Npn \__font_build_mono_options:
+  {
+    \tl_clear:N \l__font_mono_options_tl
+    \__font_append_backend_options:N \l__font_mono_options_tl
+    \__font_append_path_option:NV \l__font_mono_options_tl \l__font_resolved_mono_path_tl
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { BoldFont = { \l__font_resolved_mono_bold_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_mono_bold_path_tl
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { BoldFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { ItalicFont = { \l__font_resolved_italic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_italic_path_tl
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { ItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { BoldItalicFont = { \l__font_resolved_bolditalic_tl }, }
+    \__font_set_feature_path_option:NV \l__font_feature_options_tl \l__font_resolved_bolditalic_path_tl
+    \tl_put_right:Nx \l__font_mono_options_tl
+      { BoldItalicFeatures = { \tl_use:N \l__font_feature_options_tl }, }
+    \__font_append_script_language_feature_options:N \l__font_mono_options_tl
+  }
+
+\cs_new_protected:Npn \__font_define_public_command:nn #1#2
+  {
+    \str_if_eq:VnTF \l__font_script_class_tl { cjk }
+      {
+        \str_if_eq:VnTF \l__font_preserve_spaces_tl { true }
+          {
+            \cs_set_protected:cpn { __font_space_policy_#2: }
+              {
+                \cs_if_exist:NT \xeCJKsetup
+                  { \xeCJKsetup { CJKspace = true } }
+              }
+          }
+          {
+            \cs_set_protected:cpn { __font_space_policy_#2: }
+              {
+                \cs_if_exist:NT \xeCJKsetup
+                  { \xeCJKsetup { CJKspace = false } }
+              }
+          }
+      }
+      { \cs_set_protected:cpn { __font_space_policy_#2: } { } }
+
+    \cs_set_protected:cpn { __font_map_sf_#2: }
+      { \cs_set_protected:Npn \sffamily { \use:c { __fontsf_#2 } } }
+    \tl_if_blank:VTF \l__font_mono_tl
+      { \cs_set_protected:cpn { __font_map_tt_#2: } { } }
+      {
+        \cs_set_protected:cpn { __font_map_tt_#2: }
+          { \cs_set_protected:Npn \ttfamily { \use:c { __fonttt_#2 } } }
+      }
+
+    \cs_set_protected:cpn { __font_prepare_local_#2: }
+      {
+        \use:c { __font_space_policy_#2: }
+        \use:c { __font_map_sf_#2: }
+        \use:c { __font_map_tt_#2: }
+        \use:c { __fontrm_#2 }
+        \bool_set_false:N \l__font_reapply_style_bool
+        \str_if_eq:eeF { \use:c { f@series } } { \mddefault }
+          {
+            \exp_args:Nx \fontseries { \use:c { f@series } }
+            \bool_set_true:N \l__font_reapply_style_bool
+          }
+        \str_if_eq:eeF { \use:c { f@shape } } { \updefault }
+          {
+            \exp_args:Nx \fontshape { \use:c { f@shape } }
+            \bool_set_true:N \l__font_reapply_style_bool
+          }
+        \bool_if:NT \l__font_reapply_style_bool
+          { \selectfont }
+      }
+
+    \exp_args:Nc \DeclareDocumentCommand {#1} {+m}
+      {
+        {
+          \bool_set_true:N \l__font_local_override_bool
+          \use:c { __font_prepare_local_#2: }
+          \__font_apply_behavior:nn {#2} {##1}
+        }
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_cjk_fallback_family:n #1
+  {
+    \tl_if_blank:VF \l__font_cjk_fallback_tl
+      {
+        \tl_set:Nx \l_tmpa_tl
+          {
+            \tl_to_str:n {#1}
+            /
+            \tl_to_str:V \l__font_cjk_fallback_tl
+          }
+        \prop_if_in:NVF \g__font_cjk_fallback_applied_prop \l_tmpa_tl
+          {
+            \cs_if_exist:NF \setCJKfallbackfamilyfont
+              { \RequirePackage{xeCJK} }
+            \cs_if_exist:NT \xeCJKsetup
+              { \xeCJKsetup { AutoFallBack = true } }
+            \cs_if_exist:NT \xeCJKDeclareCharClass
+              {
+                \xeCJKDeclareCharClass { CJK }
+                  {
+                    "2EBF0 -> "2EE5F ,
+                    "31350 -> "323AF ,
+                    "323B0 -> "3347F
+                  }
+              }
+            \use:x
+              {
+                \exp_not:N \setCJKfallbackfamilyfont
+                { \exp_not:n {#1} }
+                { \exp_not:V \l__font_cjk_fallback_tl }
+              }
+            \prop_gput:NVn \g__font_cjk_fallback_applied_prop \l_tmpa_tl { applied }
+          }
+      }
+  }
+
+\tl_new:N \l__font_vertical_embed_gap_tl
+\tl_new:N \l__font_vertical_base_command_tl
+\tl_new:N \l__font_vertical_base_name_tl
+\tl_new:N \l__font_vertical_flow_tl
+\tl_new:N \l__font_vertical_rotation_angle_tl
+\tl_new:N \l__font_vertical_rotation_origin_tl
+\tl_clear_new:N \l__font_vertical_rotation_override_tl
+\tl_clear_new:N \l__font_vertical_origin_override_tl
+\tl_clear_new:N \l__font_vertical_top_correction_override_tl
+\tl_new:N \l__font_vertical_content_tl
+\tl_new:N \l__font_vertical_style_family_tl
+\tl_new:N \l__font_vertical_style_series_tl
+\tl_new:N \l__font_vertical_style_shape_tl
+\tl_new:N \l__font_vertical_style_setup_tl
+\bool_new:N \l__font_vertical_first_word_bool
+\dim_new:N \l__font_vertical_embed_top_correction_dim
+\dim_new:N \l__font_vertical_embed_bottom_padding_dim
+\dim_new:N \l__font_vertical_embed_height_dim
+\dim_new:N \l__font_vertical_embed_depth_dim
+\box_new:N \l__font_vertical_embed_box
+\box_new:N \l__font_vertical_source_box
+
+\cs_new_protected:Npn \__font_vertical_use_base:n #1
+  {
+    \use:c { __font_space_policy_\l__font_vertical_base_name_tl : }
+    \use:c { __font_map_sf_\l__font_vertical_base_name_tl : }
+    \use:c { __font_map_tt_\l__font_vertical_base_name_tl : }
+    \str_case:VnF \l__font_vertical_style_family_tl
+      {
+        { sans } { \use:c { __fontsf_\l__font_vertical_base_name_tl } }
+        { mono } { \use:c { __fonttt_\l__font_vertical_base_name_tl } }
+      }
+      { \use:c { __fontrm_\l__font_vertical_base_name_tl } }
+    \bool_set_false:N \l__font_reapply_style_bool
+    \str_if_eq:eeF { \use:c { f@series } } { \mddefault }
+      {
+        \exp_args:Nx \fontseries { \use:c { f@series } }
+        \bool_set_true:N \l__font_reapply_style_bool
+      }
+    \str_if_eq:eeF { \use:c { f@shape } } { \updefault }
+      {
+        \exp_args:Nx \fontshape { \use:c { f@shape } }
+        \bool_set_true:N \l__font_reapply_style_bool
+      }
+    \bool_if:NT \l__font_reapply_style_bool
+      { \selectfont }
+    #1
+  }
+
+\cs_new_protected:Npn \__font_vertical_emit_word:n #1
+  {
+    \tl_if_blank:nF {#1}
+      {
+        \bool_if:NF \l__font_vertical_first_word_bool
+          {
+            \nobreak
+            \hskip \l__font_vertical_embed_gap_tl \relax
+            \allowbreak
+          }
+        \bool_set_false:N \l__font_vertical_first_word_bool
+        \__font_vertical_embed_word:nn { 0pt } {#1}
+      }
+  }
+
+\cs_new_protected:Npn \__font_vertical_emit_words_forward:n #1
+  {
+    \bool_set_true:N \l__font_vertical_first_word_bool
+    \regex_split:nnN { \s+ } {#1} \l_tmpa_seq
+    \seq_map_inline:Nn \l_tmpa_seq
+      { \__font_vertical_emit_word:n {##1} }
+  }
+
+\cs_new_protected:Npn \__font_vertical_emit_words_reverse:n #1
+  {
+    \bool_set_true:N \l__font_vertical_first_word_bool
+    \regex_split:nnN { \s+ } {#1} \l_tmpa_seq
+    \seq_map_inline_reverse:Nn \l_tmpa_seq
+      { \__font_vertical_emit_word:n {##1} }
+  }
+
+\cs_new_protected:Npn \__font_vertical_style_reset:
+  {
+    \tl_clear:N \l__font_vertical_style_family_tl
+    \tl_clear:N \l__font_vertical_style_series_tl
+    \tl_clear:N \l__font_vertical_style_shape_tl
+    \tl_clear:N \l__font_vertical_style_setup_tl
+  }
+
+\cs_new_protected:Npn \__font_vertical_finalize_argument:
+  {
+    \tl_clear:N \l__font_vertical_style_setup_tl
+    \tl_if_blank:VF \l__font_vertical_style_series_tl
+      { \tl_put_right:NV \l__font_vertical_style_setup_tl \l__font_vertical_style_series_tl }
+    \tl_if_blank:VF \l__font_vertical_style_shape_tl
+      { \tl_put_right:NV \l__font_vertical_style_setup_tl \l__font_vertical_style_shape_tl }
+  }
+
+\cs_new_protected:Npn \__font_vertical_prepare_argument:n #1
+  {
+    \__font_vertical_style_reset:
+    \tl_set:Nn \l__font_vertical_content_tl {#1}
+    \__font_vertical_unwrap_loop:
+  }
+
+\cs_new_protected:Npn \__font_vertical_unwrap_loop:
+  {
+    \tl_if_head_eq_meaning:VNTF \l__font_vertical_content_tl \textsf
+      { \__font_vertical_unwrap_textsf: }
+      {
+        \tl_if_head_eq_meaning:VNTF \l__font_vertical_content_tl \texttt
+          { \__font_vertical_unwrap_texttt: }
+          {
+            \tl_if_head_eq_meaning:VNTF \l__font_vertical_content_tl \textbf
+              { \__font_vertical_unwrap_textbf: }
+              {
+                \tl_if_head_eq_meaning:VNTF \l__font_vertical_content_tl \textit
+                  { \__font_vertical_unwrap_textit: }
+                  { \__font_vertical_finalize_argument: }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_vertical_unwrap_textsf:
+  { \exp_after:wN \__font_vertical_unwrap_textsf_aux:w \l__font_vertical_content_tl \q_stop }
+\cs_new_protected:Npn \__font_vertical_unwrap_textsf_aux:w \textsf #1#2 \q_stop
+  {
+    \tl_if_blank:nTF {#2}
+      {
+        \tl_set:Nn \l__font_vertical_style_family_tl { sans }
+        \tl_set:Nn \l__font_vertical_content_tl {#1}
+        \__font_vertical_unwrap_loop:
+      }
+      { \__font_vertical_finalize_argument: }
+  }
+
+\cs_new_protected:Npn \__font_vertical_unwrap_texttt:
+  { \exp_after:wN \__font_vertical_unwrap_texttt_aux:w \l__font_vertical_content_tl \q_stop }
+\cs_new_protected:Npn \__font_vertical_unwrap_texttt_aux:w \texttt #1#2 \q_stop
+  {
+    \tl_if_blank:nTF {#2}
+      {
+        \tl_set:Nn \l__font_vertical_style_family_tl { mono }
+        \tl_set:Nn \l__font_vertical_content_tl {#1}
+        \__font_vertical_unwrap_loop:
+      }
+      { \__font_vertical_finalize_argument: }
+  }
+
+\cs_new_protected:Npn \__font_vertical_unwrap_textbf:
+  { \exp_after:wN \__font_vertical_unwrap_textbf_aux:w \l__font_vertical_content_tl \q_stop }
+\cs_new_protected:Npn \__font_vertical_unwrap_textbf_aux:w \textbf #1#2 \q_stop
+  {
+    \tl_if_blank:nTF {#2}
+      {
+        \tl_set:Nn \l__font_vertical_style_series_tl { \bfseries }
+        \tl_set:Nn \l__font_vertical_content_tl {#1}
+        \__font_vertical_unwrap_loop:
+      }
+      { \__font_vertical_finalize_argument: }
+  }
+
+\cs_new_protected:Npn \__font_vertical_unwrap_textit:
+  { \exp_after:wN \__font_vertical_unwrap_textit_aux:w \l__font_vertical_content_tl \q_stop }
+\cs_new_protected:Npn \__font_vertical_unwrap_textit_aux:w \textit #1#2 \q_stop
+  {
+    \tl_if_blank:nTF {#2}
+      {
+        \tl_set:Nn \l__font_vertical_style_shape_tl { \itshape }
+        \tl_set:Nn \l__font_vertical_content_tl {#1}
+        \__font_vertical_unwrap_loop:
+      }
+      { \__font_vertical_finalize_argument: }
+  }
+
+\cs_new_protected:Npn \__font_define_vertical_public_command:nnnnn #1#2#3#4#5
+  {
+    \exp_args:Nc \DeclareDocumentCommand {#1} { O{0pt} m }
+      {
+        {
+          \tl_set:Nn \l__font_vertical_base_name_tl {#2}
+          \tl_set:Nn \l__font_vertical_flow_tl {#3}
+          \tl_set:Nn \l__font_vertical_rotation_angle_tl {#4}
+          \tl_set:Nn \l__font_vertical_rotation_origin_tl {#5}
+          \__font_vertical_prepare_argument:n {##2}
+          \leavevmode
+          {
+            \tl_use:N \l__font_vertical_style_setup_tl
+            \str_if_eq:VnTF \l__font_vertical_flow_tl { rtl }
+              { \exp_args:NV \__font_vertical_emit_words_reverse:n \l__font_vertical_content_tl }
+              { \exp_args:NV \__font_vertical_emit_words_forward:n \l__font_vertical_content_tl }
+          }
+        }
+      }
+  }
+
+\cs_new_protected:Npn \__font_vertical_embed_word:nn #1#2
+  {
+    \hbox_set:Nn \l__font_vertical_source_box
+      { { \__font_vertical_use_base:n {#2} } }
+    \use:x
+      {
+        \exp_not:N \hbox_set:Nn \exp_not:N \l__font_vertical_embed_box
+          {
+            \exp_not:N \rotatebox [ origin=\tl_use:N \l__font_vertical_rotation_origin_tl ]
+              { \tl_use:N \l__font_vertical_rotation_angle_tl }
+              {
+                \exp_not:N \box_use:N \exp_not:N \l__font_vertical_source_box
+              }
+          }
+      }
+    \dim_set:Nn \l__font_vertical_embed_height_dim
+      {
+        \box_ht:N \l__font_vertical_embed_box
+        + \l__font_vertical_embed_top_correction_dim
+      }
+    \dim_set:Nn \l__font_vertical_embed_depth_dim
+      {
+        \box_dp:N \l__font_vertical_embed_box
+        + \l__font_vertical_embed_bottom_padding_dim
+        - \l__font_vertical_embed_top_correction_dim
+      }
+    \dim_compare:nNnT { \l__font_vertical_embed_depth_dim } < { 0pt }
+      { \dim_zero:N \l__font_vertical_embed_depth_dim }
+    \leavevmode
+    \raisebox{\l__font_vertical_embed_top_correction_dim}
+      [\l__font_vertical_embed_height_dim]
+      [\l__font_vertical_embed_depth_dim]
+      {
+        \box_use:N \l__font_vertical_embed_box
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_special_vertical:
+  {
+    \__font_special_use_generic:
+    \tl_set:Nn \l__font_vertical_embed_gap_tl { 0.35em }
+    \dim_set:Nn \l__font_vertical_embed_top_correction_dim { 1em }
+    \dim_set:Nn \l__font_vertical_embed_bottom_padding_dim { 0.28em }
+    \tl_if_blank:VF \l__font_vertical_top_correction_override_tl
+      { \dim_set:Nn \l__font_vertical_embed_top_correction_dim { \l__font_vertical_top_correction_override_tl } }
+    \tl_if_blank:VTF \l__font_vertical_strategy_tl
+      {
+        \str_if_eq:VnTF \l__font_inline_direction_tl { rtl }
+          { \tl_set:Nn \l__font_vertical_flow_tl { ltr } }
+          { \tl_set:Nn \l__font_vertical_flow_tl { rtl } }
+      }
+      { \tl_set_eq:NN \l__font_vertical_flow_tl \l__font_vertical_strategy_tl }
+
+    \tl_if_blank:VTF \l__font_vertical_rotation_override_tl
+      { \tl_set:Nn \l__font_vertical_rotation_angle_tl { -90 } }
+      { \tl_set_eq:NN \l__font_vertical_rotation_angle_tl \l__font_vertical_rotation_override_tl }
+
+    \tl_if_blank:VTF \l__font_vertical_origin_override_tl
+      { \tl_set:Nn \l__font_vertical_rotation_origin_tl { lB } }
+      { \tl_set_eq:NN \l__font_vertical_rotation_origin_tl \l__font_vertical_origin_override_tl }
+
+    \tl_set:Nx \l_tmpa_tl { \tl_use:N \l__font_command_tl v }
+    \use:x
+      {
+        \exp_not:N \__font_define_vertical_public_command:nnnnn
+          { \tl_use:N \l_tmpa_tl }
+          { \tl_use:N \l__font_name_tl }
+          { \tl_use:N \l__font_vertical_flow_tl }
+          { \tl_use:N \l__font_vertical_rotation_angle_tl }
+          { \tl_use:N \l__font_vertical_rotation_origin_tl }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_local_families_generic:
+  {
+    \__font_build_main_options:
+    \__font_build_sans_options:
+    \__font_build_mono_options:
+    \str_if_eq:VnTF \l__font_script_class_tl { cjk }
+      {
+        \cs_if_exist:NF \newCJKfontfamily
+          { \RequirePackage{xeCJK} }
+        \bool_if:NF \g__font_cjk_main_declared_bool
+          {
+            \use:x
+              {
+                \exp_not:N \setCJKmainfont
+                [ \tl_use:N \l__font_main_options_tl ]
+                { \l__font_regular_tl }
+              }
+            \__font_apply_cjk_fallback_family:n { \CJKrmdefault }
+            \bool_gset_true:N \g__font_cjk_main_declared_bool
+          }
+        \use:x
+          {
+            \exp_not:N \newCJKfontfamily
+            [ { __fontrm_\l__font_name_tl } ]
+            \exp_not:c { __fontrm_\l__font_name_tl }
+            [ \tl_use:N \l__font_main_options_tl ]
+            { \l__font_regular_tl }
+          }
+        \__font_apply_cjk_fallback_family:n { __fontrm_\l__font_name_tl }
+        \use:x
+          {
+            \exp_not:N \newCJKfontfamily
+            [ { __fontsf_\l__font_name_tl } ]
+            \exp_not:c { __fontsf_\l__font_name_tl }
+            [ \tl_use:N \l__font_sans_options_tl ]
+            { \l__font_resolved_sans_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \newCJKfontfamily
+            [ { __fonttt_\l__font_name_tl } ]
+            \exp_not:c { __fonttt_\l__font_name_tl }
+            [ \tl_use:N \l__font_mono_options_tl ]
+            { \l__font_resolved_mono_tl }
+          }
+      }
+      {
+        \use:x
+          {
+            \exp_not:N \newfontfamily
+            \exp_not:c { __fontrm_\l__font_name_tl }
+            [ \tl_use:N \l__font_main_options_tl ]
+            { \l__font_regular_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \newfontfamily
+            \exp_not:c { __fontsf_\l__font_name_tl }
+            [ \tl_use:N \l__font_sans_options_tl ]
+            { \l__font_resolved_sans_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \newfontfamily
+            \exp_not:c { __fonttt_\l__font_name_tl }
+            [ \tl_use:N \l__font_mono_options_tl ]
+            { \l__font_resolved_mono_tl }
+          }
+      }
+
+    \exp_args:NV \__font_define_behavior_hooks:n \l__font_name_tl
+    \exp_args:NVV \__font_define_public_command:nn
+      \l__font_command_tl
+      \l__font_name_tl
+    \tl_if_blank:VF \l__font_external_command_tl
+      {
+        \use:x
+          {
+            \exp_not:N \__font_define_externalized_command:nnnnn
+              { \tl_use:N \l__font_external_command_tl }
+              { \tl_use:N \l__font_external_engine_tl }
+              { \tl_use:N \l__font_decl_family_id_tl }
+              { \tl_use:N \l__font_external_render_command_tl }
+              { \tl_use:N \l__font_external_clusterwise_tl }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_global_binding:
+  {
+    \__font_build_main_options:
+    \__font_build_sans_options:
+    \__font_build_mono_options:
+    \str_if_eq:VnTF \l__font_script_class_tl { cjk }
+      {
+        \cs_if_exist:NF \setCJKmainfont
+          { \RequirePackage{xeCJK} }
+        \use:x
+          {
+            \exp_not:N \setCJKmainfont
+            [ \tl_use:N \l__font_main_options_tl ]
+            { \l__font_regular_tl }
+          }
+        \__font_apply_cjk_fallback_family:n { \CJKrmdefault }
+        \use:x
+          {
+            \exp_not:N \setCJKsansfont
+            [ \tl_use:N \l__font_sans_options_tl ]
+            { \l__font_resolved_sans_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \setCJKmonofont
+            [ \tl_use:N \l__font_mono_options_tl ]
+            { \l__font_resolved_mono_tl }
+          }
+        \bool_gset_true:N \g__font_cjk_main_declared_bool
+      }
+      {
+        \use:x
+          {
+            \exp_not:N \setmainfont
+            [ \tl_use:N \l__font_main_options_tl ]
+            { \l__font_regular_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \setsansfont
+            [ \tl_use:N \l__font_sans_options_tl ]
+            { \l__font_resolved_sans_tl }
+          }
+        \use:x
+          {
+            \exp_not:N \setmonofont
+            [ \tl_use:N \l__font_mono_options_tl ]
+            { \l__font_resolved_mono_tl }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_range_enter_command:
+  {
+    \use:x
+      {
+        \exp_not:N \cs_set_protected:cpn
+          { __font_enter_range_\l__font_name_tl : }
+          {
+            \exp_not:N \bool_if:NF
+              \exp_not:N \l__font_local_override_bool
+              {
+                \exp_not:N \begingroup
+                \exp_not:c { __fontglobal_\l__font_name_tl }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_leave_range:
+  {
+    \bool_if:NF \l__font_local_override_bool
+      { \endgroup }
+  }
+
+\cs_new:Npn \__font_interchar_class_max:
+  { \int_eval:n { \use:c { xe@alloc@intercharclass } } }
+
+\cs_new:Npn \__font_interchar_boundary_class:
+  { \int_eval:n { \use:c { e@alloc@intercharclass@top } } }
+
+\cs_new_protected:Npn \__font_assign_unicode_block_class:nnn #1#2#3
+  {
+    \cs_if_exist:cF { __font_unicode_block_#1_class }
+      {
+        \exp_args:Nc \newXeTeXintercharclass { __font_unicode_block_#1_class }
+        \int_step_inline:nnn {#2} {#3}
+          {
+            \XeTeXcharclass ##1 =
+              \use:c { __font_unicode_block_#1_class }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_ensure_unicode_block_class:n #1
+  {
+    \prop_get:NnNTF \g__font_unicode_block_range_prop {#1} \l_tmpa_tl
+      {
+        \use:x
+          {
+            \exp_not:N \__font_assign_unicode_block_class:nnn
+              {#1}
+              \exp_not:V \l_tmpa_tl
+          }
+      }
+      {
+        \PackageWarning{font-defaults}
+          {Unicode~block~`#1'~is~not~registered;~skipping~range~global~binding}
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_range_transition:nnn #1#2#3
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          #1
+          \exp_not:c { __font_unicode_block_#2_class }
+          =
+          {
+            \exp_not:c { __font_enter_range_#3: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_unicode_block_#2_class }
+          #1
+          =
+          {
+            \exp_not:N \__font_leave_range:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_transition_for_range_block:nn #1#2
+  {
+    \int_step_inline:nnn { 0 } { \__font_interchar_class_max: }
+      {
+        \int_compare:nNnF
+          {##1} =
+          { \use:c { __font_unicode_block_#1_class } }
+          { \__font_set_range_transition:nnn {##1} {#1} {#2} }
+      }
+    \__font_set_range_transition:nnn
+      { \__font_interchar_boundary_class: } {#1} {#2}
+  }
+
+\cs_new_protected:Npn \__font_devanagari_class_map_inline:n #1
+  {
+    \clist_map_inline:nn { Start, Mark, Virama, EndMark, Danda } {#1}
+  }
+
+\cs_new_protected:Npn \__font_assign_devanagari_range:nnn #1#2#3
+  {
+    \int_step_inline:nnn {#1} {#2}
+      {
+        \XeTeXcharclass ##1 =
+          \use:c { __font_devanagari_#3_class }
+      }
+  }
+
+\cs_new_protected:Npn \__font_ensure_devanagari_akshara_classes:
+  {
+    \cs_if_exist:cF { __font_devanagari_Start_class }
+      {
+        \__font_devanagari_class_map_inline:n
+          { \exp_args:Nc \newXeTeXintercharclass { __font_devanagari_##1_class } }
+
+        \__font_assign_devanagari_range:nnn { "0904 } { "0914 } { Start }
+        \__font_assign_devanagari_range:nnn { "0915 } { "0939 } { Start }
+        \__font_assign_devanagari_range:nnn { "0958 } { "095F } { Start }
+        \XeTeXcharclass "0950 =
+          \use:c { __font_devanagari_Start_class }
+
+        \__font_assign_devanagari_range:nnn { "093E } { "094C } { Mark }
+        \XeTeXcharclass "093C =
+          \use:c { __font_devanagari_Mark_class }
+        \XeTeXcharclass "094E =
+          \use:c { __font_devanagari_Mark_class }
+        \XeTeXcharclass "094F =
+          \use:c { __font_devanagari_Mark_class }
+        \__font_assign_devanagari_range:nnn { "0962 } { "0963 } { Mark }
+
+        \XeTeXcharclass "094D =
+          \use:c { __font_devanagari_Virama_class }
+
+        \__font_assign_devanagari_range:nnn { "0900 } { "0903 } { EndMark }
+        \XeTeXcharclass "093D =
+          \use:c { __font_devanagari_EndMark_class }
+        \__font_assign_devanagari_range:nnn { "0951 } { "0957 } { EndMark }
+
+        \XeTeXcharclass "0964 =
+          \use:c { __font_devanagari_Danda_class }
+        \XeTeXcharclass "0965 =
+          \use:c { __font_devanagari_Danda_class }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_devanagari_transition:nnn #1#2#3
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          #1
+          \exp_not:c { __font_devanagari_#2_class }
+          =
+          {
+            \exp_not:c { __font_enter_range_#3: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_devanagari_#2_class }
+          #1
+          =
+          {
+            \exp_not:N \__font_leave_range:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_devanagari_intra_transition:nnn #1#2#3
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_devanagari_#1_class }
+          \exp_not:c { __font_devanagari_#2_class }
+          =
+          { #3 }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_devanagari_akshara_transitions:n #1
+  {
+    \int_step_inline:nnn { 0 } { \__font_interchar_class_max: }
+      {
+        \__font_devanagari_class_map_inline:n
+          {
+            \int_compare:nNnF
+              {##1} =
+              { \use:c { __font_devanagari_####1_class } }
+              { \__font_set_devanagari_transition:nnn {##1} {####1} {#1} }
+          }
+      }
+    \__font_devanagari_class_map_inline:n
+      {
+        \__font_set_devanagari_transition:nnn
+          { \__font_interchar_boundary_class: } {##1} {#1}
+      }
+
+    \__font_devanagari_class_map_inline:n
+      {
+        \__font_devanagari_class_map_inline:n
+          { \__font_set_devanagari_intra_transition:nnn {##1} {####1} { } }
+      }
+    \__font_set_devanagari_intra_transition:nnn
+      { Start } { Start } { \exp_not:N \__font_devanagari_akshara_break: }
+    \__font_set_devanagari_intra_transition:nnn
+      { Mark } { Start } { \exp_not:N \__font_devanagari_akshara_break: }
+    \__font_set_devanagari_intra_transition:nnn
+      { EndMark } { Start } { \exp_not:N \__font_devanagari_akshara_break: }
+    \__font_set_devanagari_intra_transition:nnn
+      { Danda } { Start } { \exp_not:N \__font_devanagari_danda_break: }
+  }
+
+\cs_new_protected:Npn \__font_set_devanagari_akshara_cross_for_block:nn #1#2
+  {
+    \tl_if_blank:VF \g__font_devanagari_akshara_name_tl
+      {
+        \__font_devanagari_class_map_inline:n
+          {
+            \use:x
+              {
+                \exp_not:N \XeTeXinterchartoks
+                  \exp_not:c { __font_unicode_block_#1_class }
+                  \exp_not:c { __font_devanagari_##1_class }
+                  =
+                  {
+                    \exp_not:N \__font_leave_range:
+                    \exp_not:c { __font_enter_range_\g__font_devanagari_akshara_name_tl : }
+                  }
+                \exp_not:N \XeTeXinterchartoks
+                  \exp_not:c { __font_devanagari_##1_class }
+                  \exp_not:c { __font_unicode_block_#1_class }
+                  =
+                  {
+                    \exp_not:N \__font_leave_range:
+                    \exp_not:c { __font_enter_range_#2: }
+                  }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_sanskrit_akshara_breaks:
+  {
+    \str_if_eq:VnT \l__font_decl_family_id_tl { sanskrit }
+      {
+        \tl_gset:NV \g__font_devanagari_akshara_name_tl \l__font_name_tl
+        \__font_ensure_devanagari_akshara_classes:
+        \exp_args:NV \__font_set_devanagari_akshara_transitions:n \l__font_name_tl
+        \seq_map_inline:Nn \g__font_range_global_blocks_seq
+          {
+            \prop_get:NnN \g__font_range_global_name_prop {##1} \l_tmpa_tl
+            \use:x
+              {
+                \exp_not:N \__font_set_devanagari_akshara_cross_for_block:nn
+                  {##1}
+                  { \exp_not:V \l_tmpa_tl }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_ensure_tibetan_tsheg_class:
+  {
+    \cs_if_exist:cF { __font_tibetan_tsheg_class }
+      {
+        \exp_args:Nc \newXeTeXintercharclass { __font_tibetan_tsheg_class }
+        \XeTeXcharclass "0F0B =
+          \use:c { __font_tibetan_tsheg_class }
+        \XeTeXcharclass "0F0C =
+          \use:c { __font_tibetan_tsheg_class }
+      }
+  }
+
+\cs_new_protected:Npn \__font_ensure_tibetan_punctuation_class:
+  {
+    \cs_if_exist:cF { __font_tibetan_punctuation_class }
+      {
+        \exp_args:Nc \newXeTeXintercharclass { __font_tibetan_punctuation_class }
+        \clist_map_inline:Nn \c__font_tibetan_non_tsheg_punctuation_codepoints_clist
+          {
+            \XeTeXcharclass ##1 =
+              \use:c { __font_tibetan_punctuation_class }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_tibetan_tsheg_transition:nn #1#2
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          #1
+          \exp_not:c { __font_tibetan_tsheg_class }
+          =
+          {
+            \exp_not:c { __font_enter_range_#2: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_tsheg_class }
+          #1
+          =
+          {
+            \exp_not:N \__font_leave_range:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_tibetan_punctuation_transition:nn #1#2
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          #1
+          \exp_not:c { __font_tibetan_punctuation_class }
+          =
+          {
+            \exp_not:N \nobreak
+            \exp_not:c { __font_enter_range_#2: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_punctuation_class }
+          #1
+          =
+          {
+            \exp_not:N \__font_leave_range:
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_tibetan_tsheg_cross_transition:nnn #1#2#3
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_unicode_block_#1_class }
+          \exp_not:c { __font_tibetan_tsheg_class }
+          =
+          {
+            \exp_not:N \__font_leave_range:
+            \exp_not:c { __font_enter_range_#3: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_tsheg_class }
+          \exp_not:c { __font_unicode_block_#1_class }
+          =
+          {
+            \exp_not:N \__font_leave_range:
+            \exp_not:c { __font_enter_range_#2: }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_tibetan_punctuation_cross_transition:nnn #1#2#3
+  {
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_unicode_block_#1_class }
+          \exp_not:c { __font_tibetan_punctuation_class }
+          =
+          {
+            \exp_not:N \__font_leave_range:
+            \exp_not:N \nobreak
+            \exp_not:c { __font_enter_range_#3: }
+          }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_punctuation_class }
+          \exp_not:c { __font_unicode_block_#1_class }
+          =
+          {
+            \exp_not:N \__font_leave_range:
+            \exp_not:c { __font_enter_range_#2: }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_tibetan_tsheg_transitions:n #1
+  {
+    \__font_ensure_tibetan_tsheg_class:
+    \__font_ensure_tibetan_punctuation_class:
+    \int_step_inline:nnn { 0 } { \__font_interchar_class_max: }
+      {
+        \bool_lazy_and:nnT
+          {
+            ! \int_compare_p:nNn
+              {##1} =
+              { \use:c { __font_tibetan_tsheg_class } }
+          }
+          {
+            ! \int_compare_p:nNn
+              {##1} =
+              { \use:c { __font_tibetan_punctuation_class } }
+          }
+          {
+            \__font_set_tibetan_tsheg_transition:nn {##1} {#1}
+            \__font_set_tibetan_punctuation_transition:nn {##1} {#1}
+          }
+      }
+    \__font_set_tibetan_tsheg_transition:nn
+      { \__font_interchar_boundary_class: } {#1}
+    \__font_set_tibetan_punctuation_transition:nn
+      { \__font_interchar_boundary_class: } {#1}
+    \use:x
+      {
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_unicode_block_Tibetan_class }
+          \exp_not:c { __font_tibetan_tsheg_class }
+          = { }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_tsheg_class }
+          \exp_not:c { __font_unicode_block_Tibetan_class }
+          = { \exp_not:N \allowbreak }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_unicode_block_Tibetan_class }
+          \exp_not:c { __font_tibetan_punctuation_class }
+          = { \exp_not:N \nobreak }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_punctuation_class }
+          \exp_not:c { __font_unicode_block_Tibetan_class }
+          = { }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_tsheg_class }
+          \exp_not:c { __font_tibetan_punctuation_class }
+          = { \exp_not:N \nobreak }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_punctuation_class }
+          \exp_not:c { __font_tibetan_tsheg_class }
+          = { \exp_not:N \nobreak }
+        \exp_not:N \XeTeXinterchartoks
+          \exp_not:c { __font_tibetan_punctuation_class }
+          \exp_not:c { __font_tibetan_punctuation_class }
+          = { }
+      }
+    \seq_map_inline:Nn \g__font_range_global_blocks_seq
+      {
+        \str_if_eq:nnF {##1} { Tibetan }
+          {
+            \prop_get:NnN \g__font_range_global_name_prop {##1} \l_tmpa_tl
+            \__font_set_tibetan_tsheg_cross_transition:nnn
+              {##1}
+              { \l_tmpa_tl }
+              {#1}
+            \__font_set_tibetan_punctuation_cross_transition:nnn
+              {##1}
+              { \l_tmpa_tl }
+              {#1}
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_set_range_cross_transition:nnnn #1#2#3#4
+  {
+    \str_if_eq:eeTF {#3} {#4}
+      {
+        % Keep a shaping run intact when adjacent Unicode blocks are owned by
+        % the same range family.  This is essential for clusters such as Old
+        % Hangul, whose jamo can span Hangul Jamo and Extended-A/B.
+        \use:x
+          {
+            \exp_not:N \XeTeXinterchartoks
+              \exp_not:c { __font_unicode_block_#1_class }
+              \exp_not:c { __font_unicode_block_#2_class }
+              = { }
+            \exp_not:N \XeTeXinterchartoks
+              \exp_not:c { __font_unicode_block_#2_class }
+              \exp_not:c { __font_unicode_block_#1_class }
+              = { }
+          }
+      }
+      {
+        \use:x
+          {
+            \exp_not:N \XeTeXinterchartoks
+              \exp_not:c { __font_unicode_block_#1_class }
+              \exp_not:c { __font_unicode_block_#2_class }
+              =
+              {
+                \exp_not:N \__font_leave_range:
+                \exp_not:c { __font_enter_range_#4: }
+              }
+            \exp_not:N \XeTeXinterchartoks
+              \exp_not:c { __font_unicode_block_#2_class }
+              \exp_not:c { __font_unicode_block_#1_class }
+              =
+              {
+                \exp_not:N \__font_leave_range:
+                \exp_not:c { __font_enter_range_#3: }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__font_register_range_global_block:n #1
+  {
+    \tl_if_blank:nF {#1}
+      {
+        \__font_ensure_unicode_block_class:n {#1}
+        \cs_if_exist:cTF { __font_unicode_block_#1_class }
+          {
+            \__font_set_transition_for_range_block:nn {#1} { \l__font_name_tl }
+            \str_if_eq:nnT {#1} { Tibetan }
+              { \__font_set_tibetan_tsheg_transitions:n { \l__font_name_tl } }
+            \seq_map_inline:Nn \g__font_range_global_blocks_seq
+              {
+                \prop_get:NnN \g__font_range_global_name_prop {##1} \l_tmpa_tl
+                \__font_set_range_cross_transition:nnnn
+                  {##1}
+                  {#1}
+                  { \l_tmpa_tl }
+                  { \l__font_name_tl }
+              }
+            \__font_set_devanagari_akshara_cross_for_block:nn
+              {#1}
+              { \l__font_name_tl }
+            \prop_put:Nnx \g__font_range_global_name_prop {#1} { \l__font_name_tl }
+            \seq_gput_right:Nn \g__font_range_global_blocks_seq {#1}
+          }
+          { }
+      }
+  }
+
+\cs_new_protected:Npn \__font_define_range_global_binding:
+  {
+    \sys_if_engine_xetex:TF
+      {
+        \XeTeXinterchartokenstate = 1
+        \__font_build_main_options:
+        \tl_if_blank:VTF \l__font_name_tl
+          { \tl_set_eq:NN \l__font_name_tl \l__font_decl_family_id_tl }
+          { }
+        \str_if_eq:VnTF \l__font_script_class_tl { cjk }
+          {
+            \tl_if_blank:VTF \l__font_cjk_fallback_tl
+              {
+                \use:x
+                  {
+                    \exp_not:N \newfontfamily
+                    \exp_not:c { __fontglobal_\l__font_name_tl }
+                    [ \tl_use:N \l__font_main_options_tl ]
+                    { \l__font_regular_tl }
+                  }
+              }
+              {
+                \cs_if_exist:NF \setCJKmainfont
+                  { \RequirePackage{xeCJK} }
+                \bool_if:NF \g__font_cjk_main_declared_bool
+                  {
+                    \use:x
+                      {
+                        \exp_not:N \setCJKmainfont
+                        [ \tl_use:N \l__font_main_options_tl ]
+                        { \l__font_regular_tl }
+                      }
+                    \bool_gset_true:N \g__font_cjk_main_declared_bool
+                  }
+                \__font_apply_cjk_fallback_family:n { \CJKrmdefault }
+                \clist_clear:N \l__font_unicode_blocks_clist
+              }
+          }
+          {
+            \use:x
+              {
+                \exp_not:N \newfontfamily
+                \exp_not:c { __fontglobal_\l__font_name_tl }
+                [ \tl_use:N \l__font_main_options_tl ]
+                { \l__font_regular_tl }
+              }
+          }
+        \__font_define_range_enter_command:
+        \clist_map_inline:Nn \l__font_unicode_blocks_clist
+          { \__font_register_range_global_block:n {##1} }
+        \__font_apply_sanskrit_akshara_breaks:
+        \int_gset:Nn \g__font_range_known_class_max_int
+          { \__font_interchar_class_max: }
+      }
+      {
+        \PackageError{font-defaults}
+          {Unicode-range~global~fonts~require~XeLaTeX}
+          {Compile~with~xelatex,~or~use~this~family~in~local~mode.}
+      }
+  }
+
+\cs_new_protected:Npn \__font_apply_declaration:
+  {
+    \tl_if_blank:VTF \l__font_regular_tl
+      { \PackageError{font-defaults}{Missing~regular~field}{Set~regular~=...} }
+      { }
+
+    \__font_apply_core_defaults:
+    \__font_validate_core_state:
+    \__font_apply_script_hooks:
+    \__font_apply_behavior_defaults:
+    \__font_validate_behavior_state:
+    \__font_apply_script_line_breaking:
+    \__font_resolve_style_fallbacks:
+    \bool_set_false:N \l__font_use_latex_fallback_bool
+    \__font_all_faces_exist:TF
+      { }
+      {
+        \str_if_eq:VnTF \l__font_fallback_mode_tl { soft }
+          {
+            \tl_if_blank:VTF \l__font_name_tl
+              { \tl_set_eq:NN \l__font_name_tl \l__font_command_tl }
+              { }
+            \str_if_eq:VnTF \l__font_scope_tl { global }
+              {
+                \__font_warn_soft_fallback:
+                \bool_set_true:N \l__font_use_latex_fallback_bool
+              }
+              {
+                \tl_if_blank:VTF \l__font_command_tl
+                  { \PackageError{font-defaults}{Missing~command~field}{Set~command~=...~for~local~scope.} }
+                  { }
+                \__font_warn_soft_fallback:
+                \__font_define_local_families_fallback:
+                \bool_set_true:N \l__font_use_latex_fallback_bool
+              }
+          }
+          { \__font_error_missing_faces: }
+      }
+
+    \str_if_eq:VnTF \l__font_scope_tl { global }
+      {
+        \bool_if:NF \l__font_use_latex_fallback_bool
+          {
+            \clist_if_empty:NTF \l__font_unicode_blocks_clist
+              { \__font_define_global_binding: }
+              { \__font_define_range_global_binding: }
+          }
+      }
+      {
+        \bool_if:NF \l__font_use_latex_fallback_bool
+          {
+            \tl_if_blank:VTF \l__font_command_tl
+              { \PackageError{font-defaults}{Missing~command~field}{Set~command~=...~for~local~scope.} }
+              { }
+            \tl_if_blank:VTF \l__font_name_tl
+              { \tl_set_eq:NN \l__font_name_tl \l__font_command_tl }
+              { }
+            \__font_apply_layout_compat:
+            \tl_if_blank:VF \l__font_special_module_tl
+              { \__font_import_special_module: }
+            \str_if_eq:VnTF \l__font_layout_tl { vertical }
+              { \__font_define_special_vertical: }
+              {
+                \tl_if_blank:VTF \l__font_special_module_tl
+                  { \__font_define_local_families_generic: }
+                  { \__font_define_special_local: }
+              }
+          }
+      }
+  }
+
+\NewDocumentCommand{\FontDeclare}{m}
+  {
+    \__font_reset_state:
+    \keys_set:nn { font/declare } {#1}
+    \__font_apply_declaration:
+  }
+
+\NewDocumentCommand{\FontDeclareLocalDefault}{m}
+  { \FontDeclare{scope=local,#1} }
+
+\cs_new_protected:Npn \__font_backfill_external_class:n #1
+  {
+    \seq_map_inline:Nn \g__font_range_global_blocks_seq
+      {
+        \prop_get:NnN \g__font_range_global_name_prop {##1} \l_tmpa_tl
+        \__font_set_range_transition:nnn {#1} {##1} { \l_tmpa_tl }
+      }
+  }
+
+\cs_new_protected:Npn \__font_refresh_late_interchar_classes:
+  {
+    \sys_if_engine_xetex:T
+      {
+        \int_set:Nn \l_tmpa_int { \__font_interchar_class_max: }
+        \int_compare:nNnT
+          { \l_tmpa_int } > { \g__font_range_known_class_max_int }
+          {
+            \int_step_inline:nnn
+              { \g__font_range_known_class_max_int + 1 }
+              { \l_tmpa_int }
+              { \__font_backfill_external_class:n {##1} }
+            \int_gset_eq:NN
+              \g__font_range_known_class_max_int
+              \l_tmpa_int
+          }
+      }
+  }
+
+\AtBeginDocument{\__font_refresh_late_interchar_classes:}
+
+\ExplSyntaxOff

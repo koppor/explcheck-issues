@@ -1,0 +1,2114 @@
+% ##############################################################################
+% math-shorthandz.sty — smart shorthands for typesetting math in LaTeX
+%
+% Provides:
+%   \zpunct   punctuation before equation number
+%   \zline    arbitrary underline stacking (\zvec, \zmat convenience wrappers)
+%   \zfrac    flexible fraction with configurable style and parenthesisation
+%   \zscale   uniform scaling of math content
+%   \zdot     math-mode dot product symbol with configurable size and placement
+%   \zarg     scaled parenthesised function argument
+%   \zdiff    differential and derivative operator
+%   \zcond    "evaluated at" vertical bar with condition
+%   \zscript  pre- and post-scripts with optional scaling
+%   \zprime   prime superscript or accent, context-sensitive scaling
+%   \zlim     limit operator with variable and value, below or as a subscript
+%   \zint     configurable integral with glyph type and limit placement
+%   \zlocal   prefix commands that change options for the next call only
+%   \zref     predefined prefix: `zscript-reference` for the next \zscript
+%   \zwrapper predefined prefix: `zscript-wrapper` for the next \zscript
+%   \zbefore  predefined prefix: `before` of the next zscript/zprime/zlim/zint
+%   \zafter   predefined prefix: `after` of the next zscript/zprime/zlim/zint
+%   \zalias   variants of the commands above with their own option values
+%   \zdell    predefined alias of \zdiff for partial differentials/derivatives
+%
+% Dependencies:
+%   amsmath, unicode-math, graphicx, nicefrac, xkeyval
+%   (expl3 and xparse are part of the LaTeX kernel since 2020)
+%
+% Structure:
+%   One section per public command, ordered from the commands that depend on
+%   nothing to those that build on the others. Each section keeps the same
+%   order: options, constants, helpers, public command. The manual
+%   (math-shorthandz.tex) is the reference for behaviour; the comments here
+%   only give syntax and implementation notes.
+%
+%   Every option is a \msz@... macro read at call time, so it may be set with
+%   \usepackage[...] or \setkeys{shorthand}{...}, globally or inside a group.
+%   Key names carry the full command name (zint-, zdiff-, ...); macro names
+%   drop the leading "z" (\msz@int@..., initials of math-shorthandz).
+%
+% Copyright (C) 2020-2026 Tiago Pomella Lobo
+%
+% This work may be distributed and/or modified under the conditions of the
+% LaTeX Project Public License, either version 1.3c of this license or (at
+% your option) any later version. The latest version of this license is in
+%   https://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX version
+% 2008 or later.
+%
+% This work has the LPPL maintenance status `author-maintained'.
+%
+% The Current Maintainer of this work is Tiago Pomella Lobo
+% (https://github.com/tplobo/math-shorthandz).
+%
+% This work consists of the files math-shorthandz.sty, math-shorthandz.tex,
+% math-shorthandz-listings.tex and README.md, and the derived file
+% math-shorthandz.pdf.
+% ##############################################################################
+
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\ProvidesPackage{math-shorthandz}[2026/10/28 v1.1.0 smart shorthands for typesetting math]
+
+% ------------------------------------------------------------------------------
+% Required packages
+% ------------------------------------------------------------------------------
+
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{unicode-math}
+\RequirePackage{nicefrac}
+\RequirePackage{xkeyval}
+
+% ------------------------------------------------------------------------------
+% Configure packages
+% ------------------------------------------------------------------------------
+
+% The integral glyphs are prescribed so that \intop and \ointop render with
+% XITS glyphs. The base math font is left to the user; recommended:
+%   \setmathfont{TeX Gyre DejaVu Math}[Scale=0.85]
+\AtBeginDocument{\setmathfont[range={"222B-"2233}]{XITS Math}}
+
+\makeatletter
+
+% ==============================================================================
+% GLOBAL
+% ------------------------------------------------------------------------------
+% Shared by several commands:
+%   \msz@opt         declares an option macro and its key, and registers the
+%                    macro in its family (for snapshots and resets)
+%   \__msz_begin:n   opens every call of a command with options, given its
+%                    family; applies the keys of the alias that called it and
+%                    then those of the local prefixes (\zlocal) waiting
+%   units            ratios of a style's x-height (v, above, below) and quad
+%                    (h, before, after); the axis height is also measured
+%   scales           four factors per math style plus `<command>-scale-absolute`
+%                    per command (true: set in normal size, then multiplied;
+%                    false: set in the ambient style, then multiplied)
+%   nesting guard    \l__msz_scale_acc_fp is the scale of the enclosing scaled
+%                    boxes; a nested call is shrunk by it only down to the size
+%                    of a scriptscript call of the same command
+%   registry         \msz@cmd@<command> holds the family of options of each
+%                    package command (empty: no options); read by \zlocal and
+%                    \zalias
+% ==============================================================================
+
+  % \msz@opt {family} {key suffix} {macro suffix} {default} — declares the
+  % option macro \msz@<family>@<macro suffix> and its key z<family>-<key
+  % suffix>; the first call of a family also declares z<family>-reset. Key
+  % names are also collected in \msz@keysfull and \msz@keys (used by the manual).
+  \def\msz@keysfull{}
+  \def\msz@keys{}
+  \newcommand{\msz@opt}[4]{%
+    \@ifundefined{msz@reg@#1}{%
+      \expandafter\gdef\csname msz@reg@#1\endcsname{}%
+      \define@key{shorthand}{z#1-reset}[]{\msz@reset{#1}}%
+    }{}%
+    \expandafter\newcommand\csname msz@#1@#3\endcsname{#4}%
+    \define@key{shorthand}{z#1-#2}{\msz@opt@set{#1}{#3}{##1}}%
+    \expandafter\g@addto@macro\csname msz@reg@#1\endcsname{\msz@reg@do{#1}{#3}}%
+    \g@addto@macro\msz@keysfull{z#1-#2,}%
+    \g@addto@macro\msz@keys{#2,}%
+  }
+
+\ExplSyntaxOn
+
+  \dim_new:N \l__msz_unit_h_dim
+  \dim_new:N \l__msz_unit_v_dim
+  \dim_new:N \l__msz_unit_axis_dim
+  \box_new:N \l__msz_unit_box
+
+    % families of options (one per command with options; \zvec and \zmat use line)
+  \clist_const:Nn \c__msz_fam_clist
+    { line, scale, dot, arg, diff, cond, script, prime, lim, int }
+
+  % registry of the commands of the package, read by \zlocal and \zalias:
+  % \msz@cmd@<command> holds the family of its options (empty: no options).
+  % Prefixes (\zlocal) and aliases (\zalias) are registered by their own
+  % command, so they can be redefined.
+  \tl_const:cn { msz@cmd@zline } { line }
+  \tl_const:cn { msz@cmd@zvec  } { line }
+  \tl_const:cn { msz@cmd@zmat  } { line }
+  \clist_map_inline:nn { zscale, zdot, zarg, zdiff, zcond, zscript, zprime, zlim, zint }
+    { \tl_const:cx { msz@cmd@ #1 } { \str_tail:n {#1} } }
+  \clist_map_inline:nn { zpunct, zfrac, zalias, zlocal, zreset }
+    { \tl_const:cn { msz@cmd@ #1 } { } }
+
+  % keys of the alias being called, waiting for its command
+  \tl_new:N  \g__msz_alias_tl
+
+  % keys of the local prefixes (\zlocal) waiting for the next call, one list
+  % per family, and a flag telling that some list is not empty
+  \bool_new:N \g__msz_local_bool
+  \clist_map_inline:Nn \c__msz_fam_clist
+    { \tl_new:c { g__msz_local_ #1 _tl } }
+
+  \tl_new:N  \l__msz_begin_a_tl
+  \tl_new:N  \l__msz_begin_b_tl
+
+  \msg_new:nnn { math-shorthandz } { reset-misuse }
+    {
+      \c_backslash_str zreset~is~only~valid~as~the~value~of~a~key~in~
+      \c_backslash_str zalias~or~\c_backslash_str zlocal.
+    }
+  \msg_new:nnn { math-shorthandz } { reset-outside }
+    {
+      Option~reset~(key~reset~or~value~\c_backslash_str zreset)~is~only~
+      available~in~the~keys~of~\c_backslash_str zalias~or~\c_backslash_str zlocal.
+    }
+
+  % protected marker: as the value of a key, restores the option from the
+  % snapshot of the call (see \msz@opt@set)
+  \cs_new_protected:Npn \zreset
+    { \msg_error:nn { math-shorthandz } { reset-misuse } }
+
+  % sets the units (horizontal quad, vertical x-height, axis height) for style #1
+  \cs_new_protected:Npn \__msz_unit:N #1
+    {
+      \hbox_set:Nn \l__msz_unit_box { $ \m@th #1 x $ }
+      \dim_set:Nn \l__msz_unit_v_dim { \box_ht:N \l__msz_unit_box }
+      \hbox_set:Nn \l__msz_unit_box { $ \m@th #1 \mkern 18mu $ }
+      \dim_set:Nn \l__msz_unit_h_dim { \box_wd:N \l__msz_unit_box }
+      \hbox_set:Nn \l__msz_unit_box { $ \m@th #1 \vcenter { \hbox { } } $ }
+      \dim_set:Nn \l__msz_unit_axis_dim { \box_ht:N \l__msz_unit_box }
+    }
+
+  % expands to the length (ratio #1) * (unit dimension #2)
+  \cs_new:Npn \__msz_ratio:nN #1#2
+    { \fp_to_dim:n { (#1) * #2 } }
+
+  % registry actions, run over the options of a family by its list
+  % \msz@reg@<family>: \msz@reg@do is \let to one of them just before the list
+  % is expanded. Arguments: #1 family, #2 macro suffix.
+  \cs_new_protected:Npn \msz@reg@do #1#2 { }
+  \cs_new_protected:Npn \msz@snap@do #1#2
+    { \cs_set_eq:cc { msz@snap@ #1 @ #2 } { msz@ #1 @ #2 } }
+  \cs_new_protected:Npn \msz@rest@do #1#2
+    { \cs_set_eq:cc { msz@ #1 @ #2 } { msz@snap@ #1 @ #2 } }
+
+  % copies every option of family #1 to its snapshot, in the current group,
+  % and marks the family as snapshotted
+  \cs_new_protected:Npn \__msz_snap:n #1
+    {
+      \cs_set:cpn { msz@snap@ #1 @flag } { }
+      \cs_set_eq:NN \msz@reg@do \msz@snap@do
+      \use:c { msz@reg@ #1 }
+    }
+
+  % key z<family>-reset: restores all options of family #1 from the snapshot
+  \cs_new_protected:Npn \msz@reset #1
+    {
+      \cs_if_exist:cTF { msz@snap@ #1 @flag }
+        {
+          \cs_set_eq:NN \msz@reg@do \msz@rest@do
+          \use:c { msz@reg@ #1 }
+        }
+        { \msg_error:nnn { math-shorthandz } { reset-outside } { #1 } }
+    }
+
+  % restores option #2 of family #1 from the snapshot
+  \cs_new_protected:Npn \__msz_opt_restore:nn #1#2
+    {
+      \cs_if_exist:cTF { msz@snap@ #1 @flag }
+        { \cs_set_eq:cc { msz@ #1 @ #2 } { msz@snap@ #1 @ #2 } }
+        { \msg_error:nnn { math-shorthandz } { reset-outside } { #1 } }
+    }
+
+  % sets option #2 of family #1 to the value #3, or restores it if it is \zreset
+  \cs_new_protected:Npn \msz@opt@set #1#2#3
+    {
+      \tl_if_eq:nnTF {#3} { \zreset }
+        { \__msz_opt_restore:nn {#1} {#2} }
+        { \cs_set:cpn { msz@ #1 @ #2 } { #3 } }
+    }
+
+  % discards every stored local key (see \zlocal)
+  \cs_new_protected:Npn \__msz_local_clear:
+    {
+      \bool_gset_false:N \g__msz_local_bool
+      \clist_map_inline:Nn \c__msz_fam_clist
+        { \tl_gclear:c { g__msz_local_ ##1 _tl } }
+    }
+
+  % opens the group of one call of a command of family #1. Takes the keys of
+  % the alias that called it and those of the local prefixes of its family
+  % (and discards all stored ones, so they never reach a later call); the
+  % outermost call first snapshots the family; applies the alias keys and then
+  % the prefix keys, so a prefix wins. The command closes the group with
+  % \group_end:, which adds no atom, so spacing and class are those of the output.
+  \cs_new_protected:Npn \__msz_begin:n #1
+    {
+      \group_begin:
+      \tl_set_eq:NN \l__msz_begin_a_tl \g__msz_alias_tl
+      \tl_gclear:N \g__msz_alias_tl
+      \tl_set_eq:Nc \l__msz_begin_b_tl { g__msz_local_ #1 _tl }
+      \bool_if:NT \g__msz_local_bool { \__msz_local_clear: }
+      \bool_lazy_and:nnF
+        { \tl_if_empty_p:N \l__msz_begin_a_tl }
+        { \tl_if_empty_p:N \l__msz_begin_b_tl }
+        {
+          \cs_if_exist:cF { msz@snap@ #1 @flag } { \__msz_snap:n {#1} }
+          \exp_args:NnV \setkeys { shorthand } \l__msz_begin_a_tl
+          \exp_args:NnV \setkeys { shorthand } \l__msz_begin_b_tl
+        }
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zpunct {punct}
+% ------------------------------------------------------------------------------
+% Punctuation at the right end of a display line, before the equation number
+% (numbered rows) or flush right through \tag* (starred environments).
+% Discarded in \notag/\nonumber rows.
+% ==============================================================================
+
+  \newcommand{\msz@currentpunct}{}
+  \def\tagform@#1{%
+    \maketag@@@{\msz@currentpunct(\ignorespaces#1\unskip\@@italiccorr)}%
+    \gdef\msz@currentpunct{}%
+  }
+  \let\msz@make@display@tag\make@display@tag
+  \def\make@display@tag{%
+    \if@eqnsw\else\iftag@\else\gdef\msz@currentpunct{}\fi\fi
+    \msz@make@display@tag
+  }
+  \NewDocumentCommand \zpunct { m }
+    {
+      \ifst@rred
+        \tag*{#1}%
+      \else
+        \gdef\msz@currentpunct{#1\space}%
+      \fi
+    }
+
+% ==============================================================================
+% \zline [count] {symbol}   |   \zvec {symbol}   |   \zmat {symbol}
+% ------------------------------------------------------------------------------
+% <count> rules under the symbol; \zvec and \zmat are the one- and two-rule
+% wrappers. All three use the `zline-` keys.
+% ==============================================================================
+
+  \msz@opt{line}{depth}{depth}{1pt}
+  \msz@opt{line}{thickness}{thickness}{0.4pt}
+  \msz@opt{line}{separation}{separation}{0.9pt}
+
+\ExplSyntaxOn
+
+  \box_new:N \l__msz_line_box
+  \dim_new:N \l__msz_line_depth_dim
+  \dim_new:N \l__msz_line_thickness_dim
+  \dim_new:N \l__msz_line_sep_dim
+
+  \NewDocumentCommand \zline { O{1} m }
+    {
+      \leavevmode
+      \__msz_begin:n { line }
+      \dim_set:Nn \l__msz_line_depth_dim     { \msz@line@depth       }
+      \dim_set:Nn \l__msz_line_thickness_dim { \msz@line@thickness   }
+      \dim_set:Nn \l__msz_line_sep_dim       { \msz@line@separation  }
+      \hbox_set:Nn \l__msz_line_box
+        { \ensuremath{ \mathsurround=0pt #2 } }
+      \vtop
+        {
+          \offinterlineskip
+          \box_use:N \l__msz_line_box
+          \kern \l__msz_line_depth_dim
+          \int_step_inline:nn {#1}
+            {
+              \hrule
+                height \l__msz_line_thickness_dim
+                width  \box_wd:N \l__msz_line_box
+              \int_compare:nNnF {##1} = {#1}
+                { \kern \l__msz_line_sep_dim }
+            }
+        }
+      \group_end:
+    }
+
+  \NewDocumentCommand \zvec { m } { \ensuremath { \zline[1]{#1} } }
+  \NewDocumentCommand \zmat { m } { \ensuremath { \zline[2]{#1} } }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zfrac * * [num] {num} [den] {den}
+% ------------------------------------------------------------------------------
+% {x} plain, [x] parenthesised; one argument is the denominator. No star:
+% \frac; one star: \nicefrac; two stars: n/d. No options.
+% ==============================================================================
+
+\ExplSyntaxOn
+
+  \tl_new:N   \l__msz_frac_num_tl
+  \tl_new:N   \l__msz_frac_den_tl
+
+  \bool_new:N \l__msz_frac_num_paren_bool
+  \bool_new:N \l__msz_frac_den_paren_bool
+  \bool_new:N \l__msz_frac_den_present_bool
+  % NOTE: den_present is always true (see \__msz_frac_parse:nnnnnn), so the
+  % "no denominator" branch of \__msz_frac_render:nn is dead code (see TODO).
+
+  % wraps #1 in \left( \right); always called inside \ensuremath
+  \cs_new:Npn \__msz_frac_paren:n #1
+    { \left( #1 \right) }
+
+  % renders operand #2, parenthesised when bool #1 is true
+  \cs_new:Npn \__msz_frac_arg:Nn #1 #2
+    {
+      \bool_if:NTF #1
+        { \__msz_frac_paren:n {#2} }
+        {#2}
+    }
+
+  % typesets the fraction in the requested style — #1 star  #2 double star
+  \cs_new:Npn \__msz_frac_render:nn #1 #2
+    {
+      \bool_if:NF \l__msz_frac_den_present_bool
+        { \__msz_frac_arg:Nn \l__msz_frac_num_paren_bool { \l__msz_frac_num_tl } }
+        {
+          \IfBooleanTF {#1}
+            {
+              \IfBooleanTF {#2}
+                {
+                  \__msz_frac_arg:Nn \l__msz_frac_num_paren_bool { \l__msz_frac_num_tl }
+                  /
+                  \__msz_frac_arg:Nn \l__msz_frac_den_paren_bool { \l__msz_frac_den_tl }
+                }
+                {
+                  \nicefrac
+                    { \__msz_frac_arg:Nn \l__msz_frac_num_paren_bool { \l__msz_frac_num_tl } }
+                    { \__msz_frac_arg:Nn \l__msz_frac_den_paren_bool { \l__msz_frac_den_tl } }
+                }
+            }
+            {
+              \frac
+                { \__msz_frac_arg:Nn \l__msz_frac_num_paren_bool { \l__msz_frac_num_tl } }
+                { \__msz_frac_arg:Nn \l__msz_frac_den_paren_bool { \l__msz_frac_den_tl } }
+            }
+        }
+    }
+
+  % maps the o g o g arguments of \zfrac to the num/den token lists and their
+  % paren-bools, for every {}/[] combination
+  \cs_new_protected:Npn \__msz_frac_parse:nnnnnn #1 #2 #3 #4 #5 #6
+    {
+      \IfNoValueTF {#3}
+        {
+          \IfNoValueTF {#5}
+            {
+              \IfNoValueTF {#6}
+                {
+                  \tl_set:Nn \l__msz_frac_num_tl { 1 }
+                  \bool_set_false:N \l__msz_frac_num_paren_bool
+                  \bool_set_true:N  \l__msz_frac_den_present_bool
+                  \tl_set:Nn \l__msz_frac_den_tl {#4}
+                  \bool_set_false:N \l__msz_frac_den_paren_bool
+                }
+                {
+                  \tl_set:Nn \l__msz_frac_num_tl {#4}
+                  \bool_set_false:N \l__msz_frac_num_paren_bool
+                  \bool_set_true:N  \l__msz_frac_den_present_bool
+                  \tl_set:Nn \l__msz_frac_den_tl {#6}
+                  \bool_set_false:N \l__msz_frac_den_paren_bool
+                }
+            }
+            {
+              \tl_set:Nn \l__msz_frac_num_tl {#4}
+              \bool_set_false:N \l__msz_frac_num_paren_bool
+              \bool_set_true:N  \l__msz_frac_den_present_bool
+              \tl_set:Nn \l__msz_frac_den_tl {#5}
+              \bool_set_true:N  \l__msz_frac_den_paren_bool
+            }
+        }
+        {
+          \IfNoValueTF {#4}
+            {
+              \IfNoValueTF {#5}
+                {
+                  \tl_set:Nn \l__msz_frac_num_tl { 1 }
+                  \bool_set_false:N \l__msz_frac_num_paren_bool
+                  \bool_set_true:N  \l__msz_frac_den_present_bool
+                  \tl_set:Nn \l__msz_frac_den_tl {#3}
+                  \bool_set_true:N  \l__msz_frac_den_paren_bool
+                }
+                {
+                  \tl_set:Nn \l__msz_frac_num_tl {#3}
+                  \bool_set_true:N  \l__msz_frac_num_paren_bool
+                  \bool_set_true:N  \l__msz_frac_den_present_bool
+                  \tl_set:Nn \l__msz_frac_den_tl {#5}
+                  \bool_set_true:N  \l__msz_frac_den_paren_bool
+                }
+            }
+            {
+              \tl_set:Nn \l__msz_frac_num_tl {#3}
+              \bool_set_true:N  \l__msz_frac_num_paren_bool
+              \bool_set_true:N  \l__msz_frac_den_present_bool
+              \tl_set:Nn \l__msz_frac_den_tl {#4}
+              \bool_set_false:N \l__msz_frac_den_paren_bool
+            }
+        }
+    }
+
+  \NewDocumentCommand \zfrac { s s o g o g }
+    {
+      \__msz_frac_parse:nnnnnn {#1}{#2}{#3}{#4}{#5}{#6}
+      \ensuremath{ \__msz_frac_render:nn {#1} {#2} }
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zscale [factor] {math}
+% ------------------------------------------------------------------------------
+% Scales math content by <factor>, default `zscale-<style>` of the call.
+% The helpers below are shared by every command that scales content; each
+% passes its own option prefix (dot@scale, arg@scale, ...) and reads its own
+% four factors and switch. Output: one \mathord box.
+% ==============================================================================
+
+  \msz@opt{scale}{display}{display}{1}
+  \msz@opt{scale}{text}{text}{1}
+  \msz@opt{scale}{script}{script}{0.7}
+  \msz@opt{scale}{scriptscript}{scriptscript}{0.6}
+  \msz@opt{scale}{absolute}{absolute}{true}
+
+\ExplSyntaxOn
+
+  \tl_new:N  \l__msz_scale_tl
+  \tl_new:N  \l__msz_scale_name_tl
+  \tl_new:N  \l__msz_scale_style_tl
+
+  \dim_new:N \l__msz_scale_quad_dim
+
+  % accumulated scale of the enclosing boxes, scale inside the box being
+  % built, size of the style the content is set in, size of the call alone,
+  % and size of a scriptscript call of the same command
+  \fp_new:N  \l__msz_scale_acc_fp
+  \fp_new:N  \l__msz_scale_new_fp
+  \fp_new:N  \l__msz_scale_rset_fp
+  \fp_new:N  \l__msz_scale_p_fp
+  \fp_new:N  \l__msz_scale_g_fp
+  \fp_set:Nn \l__msz_scale_acc_fp { 1 }
+
+  % sets fp #1 to the size of style #2 relative to the text style (quad
+  % ratio), using only scratch registers so the units stay untouched
+  \cs_new_protected:Npn \__msz_rel:NN #1#2
+    {
+      \hbox_set:Nn \l__msz_unit_box { $ \m@th \textstyle \mkern 18mu $ }
+      \dim_set:Nn \l__msz_scale_quad_dim { \box_wd:N \l__msz_unit_box }
+      \hbox_set:Nn \l__msz_unit_box { $ \m@th #2 \mkern 18mu $ }
+      \fp_set:Nn #1
+        { \dim_to_fp:n { \box_wd:N \l__msz_unit_box } / \dim_to_fp:n { \l__msz_scale_quad_dim } }
+    }
+
+  % resolves the factor applied to the box (\l__msz_scale_tl), the style the
+  % content is set in (\l__msz_scale_style_tl) and the scale inside the box
+  % (\l__msz_scale_new_fp) — #1 factor (blank = option)  #2 option prefix
+  % #3 style name  #4 ambient style. Physical size is max(acc*p, min(p, g)):
+  % nesting may shrink a call down to g (scriptscript call), never below p.
+  \cs_new_protected:Npn \__msz_scale_set:nnnN #1#2#3#4
+    {
+      \tl_set:Nx \l__msz_scale_name_tl {#3}
+      \exp_args:Nv \str_if_eq:nnTF { msz@ #2 @absolute } { true }
+        {
+          \fp_set:Nn \l__msz_scale_rset_fp { 1 }
+          \fp_set:Nn \l__msz_scale_g_fp { \use:c { msz@ #2 @scriptscript } }
+          \str_if_eq:VnTF \l__msz_scale_name_tl { display }
+            { \tl_set:Nn \l__msz_scale_style_tl { \displaystyle } }
+            { \tl_set:Nn \l__msz_scale_style_tl { \textstyle } }
+        }
+        {
+          \__msz_rel:NN \l__msz_scale_rset_fp #4
+          \__msz_rel:NN \l__msz_scale_g_fp \scriptscriptstyle
+          \fp_set:Nn \l__msz_scale_g_fp
+            { \l__msz_scale_g_fp * \use:c { msz@ #2 @scriptscript } }
+          \tl_set:Nn \l__msz_scale_style_tl {#4}
+        }
+      \tl_set:Nx \l__msz_scale_tl
+        {
+          \tl_if_blank:nTF {#1}
+            { \use:c { msz@ #2 @ \l__msz_scale_name_tl } }
+            {#1}
+        }
+      \fp_set:Nn \l__msz_scale_p_fp { \l__msz_scale_rset_fp * ( \l__msz_scale_tl ) }
+      \fp_set:Nn \l__msz_scale_new_fp
+        {
+          max ( \l__msz_scale_acc_fp * \l__msz_scale_p_fp ,
+                min ( \l__msz_scale_p_fp , \l__msz_scale_g_fp ) )
+          / \l__msz_scale_rset_fp
+        }
+      \tl_set:Nx \l__msz_scale_tl
+        { \fp_to_decimal:n { \l__msz_scale_new_fp / \l__msz_scale_acc_fp } }
+    }
+
+  % one \mathchoice branch — #1 factor (blank = option)  #2 math
+  % #3 option prefix  #4 style name  #5 ambient style. Nested calls inside
+  % the box see the new accumulated scale.
+  \cs_new_protected:Npn \__msz_scale:nnnnN #1#2#3#4#5
+    {
+      \__msz_scale_set:nnnN {#1} {#3} {#4} #5
+      \exp_args:NV \scalebox \l__msz_scale_tl
+        {
+          \fp_set_eq:NN \l__msz_scale_acc_fp \l__msz_scale_new_fp
+          $ \m@th \l__msz_scale_style_tl #2 $
+        }
+    }
+
+  \NewDocumentCommand \zscale { O{} m }
+    {
+      \__msz_begin:n { scale }
+      \ensuremath
+        {
+          \mathord
+            {
+              \mathchoice
+                { \__msz_scale:nnnnN {#1} {#2} { scale } { display }      \displaystyle      }
+                { \__msz_scale:nnnnN {#1} {#2} { scale } { text }         \textstyle         }
+                { \__msz_scale:nnnnN {#1} {#2} { scale } { script }       \scriptstyle       }
+                { \__msz_scale:nnnnN {#1} {#2} { scale } { scriptscript } \scriptscriptstyle }
+            }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zdot
+% ------------------------------------------------------------------------------
+% Heavier \cdot (scaled by `zdot-scale-<style>`), kept on the math axis; \mathbin.
+% ==============================================================================
+
+  \msz@opt{dot}{scale-display}{scale@display}{1.8}
+  \msz@opt{dot}{scale-text}{scale@text}{1.8}
+  \msz@opt{dot}{scale-script}{scale@script}{1.4}
+  \msz@opt{dot}{scale-scriptscript}{scale@scriptscript}{1}
+  \msz@opt{dot}{scale-absolute}{scale@absolute}{true}
+
+\ExplSyntaxOn
+
+  \dim_new:N \l__msz_dot_axis_dim
+
+  % one \mathchoice branch — #1 style name  #2 ambient style. Uses the
+  % internal scaler (not \zscale, whose \ensuremath would fall back to text
+  % style inside \raisebox) and raises the dot back onto the axis.
+  \cs_new_protected:Npn \__msz_dot:nN #1#2
+    {
+      \__msz_unit:N #2
+      \dim_set_eq:NN \l__msz_dot_axis_dim \l__msz_unit_axis_dim
+      \__msz_scale_set:nnnN { } { dot@scale } {#1} #2
+      \exp_last_unbraced:NV \__msz_unit:N \l__msz_scale_style_tl
+      \raisebox
+        {
+          \dim_eval:n
+            {
+              \l__msz_dot_axis_dim
+              - \__msz_ratio:nN { \l__msz_scale_tl } \l__msz_unit_axis_dim
+            }
+        }
+        { \__msz_scale:nnnnN { } { \cdot } { dot@scale } {#1} #2 }
+    }
+
+  \NewDocumentCommand \zdot { }
+    {
+      \__msz_begin:n { dot }
+      \mathbin
+        {
+          \mathchoice
+            { \__msz_dot:nN { display }      \displaystyle      }
+            { \__msz_dot:nN { text }         \textstyle         }
+            { \__msz_dot:nN { script }       \scriptstyle       }
+            { \__msz_dot:nN { scriptscript } \scriptscriptstyle }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zarg {expr}
+% ------------------------------------------------------------------------------
+% Parenthesised, scaled argument (`zarg-scale-<style>`) with a kern
+% `zarg-kern` before the opening parenthesis. Output: one \mathord box.
+% ==============================================================================
+
+  \msz@opt{arg}{scale-display}{scale@display}{0.9}
+  \msz@opt{arg}{scale-text}{scale@text}{0.9}
+  \msz@opt{arg}{scale-script}{scale@script}{0.63}
+  \msz@opt{arg}{scale-scriptscript}{scale@scriptscript}{0.5}
+  \msz@opt{arg}{scale-absolute}{scale@absolute}{true}
+  \msz@opt{arg}{kern}{kern}{0.5mu}
+
+\ExplSyntaxOn
+
+  % one \mathchoice branch — #1 expression  #2 style name  #3 ambient style
+  \cs_new_protected:Npn \__msz_arg:nnN #1#2#3
+    {
+      \__msz_scale:nnnnN { }
+        { \mkern \msz@arg@kern \left( #1 \right) } { arg@scale } {#2} #3
+    }
+
+  \NewDocumentCommand \zarg { m }
+    {
+      \__msz_begin:n { arg }
+      \ensuremath
+        {
+          \mathord
+            {
+              \mathchoice
+                { \__msz_arg:nnN {#1} { display }      \displaystyle      }
+                { \__msz_arg:nnN {#1} { text }         \textstyle         }
+                { \__msz_arg:nnN {#1} { script }       \scriptstyle       }
+                { \__msz_arg:nnN {#1} { scriptscript } \scriptscriptstyle }
+            }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zdiff + s t* [order] {var}
+% ------------------------------------------------------------------------------
+% No star: differential, a \mathinner atom (a leading + adds the kern
+% `zdiff-math-separation` in display style, `zdiff-text-separation` otherwise).
+% One star: derivative as \frac, followed by `zdiff-kern`; two: as \nicefrac.
+% The letter printed is `zdiff-symbol` (d by default); the predefined alias
+% \zdell (see \zalias) sets it to \partial.
+% ==============================================================================
+
+  \msz@opt{diff}{symbol}{symbol}{\text{d}}
+  \msz@opt{diff}{math-separation}{math@separation}{10mu}
+  \msz@opt{diff}{text-separation}{text@separation}{5mu}
+  \msz@opt{diff}{kern}{kern}{2mu}
+
+\ExplSyntaxOn
+
+  \NewDocumentCommand \zdiff { t+ s t* O{} m }
+    {
+      \__msz_begin:n { diff }
+      \ensuremath
+        {
+          \IfBooleanTF {#2}
+            {
+              \IfBooleanTF {#3}
+                {
+                  \nicefrac
+                    { \msz@diff@symbol \tl_if_blank:nF {#4} { ^{#4} } }
+                    { \msz@diff@symbol #5 \tl_if_blank:nF {#4} { ^{#4} } }
+                }
+                {
+                  \frac
+                    { \msz@diff@symbol \tl_if_blank:nF {#4} { ^{#4} } }
+                    { \msz@diff@symbol #5 \tl_if_blank:nF {#4} { ^{#4} } }
+                }
+              \mkern \msz@diff@kern
+            }
+            {
+              \mathinner
+                {
+                  \IfBooleanT {#1}
+                    {
+                      \mathchoice
+                        { \mkern \msz@diff@math@separation }
+                        { \mkern \msz@diff@text@separation }
+                        { \mkern \msz@diff@text@separation }
+                        { \mkern \msz@diff@text@separation }
+                    }
+                  \msz@diff@symbol \tl_if_blank:nF {#4} { ^{#4} } #5
+                }
+            }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zcond * * * * [expr] {condition}
+% ------------------------------------------------------------------------------
+% Evaluation bar with the condition as a subscript. Stars 0-4 select the bar
+% (auto-sized with \left. \right| around [expr], \big, \Big, \bigg, \Bigg).
+% The condition is scaled by `zcond-scale-<style>` (style of the bar), in the
+% auto-sized case, or in all cases if `zcond-scale-star` is true.
+% ==============================================================================
+
+  \msz@opt{cond}{scale-display}{scale@display}{0.7}
+  \msz@opt{cond}{scale-text}{scale@text}{0.7}
+  \msz@opt{cond}{scale-script}{scale@script}{0.6}
+  \msz@opt{cond}{scale-scriptscript}{scale@scriptscript}{0.6}
+  \msz@opt{cond}{scale-absolute}{scale@absolute}{true}
+  \msz@opt{cond}{scale-star}{scale@star}{false}
+
+\ExplSyntaxOn
+
+  \tl_new:N \l__msz_cond_size_tl
+
+  % one \mathchoice branch — #1 bar size (empty = auto-sized, else big, Big,
+  % bigg, Bigg)  #2 expression  #3 condition  #4 style name of the bar
+  % #5 style of the condition
+  \cs_new_protected:Npn \__msz_cond:nnnnN #1#2#3#4#5
+    {
+      \tl_if_empty:nTF {#1}
+        {
+          \tl_if_blank:nTF {#2}
+            { | }
+            { \left. #2 \right | }
+        }
+        { #2 \use:c {#1} | }
+      \sb
+        {
+          \bool_lazy_or:nnTF
+            { \tl_if_empty_p:n {#1} }
+            { \str_if_eq_p:Vn \msz@cond@scale@star { true } }
+            { \__msz_scale:nnnnN { } {#3} { cond@scale } {#4} #5 }
+            {#3}
+        }
+    }
+  \cs_generate_variant:Nn \__msz_cond:nnnnN { V }
+
+  \NewDocumentCommand \zcond { s s s s O{} m }
+    {
+      \__msz_begin:n { cond }
+      \tl_clear:N \l__msz_cond_size_tl
+      \bool_if:nT {#1} { \tl_set:Nn \l__msz_cond_size_tl { big } }
+      \bool_if:nT {#2} { \tl_set:Nn \l__msz_cond_size_tl { Big } }
+      \bool_if:nT {#3} { \tl_set:Nn \l__msz_cond_size_tl { bigg } }
+      \bool_if:nT {#4} { \tl_set:Nn \l__msz_cond_size_tl { Bigg } }
+      \ensuremath
+        {
+          \mathchoice
+            { \__msz_cond:VnnnN \l__msz_cond_size_tl {#5} {#6} { display }      \scriptstyle       }
+            { \__msz_cond:VnnnN \l__msz_cond_size_tl {#5} {#6} { text }         \scriptstyle       }
+            { \__msz_cond:VnnnN \l__msz_cond_size_tl {#5} {#6} { script }       \scriptscriptstyle }
+            { \__msz_cond:VnnnN \l__msz_cond_size_tl {#5} {#6} { scriptscript } \scriptscriptstyle }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zscript + *[ll] *[ul] {nucleus} *[lr] *[ur]
+% ------------------------------------------------------------------------------
+% Up to four scripts around a nucleus, wrapped in `zscript-wrapper`. With
+% `zscript-adaptative` true they are boxes placed from the edges of the
+% REFERENCE (the nucleus, or the expression in `zscript-reference`), centred
+% on which the printed nucleus is set; false: placed by TeX. A leading +
+% flips the switch for one call, after the keys of an alias are applied.
+% Starred scripts are scaled by `zscript-scale-<style of the nucleus>`.
+% Output: one \mathord box covering the printed nucleus and all scripts.
+% ==============================================================================
+
+  \msz@opt{script}{math-before}{math@before}{0}
+  \msz@opt{script}{math-after}{math@after}{0.05}
+  \msz@opt{script}{math-above}{math@above}{0.2}
+  \msz@opt{script}{math-below}{math@below}{0.1}
+
+  \msz@opt{script}{math-ul-v}{math@ul@v}{-0.3}
+  \msz@opt{script}{math-ul-h}{math@ul@h}{0.05}
+  \msz@opt{script}{math-ur-v}{math@ur@v}{-0.3}
+  \msz@opt{script}{math-ur-h}{math@ur@h}{0.05}
+  \msz@opt{script}{math-ll-v}{math@ll@v}{0.3}
+  \msz@opt{script}{math-ll-h}{math@ll@h}{-0.05}
+  \msz@opt{script}{math-lr-v}{math@lr@v}{0.3}
+  \msz@opt{script}{math-lr-h}{math@lr@h}{0}
+
+  \msz@opt{script}{text-before}{text@before}{0}
+  \msz@opt{script}{text-after}{text@after}{0.05}
+  \msz@opt{script}{text-above}{text@above}{0.2}
+  \msz@opt{script}{text-below}{text@below}{0.1}
+
+  \msz@opt{script}{text-ul-v}{text@ul@v}{-0.3}
+  \msz@opt{script}{text-ul-h}{text@ul@h}{0.05}
+  \msz@opt{script}{text-ur-v}{text@ur@v}{-0.3}
+  \msz@opt{script}{text-ur-h}{text@ur@h}{0.05}
+  \msz@opt{script}{text-ll-v}{text@ll@v}{0.3}
+  \msz@opt{script}{text-ll-h}{text@ll@h}{-0.05}
+  \msz@opt{script}{text-lr-v}{text@lr@v}{0.3}
+  \msz@opt{script}{text-lr-h}{text@lr@h}{0}
+
+  \msz@opt{script}{scale-display}{scale@display}{0.6}
+  \msz@opt{script}{scale-text}{scale@text}{0.6}
+  \msz@opt{script}{scale-script}{scale@script}{0.55}
+  \msz@opt{script}{scale-scriptscript}{scale@scriptscript}{0.5}
+  \msz@opt{script}{scale-absolute}{scale@absolute}{true}
+  \msz@opt{script}{wrapper}{wrapper}{\symup}
+  \msz@opt{script}{adaptative}{adaptative}{true}
+  \msz@opt{script}{reference}{reference}{}
+
+\ExplSyntaxOn
+
+  \tl_new:N  \l__msz_script_mode_tl
+  \tl_new:N  \l__msz_script_ctx_tl
+  \tl_new:N  \l__msz_script_nuc_tl
+
+  \dim_new:N \l__msz_script_off_dim
+  \dim_new:N \l__msz_script_left_dim
+  \dim_new:N \l__msz_script_right_dim
+
+  \box_new:N \l__msz_script_nuc_box
+  \box_new:N \l__msz_script_ref_box
+  \box_new:N \l__msz_script_out_box
+
+  % placement of the current call (true: from edges), the + of the call, and
+  % whether the call sits inside a script of another \zscript
+  \bool_new:N \l__msz_script_adaptative_bool
+  \bool_new:N \l__msz_script_plus_bool
+  \bool_new:N \l__msz_script_nested_bool
+
+  % per-script storage for ll, ul, lr, ur: token list (empty = absent), star
+  % flag, box, x of its left edge from the reference's left edge, raise
+  \clist_map_inline:nn { ll, ul, lr, ur }
+    {
+      \tl_new:c   { l__msz_script_ #1 _tl }
+      \bool_new:c { l__msz_script_ #1 _star_bool }
+      \box_new:c  { l__msz_script_ #1 _box }
+      \dim_new:c  { l__msz_script_ #1 _x_dim }
+      \dim_new:c  { l__msz_script_ #1 _y_dim }
+    }
+
+  % expands to the option macro of the current mode — #1 is "ur@v", "after", ...
+  \cs_new:Npn \__msz_script_opt:n #1
+    { \use:c { msz@script@ \l__msz_script_mode_tl @ #1 } }
+
+  % stores script #3 with star flag #2 under key #1, wrapped in the wrapper
+  \cs_new_protected:Npn \__msz_script_store:nnn #1#2#3
+    {
+      \tl_clear:c { l__msz_script_ #1 _tl }
+      \tl_if_blank:nF {#3}
+        {
+          \tl_set:cn   { l__msz_script_ #1 _tl } { {#3} }
+          \tl_put_left:cV { l__msz_script_ #1 _tl } \msz@script@wrapper
+          \bool_set:cn { l__msz_script_ #1 _star_bool } {#2}
+        }
+    }
+
+  % content of script #1 in style #2: a scaled box if starred, else itself.
+  % Flags everything typeset inside as nested (local to the box or group that
+  % holds it), so a \zscript there restores the default alphabet for its
+  % nucleus, which is a variable, not part of the script's label
+  \cs_new_protected:Npn \__msz_script_content:nN #1#2
+    {
+      \bool_set_true:N \l__msz_script_nested_bool
+      \bool_if:cTF { l__msz_script_ #1 _star_bool }
+        {
+          \__msz_scale:nnnnN { } { \tl_use:c { l__msz_script_ #1 _tl } }
+            { script@scale } { \l__msz_script_ctx_tl } #2
+        }
+        { \tl_use:c { l__msz_script_ #1 _tl } }
+    }
+
+  % typesets script #1 in style #4 and computes its position from the
+  % reference — #2 "top"|"bottom" edge it hangs from  #3 "leading"|"trailing"
+  % — then widens the left/right overhangs to contain it
+  \cs_new_protected:Npn \__msz_script_place:nnnN #1#2#3#4
+    {
+      \tl_if_empty:cF { l__msz_script_ #1 _tl }
+        {
+          \hbox_set:cn { l__msz_script_ #1 _box }
+            { $ \m@th #4 \__msz_script_content:nN {#1} #4 $ }
+          \dim_set:cn { l__msz_script_ #1 _y_dim }
+            {
+              \str_if_eq:nnTF {#2} { top }
+                {
+                  \box_ht:N \l__msz_script_ref_box
+                  + \__msz_ratio:nN { \__msz_script_opt:n { #1 @v } } \l__msz_unit_v_dim
+                  + \box_dp:c { l__msz_script_ #1 _box }
+                }
+                {
+                  - \box_dp:N \l__msz_script_ref_box
+                  + \__msz_ratio:nN { \__msz_script_opt:n { #1 @v } } \l__msz_unit_v_dim
+                  - \box_ht:c { l__msz_script_ #1 _box }
+                }
+            }
+          \dim_set:cn { l__msz_script_ #1 _x_dim }
+            {
+              \str_if_eq:nnTF {#3} { leading }
+                {
+                  \__msz_ratio:nN { \__msz_script_opt:n { #1 @h } } \l__msz_unit_h_dim
+                  - \box_wd:c { l__msz_script_ #1 _box }
+                }
+                {
+                  \box_wd:N \l__msz_script_ref_box
+                  + \__msz_ratio:nN { \__msz_script_opt:n { #1 @h } } \l__msz_unit_h_dim
+                }
+            }
+          \dim_set:Nn \l__msz_script_left_dim
+            { \dim_max:nn { \l__msz_script_left_dim } { - \dim_use:c { l__msz_script_ #1 _x_dim } } }
+          \dim_set:Nn \l__msz_script_right_dim
+            {
+              \dim_max:nn { \l__msz_script_right_dim }
+                {
+                  \dim_use:c { l__msz_script_ #1 _x_dim } + \box_wd:c { l__msz_script_ #1 _box }
+                  - \box_wd:N \l__msz_script_ref_box
+                }
+            }
+        }
+    }
+
+  % places script #1 (if present) at its position without taking width
+  \cs_new_protected:Npn \__msz_script_emit:n #1
+    {
+      \tl_if_empty:cF { l__msz_script_ #1 _tl }
+        {
+          \rlap
+            {
+              \kern \dim_use:c { l__msz_script_ #1 _x_dim }
+              \box_move_up:nn { \dim_use:c { l__msz_script_ #1 _y_dim } }
+                { \box_use:c { l__msz_script_ #1 _box } }
+            }
+        }
+    }
+
+  % adaptative placement (one \mathchoice branch) — #1 nucleus
+  % #2 "math"|"text"  #3 style of the nucleus  #4 style of the scripts.
+  % The reference box is the nucleus unless zscript-reference is given; the
+  % printed nucleus is centred on it (off = half the width difference) and
+  % the overhangs start from the part of either that sticks out of the other.
+  \cs_new_protected:Npn \__msz_script_adaptative:nnNN #1#2#3#4
+    {
+      \tl_set:Nn \l__msz_script_mode_tl {#2}
+      \__msz_unit:N #3
+      \hbox_set:Nn \l__msz_script_nuc_box { $ \m@th #3 #1 $ }
+      \tl_if_blank:VTF \msz@script@reference
+        { \box_set_eq:NN \l__msz_script_ref_box \l__msz_script_nuc_box }
+        { \hbox_set:Nn \l__msz_script_ref_box { $ \m@th #3 \msz@script@reference $ } }
+      \dim_set:Nn \l__msz_script_off_dim
+        { ( \box_wd:N \l__msz_script_ref_box - \box_wd:N \l__msz_script_nuc_box ) / 2 }
+      \dim_set:Nn \l__msz_script_left_dim
+        { \dim_max:nn { 0pt } { - \l__msz_script_off_dim } }
+      \dim_set_eq:NN \l__msz_script_right_dim \l__msz_script_left_dim
+      \__msz_script_place:nnnN { ll } { bottom } { leading }  #4
+      \__msz_script_place:nnnN { ul } { top }    { leading }  #4
+      \__msz_script_place:nnnN { lr } { bottom } { trailing } #4
+      \__msz_script_place:nnnN { ur } { top }    { trailing } #4
+      \hbox_set:Nn \l__msz_script_out_box
+        {
+          \kern \__msz_ratio:nN { \__msz_script_opt:n { before } } \l__msz_unit_h_dim
+          \kern \l__msz_script_left_dim
+          \__msz_script_emit:n { ll }
+          \__msz_script_emit:n { ul }
+          \__msz_script_emit:n { lr }
+          \__msz_script_emit:n { ur }
+          \kern \l__msz_script_off_dim
+          \box_use:N \l__msz_script_nuc_box
+          \kern \l__msz_script_off_dim
+          \kern \l__msz_script_right_dim
+          \kern \__msz_ratio:nN { \__msz_script_opt:n { after } } \l__msz_unit_h_dim
+        }
+      \box_set_ht:Nn \l__msz_script_out_box
+        {
+          \box_ht:N \l__msz_script_out_box
+          + \__msz_ratio:nN { \__msz_script_opt:n { above } } \l__msz_unit_v_dim
+        }
+      \box_set_dp:Nn \l__msz_script_out_box
+        {
+          \box_dp:N \l__msz_script_out_box
+          + \__msz_ratio:nN { \__msz_script_opt:n { below } } \l__msz_unit_v_dim
+        }
+      \box_use:N \l__msz_script_out_box
+    }
+
+  % attaches subscript #1 and superscript #2 (when present) to the atom just
+  % before, with TeX's own placement — #3 style of the scripts
+  \cs_new_protected:Npn \__msz_script_attach:nnN #1#2#3
+    {
+      \tl_if_empty:cF { l__msz_script_ #1 _tl }
+        { \sb { \__msz_script_content:nN {#1} #3 } }
+      \tl_if_empty:cF { l__msz_script_ #2 _tl }
+        { \sp { \__msz_script_content:nN {#2} #3 } }
+    }
+
+  % traditional placement (one \mathchoice branch) — #1 nucleus  #2 style of
+  % the scripts. Leading scripts hang from an empty atom and the nucleus is an
+  % \mathord, so no space is added and large operators keep their scripts at
+  % the sides.
+  \cs_new_protected:Npn \__msz_script_tex:nN #1#2
+    {
+      { }
+      \__msz_script_attach:nnN { ll } { ul } #2
+      \mathord {#1}
+      \__msz_script_attach:nnN { lr } { ur } #2
+    }
+
+  % one \mathchoice branch, in the placement selected by the call — #1 nucleus
+  % #2 "math"|"text"  #3 style name of the nucleus  #4 style of the nucleus
+  % #5 style of the scripts
+  \cs_new_protected:Npn \__msz_script_build:nnnNN #1#2#3#4#5
+    {
+      \tl_set:Nn \l__msz_script_ctx_tl {#3}
+      \bool_if:NTF \l__msz_script_adaptative_bool
+        { \__msz_script_adaptative:nnNN {#1} {#2} #4 #5 }
+        { \__msz_script_tex:nN {#1} #5 }
+    }
+
+  % parses the nine arguments, opens the call (applying the keys of an alias
+  % and of local prefixes), selects the placement (adaptative XOR the + of the
+  % call), stores the scripts and builds the output. The nucleus is set in the
+  % default alphabet when the call is nested in a script. Kept apart from
+  % \zscript so the + fits.
+  \NewDocumentCommand \__msz_script_main { s O{} s O{} m s O{} s O{} }
+    {
+      \__msz_begin:n { script }
+      \bool_set:Nn \l__msz_script_adaptative_bool
+        {
+          \bool_xor_p:nn
+            { \str_if_eq_p:Vn \msz@script@adaptative { true } }
+            { \bool_if_p:N \l__msz_script_plus_bool }
+        }
+      \bool_if:NTF \l__msz_script_nested_bool
+        { \tl_set:Nn \l__msz_script_nuc_tl { \symnormal {#5} } }
+        { \tl_set:Nn \l__msz_script_nuc_tl {#5} }
+      \__msz_script_store:nnn { ll } {#1} {#2}
+      \__msz_script_store:nnn { ul } {#3} {#4}
+      \__msz_script_store:nnn { lr } {#6} {#7}
+      \__msz_script_store:nnn { ur } {#8} {#9}
+      \ensuremath
+        {
+          \mathord
+            {
+              \mathchoice
+                { \__msz_script_build:nnnNN { \l__msz_script_nuc_tl } { math } { display }      \displaystyle      \scriptstyle       }
+                { \__msz_script_build:nnnNN { \l__msz_script_nuc_tl } { text } { text }         \textstyle         \scriptstyle       }
+                { \__msz_script_build:nnnNN { \l__msz_script_nuc_tl } { text } { script }       \scriptstyle       \scriptscriptstyle }
+                { \__msz_script_build:nnnNN { \l__msz_script_nuc_tl } { text } { scriptscript } \scriptscriptstyle \scriptscriptstyle }
+            }
+        }
+      \group_end:
+    }
+
+  % keeps the + of the call; set on every call so nothing leaks
+  \NewDocumentCommand \zscript { t+ }
+    {
+      \bool_set:Nn \l__msz_script_plus_bool {#1}
+      \__msz_script_main
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zprime * [n] [v] [h] {symbol}
+% ------------------------------------------------------------------------------
+% [n] primes (default 1) as a superscript (no star) or a centred accent (star).
+% [v] and [h] replace the option of the form and mode for this call. The
+% cluster is scaled by `zprime-scale-<style of the symbol>`. Output: one
+% \mathord box covering symbol and cluster.
+% ==============================================================================
+
+  \msz@opt{prime}{separation}{sep}{-2mu}
+  \msz@opt{prime}{scale-display}{scale@display}{1.1}
+  \msz@opt{prime}{scale-text}{scale@text}{1.1}
+  \msz@opt{prime}{scale-script}{scale@script}{0.8}
+  \msz@opt{prime}{scale-scriptscript}{scale@scriptscript}{0.8}
+  \msz@opt{prime}{scale-absolute}{scale@absolute}{true}
+
+  \msz@opt{prime}{math-before}{math@before}{0}
+  \msz@opt{prime}{math-after}{math@after}{0}
+  \msz@opt{prime}{math-above}{math@above}{0.1}
+  \msz@opt{prime}{math-below}{math@below}{0.1}
+
+  \msz@opt{prime}{math-script-v}{math@script@v}{-1.3}
+  \msz@opt{prime}{math-script-h}{math@script@h}{-0.02}
+  \msz@opt{prime}{math-accent-v}{math@accent@v}{-0.8}
+  \msz@opt{prime}{math-accent-h}{math@accent@h}{0.1}
+
+  \msz@opt{prime}{text-before}{text@before}{0}
+  \msz@opt{prime}{text-after}{text@after}{0}
+  \msz@opt{prime}{text-above}{text@above}{0.1}
+  \msz@opt{prime}{text-below}{text@below}{0.1}
+
+  \msz@opt{prime}{text-script-v}{text@script@v}{-1.3}
+  \msz@opt{prime}{text-script-h}{text@script@h}{-0.02}
+  \msz@opt{prime}{text-accent-v}{text@accent@v}{-0.8}
+  \msz@opt{prime}{text-accent-h}{text@accent@h}{0.1}
+
+\ExplSyntaxOn
+
+  \dim_new:N \l__msz_prime_v_dim
+  \dim_new:N \l__msz_prime_h_dim
+  \dim_new:N \l__msz_prime_x_dim
+  \dim_new:N \l__msz_prime_y_dim
+  \dim_new:N \l__msz_prime_left_dim
+  \dim_new:N \l__msz_prime_right_dim
+
+  \tl_new:N \l__msz_prime_mode_tl
+  \tl_new:N \l__msz_prime_form_tl
+  \tl_new:N \l__msz_prime_n_tl
+  \tl_new:N \l__msz_prime_vratio_tl
+  \tl_new:N \l__msz_prime_hratio_tl
+
+  \box_new:N \l__msz_prime_nuc_box
+  \box_new:N \l__msz_prime_bare_box
+  \box_new:N \l__msz_prime_out_box
+
+  % expands to the option macro of the current mode — #1 is "accent@v", "after", ...
+  \cs_new:Npn \__msz_prime_opt:n #1
+    { \use:c { msz@prime@ \l__msz_prime_mode_tl @ #1 } }
+
+  % #1 primes separated by zprime-separation; unscaled, the cluster is scaled whole
+  \cs_new_protected:Npn \__msz_prime_make:n #1
+    {
+      \int_step_inline:nn {#1}
+        {
+          \prime
+          \int_compare:nNnF {##1} = {#1}
+            { \mkern \msz@prime@sep }
+        }
+    }
+
+  % computes the cluster's raise (y) and left-edge x from the symbol's left
+  % edge, and the overhangs; non-empty #1 (v) or #2 (h) REPLACES the option
+  \cs_new_protected:Npn \__msz_prime_place:nn #1#2
+    {
+      \tl_set:Nx \l__msz_prime_vratio_tl { \__msz_prime_opt:n { \l__msz_prime_form_tl @v } }
+      \tl_set:Nx \l__msz_prime_hratio_tl { \__msz_prime_opt:n { \l__msz_prime_form_tl @h } }
+      \tl_if_empty:nF {#1} { \tl_set:Nn \l__msz_prime_vratio_tl {#1} }
+      \tl_if_empty:nF {#2} { \tl_set:Nn \l__msz_prime_hratio_tl {#2} }
+      \dim_set:Nn \l__msz_prime_v_dim
+        { \__msz_ratio:nN { \l__msz_prime_vratio_tl } \l__msz_unit_v_dim }
+      \dim_set:Nn \l__msz_prime_h_dim
+        { \__msz_ratio:nN { \l__msz_prime_hratio_tl } \l__msz_unit_h_dim }
+      \dim_set:Nn \l__msz_prime_y_dim
+        {
+          \box_ht:N \l__msz_prime_nuc_box + \l__msz_prime_v_dim
+          + \box_dp:N \l__msz_prime_bare_box
+        }
+      \dim_set:Nn \l__msz_prime_x_dim
+        {
+          \l__msz_prime_h_dim
+          + \str_if_eq:VnTF \l__msz_prime_form_tl { accent }
+              { ( \box_wd:N \l__msz_prime_nuc_box - \box_wd:N \l__msz_prime_bare_box ) / 2 }
+              { \box_wd:N \l__msz_prime_nuc_box }
+        }
+      \dim_set:Nn \l__msz_prime_left_dim
+        { \dim_max:nn { 0pt } { - \l__msz_prime_x_dim } }
+      \dim_set:Nn \l__msz_prime_right_dim
+        {
+          \dim_max:nn { 0pt }
+            {
+              \l__msz_prime_x_dim + \box_wd:N \l__msz_prime_bare_box
+              - \box_wd:N \l__msz_prime_nuc_box
+            }
+        }
+    }
+
+  % whole output (one \mathchoice branch), used bare: \zprime wraps it in
+  % \mathord outside the \mathchoice — #1 star  #2 n  #3 v  #4 h  #5 symbol
+  % #6 "math"|"text"  #7 style name of the symbol  #8 style of symbol and primes
+  \cs_new_protected:Npn \__msz_prime_build:nnnnnnnN #1#2#3#4#5#6#7#8
+    {
+      \tl_set:Nn \l__msz_prime_mode_tl {#6}
+      \IfBooleanTF {#1}
+        { \tl_set:Nn \l__msz_prime_form_tl { accent } }
+        { \tl_set:Nn \l__msz_prime_form_tl { script } }
+      \tl_set:Nn \l__msz_prime_n_tl {#2}
+      \tl_if_empty:NT \l__msz_prime_n_tl { \tl_set:Nn \l__msz_prime_n_tl {1} }
+      \__msz_unit:N #8
+      \hbox_set:Nn \l__msz_prime_nuc_box { $ \m@th #8 #5 $ }
+      \hbox_set:Nn \l__msz_prime_bare_box
+        {
+          \__msz_scale:nnnnN { }
+            { \__msz_prime_make:n { \l__msz_prime_n_tl } } { prime@scale } {#7} #8
+        }
+      \__msz_prime_place:nn {#3} {#4}
+      \hbox_set:Nn \l__msz_prime_out_box
+        {
+          \kern \__msz_ratio:nN { \__msz_prime_opt:n { before } } \l__msz_unit_h_dim
+          \kern \l__msz_prime_left_dim
+          \rlap
+            {
+              \kern \l__msz_prime_x_dim
+              \box_move_up:nn { \l__msz_prime_y_dim } { \box_use:N \l__msz_prime_bare_box }
+            }
+          \box_use:N \l__msz_prime_nuc_box
+          \kern \l__msz_prime_right_dim
+          \kern \__msz_ratio:nN { \__msz_prime_opt:n { after } } \l__msz_unit_h_dim
+        }
+      \box_set_ht:Nn \l__msz_prime_out_box
+        {
+          \box_ht:N \l__msz_prime_out_box
+          + \__msz_ratio:nN { \__msz_prime_opt:n { above } } \l__msz_unit_v_dim
+        }
+      \box_set_dp:Nn \l__msz_prime_out_box
+        {
+          \box_dp:N \l__msz_prime_out_box
+          + \__msz_ratio:nN { \__msz_prime_opt:n { below } } \l__msz_unit_v_dim
+        }
+      \box_use:N \l__msz_prime_out_box
+    }
+
+  \NewDocumentCommand \zprime { s O{1} O{} O{} m }
+    {
+      \__msz_begin:n { prime }
+      \ensuremath
+        {
+          \mathord
+            {
+              \mathchoice
+                { \__msz_prime_build:nnnnnnnN {#1}{#2}{#3}{#4}{#5} { math } { display }      \displaystyle      }
+                { \__msz_prime_build:nnnnnnnN {#1}{#2}{#3}{#4}{#5} { text } { text }         \textstyle         }
+                { \__msz_prime_build:nnnnnnnN {#1}{#2}{#3}{#4}{#5} { text } { script }       \scriptstyle       }
+                { \__msz_prime_build:nnnnnnnN {#1}{#2}{#3}{#4}{#5} { text } { scriptscript } \scriptscriptstyle }
+            }
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zlim + * {var} * {limit}
+% ------------------------------------------------------------------------------
+% "lim" with the script `var \to limit`, centred below the operator, or at
+% its lower right with a leading +. A star scales that part by
+% `zlim-scale-<style of the operator>`. Output: one \mathop box (followed by
+% \nolimits) covering operator and script.
+% ==============================================================================
+
+  \msz@opt{lim}{scale-display}{scale@display}{0.6}
+  \msz@opt{lim}{scale-text}{scale@text}{0.6}
+  \msz@opt{lim}{scale-script}{scale@script}{0.43}
+  \msz@opt{lim}{scale-scriptscript}{scale@scriptscript}{0.43}
+  \msz@opt{lim}{scale-absolute}{scale@absolute}{true}
+
+  \msz@opt{lim}{math-before}{math@before}{0}
+  \msz@opt{lim}{math-after}{math@after}{0}
+  \msz@opt{lim}{math-above}{math@above}{0}
+  \msz@opt{lim}{math-below}{math@below}{0}
+
+  \msz@opt{lim}{math-below-v}{math@below@v}{-0.4}
+  \msz@opt{lim}{math-below-h}{math@below@h}{0}
+  \msz@opt{lim}{math-script-v}{math@script@v}{0.3}
+  \msz@opt{lim}{math-script-h}{math@script@h}{-0.05}
+
+  \msz@opt{lim}{text-before}{text@before}{0}
+  \msz@opt{lim}{text-after}{text@after}{0}
+  \msz@opt{lim}{text-above}{text@above}{0.5}
+  \msz@opt{lim}{text-below}{text@below}{0.5}
+
+  \msz@opt{lim}{text-below-v}{text@below@v}{-0.4}
+  \msz@opt{lim}{text-below-h}{text@below@h}{0}
+  \msz@opt{lim}{text-script-v}{text@script@v}{0.3}
+  \msz@opt{lim}{text-script-h}{text@script@h}{-0.05}
+
+\ExplSyntaxOn
+
+  \tl_new:N  \l__msz_lim_mode_tl
+  \tl_new:N  \l__msz_lim_ctx_tl
+  \tl_new:N  \l__msz_lim_form_tl
+
+  \dim_new:N \l__msz_lim_v_dim
+  \dim_new:N \l__msz_lim_h_dim
+  \dim_new:N \l__msz_lim_x_dim
+  \dim_new:N \l__msz_lim_y_dim
+  \dim_new:N \l__msz_lim_left_dim
+  \dim_new:N \l__msz_lim_right_dim
+
+  \box_new:N \l__msz_lim_nuc_box
+  \box_new:N \l__msz_lim_script_box
+  \box_new:N \l__msz_lim_out_box
+
+  % expands to the option macro of the current mode — #1 is "below@v", "after", ...
+  \cs_new:Npn \__msz_lim_opt:n #1
+    { \use:c { msz@lim@ \l__msz_lim_mode_tl @ #1 } }
+
+  % one part of the script — #1 star  #2 content  #3 style of the script;
+  % starred: scaled box, unstarred: the content itself
+  \cs_new_protected:Npn \__msz_lim_part:nnN #1#2#3
+    {
+      \bool_if:nTF {#1}
+        { \__msz_scale:nnnnN { } {#2} { lim@scale } { \l__msz_lim_ctx_tl } #3 }
+        {#2}
+    }
+
+  % computes the script's raise (y) and left-edge x from the operator's left
+  % edge for the current form, and the overhangs
+  \cs_new_protected:Npn \__msz_lim_place:
+    {
+      \dim_set:Nn \l__msz_lim_v_dim
+        {
+          \__msz_ratio:nN { \__msz_lim_opt:n { \l__msz_lim_form_tl @v } }
+            \l__msz_unit_v_dim
+        }
+      \dim_set:Nn \l__msz_lim_h_dim
+        {
+          \__msz_ratio:nN { \__msz_lim_opt:n { \l__msz_lim_form_tl @h } }
+            \l__msz_unit_h_dim
+        }
+      \dim_set:Nn \l__msz_lim_y_dim
+        {
+          - \box_dp:N \l__msz_lim_nuc_box + \l__msz_lim_v_dim
+          - \box_ht:N \l__msz_lim_script_box
+        }
+      \dim_set:Nn \l__msz_lim_x_dim
+        {
+          \l__msz_lim_h_dim
+          + \str_if_eq:VnTF \l__msz_lim_form_tl { below }
+              { ( \box_wd:N \l__msz_lim_nuc_box - \box_wd:N \l__msz_lim_script_box ) / 2 }
+              { \box_wd:N \l__msz_lim_nuc_box }
+        }
+      \dim_set:Nn \l__msz_lim_left_dim
+        { \dim_max:nn { 0pt } { - \l__msz_lim_x_dim } }
+      \dim_set:Nn \l__msz_lim_right_dim
+        {
+          \dim_max:nn { 0pt }
+            {
+              \l__msz_lim_x_dim + \box_wd:N \l__msz_lim_script_box
+              - \box_wd:N \l__msz_lim_nuc_box
+            }
+        }
+    }
+
+  % whole output (one \mathchoice branch), used bare: \zlim wraps it in
+  % \mathop outside the \mathchoice — #1 var star  #2 var  #3 limit star
+  % #4 limit  #5 "math"|"text"  #6 style name of the operator  #7 style of the
+  % operator  #8 style of the script
+  \cs_new_protected:Npn \__msz_lim_build:nnnnnnNN #1#2#3#4#5#6#7#8
+    {
+      \tl_set:Nn \l__msz_lim_mode_tl {#5}
+      \tl_set:Nn \l__msz_lim_ctx_tl {#6}
+      \__msz_unit:N #7
+      \hbox_set:Nn \l__msz_lim_nuc_box { $ \m@th #7 \operatorname { lim } $ }
+      \hbox_set:Nn \l__msz_lim_script_box
+        {
+          $ \m@th #8
+            \__msz_lim_part:nnN {#1} {#2} #8
+            \to
+            \__msz_lim_part:nnN {#3} {#4} #8
+          $
+        }
+      \__msz_lim_place:
+      \hbox_set:Nn \l__msz_lim_out_box
+        {
+          \kern \__msz_ratio:nN { \__msz_lim_opt:n { before } } \l__msz_unit_h_dim
+          \kern \l__msz_lim_left_dim
+          \rlap
+            {
+              \kern \l__msz_lim_x_dim
+              \box_move_up:nn { \l__msz_lim_y_dim } { \box_use:N \l__msz_lim_script_box }
+            }
+          \box_use:N \l__msz_lim_nuc_box
+          \kern \l__msz_lim_right_dim
+          \kern \__msz_ratio:nN { \__msz_lim_opt:n { after } } \l__msz_unit_h_dim
+        }
+      \box_set_ht:Nn \l__msz_lim_out_box
+        {
+          \box_ht:N \l__msz_lim_out_box
+          + \__msz_ratio:nN { \__msz_lim_opt:n { above } } \l__msz_unit_v_dim
+        }
+      \box_set_dp:Nn \l__msz_lim_out_box
+        {
+          \box_dp:N \l__msz_lim_out_box
+          + \__msz_ratio:nN { \__msz_lim_opt:n { below } } \l__msz_unit_v_dim
+        }
+      \box_use:N \l__msz_lim_out_box
+    }
+
+  \NewDocumentCommand \zlim { t+ s m s m }
+    {
+      \__msz_begin:n { lim }
+      \IfBooleanTF {#1}
+        { \tl_set:Nn \l__msz_lim_form_tl { script } }
+        { \tl_set:Nn \l__msz_lim_form_tl { below } }
+      \ensuremath
+        {
+          \mathop
+            {
+              \mathchoice
+                { \__msz_lim_build:nnnnnnNN {#2}{#3}{#4}{#5} { math } { display }      \displaystyle      \scriptstyle       }
+                { \__msz_lim_build:nnnnnnNN {#2}{#3}{#4}{#5} { text } { text }         \textstyle         \scriptstyle       }
+                { \__msz_lim_build:nnnnnnNN {#2}{#3}{#4}{#5} { text } { script }       \scriptstyle       \scriptscriptstyle }
+                { \__msz_lim_build:nnnnnnNN {#2}{#3}{#4}{#5} { text } { scriptscript } \scriptscriptstyle \scriptscriptstyle }
+            }
+          \nolimits
+        }
+      \group_end:
+    }
+
+\ExplSyntaxOff
+
+% ==============================================================================
+% \zint *[lower] *[upper] * * [type]
+% ------------------------------------------------------------------------------
+% Integral operator, placed before the integrand. [type]: 1 (default) single,
+% n integer cluster, o contour, anything else bridged \int \cdots \int. Stars
+% before [type] select the class (none: slant, one: stack, two: right); a star
+% before a limit scales it by `zint-scale-<style of the glyph>`. Output: one
+% \mathop box covering the cluster and both limits.
+% ==============================================================================
+
+  \msz@opt{int}{math-separation}{math@separation}{-20mu}
+  \msz@opt{int}{math-dots-left}{math@dots@left}{-20mu}
+  \msz@opt{int}{math-dots-right}{math@dots@right}{-10mu}
+  \msz@opt{int}{math-before}{math@before}{0}
+  \msz@opt{int}{math-after}{math@after}{-0.2}
+  \msz@opt{int}{math-above}{math@above}{0.15}
+  \msz@opt{int}{math-below}{math@below}{0.15}
+
+  \msz@opt{int}{math-slant-top-v}{math@slant@top@v}{1.8}
+  \msz@opt{int}{math-slant-top-h}{math@slant@top@h}{-0.5}
+  \msz@opt{int}{math-slant-bottom-v}{math@slant@bottom@v}{-2}
+  \msz@opt{int}{math-slant-bottom-h}{math@slant@bottom@h}{-0.1}
+  \msz@opt{int}{math-stack-top-v}{math@stack@top@v}{3}
+  \msz@opt{int}{math-stack-top-h}{math@stack@top@h}{0.3}
+  \msz@opt{int}{math-stack-bottom-v}{math@stack@bottom@v}{-3}
+  \msz@opt{int}{math-stack-bottom-h}{math@stack@bottom@h}{-0.8}
+  \msz@opt{int}{math-right-top-v}{math@right@top@v}{1.4}
+  \msz@opt{int}{math-right-top-h}{math@right@top@h}{0.3}
+  \msz@opt{int}{math-right-bottom-v}{math@right@bottom@v}{-1.8}
+  \msz@opt{int}{math-right-bottom-h}{math@right@bottom@h}{-0.35}
+
+  \msz@opt{int}{text-separation}{text@separation}{-10mu}
+  \msz@opt{int}{text-dots-left}{text@dots@left}{-10mu}
+  \msz@opt{int}{text-dots-right}{text@dots@right}{-6mu}
+  \msz@opt{int}{text-before}{text@before}{0}
+  \msz@opt{int}{text-after}{text@after}{-0.2}
+  \msz@opt{int}{text-above}{text@above}{0.15}
+  \msz@opt{int}{text-below}{text@below}{0.15}
+
+  \msz@opt{int}{text-slant-top-v}{text@slant@top@v}{0.7}
+  \msz@opt{int}{text-slant-top-h}{text@slant@top@h}{-0.1}
+  \msz@opt{int}{text-slant-bottom-v}{text@slant@bottom@v}{-0.7}
+  \msz@opt{int}{text-slant-bottom-h}{text@slant@bottom@h}{-0.1}
+  \msz@opt{int}{text-stack-top-v}{text@stack@top@v}{1.6}
+  \msz@opt{int}{text-stack-top-h}{text@stack@top@h}{0.2}
+  \msz@opt{int}{text-stack-bottom-v}{text@stack@bottom@v}{-1.6}
+  \msz@opt{int}{text-stack-bottom-h}{text@stack@bottom@h}{-0.4}
+  \msz@opt{int}{text-right-top-v}{text@right@top@v}{0.2}
+  \msz@opt{int}{text-right-top-h}{text@right@top@h}{0.3}
+  \msz@opt{int}{text-right-bottom-v}{text@right@bottom@v}{-0.8}
+  \msz@opt{int}{text-right-bottom-h}{text@right@bottom@h}{0}
+
+  \msz@opt{int}{scale-display}{scale@display}{0.6}
+  \msz@opt{int}{scale-text}{scale@text}{0.6}
+  \msz@opt{int}{scale-script}{scale@script}{0.43}
+  \msz@opt{int}{scale-scriptscript}{scale@scriptscript}{0.43}
+  \msz@opt{int}{scale-absolute}{scale@absolute}{true}
+
+\ExplSyntaxOn
+
+  \tl_new:N  \l__msz_int_type_tl
+  \tl_new:N  \l__msz_int_mode_tl
+  \tl_new:N  \l__msz_int_ctx_tl
+  \tl_new:N  \l__msz_int_cls_tl
+  \tl_new:N  \l__msz_int_anch_tl
+
+  \dim_new:N \l__msz_int_cy_dim
+  \dim_new:N \l__msz_int_ref_dim
+  \dim_new:N \l__msz_int_v_dim
+  \dim_new:N \l__msz_int_h_dim
+  \dim_new:N \l__msz_int_left_dim
+  \dim_new:N \l__msz_int_right_dim
+  \dim_new:N \l__msz_int_lowr_dim
+  \dim_new:N \l__msz_int_lowx_dim
+  \dim_new:N \l__msz_int_upr_dim
+  \dim_new:N \l__msz_int_upx_dim
+
+  \box_new:N \l__msz_int_glyph_box
+  \box_new:N \l__msz_int_last_box
+  \box_new:N \l__msz_int_low_box
+  \box_new:N \l__msz_int_up_box
+  \box_new:N \l__msz_int_out_box
+
+  % expands to the option macro of the current mode — #1 is "after", "above", ...
+  \cs_new:Npn \__msz_int_opt:n #1
+    { \use:c { msz@int@ \l__msz_int_mode_tl @ #1 } }
+
+  % one glyph of the cluster (\ointop for type "o", else \intop); an \mathord,
+  % so the cluster kerns are the only spacing
+  \cs_new_protected:Npn \__msz_int_glyph:
+    {
+      \mathord
+        { \str_if_eq:VnTF \l__msz_int_type_tl { o } { \ointop } { \intop } }
+    }
+
+  % the glyph cluster of the current type: "o", n glyphs kerned by
+  % `-separation`, or glyph \cdots glyph with the `-dots-left/right` kerns
+  \cs_new_protected:Npn \__msz_int_cluster:
+    {
+      \str_if_eq:VnTF \l__msz_int_type_tl { o }
+        { \__msz_int_glyph: }
+        {
+          \regex_match:nVTF { \A [1-9][0-9]* \Z } \l__msz_int_type_tl
+            {
+              \int_step_inline:nn { \l__msz_int_type_tl }
+                {
+                  \__msz_int_glyph:
+                  \int_compare:nNnF {##1} = { \l__msz_int_type_tl }
+                    { \mkern \__msz_int_opt:n { separation } }
+                }
+            }
+            {
+              \__msz_int_glyph:
+              \mkern \__msz_int_opt:n { dots@left }
+              \cdots
+              \mkern \__msz_int_opt:n { dots@right }
+              \__msz_int_glyph:
+            }
+        }
+    }
+
+  % sets the horizontal origin (\l__msz_int_ref_dim) and the fraction of the
+  % limit's width subtracted from it (\l__msz_int_anch_tl) from the class and
+  % the "top"|"bottom" branch #1 (see the class descriptions in the manual)
+  \cs_new_protected:Npn \__msz_int_anchor:n #1
+    {
+      \str_if_eq:VnTF \l__msz_int_cls_tl { stack }
+        {
+          \dim_set:Nn \l__msz_int_ref_dim { \box_wd:N \l__msz_int_glyph_box / 2 }
+          \tl_set:Nn  \l__msz_int_anch_tl  { 0.5 }
+        }
+        {
+          \str_if_eq:VnTF \l__msz_int_cls_tl { right }
+            {
+              \dim_set:Nn \l__msz_int_ref_dim
+                { \box_wd:N \l__msz_int_glyph_box - \box_wd:N \l__msz_int_last_box / 2 }
+              \tl_set:Nn  \l__msz_int_anch_tl  { 0 }
+            }
+            {
+              \str_if_eq:nnTF {#1} { top }
+                {
+                  \dim_set:Nn \l__msz_int_ref_dim { \box_wd:N \l__msz_int_glyph_box }
+                  \tl_set:Nn  \l__msz_int_anch_tl  { 0 }
+                }
+                {
+                  \dim_zero:N \l__msz_int_ref_dim
+                  \tl_set:Nn  \l__msz_int_anch_tl  { 1 }
+                }
+            }
+        }
+    }
+
+  % typesets limit #2 into box #5 and computes its raise (dim #6) and left
+  % edge (dim #7) from the cluster's left edge, widening the overhangs —
+  % #1 star  #3 style of the limit  #4 "top"|"bottom"
+  \cs_new_protected:Npn \__msz_int_limit:nnnnNNN #1#2#3#4#5#6#7
+    {
+      \hbox_set:Nn #5
+        {
+          \bool_if:nTF {#1}
+            {
+              \__msz_scale:nnnnN { } {#2} { int@scale }
+                { \l__msz_int_ctx_tl } #3
+            }
+            { $ \m@th #3 #2 $ }
+        }
+      \__msz_int_anchor:n {#4}
+      \dim_set:Nn \l__msz_int_v_dim
+        {
+          \__msz_ratio:nN
+            { \use:c { msz@int@ \l__msz_int_mode_tl @ \l__msz_int_cls_tl @ #4 @v } }
+            \l__msz_unit_v_dim
+        }
+      \dim_set:Nn \l__msz_int_h_dim
+        {
+          \__msz_ratio:nN
+            { \use:c { msz@int@ \l__msz_int_mode_tl @ \l__msz_int_cls_tl @ #4 @h } }
+            \l__msz_unit_h_dim
+        }
+      \dim_set:Nn #6
+        {
+          \l__msz_int_cy_dim + \l__msz_int_v_dim
+          \str_if_eq:nnTF {#4} { top } { + \box_dp:N #5 } { - \box_ht:N #5 }
+        }
+      \dim_set:Nn #7
+        {
+          \l__msz_int_ref_dim + \l__msz_int_h_dim
+          - \fp_to_dim:n { \l__msz_int_anch_tl * \box_wd:N #5 }
+        }
+      \dim_set:Nn \l__msz_int_left_dim
+        { \dim_max:nn { \l__msz_int_left_dim } { - #7 } }
+      \dim_set:Nn \l__msz_int_right_dim
+        {
+          \dim_max:nn { \l__msz_int_right_dim }
+            { #7 + \box_wd:N #5 - \box_wd:N \l__msz_int_glyph_box }
+        }
+    }
+
+  % whole integral (one \mathchoice branch), used bare: \zint wraps it in
+  % \mathop outside the \mathchoice — #1 lower star  #2 lower  #3 upper star
+  % #4 upper  #5 type  #6 style name of the glyph  #7 style of the glyph
+  % #8 style of the limits
+  \cs_new_protected:Npn \__msz_int_build:nnnnnnNN #1#2#3#4#5#6#7#8
+    {
+      \tl_set:Nn \l__msz_int_type_tl {#5}
+      \tl_if_blank:nT {#5} { \tl_set:Nn \l__msz_int_type_tl {1} }
+      \tl_set:Nn \l__msz_int_ctx_tl {#6}
+      \str_if_eq:nnTF {#6} { display }
+        { \tl_set:Nn \l__msz_int_mode_tl { math } }
+        { \tl_set:Nn \l__msz_int_mode_tl { text } }
+      \__msz_unit:N #7
+      \hbox_set:Nn \l__msz_int_glyph_box { $ \m@th #7 \__msz_int_cluster: $ }
+      \hbox_set:Nn \l__msz_int_last_box { $ \m@th #7 \__msz_int_glyph: $ }
+      \dim_set:Nn \l__msz_int_cy_dim
+        { ( \box_ht:N \l__msz_int_glyph_box - \box_dp:N \l__msz_int_glyph_box ) / 2 }
+      \dim_zero:N \l__msz_int_left_dim
+      \dim_zero:N \l__msz_int_right_dim
+      \tl_if_blank:nF {#2}
+        {
+          \__msz_int_limit:nnnnNNN {#1} {#2} {#8} { bottom }
+            \l__msz_int_low_box \l__msz_int_lowr_dim \l__msz_int_lowx_dim
+        }
+      \tl_if_blank:nF {#4}
+        {
+          \__msz_int_limit:nnnnNNN {#3} {#4} {#8} { top }
+            \l__msz_int_up_box \l__msz_int_upr_dim \l__msz_int_upx_dim
+        }
+      \hbox_set:Nn \l__msz_int_out_box
+        {
+          \kern \__msz_ratio:nN { \__msz_int_opt:n { before } } \l__msz_unit_h_dim
+          \kern \l__msz_int_left_dim
+          \tl_if_blank:nF {#2}
+            {
+              \rlap
+                {
+                  \kern \l__msz_int_lowx_dim
+                  \box_move_up:nn { \l__msz_int_lowr_dim } { \box_use:N \l__msz_int_low_box }
+                }
+            }
+          \tl_if_blank:nF {#4}
+            {
+              \rlap
+                {
+                  \kern \l__msz_int_upx_dim
+                  \box_move_up:nn { \l__msz_int_upr_dim } { \box_use:N \l__msz_int_up_box }
+                }
+            }
+          \box_use:N \l__msz_int_glyph_box
+          \kern \l__msz_int_right_dim
+          \kern \__msz_ratio:nN { \__msz_int_opt:n { after } } \l__msz_unit_h_dim
+        }
+      \box_set_ht:Nn \l__msz_int_out_box
+        {
+          \box_ht:N \l__msz_int_out_box
+          + \__msz_ratio:nN { \__msz_int_opt:n { above } } \l__msz_unit_v_dim
+        }
+      \box_set_dp:Nn \l__msz_int_out_box
+        {
+          \box_dp:N \l__msz_int_out_box
+          + \__msz_ratio:nN { \__msz_int_opt:n { below } } \l__msz_unit_v_dim
+        }
+      \box_use:N \l__msz_int_out_box
+    }
+
+  \NewDocumentCommand \zint { s O{} s O{} s s O{1} }
+    {
+      \__msz_begin:n { int }
+      \bool_if:nTF {#5}
+        {
+          \bool_if:nTF {#6}
+            { \tl_set:Nn \l__msz_int_cls_tl { right } }
+            { \tl_set:Nn \l__msz_int_cls_tl { stack } }
+        }
+        { \tl_set:Nn \l__msz_int_cls_tl { slant } }
+      \ensuremath
+        {
+          \mathop
+            {
+              \mathchoice
+                { \__msz_int_build:nnnnnnNN {#1}{#2}{#3}{#4}{#7} { display }      \displaystyle      \scriptstyle       }
+                { \__msz_int_build:nnnnnnNN {#1}{#2}{#3}{#4}{#7} { text }         \textstyle         \scriptstyle       }
+                { \__msz_int_build:nnnnnnNN {#1}{#2}{#3}{#4}{#7} { script }       \scriptstyle       \scriptscriptstyle }
+                { \__msz_int_build:nnnnnnNN {#1}{#2}{#3}{#4}{#7} { scriptscript } \scriptscriptstyle \scriptscriptstyle }
+            }
+          \nolimits
+        }
+      \group_end:
+    }
+
+% ==============================================================================
+% \zlocal {new} {commands} {key=value,...}
+% ------------------------------------------------------------------------------
+% Defines the prefix command <new>, with as many mandatory arguments as the
+% highest #n (n = 1..9) used in the values. <commands> is a list of command
+% names (with or without backslash) whose families receive the keys; empty =
+% all families. <new> stores its keys, per family, in \g__msz_local_<family>_tl
+% (see \__msz_begin:n), which the next call of a command of that family takes.
+% Stored keys are discarded unless the next token is a command with options, an
+% alias or another prefix (consecutive prefixes append their keys).
+%
+% Definition: the keys are validated and prefixed once for each family where
+% they exist (\KV@shorthand@... macros of xkeyval), giving a list
+% {family}{prefixed keys}... with the #n still in it. It becomes the body of
+% <new>, so TeX itself substitutes the arguments at each call. A prefix is
+% registered in \msz@local@<new>.
+%
+% The package predefines, right after \zlocal, the prefixes \zref {expr}
+% (zscript-reference), \zwrapper {macro} (zscript-wrapper), and \zbefore
+% {ratio} and \zafter {ratio} (the before/after of zscript, zprime, zlim and
+% zint, in both modes). They are ordinary prefixes, so a user may redefine them.
+% ==============================================================================
+
+  \tl_new:N    \l__msz_local_new_tl
+  \tl_new:N    \l__msz_local_name_tl
+  \tl_new:N    \l__msz_local_peek_tl
+  \tl_new:N    \l__msz_local_key_tl
+  \tl_new:N    \l__msz_local_val_tl
+  \tl_new:N    \l__msz_local_tmp_tl
+  \tl_new:N    \l__msz_local_body_tl
+  \clist_new:N \l__msz_local_cmds_clist
+  \clist_new:N \l__msz_local_fams_clist
+  \bool_new:N  \l__msz_local_ok_bool
+  \bool_new:N  \l__msz_local_val_bool
+  \bool_new:N  \l__msz_local_found_bool
+  \int_new:N   \l__msz_local_n_int
+
+  \msg_new:nnn { math-shorthandz } { local-new }
+    {
+      #1~is~a~command~of~the~package~or~an~existing~macro,~so~
+      \c_backslash_str zlocal~cannot~define~it.
+    }
+  \msg_new:nnn { math-shorthandz } { local-cmd }
+    {
+      #1~is~not~a~command~of~the~package~with~options,~so~
+      \c_backslash_str zlocal~cannot~use~it.
+    }
+  \msg_new:nnn { math-shorthandz } { local-key }
+    {
+      Key~#1~does~not~exist~for~any~of~the~commands~given~to~
+      \c_backslash_str zlocal.
+    }
+
+  % discards the stored keys unless the next token, peeked by a prefix, is a
+  % command with options, an alias or another prefix; the token is put back
+  \cs_new_protected:Npn \__msz_local_check:
+    {
+      \token_if_cs:NTF \l_peek_token
+        { \__msz_local_check:N }
+        { \__msz_local_clear: }
+    }
+  \cs_new_protected:Npn \__msz_local_check:N #1
+    {
+      \tl_set:Nx \l__msz_local_peek_tl { \cs_to_str:N #1 }
+      \bool_if:nF
+        {
+          \cs_if_exist_p:c { msz@alias@cmd@ \l__msz_local_peek_tl }
+          || \cs_if_exist_p:c { msz@local@ \l__msz_local_peek_tl }
+          || (
+               \cs_if_exist_p:c { msz@cmd@ \l__msz_local_peek_tl }
+               && ! \tl_if_empty_p:c { msz@cmd@ \l__msz_local_peek_tl }
+             )
+        }
+        { \__msz_local_clear: }
+      #1
+    }
+
+  % appends the keys {family}{keys}... to the lists of their families, then
+  % checks the next token (quark loop over the pairs)
+  \cs_new_protected:Npn \__msz_local_push:n #1
+    {
+      \__msz_local_loop:nn #1 \q_recursion_tail \q_recursion_tail \q_recursion_stop
+      \bool_gset_true:N \g__msz_local_bool
+      \peek_remove_spaces:n { \peek_after:Nw \__msz_local_check: }
+    }
+  \cs_new_protected:Npn \__msz_local_loop:nn #1#2
+    {
+      \quark_if_recursion_tail_stop:n {#1}
+      \tl_gput_right:cn { g__msz_local_ #1 _tl } {#2}
+      \__msz_local_loop:nn
+    }
+
+  % defines the prefix #1 with #2 arguments and the body #3 (the list of
+  % {family}{keys} with #n in it, so TeX substitutes the arguments)
+  \cs_new_protected:Npn \__msz_local_def:Nnn #1#2#3
+    {
+      \int_case:nn {#2}
+        {
+          { 0 } { \cs_set_protected:Npn #1                                      { \__msz_local_push:n {#3} } }
+          { 1 } { \cs_set_protected:Npn #1 ##1                                  { \__msz_local_push:n {#3} } }
+          { 2 } { \cs_set_protected:Npn #1 ##1##2                               { \__msz_local_push:n {#3} } }
+          { 3 } { \cs_set_protected:Npn #1 ##1##2##3                            { \__msz_local_push:n {#3} } }
+          { 4 } { \cs_set_protected:Npn #1 ##1##2##3##4                         { \__msz_local_push:n {#3} } }
+          { 5 } { \cs_set_protected:Npn #1 ##1##2##3##4##5                      { \__msz_local_push:n {#3} } }
+          { 6 } { \cs_set_protected:Npn #1 ##1##2##3##4##5##6                   { \__msz_local_push:n {#3} } }
+          { 7 } { \cs_set_protected:Npn #1 ##1##2##3##4##5##6##7                { \__msz_local_push:n {#3} } }
+          { 8 } { \cs_set_protected:Npn #1 ##1##2##3##4##5##6##7##8             { \__msz_local_push:n {#3} } }
+          { 9 } { \cs_set_protected:Npn #1 ##1##2##3##4##5##6##7##8##9          { \__msz_local_push:n {#3} } }
+        }
+    }
+  \cs_generate_variant:Nn \__msz_local_def:Nnn { NnV }
+
+  % name of the command in item #1 of the list: without backslash
+  \cs_new:Npn \__msz_local_name:n #1
+    {
+      \tl_if_single_token:nTF {#1}
+        { \__msz_local_name_aux:N #1 }
+        {#1}
+    }
+  \cs_new:Npn \__msz_local_name_aux:N #1
+    { \token_if_cs:NTF #1 { \cs_to_str:N #1 } {#1} }
+
+  % adds the family of the command in item #1 to the list of families
+  \cs_new_protected:Npn \__msz_local_fam:n #1
+    {
+      \tl_set:Nx \l__msz_local_name_tl { \__msz_local_name:n {#1} }
+      \bool_lazy_and:nnTF
+        { \cs_if_exist_p:c { msz@cmd@ \l__msz_local_name_tl } }
+        { ! \tl_if_empty_p:c { msz@cmd@ \l__msz_local_name_tl } }
+        {
+          \tl_set_eq:Nc \l__msz_local_tmp_tl { msz@cmd@ \l__msz_local_name_tl }
+          \clist_if_in:NVF \l__msz_local_fams_clist \l__msz_local_tmp_tl
+            { \clist_put_right:NV \l__msz_local_fams_clist \l__msz_local_tmp_tl }
+        }
+        {
+          \bool_set_false:N \l__msz_local_ok_bool
+          \msg_error:nnx { math-shorthandz } { local-cmd } { \l__msz_local_name_tl }
+        }
+    }
+
+  % empties the list of keys of family #1 (created if needed)
+  \cs_new_protected:Npn \__msz_local_prep:n #1
+    {
+      \tl_clear_new:c { l__msz_local_k_ #1 _tl }
+      \tl_clear:c { l__msz_local_k_ #1 _tl }
+    }
+
+  % adds the prefixed key (and value) to the list of family #1 if the key
+  % exists there; the key and value are in \l__msz_local_key_tl and _val_tl
+  \cs_new_protected:Npn \__msz_local_one:n #1
+    {
+      \cs_if_exist:cT { KV@shorthand@z #1 - \l__msz_local_key_tl }
+        {
+          \bool_set_true:N \l__msz_local_found_bool
+          \bool_if:NTF \l__msz_local_val_bool
+            {
+              \tl_put_right:cx { l__msz_local_k_ #1 _tl }
+                {
+                  z #1 - \exp_not:V \l__msz_local_key_tl
+                  = { \exp_not:V \l__msz_local_val_tl } ,
+                }
+            }
+            {
+              \tl_put_right:cx { l__msz_local_k_ #1 _tl }
+                { z #1 - \exp_not:V \l__msz_local_key_tl , }
+            }
+        }
+    }
+
+  % keyval handlers: apply the key (and value) to every family, and report a
+  % key that exists in none
+  \cs_new_protected:Npn \__msz_local_apply:
+    {
+      \bool_set_false:N \l__msz_local_found_bool
+      \clist_map_function:NN \l__msz_local_fams_clist \__msz_local_one:n
+      \bool_if:NF \l__msz_local_found_bool
+        {
+          \bool_set_false:N \l__msz_local_ok_bool
+          \msg_error:nnx { math-shorthandz } { local-key } { \l__msz_local_key_tl }
+        }
+    }
+  \cs_new_protected:Npn \__msz_local_key:n #1
+    {
+      \tl_set:Nn \l__msz_local_key_tl {#1}
+      \bool_set_false:N \l__msz_local_val_bool
+      \__msz_local_apply:
+    }
+  \cs_new_protected:Npn \__msz_local_pair:nn #1#2
+    {
+      \tl_set:Nn \l__msz_local_key_tl {#1}
+      \tl_set:Nn \l__msz_local_val_tl {#2}
+      \bool_set_true:N \l__msz_local_val_bool
+      \__msz_local_apply:
+    }
+
+  % appends {family}{keys} of family #1 to the body, if it has any key
+  \cs_new_protected:Npn \__msz_local_body:n #1
+    {
+      \tl_if_empty:cF { l__msz_local_k_ #1 _tl }
+        {
+          \tl_set_eq:Nc \l__msz_local_tmp_tl { l__msz_local_k_ #1 _tl }
+          \tl_put_right:Nx \l__msz_local_body_tl
+            { { #1 } { \exp_not:V \l__msz_local_tmp_tl } }
+        }
+    }
+
+  % defines prefix #1 for the commands in #2 with keys #3
+  \cs_new_protected:Npn \__msz_local_define:Nnn #1#2#3
+    {
+      \tl_set:Nx \l__msz_local_new_tl { \cs_to_str:N #1 }
+      \bool_if:nTF
+        {
+          \cs_if_exist_p:c { msz@cmd@ \l__msz_local_new_tl }
+          ||
+          (
+            \cs_if_exist_p:N #1
+            && ! \cs_if_exist_p:c { msz@local@ \l__msz_local_new_tl }
+          )
+        }
+        { \msg_error:nnx { math-shorthandz } { local-new } { \token_to_str:N #1 } }
+        {
+          \bool_set_true:N \l__msz_local_ok_bool
+          \clist_clear:N \l__msz_local_fams_clist
+          \clist_set:Nn \l__msz_local_cmds_clist {#2}
+          \clist_if_empty:NTF \l__msz_local_cmds_clist
+            { \clist_set_eq:NN \l__msz_local_fams_clist \c__msz_fam_clist }
+            { \clist_map_function:NN \l__msz_local_cmds_clist \__msz_local_fam:n }
+          \bool_if:NT \l__msz_local_ok_bool
+            {
+              \clist_map_function:NN \l__msz_local_fams_clist \__msz_local_prep:n
+              \keyval_parse:NNn \__msz_local_key:n \__msz_local_pair:nn {#3}
+            }
+          \bool_if:NT \l__msz_local_ok_bool
+            {
+              \tl_clear:N \l__msz_local_body_tl
+              \clist_map_function:NN \l__msz_local_fams_clist \__msz_local_body:n
+              \int_zero:N \l__msz_local_n_int
+              \int_step_inline:nn { 9 }
+                {
+                  \regex_match:nVT { \cP. \cO[##1] } \l__msz_local_body_tl
+                    { \int_set:Nn \l__msz_local_n_int {##1} }
+                }
+              \__msz_local_def:NnV #1 { \int_use:N \l__msz_local_n_int }
+                \l__msz_local_body_tl
+              \tl_set:cn { msz@local@ \l__msz_local_new_tl } { }
+            }
+        }
+    }
+
+  \NewDocumentCommand \zlocal { m m m }
+    { \__msz_local_define:Nnn #1 {#2} {#3} }
+
+  % predefined prefixes for the options most often set per call
+  \zlocal{\zref}{zscript}{reference=#1}
+  \zlocal{\zwrapper}{zscript}{wrapper=#1}
+  \zlocal{\zbefore}{zscript, zprime, zlim, zint}{math-before=#1, text-before=#1}
+  \zlocal{\zafter}{zscript, zprime, zlim, zint}{math-after=#1, text-after=#1}
+
+% ==============================================================================
+% \zalias {new} {base} {key=value,...}
+% ------------------------------------------------------------------------------
+% Defines <new> as a variant of <base> (a command with options, or an alias):
+% same arguments, but the keys apply during each call. The prefix of the
+% base's family is prepended to every key, so only its options can change;
+% `reset` (key) and \zreset (value) restore options from the snapshot taken
+% by the outermost enclosing call of the family.
+%
+% Registry (see GLOBAL): \msz@cmd@<command> holds the family of each package
+% command. An alias <new> stores its root command in \msz@alias@cmd@<new> and
+% its flattened, prefixed key list (the keys of its base first) in
+% \msz@alias@keys@<new>. The alias macro hands the list to \g__msz_alias_tl
+% and calls the root command, whose \__msz_begin:n consumes it.
+%
+% The package predefines, right after \zalias, the alias \zdell of \zdiff
+% (zdiff-symbol=\partial).
+% ==============================================================================
+
+  \tl_new:N \l__msz_alias_new_tl
+  \tl_new:N \l__msz_alias_base_tl
+  \tl_new:N \l__msz_alias_cmd_tl
+  \tl_new:N \l__msz_alias_fam_tl
+  \tl_new:N \l__msz_alias_prefix_tl
+  \tl_new:N \l__msz_alias_keys_tl
+
+  \msg_new:nnn { math-shorthandz } { alias-new }
+    {
+      #1~is~a~command~of~the~package~or~an~existing~macro,~so~
+      \c_backslash_str zalias~cannot~define~it.
+    }
+  \msg_new:nnn { math-shorthandz } { alias-base }
+    {
+      #1~is~neither~a~command~of~the~package~with~options~nor~an~alias~of~one,~
+      so~\c_backslash_str zalias~cannot~be~based~on~it.
+    }
+
+  % keyval handlers: append key #1, or key #1 with value #2, to the key list,
+  % with the prefix of the base family prepended
+  \cs_new_protected:Npn \__msz_alias_key:n #1
+    {
+      \tl_put_right:Nx \l__msz_alias_keys_tl
+        { \exp_not:V \l__msz_alias_prefix_tl \exp_not:n {#1} , }
+    }
+  \cs_new_protected:Npn \__msz_alias_pair:nn #1#2
+    {
+      \tl_put_right:Nx \l__msz_alias_keys_tl
+        { \exp_not:V \l__msz_alias_prefix_tl \exp_not:n { #1 = {#2} , } }
+    }
+
+  % resolves the base (name in \l__msz_alias_base_tl) into its root command,
+  % its family and the keys it already carries; the family stays empty when
+  % the base cannot be aliased
+  \cs_new_protected:Npn \__msz_alias_base:
+    {
+      \tl_clear:N \l__msz_alias_keys_tl
+      \tl_clear:N \l__msz_alias_cmd_tl
+      \tl_clear:N \l__msz_alias_fam_tl
+      \cs_if_exist:cTF { msz@alias@cmd@ \l__msz_alias_base_tl }
+        {
+          \tl_set_eq:Nc \l__msz_alias_keys_tl { msz@alias@keys@ \l__msz_alias_base_tl }
+          \tl_set_eq:Nc \l__msz_alias_cmd_tl  { msz@alias@cmd@ \l__msz_alias_base_tl }
+        }
+        { \tl_set_eq:NN \l__msz_alias_cmd_tl \l__msz_alias_base_tl }
+      \cs_if_exist:cT { msz@cmd@ \l__msz_alias_cmd_tl }
+        { \tl_set_eq:Nc \l__msz_alias_fam_tl { msz@cmd@ \l__msz_alias_cmd_tl } }
+    }
+
+  % defines alias #1 of base #2 with keys #3; the keys are validated once in
+  % a throwaway group (with a snapshot, so that reset is accepted)
+  \cs_new_protected:Npn \__msz_alias_define:NNn #1#2#3
+    {
+      \tl_set:Nx \l__msz_alias_new_tl  { \cs_to_str:N #1 }
+      \tl_set:Nx \l__msz_alias_base_tl { \cs_to_str:N #2 }
+      \bool_if:nTF
+        {
+          \cs_if_exist_p:c { msz@cmd@ \l__msz_alias_new_tl }
+          ||
+          (
+            \cs_if_exist_p:N #1
+            && ! \cs_if_exist_p:c { msz@alias@cmd@ \l__msz_alias_new_tl }
+          )
+        }
+        { \msg_error:nnx { math-shorthandz } { alias-new } { \token_to_str:N #1 } }
+        {
+          \__msz_alias_base:
+          \tl_if_empty:NTF \l__msz_alias_fam_tl
+            { \msg_error:nnx { math-shorthandz } { alias-base } { \token_to_str:N #2 } }
+            {
+              \tl_set:Nx \l__msz_alias_prefix_tl { z \l__msz_alias_fam_tl - }
+              \keyval_parse:NNn \__msz_alias_key:n \__msz_alias_pair:nn {#3}
+              \group_begin:
+                \__msz_snap:n { \l__msz_alias_fam_tl }
+                \exp_args:NnV \setkeys { shorthand } \l__msz_alias_keys_tl
+              \group_end:
+              \cs_set:cpx { msz@alias@keys@ \l__msz_alias_new_tl }
+                { \exp_not:V \l__msz_alias_keys_tl }
+              \cs_set:cpx { msz@alias@cmd@ \l__msz_alias_new_tl }
+                { \exp_not:V \l__msz_alias_cmd_tl }
+              \cs_set_protected:Npx #1
+                {
+                  \exp_not:N \tl_gset:Nn \exp_not:N \g__msz_alias_tl
+                    { \exp_not:V \l__msz_alias_keys_tl }
+                  \exp_not:c { \l__msz_alias_cmd_tl }
+                }
+            }
+        }
+    }
+
+  \NewDocumentCommand \zalias { m m m }
+    { \__msz_alias_define:NNn #1 #2 {#3} }
+
+  % predefined alias for partial differentials and derivatives
+  \zalias{\zdell}{\zdiff}{symbol=\partial}
+
+\ExplSyntaxOff
+
+% ------------------------------------------------------------------------------
+% Process package options (family given explicitly, since it differs from the
+% package name).
+% ------------------------------------------------------------------------------
+
+  \ProcessOptionsX<shorthand>\relax
+
+% ==============================================================================
+\makeatother

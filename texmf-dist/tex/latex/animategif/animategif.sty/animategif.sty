@@ -1,0 +1,463 @@
+%% animategif.sty -- embed animated GIF files as PDF animations
+%%
+%% Copyright (C) 2026 Ali Ramlaoui
+%%
+%% This work may be distributed and/or modified under the conditions of the
+%% LaTeX Project Public License, either version 1.3c of this license or (at
+%% your option) any later version. The latest version of this license is in
+%% https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Ali Ramlaoui.
+%%
+%% \animategif[<options>]{<file>} decodes <file>.gif with animategif.lua
+%% (pure Lua, no external programs) into cached PNG frames and a timeline,
+%% and hands them to the animate package.
+\NeedsTeXFormat{LaTeX2e}[2022-06-01]
+\ProvidesExplPackage{animategif}{2026-10-06}{1.0.0}
+  {Embed animated GIF files as PDF animations}
+\RequirePackage{animate}
+\RequirePackage{graphicx}
+
+% ------------------------------------------------------------------ messages
+
+\msg_new:nnnn { animategif } { not-found }
+  { GIF~file~`#1'~not~found. }
+  { Searched~the~current~directory,~\token_to_str:N \graphicspath\
+    and~the~TeX~search~path,~with~and~without~the~.gif~extension. }
+\msg_new:nnnn { animategif } { no-decoder }
+  {
+    Cannot~decode~`#1'~with~this~engine~and~settings.\\
+    Use~LuaLaTeX,~or~enable~shell~escape~(-shell-escape),~or~fill~the~cache~
+    once~by~running~in~the~document~directory:\\\\
+    texlua~<path~of~animategif.lua>~#2
+  }
+  {
+    pdfLaTeX~and~XeLaTeX~decode~GIFs~by~running~texlua~through~shell~escape.~
+    `kpsewhich~animategif.lua'~prints~the~path~of~the~decoder.~Once~the~
+    cache~exists~(for~example~committed~or~uploaded~with~the~document),~no~
+    decoder~is~needed.
+  }
+\msg_new:nnn { animategif } { failed }
+  { Decoding~`#1'~failed;~see~the~messages~above. }
+\msg_new:nnn { animategif } { bad-frames }
+  { Invalid~frame~range~`#1';~use~<first>-<last>,~<first>-,~-<last>~or~<n>. }
+\msg_new:nnn { animategif } { bad-still }
+  { Invalid~still~frame~`#1';~use~first,~last,~a~frame~number~or~false. }
+\msg_new:nnn { animategif } { bad-plays }
+  { Invalid~plays~value~`#1';~use~auto,~forever~or~a~positive~number. }
+\msg_new:nnn { animategif } { decoded }
+  { Decoded~`#1'~into~#2. }
+
+% ----------------------------------------------------------------- variables
+
+\bool_new:N \l__animategif_optimize_bool
+\int_new:N \l__animategif_keyframe_int
+\int_new:N \l__animategif_first_int
+\int_new:N \l__animategif_last_int
+\int_new:N \l__animategif_step_int
+\int_new:N \l__animategif_downsample_int
+\fp_new:N \l__animategif_speed_fp
+\tl_new:N \l__animategif_fps_tl
+\tl_new:N \l__animategif_plays_tl
+\tl_new:N \l__animategif_still_tl
+\tl_new:N \l__animategif_label_tl
+\tl_new:N \l__animategif_cachedir_tl
+\bool_new:N \l__animategif_handout_bool
+\bool_new:N \g__animategif_handout_bool
+\tl_new:N \l__animategif_animate_tl
+\tl_new:N \l__animategif_graphics_tl
+
+\str_new:N \l__animategif_file_str
+\str_new:N \l__animategif_dir_str
+\tl_new:N \l__animategif_args_tl
+\int_new:N \l__animategif_width_int
+\int_new:N \l__animategif_height_int
+\int_new:N \l__animategif_loopcount_int
+\int_new:N \l__animategif_images_int
+\tl_new:N \l__animategif_frames_tl
+\int_new:N \g__animategif_count_int
+\iow_new:N \g__animategif_iow
+\tl_new:N \g__animategif_script_tl
+\tl_new:N \l__animategif_rate_tl
+\tl_new:N \l__animategif_lastrate_tl
+\int_new:N \l__animategif_plays_int
+
+% ---------------------------------------------------------------------- keys
+
+\cs_new_protected:Npn \__animategif_set_frames:n #1
+  {
+    \regex_match:nnTF { \A \s* \d* \s* (- \s* \d* \s*)? \Z } {#1}
+      {
+        \seq_set_split:Nnn \l_tmpa_seq { - } {#1}
+        \tl_set:Nx \l_tmpa_tl { \seq_item:Nn \l_tmpa_seq { 1 } }
+        \tl_set:Nx \l_tmpb_tl
+          {
+            \int_compare:nNnTF { \seq_count:N \l_tmpa_seq } = 1
+              { \l_tmpa_tl } { \seq_item:Nn \l_tmpa_seq { 2 } }
+          }
+        \int_set:Nn \l__animategif_first_int
+          { \tl_if_blank:VTF \l_tmpa_tl { 0 } { \l_tmpa_tl } }
+        \int_set:Nn \l__animategif_last_int
+          { \tl_if_blank:VTF \l_tmpb_tl { -1 } { \l_tmpb_tl } }
+      }
+      { \msg_error:nnn { animategif } { bad-frames } {#1} }
+  }
+
+\cs_new_protected:Npn \__animategif_set_plays:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        { auto } { \tl_set:Nn \l__animategif_plays_tl { auto } }
+        { forever } { \tl_set:Nn \l__animategif_plays_tl { 0 } }
+      }
+      {
+        \regex_match:nnTF { \A \s* [1-9] \d* \s* \Z } {#1}
+          { \tl_set:Nx \l__animategif_plays_tl { \int_eval:n {#1} } }
+          { \msg_error:nnn { animategif } { bad-plays } {#1} }
+      }
+  }
+
+\cs_new_protected:Npn \__animategif_set_still:n #1
+  {
+    \str_case:nnF {#1}
+      {
+        { false } { \tl_clear:N \l__animategif_still_tl }
+        { true } { \tl_set:Nn \l__animategif_still_tl { first } }
+        { first } { \tl_set:Nn \l__animategif_still_tl { first } }
+        { last } { \tl_set:Nn \l__animategif_still_tl { last } }
+      }
+      {
+        \regex_match:nnTF { \A \s* \d+ \s* \Z } {#1}
+          { \tl_set:Nx \l__animategif_still_tl { \int_eval:n {#1} } }
+          { \msg_error:nnn { animategif } { bad-still } {#1} }
+      }
+  }
+
+\keys_define:nn { animategif }
+  {
+    optimize .bool_set:N = \l__animategif_optimize_bool,
+    optimize .initial:n = true,
+    keyframe .int_set:N = \l__animategif_keyframe_int,
+    keyframe .initial:n = 30,
+    frames .code:n = \__animategif_set_frames:n {#1},
+    frames .initial:n = 0-,
+    step .int_set:N = \l__animategif_step_int,
+    step .initial:n = 1,
+    downsample .int_set:N = \l__animategif_downsample_int,
+    downsample .initial:n = 1,
+    speed .fp_set:N = \l__animategif_speed_fp,
+    speed .initial:n = 1,
+    fps .tl_set:N = \l__animategif_fps_tl,
+    plays .code:n = \__animategif_set_plays:n {#1},
+    plays .initial:n = auto,
+    still .code:n = \__animategif_set_still:n {#1},
+    still .default:n = first,
+    still .initial:n = false,
+    label .tl_set:N = \l__animategif_label_tl,
+    cachedir .tl_set:N = \l__animategif_cachedir_tl,
+    cachedir .initial:n = animategif-cache,
+    handout .choice:,
+    handout / still .code:n = \bool_set_true:N \l__animategif_handout_bool,
+    handout / animate .code:n = \bool_set_false:N \l__animategif_handout_bool,
+    handout .default:n = still, % also takes beamer's global `handout' option
+    handout .initial:n = still,
+  }
+
+\ProcessKeyOptions [ animategif ]
+
+\NewDocumentCommand \animategifsetup { m }
+  { \keys_set:nn { animategif } {#1} }
+
+% In beamer handout mode, GIFs become still images unless handout=animate.
+\AtBeginDocument
+  {
+    \cs_if_exist:NT \beamer@currentmode
+      {
+        \str_if_eq:onT { \beamer@currentmode } { handout }
+          { \bool_gset_true:N \g__animategif_handout_bool }
+      }
+  }
+
+% ------------------------------------------------------------------ decoding
+
+\sys_if_engine_luatex:T
+  {
+    \lua_now:n
+      {
+        local~ok,~m~=~pcall(require,~"animategif")
+        animategif~=~ok~and~m~or~
+          dofile(assert(kpse.find_file("animategif.lua",~"tex"),~"animategif.lua~not~found"))
+      }
+  }
+
+% Sets \l__animategif_file_str to the full path of #1 or #1.gif, looking in
+% the current directory, the \graphicspath directories and the TeX path.
+\cs_new_protected:Npn \__animategif_find:n #1
+  {
+    \str_clear:N \l__animategif_file_str
+    \tl_set:Nx \l_tmpa_tl { {} \cs_if_exist:NT \Ginput@path { \exp_not:o \Ginput@path } }
+    \clist_map_inline:nn { #1.gif, #1 }
+      {
+        \tl_map_inline:Nn \l_tmpa_tl
+          {
+            \str_if_empty:NT \l__animategif_file_str
+              { \str_set:Nx \l__animategif_file_str { \file_full_name:n { ####1 ##1 } } }
+          }
+      }
+  }
+
+% Cache directory: <cachedir>/<name>-<hash of the file contents>/<#1>, where
+% #1 names the settings, so changing the GIF or the settings re-decodes it.
+\cs_new_protected:Npn \__animategif_set_dir:n #1
+  {
+    \file_parse_full_name:VNNN \l__animategif_file_str \l_tmpa_str \l_tmpb_str \l_tmpa_tl
+    \tl_set:NV \l_tmpa_tl \l_tmpb_str
+    \regex_replace_all:nnN { [^A-Za-z0-9_\-] } { _ } \l_tmpa_tl
+    \str_set:Nx \l_tmpb_str { \file_mdfive_hash:V \l__animategif_file_str }
+    \str_set:Nx \l__animategif_dir_str
+      {
+        \l__animategif_cachedir_tl / \l_tmpa_tl - \str_range:Nnn \l_tmpb_str { 1 } { 10 }
+        / #1
+      }
+  }
+
+% Runs `texlua animategif.lua #1 <file> <dir> <key=value ...>` (#2: options)
+% unless #3 already exists, in-process with LuaTeX and through shell escape
+% otherwise.
+\cs_new_protected:Npn \__animategif_run:nnn #1#2#3
+  {
+    \file_if_exist:nF {#3}
+      {
+        \sys_if_engine_luatex:TF
+          {
+            \lua_now:e
+              {
+                animategif.tex_run("#1", "\lua_escape:e { \l__animategif_file_str }",
+                  "\lua_escape:e { \l__animategif_dir_str }", "\lua_escape:e {#2}")
+              }
+          }
+          {
+            \sys_if_shell_unrestricted:TF
+              {
+                \tl_if_empty:NT \g__animategif_script_tl
+                  {
+                    \sys_get_shell:nnN { kpsewhich ~ animategif.lua }
+                      { \char_set_catcode_other:N \\ \int_set:Nn \tex_endlinechar:D { -1 } }
+                      \l_tmpa_tl
+                    \tl_gset:Nx \g__animategif_script_tl { \tl_trim_spaces:o \l_tmpa_tl }
+                  }
+                \sys_shell_now:x
+                  {
+                    texlua ~ " \g__animategif_script_tl " ~ #1 ~
+                    " \l__animategif_file_str " ~ " \l__animategif_dir_str " ~ #2
+                  }
+              }
+              {
+                \msg_error:nnxx { animategif } { no-decoder } { \l__animategif_file_str }
+                  { #1 ~ \l__animategif_file_str \c_space_tl \l__animategif_dir_str \c_space_tl #2 }
+                \prg_break:
+              }
+          }
+        \file_if_exist:nTF {#3}
+          { \msg_info:nnxx { animategif } { decoded } { \l__animategif_file_str } {#3} }
+          { \msg_error:nnx { animategif } { failed } { \l__animategif_file_str } }
+        \prg_break_point:
+      }
+  }
+
+% ---------------------------------------------------------------- user macro
+
+\NewDocumentCommand \animategif { O{} m }
+  {
+    \group_begin:
+      \keys_set_known:nnN { animategif } {#1} \l__animategif_animate_tl
+      \__animategif_find:n {#2}
+      \str_if_empty:NTF \l__animategif_file_str
+        { \msg_error:nnn { animategif } { not-found } {#2} }
+        {
+          \bool_lazy_and:nnT \g__animategif_handout_bool \l__animategif_handout_bool
+            {
+              \tl_if_empty:NT \l__animategif_still_tl
+                { \tl_set:Nn \l__animategif_still_tl { first } }
+            }
+          \tl_if_empty:NTF \l__animategif_still_tl
+            { \__animategif_animation: }
+            { \__animategif_still: }
+        }
+    \group_end:
+  }
+
+% ------------------------------------------------------------------ animation
+
+\cs_new_protected:Npn \__animategif_animation:
+  {
+    \tl_set:Nx \l__animategif_args_tl
+      {
+        optimize = \bool_if:NTF \l__animategif_optimize_bool { true } { false } ~
+        keyframe = \int_use:N \l__animategif_keyframe_int \c_space_tl
+        first = \int_use:N \l__animategif_first_int \c_space_tl
+        last = \int_use:N \l__animategif_last_int \c_space_tl
+        step = \int_use:N \l__animategif_step_int \c_space_tl
+        downsample = \int_use:N \l__animategif_downsample_int
+      }
+    \__animategif_set_dir:n
+      {
+        v1-
+        \bool_if:NTF \l__animategif_optimize_bool
+          { k \int_use:N \l__animategif_keyframe_int } { full }
+        - \int_use:N \l__animategif_first_int
+        - \int_compare:nNnTF \l__animategif_last_int < 0 { end } { \int_use:N \l__animategif_last_int }
+        - s \int_use:N \l__animategif_step_int
+        - d \int_use:N \l__animategif_downsample_int
+      }
+    \__animategif_run:nnn { frames } { \l__animategif_args_tl }
+      { \l__animategif_dir_str / info.tex }
+    \file_if_exist:nT { \l__animategif_dir_str / info.tex }
+      {
+        \group_begin:
+          \ExplSyntaxOn
+          \file_get:nnN { \l__animategif_dir_str / info.tex } { } \l_tmpa_tl
+        \exp_args:NNNV \group_end:
+        \tl_set:Nn \l_tmpa_tl \l_tmpa_tl
+        \cs_set_protected:Npn \__animategif_info:nnnnn ##1##2##3##4##5
+          {
+            \int_set:Nn \l__animategif_width_int {##1}
+            \int_set:Nn \l__animategif_height_int {##2}
+            \int_set:Nn \l__animategif_loopcount_int {##3}
+            \int_set:Nn \l__animategif_images_int {##4}
+            \tl_set:Nn \l__animategif_frames_tl {##5}
+          }
+        \tl_use:N \l_tmpa_tl
+        \__animategif_embed:
+      }
+  }
+
+% Total number of plays: 0 = forever. A GIF loop count N repeats the
+% animation N times after the first play; no loop block means one play.
+\cs_new:Npn \__animategif_plays:
+  {
+    \str_if_eq:VnTF \l__animategif_plays_tl { auto }
+      {
+        \int_compare:nNnTF \l__animategif_loopcount_int < 0 { 1 }
+          {
+            \int_compare:nNnTF \l__animategif_loopcount_int = 0 { 0 }
+              { \int_eval:n { \l__animategif_loopcount_int + 1 } }
+          }
+      }
+      { \l__animategif_plays_tl }
+  }
+
+\cs_new:Npn \__animategif_rate:n #1
+  {
+    \tl_if_blank:VTF \l__animategif_fps_tl
+      { \fp_eval:n { round(100 / (#1) * \l__animategif_speed_fp, 4) } }
+      { \fp_eval:n { round(\l__animategif_fps_tl * \l__animategif_speed_fp, 4) } }
+  }
+
+\cs_new_protected:Npn \__animategif_embed:
+  {
+    \int_gincr:N \g__animategif_count_int
+    \int_set:Nn \l__animategif_plays_int { \__animategif_plays: }
+    \tl_if_empty:NT \l__animategif_label_tl
+      { \tl_set:Nx \l__animategif_label_tl { animategif \int_use:N \g__animategif_count_int } }
+    % timeline: one line ":<rate>:<transparencies>" per frame; a finite
+    % number of plays repeats the sequence (the images are shared), which
+    % stops on the last frame like a GIF and needs no JavaScript
+    \tl_clear:N \l__animategif_lastrate_tl
+    \iow_open:Nn \g__animategif_iow { \l__animategif_dir_str / timeline.tln }
+    \prg_replicate:nn { \int_max:nn { 1 } { \l__animategif_plays_int } }
+      {
+        \exp_last_unbraced:NV \__animategif_timeline:nn \l__animategif_frames_tl
+          \q_recursion_tail \q_recursion_tail \q_recursion_stop
+      }
+    \iow_close:N \g__animategif_iow
+    \tl_set:Nx \l_tmpa_tl
+      {
+        \exp_not:N \animategraphics
+          [
+            autoplay,
+            loop = \int_compare:nNnTF \l__animategif_plays_int = 0 { true } { false },
+            label = \l__animategif_label_tl,
+            timeline = \l__animategif_dir_str / timeline.tln,
+            \exp_not:V \l__animategif_animate_tl
+          ]
+          { \__animategif_rate:n { \tl_item:Nn \l__animategif_frames_tl { 1 } } }
+          { \l__animategif_dir_str / f- } { 0 }
+          { \int_eval:n { \l__animategif_images_int - 1 } }
+      }
+    \tl_use:N \l_tmpa_tl
+  }
+
+\cs_new_protected:Npn \__animategif_timeline:nn #1#2
+  {
+    \quark_if_recursion_tail_stop:n {#1}
+    \tl_set:Nx \l__animategif_rate_tl { \__animategif_rate:n {#1} }
+    \iow_now:Nx \g__animategif_iow
+      {
+        : \tl_if_eq:NNF \l__animategif_rate_tl \l__animategif_lastrate_tl
+          { \l__animategif_rate_tl } : #2
+      }
+    \tl_set_eq:NN \l__animategif_lastrate_tl \l__animategif_rate_tl
+    \__animategif_timeline:nn
+  }
+
+% --------------------------------------------------------------------- still
+
+% Keys that \includegraphics understands, kept from the animate options.
+\clist_const:Nn \c__animategif_graphics_keys_clist
+  {
+    width, height, totalheight, scale, keepaspectratio, angle, origin,
+    bb, viewport, trim, clip, alt
+  }
+
+\cs_new_protected:Npn \__animategif_graphics_key:n #1
+  {
+    \clist_if_in:NnT \c__animategif_graphics_keys_clist {#1}
+      { \tl_put_right:Nn \l__animategif_graphics_tl { #1, } }
+  }
+\cs_new_protected:Npn \__animategif_graphics_key:nn #1#2
+  {
+    \clist_if_in:NnT \c__animategif_graphics_keys_clist {#1}
+      { \tl_put_right:Nn \l__animategif_graphics_tl { #1 = {#2}, } }
+  }
+
+\cs_new_protected:Npn \__animategif_still:
+  {
+    \tl_clear:N \l__animategif_graphics_tl
+    \keyval_parse:NNV \__animategif_graphics_key:n \__animategif_graphics_key:nn
+      \l__animategif_animate_tl
+    \tl_set:Nx \l_tmpb_tl
+      {
+        \str_case:VnF \l__animategif_still_tl
+          {
+            { first } { \int_use:N \l__animategif_first_int }
+            { last } { \int_use:N \l__animategif_last_int }
+          }
+          { \l__animategif_still_tl }
+      }
+    \tl_set:Nx \l__animategif_args_tl
+      {
+        frame = \l_tmpb_tl \c_space_tl
+        downsample = \int_use:N \l__animategif_downsample_int
+      }
+    \__animategif_set_dir:n { v1-still-d \int_use:N \l__animategif_downsample_int }
+    \__animategif_run:nnn { still } { \l__animategif_args_tl }
+      { \l__animategif_dir_str / still- \l_tmpb_tl .png }
+    \file_if_exist:nT { \l__animategif_dir_str / still- \l_tmpb_tl .png }
+      {
+        \use:x
+          {
+            \exp_not:N \includegraphics [ \exp_not:V \l__animategif_graphics_tl ]
+              { \l__animategif_dir_str / still- \l_tmpb_tl .png }
+          }
+      }
+  }
+
+\cs_generate_variant:Nn \keyval_parse:NNn { NNV }
+\cs_generate_variant:Nn \file_parse_full_name:nNNN { V }
+\cs_generate_variant:Nn \file_mdfive_hash:n { V }
+\cs_generate_variant:Nn \str_case:nnF { V }
+\cs_generate_variant:Nn \msg_error:nnnn { nnxx }
+\cs_generate_variant:Nn \msg_info:nnnn { nnxx }
+\endinput

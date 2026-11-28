@@ -1,0 +1,1416 @@
+%%
+%% tcbpagefootnote.sty
+%% ===================
+%% Page footnotes from inside tcolorbox.
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This package is licensed under the conditions of the LaTeX Project
+%% Public License, either version 1.3c of this license or (at your
+%% option) any later version.  The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Munehiro Yamamoto.
+%%
+%% Background
+%%   tcolorbox typesets the content of a box like a minipage: \footnote
+%%   uses the mpfootnote counter and the footnote text is put at the
+%%   bottom of the box.
+%%
+%% What this package does
+%%   The tcolorbox key "page footnote" makes \footnote inside the
+%%   title, the upper part and the lower part of the box behave as in
+%%   the body text:
+%%     (1) the footnote counter and \thefootnote are used for the mark;
+%%     (2) the footnote text is collected, together with its mark, while
+%%         the box is typeset, and is put into the ordinary footnote
+%%         insertion right after the box ("after pre" of the hooks
+%%         library), i.e. at the bottom of the page where the box is.
+%%   With hyperref, each footnote text keeps the anchor of its own mark.
+%%   With the new footnote code of LaTeX (latex-lab-footnotes, e.g. with
+%%   \DocumentMetadata{tagging=on}), the footnote text is instead typeset
+%%   at its mark, by \@footnotetext of the page, and the typeset text
+%%   is output after the box: in a tagged PDF its FENote then follows
+%%   the Lbl of its mark.
+%%   Each part of a breakable box that is broken across pages puts the
+%%   footnotes of its marks on its page (see 6.-8.): with LuaLaTeX by
+%%   taking their insertions out of the part (tcbpagefootnote.lua),
+%%   with the other engines by keeping each footnote text in a box and
+%%   finding the part of its mark with \marks.  What a part leaves
+%%   for its footnotes is computed with \count\footins and
+%%   \skip\footins of its column (ftnright changes them).
+%%   With the tcbnestbreak package, a breakable box inside a breakable
+%%   box is broken as well; with "page footnote" on both, the
+%%   footnotes of the box inside are put on the pages of their marks.
+%%   A footnote text that is typeset in a box and put into an
+%%   insertion later keeps the parameters of its insertion that
+%%   \@footnotetext of the page has set (e.g. the \splittopskip of the
+%%   footnotenosplit package).
+%%
+%% Limitations
+%%   * In multicols, and inside another box such as a minipage, a
+%%     breakable box that is broken puts all its footnote texts where
+%%     the box ends; a warning is issued.
+%%   * With an engine other than LuaTeX, a footnote inside a box of the
+%%     content of a broken box (e.g. \footnotetext in a tabular) can be
+%%     put on the page after that of its mark.
+%%   * "page footnote" cannot be used with "float".
+%%   * Keys that set the "after" code (such as after, after skip and
+%%     nobeforeafter) must come before "page footnote" in the option list.
+%%   * With pLaTeX and upLaTeX in tate, a \footnotetext in vertical mode
+%%     does not work with the new footnote code of LaTeX (independent
+%%     of this package).
+%%
+%% Supported formats/engines: pdfLaTeX, XeLaTeX, LuaLaTeX, pLaTeX and
+%% upLaTeX (+ dvipdfmx), in yoko and in tate.  In tate with pLaTeX and
+%% upLaTeX, the document has to load the pxpgftate package: without
+%% it, tcolorbox draws its boxes sideways.
+%% Tested with TeX Live 2025 (frozen: LaTeX 2025-11-01, tcolorbox
+%% 6.9.0) and TeX Live 2026 (LaTeX 2026-11-01, tcolorbox 6.10.0).
+%%
+\RequirePackage{expl3}
+\ProvidesExplPackage{tcbpagefootnote}
+  {2026/11/25}{1.6}{Page footnotes from inside tcolorbox}
+
+\RequirePackage{tcolorbox}
+\tcbuselibrary{hooks}
+
+%% The footnotes collected inside the box(es), output after the box
+\tl_new:N \g__tcbpagefootnote_notes_tl
+\tl_new:N \l__tcbpagefootnote_notes_tl
+%% The mark and the anchor of the last mark, kept while the texts are put
+\tl_new:N \l__tcbpagefootnote_mark_tl
+\tl_new:N \l__tcbpagefootnote_href_tl
+%% The key "page footnote" is given to this box
+\bool_new:N \l__tcbpagefootnote_key_bool
+%% The upper or lower part of the box starts; used in 8.
+\cs_new_eq:NN \__tcbpagefootnote_begin:n \use_none:n
+
+%% -----------------------------------------------------------------
+%% Messages
+%% -----------------------------------------------------------------
+\msg_new:nnn { tcbpagefootnote } { key-defined }
+  {
+    The~tcolorbox~key~'page~footnote'~is~already~defined.\\
+    tcbpagefootnote~will~not~redefine~it.
+  }
+\msg_new:nnn { tcbpagefootnote } { after-overwritten }
+  {
+    The~'after'~code~of~this~box~no~longer~flushes~the~page~footnotes.\\
+    Put~'page~footnote'~after~'after',~'after~skip',~etc.~in~the~option~list.
+  }
+\msg_new:nnn { tcbpagefootnote } { float }
+  { The~key~'page~footnote'~cannot~be~used~with~'float'. }
+\msg_new:nnn { tcbpagefootnote } { broken }
+  {
+    This~box~is~broken~across~pages.\\
+    Its~footnote~texts~are~put~on~the~page~where~the~box~ends.
+  }
+
+%% -----------------------------------------------------------------
+%% 1. Inside the box, switch the footnotes back from the minipage
+%%    setting to the page setting
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_eq:NN \@footnotetext \__tcbpagefootnote_collect:n
+  }
+
+%% -----------------------------------------------------------------
+%% 2. Collect the footnote text together with its mark
+%%    The mark is saved as the string formatted by \thefootnote:
+%%    \footnotetext[...] is not used since it assigns a number to the
+%%    counter.  With hyperref, the anchor of the mark
+%%    (\Hy@footnote@currentHref) is saved as well, since it is
+%%    overwritten by the next mark.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_collect:n #1
+  {
+    \tl_gput_right:Ne \g__tcbpagefootnote_notes_tl
+      {
+        \__tcbpagefootnote_output:nnn
+          { \exp_not:o { \@thefnmark } }
+          {
+            \cs_if_exist:NT \Hy@footnote@currentHref
+              { \exp_not:o { \Hy@footnote@currentHref } }
+          }
+          { \exp_not:n {#1} }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_output:nnn #1#2#3
+  {
+    \tl_gset:Nn \@thefnmark {#1}
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      { \tl_gset:Nn \Hy@footnote@currentHref {#2} }
+    \@footnotetext {#3}
+  }
+
+%% -----------------------------------------------------------------
+%% 3. Output the collected footnotes and clear the list
+%%    Called from "after pre", so that the footnotes are inserted
+%%    right after the box.  The list is cleared before its content is
+%%    used: a box with "page footnote" inside another one collects its
+%%    footnotes again into the list of the outer box.
+%%    The mark and, with hyperref, the anchor of the last mark are
+%%    restored afterwards: a \footnotetext after the box for a
+%%    \footnotemark in it uses them.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_check_broken:
+  {
+    \cs_if_exist:NT \c@tcbbreakpart
+      {
+        \int_compare:nNnT { \c@tcbbreakpart } > { 1 }
+          { \msg_warning:nn { tcbpagefootnote } { broken } }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_flush:
+  {
+    \tl_set_eq:NN \l__tcbpagefootnote_notes_tl \g__tcbpagefootnote_notes_tl
+    \tl_gclear:N \g__tcbpagefootnote_notes_tl
+    \tl_if_empty:NF \l__tcbpagefootnote_notes_tl
+      { \__tcbpagefootnote_check_broken: }
+    \tl_set_eq:NN \l__tcbpagefootnote_mark_tl \@thefnmark
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      {
+        \tl_set_eq:NN \l__tcbpagefootnote_href_tl
+          \Hy@footnote@currentHref
+      }
+    \tl_use:N \l__tcbpagefootnote_notes_tl
+    \tl_gset_eq:NN \@thefnmark \l__tcbpagefootnote_mark_tl
+    \cs_if_exist:NT \Hy@footnote@currentHref
+      {
+        \tl_gset_eq:NN \Hy@footnote@currentHref
+          \l__tcbpagefootnote_href_tl
+      }
+  }
+
+%% -----------------------------------------------------------------
+%% 1'-3'. With the new footnote code of LaTeX (latex-lab-footnotes,
+%%    loaded e.g. by \DocumentMetadata{tagging=on}), the footnote text
+%%    is typeset at the place of its mark, as for a minipage, and the
+%%    typeset material is collected in a box: its structure (FENote)
+%%    then follows its mark (Lbl) in a tagged PDF.  The material is
+%%    output after the box through the fntext/process socket, i.e.
+%%    into \footins, into the box of an outer box with "page footnote"
+%%    or into \@mpfootins of an outer ordinary box.
+%%    The text is typeset by \@footnotetext of the page (saved in 6.)
+%%    in the \columnwidth and \textwidth outside the box, saved when
+%%    a box starts (\tcb@layer@inc) unless the enclosing box has "page
+%%    footnote": code that the document has put around \@footnotetext,
+%%    e.g. to set the footnotes in another width, acts as for a
+%%    footnote of the body text.  \@footnotetext of the page calls
+%%    \fnote_footnotetext:n, and the plug of the box gets the text.
+%%    \fnote_footnotetext:n is called as it is where the plug of the
+%%    box is no longer assigned (e.g. in a minipage in the box), and
+%%    if \@footnotetext of the page is \@mpfootnotetext, which does
+%%    not use the socket.
+%%    The color is reset: the material would otherwise carry the text
+%%    color of the box.  \nobreak keeps the color special from being
+%%    a place where the insertion can be split before its first line.
+%% -----------------------------------------------------------------
+\box_new:N \g__tcbpagefootnote_notes_box
+\box_new:N \l__tcbpagefootnote_notes_box
+
+%% The parameters of the insertion of a footnote text that is typeset
+%% in a box and put into an insertion later (here, and in 7. and 8.).
+%% \@footnotetext of the page sets them where it typesets the text:
+%% they are saved there and set again for the insertion, so that
+%% changes of the document or of a package (e.g. the \splittopskip of
+%% footnotenosplit) are kept.  Without saved values, they are those
+%% of the LaTeX kernel.
+\tl_new:N \g__tcbpagefootnote_ins_tl
+\cs_new_protected:Npn \__tcbpagefootnote_ins_save:
+  {
+    \tl_gset:Ne \g__tcbpagefootnote_ins_tl
+      {
+        \interlinepenalty \int_use:N \interlinepenalty \scan_stop:
+        \splittopskip \skip_use:N \splittopskip \scan_stop:
+        \splitmaxdepth \dim_use:N \splitmaxdepth \scan_stop:
+        \floatingpenalty \int_use:N \floatingpenalty \scan_stop:
+      }
+  }
+\cs_new_protected:Npn \__tcbpagefootnote_ins_kernel:
+  {
+    \interlinepenalty \interfootnotelinepenalty
+    \splittopskip \footnotesep
+    \splitmaxdepth \dp \strutbox
+    \floatingpenalty \@MM
+  }
+\dim_new:N \l__tcbpagefootnote_columnwidth_dim
+\dim_new:N \l__tcbpagefootnote_textwidth_dim
+%% The layer of the box with "page footnote" we are directly in
+\tl_new:N \l__tcbpagefootnote_layer_tl
+
+\cs_new_protected:Npn \__tcbpagefootnote_save_width:
+  {
+    \str_if_eq:eeF { \l__tcbpagefootnote_layer_tl } { \int_use:N \c@tcblayer }
+      {
+        \dim_set_eq:NN \l__tcbpagefootnote_columnwidth_dim \columnwidth
+        \dim_set_eq:NN \l__tcbpagefootnote_textwidth_dim \textwidth
+      }
+  }
+
+%% #1: the plug of the box, #2: the footnote text
+\cs_new_protected:Npn \__tcbpagefootnote_socket_text:nn #1#2
+  {
+    \bool_lazy_and:nnTF
+      { \socket_if_plug_assigned_p:nn { fntext/process } {#1} }
+      {
+        ! \cs_if_eq_p:NN \__tcbpagefootnote_page_footnotetext:n
+          \@mpfootnotetext
+      }
+      {
+        \group_begin:
+          \columnwidth \l__tcbpagefootnote_columnwidth_dim
+          \textwidth \l__tcbpagefootnote_textwidth_dim
+          \__tcbpagefootnote_page_footnotetext:n {#2}
+        \group_end:
+      }
+      { \fnote_footnotetext:n {#2} }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_socket_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_protected:Npn \@footnotetext
+      { \__tcbpagefootnote_socket_text:nn { tcbpagefootnote } }
+    \AssignSocketPlug { fntext/process } { tcbpagefootnote }
+    \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_socket_flush:
+  {
+    \box_set_eq:NN \l__tcbpagefootnote_notes_box \g__tcbpagefootnote_notes_box
+    \box_gclear:N \g__tcbpagefootnote_notes_box
+    \box_if_empty:NF \l__tcbpagefootnote_notes_box
+      {
+        \__tcbpagefootnote_check_broken:
+        \UseSocket { fntext/process }
+          {
+            \reset@font
+            \footnotesize
+            \__tcbpagefootnote_ins_kernel:
+            \g__tcbpagefootnote_ins_tl
+            \unvbox \l__tcbpagefootnote_notes_box
+          }
+      }
+  }
+
+\cs_if_exist:NT \fnote_footnotetext:n
+  {
+    \NewSocketPlug { fntext/process } { tcbpagefootnote }
+      {
+        \global \setbox \g__tcbpagefootnote_notes_box \vbox
+          {
+            \unvbox \g__tcbpagefootnote_notes_box
+            \color@begingroup
+              \normalcolor
+              \nobreak
+              #1
+              \__tcbpagefootnote_ins_save:
+            \color@endgroup
+          }
+      }
+    \AddToHook { begindocument }
+      {
+        \dim_set_eq:NN \l__tcbpagefootnote_columnwidth_dim \columnwidth
+        \dim_set_eq:NN \l__tcbpagefootnote_textwidth_dim \textwidth
+      }
+    \AddToHook { cmd/tcb@layer@inc/before } { \__tcbpagefootnote_save_width: }
+    \cs_gset_eq:NN \__tcbpagefootnote_restore: \__tcbpagefootnote_socket_restore:
+    \cs_gset_eq:NN \__tcbpagefootnote_flush: \__tcbpagefootnote_socket_flush:
+  }
+
+%% -----------------------------------------------------------------
+%% 4. Check the settings under which the footnotes cannot be output
+%%    - a float box does not use \kvtcb@afterbox
+%%    - after, after skip, etc. given later remove the "after pre" code
+%%    The tcbbreakpart counter of the breakable library is reset here:
+%%    a broken box sets it to the number of its parts while it is drawn
+%%    (after its content is typeset), and an unbreakable box does not
+%%    touch it.
+%% -----------------------------------------------------------------
+\cs_new_protected:Npn \__tcbpagefootnote_check:
+  {
+    \tl_if_empty:NF \kvtcb@float
+      { \msg_error:nn { tcbpagefootnote } { float } }
+    \tl_if_in:NnF \kvtcb@afterbox { \__tcbpagefootnote_flush: }
+      { \msg_error:nn { tcbpagefootnote } { after-overwritten } }
+    \cs_if_exist:NT \c@tcbbreakpart
+      { \int_gzero:N \c@tcbbreakpart }
+  }
+
+%% -----------------------------------------------------------------
+%% 5. The tcolorbox key
+%% -----------------------------------------------------------------
+\pgfkeysifdefined { /tcb/page~footnote/.@cmd }
+  { \msg_error:nn { tcbpagefootnote } { key-defined } }
+  {
+    \tcbset
+      {
+        page~footnote/.style =
+          {
+            before~title~pre = \__tcbpagefootnote_restore: ,
+            before~upper~pre = \__tcbpagefootnote_check:
+                               \__tcbpagefootnote_begin:n { upper }
+                               \__tcbpagefootnote_restore: ,
+            before~lower~pre = \__tcbpagefootnote_begin:n { lower }
+                               \__tcbpagefootnote_restore: ,
+            after~pre        = \__tcbpagefootnote_flush: ,
+            code             = \bool_set_true:N \l__tcbpagefootnote_key_bool ,
+          }
+      }
+  }
+
+%% -----------------------------------------------------------------
+%% 6. A breakable box: each part takes its footnotes to its page
+%%    tcolorbox typesets the content of a breakable box as a whole
+%%    and then splits it.  The footnote texts are not collected as in
+%%    2.-3.: each part puts the footnotes of its marks right after
+%%    its picture, before the page is broken.  The part leaves room
+%%    for them.  How this is done depends on the engine, see 7. and 8.;
+%%    this section has what is common.
+%%    This is not done in multicols (as tcolorbox finds it), where
+%%    the footnotes are below all the columns and do not take their
+%%    height from one column, and not for a box that starts inside
+%%    another box, e.g. a minipage: the old code is used there.
+%% -----------------------------------------------------------------
+%% \@footnotetext outside the box
+\cs_new_eq:NN \__tcbpagefootnote_page_footnotetext:n \use_none:n
+\cs_new_eq:NN \__tcbpagefootnote_makefntext:n \use:n
+%% The box does not start on the page
+\bool_new:N \l__tcbpagefootnote_inner_bool
+%% The footnotes of the part to be drawn are known
+\bool_new:N \l__tcbpagefootnote_part_bool
+\cs_new_eq:NN \__tcbpagefootnote_after: \prg_do_nothing:
+%% For splitting again from a copy
+\bool_new:N \l__tcbpagefootnote_split_bool
+\bool_new:N \l__tcbpagefootnote_again_bool
+\box_new:N \l__tcbpagefootnote_split_box
+
+\prg_new_conditional:Npnn \__tcbpagefootnote_if_multicols: { p }
+  {
+    \cs_if_exist:NTF \doublecol@number
+      {
+        \int_compare:nNnTF { \doublecol@number } > { 0 }
+          { \prg_return_true: } { \prg_return_false: }
+      }
+      { \prg_return_false: }
+  }
+
+\prg_new_protected_conditional:Npnn \__tcbpagefootnote_if_insert: { T , TF }
+  {
+    \bool_lazy_all:nTF
+      {
+        { \l__tcbpagefootnote_key_bool }
+        { \legacy_if_p:n { tcb@isbreakable } }
+        { ! \l__tcbpagefootnote_inner_bool }
+        { ! \__tcbpagefootnote_if_multicols_p: }
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+%% Whether the current page has a footnote already
+\prg_new_conditional:Npnn \__tcbpagefootnote_if_page_notes: { p , T , F }
+  {
+    \dim_compare:nNnTF { \pagegoal } = { \c_max_dim }
+      { \prg_return_false: }
+      {
+        \dim_compare:nNnTF { \pagegoal } < { \vsize }
+          { \prg_return_true: } { \prg_return_false: }
+      }
+  }
+
+%% When a box starts: the key is not given yet; for a box that is not
+%% inside another one, \@footnotetext is that of the page.
+\cs_new_eq:NN \__tcbpagefootnote_start: \prg_do_nothing:
+\cs_new_protected:Npn \__tcbpagefootnote_layer:
+  {
+    \bool_set_false:N \l__tcbpagefootnote_key_bool
+    \cs_if_exist:NF \fnote_footnotetext:n
+      { \__tcbpagefootnote_save_width: }
+    \int_compare:nNnT { \c@tcblayer } = { 0 }
+      {
+        \cs_set_eq:NN \__tcbpagefootnote_page_footnotetext:n
+          \@footnotetext
+        \bool_set_false:N \l__tcbpagefootnote_inner_bool
+        \mode_if_inner:T
+          { \bool_set_true:N \l__tcbpagefootnote_inner_bool }
+        \cs_if_eq:NNT \@footnotetext \@mpfootnotetext
+          { \bool_set_true:N \l__tcbpagefootnote_inner_bool }
+        \__tcbpagefootnote_start:
+      }
+  }
+\AddToHook { cmd/tcb@layer@inc/before } { \__tcbpagefootnote_layer: }
+
+%% Inside the box (1.): \__tcbpagefootnote_insert_restore: of the
+%% engine instead of collecting.
+%% With the tcbnestbreak package, a breakable box inside such a box
+%% "flows": its lines are put into the list of the box around it
+%% (\l__tcbnestbreak_flow_bool).  With "page footnote", it does the
+%% same as the box around it: its footnotes are then in that list as
+%% well, and each is put on the page of its mark.
+\bool_new:N \l__tcbpagefootnote_insert_bool
+\cs_new_eq:NN \__tcbpagefootnote_insert_restore: \prg_do_nothing:
+\cs_new_eq:NN \__tcbpagefootnote_collect_restore: \__tcbpagefootnote_restore:
+\prg_new_conditional:Npnn \__tcbpagefootnote_if_flow: { p }
+  {
+    \bool_if_exist:NTF \l__tcbnestbreak_flow_bool
+      {
+        \bool_if:NTF \l__tcbnestbreak_flow_bool
+          { \prg_return_true: } { \prg_return_false: }
+      }
+      { \prg_return_false: }
+  }
+\cs_gset_protected:Npn \__tcbpagefootnote_restore:
+  {
+    \__tcbpagefootnote_if_insert:TF
+      {
+        \bool_set_true:N \l__tcbpagefootnote_insert_bool
+        \__tcbpagefootnote_insert_restore:
+      }
+      {
+        \bool_lazy_all:nTF
+          {
+            { \l__tcbpagefootnote_key_bool }
+            { \l__tcbpagefootnote_insert_bool }
+            { \__tcbpagefootnote_if_flow_p: }
+          }
+          { \__tcbpagefootnote_insert_restore: }
+          {
+            \bool_set_false:N \l__tcbpagefootnote_insert_bool
+            \__tcbpagefootnote_collect_restore:
+          }
+      }
+  }
+
+%% The footnotes are put by \__tcbpagefootnote_write: of the engine
+%% right after the picture of the part: the code after the picture is
+%% \tcb@after@<state>.  This is not done for a picture inside the
+%% picture of the part.
+\cs_new_eq:NN \__tcbpagefootnote_write: \prg_do_nothing:
+\AddToHook { env/tcb@drawing/begin }
+  {
+    \bool_if:NT \l__tcbpagefootnote_part_bool
+      {
+        \bool_set_false:N \l__tcbpagefootnote_part_bool
+        \cs_set_eq:Nc \__tcbpagefootnote_after:
+          { tcb@after@ \tcb@split@state }
+        \cs_set:cpn { tcb@after@ \tcb@split@state }
+          { \__tcbpagefootnote_write: \__tcbpagefootnote_after: }
+      }
+  }
+
+%% The code of the other engine is skipped
+\cs_new:Npn \__tcbpagefootnote_engine_skip:w
+  #1 \__tcbpagefootnote_engine_end: { }
+\cs_new_eq:NN \__tcbpagefootnote_engine_end: \prg_do_nothing:
+
+%% -----------------------------------------------------------------
+%% 7. LuaTeX
+%%    A footnote text is a real \insert at its mark.  The insertion
+%%    stays in the box of the content and, when tcolorbox splits this
+%%    box, in the part of its mark.  With Lua (tcbpagefootnote.lua):
+%%    (a) when the content is typeset, a "reserve" is put after each
+%%        insertion: an empty box that is as high as the insertion
+%%        will be on the page.  tcolorbox then counts the footnotes
+%%        when it measures and splits the content.  The heights of the
+%%        reserves are set again before each part is split off, to
+%%        what the insertions take from the page there;
+%%    (b) before a part is drawn, its reserves are removed and its
+%%        insertions are taken out;
+%%    (c) the insertions are written right after the part.
+%% -----------------------------------------------------------------
+\sys_if_engine_luatex:F { \__tcbpagefootnote_engine_skip:w }
+
+\lua_now:n { tcbpagefootnote = require ( "tcbpagefootnote" ) }
+
+%% \skip\footins is taken from the height that is left on the page
+\bool_new:N \l__tcbpagefootnote_skip_bool
+\dim_new:N \l__tcbpagefootnote_removed_dim
+
+%% 7.1 Inside the box: \@footnotetext of the page, in the \columnwidth
+%%     and \textwidth outside the box and with the color reset (as in
+%%     1'-3').  \normalcolor is put into the color group of
+%%     \@footnotetext, at \@makefntext.
+\cs_new_protected:Npn \__tcbpagefootnote_insert:n #1
+  {
+    \group_begin:
+      \columnwidth \l__tcbpagefootnote_columnwidth_dim
+      \textwidth \l__tcbpagefootnote_textwidth_dim
+      \cs_set_eq:NN \__tcbpagefootnote_makefntext:n \@makefntext
+      \cs_set:Npn \@makefntext ##1
+        { \normalcolor \__tcbpagefootnote_makefntext:n {##1} }
+      \__tcbpagefootnote_page_footnotetext:n {#1}
+    \group_end:
+  }
+
+\cs_gset_protected:Npn \__tcbpagefootnote_insert_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_eq:NN \@footnotetext \__tcbpagefootnote_insert:n
+    \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+  }
+
+%%     With the new footnote code of LaTeX, \@footnotetext of the
+%%     page is called in the same way, and the plug of the box makes
+%%     the \insert (as in 1'-3').  The parameters of the insertion
+%%     are set in the color group: they are set again after it.
+\cs_if_exist:NT \fnote_footnotetext:n
+  {
+    \NewSocketPlug { fntext/process } { tcbpagefootnote-insert }
+      {
+        \insert \footins
+          {
+            \reset@font
+            \footnotesize
+            \color@begingroup
+              \normalcolor
+              \nobreak
+              #1
+              \__tcbpagefootnote_ins_save:
+            \color@endgroup
+            \g__tcbpagefootnote_ins_tl
+          }
+      }
+    \cs_gset_protected:Npn \__tcbpagefootnote_insert_restore:
+      {
+        \cs_set:Npn \@mpfn { footnote }
+        \cs_set:Npn \thempfn { \thefootnote }
+        \cs_set_protected:Npn \@footnotetext
+          { \__tcbpagefootnote_socket_text:nn { tcbpagefootnote-insert } }
+        \AssignSocketPlug { fntext/process } { tcbpagefootnote-insert }
+        \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+      }
+  }
+
+%% 7.2 (a) The reserves, put before tcolorbox measures the content
+%%     (\tcb@draw@color@box).  The box is packed again.
+\cs_new_protected:Npn \__tcbpagefootnote_repack:N #1
+  { \tex_setbox:D #1 \tex_vbox:D { \tex_unvbox:D #1 } }
+
+\cs_new_protected:Npn \__tcbpagefootnote_reserve:N #1
+  {
+    \int_compare:nNnT
+      { \lua_now:e { tcbpagefootnote.add_reserves ( \int_use:N #1 ) } } = { 1 }
+      { \__tcbpagefootnote_repack:N #1 }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_reserve:
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \__tcbpagefootnote_reserve:N \tcb@titlebox
+        \__tcbpagefootnote_reserve:N \tcb@upperbox
+        \__tcbpagefootnote_reserve:N \tcb@lowerbox
+      }
+  }
+\AddToHook { cmd/tcb@draw@color@box/before } { \__tcbpagefootnote_reserve: }
+
+%%     What an insertion takes from the page depends on \count\footins,
+%%     which a package can change from column to column (ftnright: 0
+%%     in the left column, 1000 in the right one).  When tcolorbox
+%%     asks for the height that is left on the page (\tcb@comp@h@page)
+%%     for the next part, \count\footins is that of the column of this
+%%     part: the heights of the reserves are set again, and what
+%%     tcolorbox has measured already (\tcb@h@title, \tcb@h@upper,
+%%     \tcb@h@lower and, before the first split, \tcb@h@total) is
+%%     measured again.  The content that is not split off yet is in
+%%     \tcb@upperbox and \tcb@lowerbox before the first split, and in
+%%     \tcb@totalupperbox and \tcb@totallowerbox after it
+%%     (\tcb@h@upper is then measured by tcolorbox).
+\bool_new:N \l__tcbpagefootnote_update_bool
+
+\cs_new_protected:Npn \__tcbpagefootnote_update:NT #1#2
+  {
+    \int_compare:nNnT
+      { \lua_now:e { tcbpagefootnote.update_reserves ( \int_use:N #1 ) } }
+      = { 1 }
+      { \__tcbpagefootnote_repack:N #1 #2 }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_title_ht:
+  {
+    \legacy_if:nT { tcb@hasTitle }
+      {
+        \tcbdimto \tcb@h@title
+          { \ht \tcb@titlebox + \dp \tcb@titlebox }
+        \tcbdimto \tcb@h@padtitle
+          {
+            \kvtcb@title@rule + \kvtcb@boxsep * 2 + \kvtcb@toptitle
+            + \kvtcb@bottomtitle + \tcb@h@title
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_update:
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \bool_set_false:N \l__tcbpagefootnote_update_bool
+        \__tcbpagefootnote_update:NT \tcb@titlebox
+          {
+            \bool_set_true:N \l__tcbpagefootnote_update_bool
+            \__tcbpagefootnote_title_ht:
+          }
+        \__tcbpagefootnote_update:NT \tcb@upperbox
+          {
+            \bool_set_true:N \l__tcbpagefootnote_update_bool
+            \tcb@defToTotalHeight \tcb@h@upper { \tcb@upperbox }
+          }
+        \__tcbpagefootnote_update:NT \tcb@lowerbox
+          {
+            \bool_set_true:N \l__tcbpagefootnote_update_bool
+            \legacy_if:nT { tcb@lowerspace }
+              { \tcb@defToTotalHeight \tcb@h@lower { \tcb@lowerbox } }
+          }
+        \bool_if:NT \l__tcbpagefootnote_update_bool
+          { \tcb@comp@h@total@standalone }
+        \__tcbpagefootnote_update:NT \tcb@totalupperbox { }
+        \__tcbpagefootnote_update:NT \tcb@totallowerbox
+          { \tcb@defToTotalHeight \tcb@h@lower { \tcb@totallowerbox } }
+      }
+  }
+\AddToHook { cmd/tcb@comp@h@page/after } { \__tcbpagefootnote_update: }
+
+%%     \skip\footins, put before the first footnote of a page, cannot
+%%     be a reserve.  It is taken from the height that is left on the
+%%     page (\tcb@comp@h@page) if the page has no footnote yet and
+%%     the content that is not drawn yet has one.
+%%     #1: box registers (numbers, separated by commas)
+\prg_new_conditional:Npnn \__tcbpagefootnote_if_reserve:n #1 { p , T , F }
+  {
+    \int_compare:nNnTF
+      { \lua_now:e { tcbpagefootnote.has_reserve ( #1 ) } } = { 1 }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_skip:
+  {
+    \bool_set_false:N \l__tcbpagefootnote_skip_bool
+    \__tcbpagefootnote_if_insert:T
+      {
+        \bool_lazy_and:nnT
+          { ! \__tcbpagefootnote_if_page_notes_p: }
+          {
+            \__tcbpagefootnote_if_reserve_p:n
+              {
+                \int_use:N \tcb@titlebox ,
+                \int_use:N \tcb@upperbox ,
+                \int_use:N \tcb@lowerbox ,
+                \int_use:N \tcb@totalupperbox ,
+                \int_use:N \tcb@totallowerbox
+              }
+          }
+          {
+            \bool_set_true:N \l__tcbpagefootnote_skip_bool
+            \tcbdimto \tcb@h@page { \tcb@h@page - \skip \footins }
+          }
+      }
+  }
+\AddToHook { cmd/tcb@comp@h@page/after } { \__tcbpagefootnote_skip: }
+
+%%     A part that is split off with \skip\footins taken, but has no
+%%     footnote, is too short.  The content is then split again, from
+%%     a copy, with \skip\footins given back; if the part now has a
+%%     footnote, the first split is done once more.
+%%     #1: the box that is split, #2: the box of the part,
+%%     #3: the macro of tcolorbox that splits,
+%%     #4: the other boxes of the part (as for ..._if_reserve:n)
+\cs_new_protected:Npn \__tcbpagefootnote_split_before:N #1
+  {
+    \bool_if:NF \l__tcbpagefootnote_again_bool
+      {
+        \bool_set_false:N \l__tcbpagefootnote_split_bool
+        \__tcbpagefootnote_if_insert:T
+          {
+            \bool_if:NT \l__tcbpagefootnote_skip_bool
+              {
+                \bool_set_true:N \l__tcbpagefootnote_split_bool
+                \tex_setbox:D \l__tcbpagefootnote_split_box \tex_copy:D #1
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_split_after:NNNn #1#2#3#4
+  {
+    \bool_if:NF \l__tcbpagefootnote_again_bool
+      {
+        \bool_if:NT \l__tcbpagefootnote_split_bool
+          {
+            \bool_set_false:N \l__tcbpagefootnote_split_bool
+            \__tcbpagefootnote_if_reserve:nF { \int_use:N #2 , #4 }
+              {
+                \bool_set_true:N \l__tcbpagefootnote_again_bool
+                \tex_setbox:D #1 \tex_copy:D \l__tcbpagefootnote_split_box
+                \tcbdimto \tcb@split@dim { \tcb@split@dim + \skip \footins }
+                #3
+                \__tcbpagefootnote_if_reserve:nT { \int_use:N #2 }
+                  {
+                    \tex_setbox:D #1 \tex_box:D \l__tcbpagefootnote_split_box
+                    \tcbdimto \tcb@split@dim
+                      { \tcb@split@dim - \skip \footins }
+                    #3
+                  }
+                \bool_set_false:N \l__tcbpagefootnote_again_bool
+              }
+            \box_clear:N \l__tcbpagefootnote_split_box
+          }
+      }
+  }
+
+\AddToHook { cmd/tcb@vsplit@upper/before }
+  { \__tcbpagefootnote_split_before:N \tcb@totalupperbox }
+\AddToHook { cmd/tcb@vsplit@upper/after }
+  {
+    \__tcbpagefootnote_split_after:NNNn
+      \tcb@totalupperbox \tcb@upperbox \tcb@vsplit@upper
+      { \int_use:N \tcb@titlebox }
+  }
+\AddToHook { cmd/tcb@vsplit@lower/before }
+  { \__tcbpagefootnote_split_before:N \tcb@totallowerbox }
+\AddToHook { cmd/tcb@vsplit@lower/after }
+  {
+    \__tcbpagefootnote_split_after:NNNn
+      \tcb@totallowerbox \tcb@lowerbox \tcb@vsplit@lower
+      { \int_use:N \tcb@titlebox , \int_use:N \tcb@upperbox }
+  }
+
+%% 7.3 (b) Before a part is drawn: the reserves are removed, the
+%%     insertions are taken out and the heights are measured again.
+%%     The height that is left on the page is reduced by the
+%%     footnotes of the part ("height fixed for" fills the page with
+%%     the part); a part without footnotes gets \skip\footins back.
+\cs_new_protected:Npn \__tcbpagefootnote_strip:NT #1#2
+  {
+    \int_case:nn
+      { \lua_now:e { tcbpagefootnote.strip ( \int_use:N #1 ) } }
+      {
+        { 1 } { \__tcbpagefootnote_repack:N #1 #2 }
+        { 2 } {#2}
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_part:
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \__tcbpagefootnote_strip:NT \tcb@titlebox
+          { \__tcbpagefootnote_title_ht: }
+        \__tcbpagefootnote_strip:NT \tcb@upperbox
+          {
+            \tcbdimto \tcb@h@upper
+              { \ht \tcb@upperbox + \dp \tcb@upperbox }
+          }
+        \__tcbpagefootnote_strip:NT \tcb@lowerbox
+          {
+            \tcbdimto \tcb@h@lower
+              { \ht \tcb@lowerbox + \dp \tcb@lowerbox }
+          }
+        \dim_set:Nn \l__tcbpagefootnote_removed_dim
+          { \lua_now:e { tcbpagefootnote.removed ( ) } }
+        \cs_if_exist:NT \tcb@h@page
+          {
+            \int_compare:nNnTF
+              { \lua_now:e { tcbpagefootnote.has_pending ( ) } } = { 1 }
+              {
+                \tcbdimto \tcb@h@page
+                  { \tcb@h@page - \l__tcbpagefootnote_removed_dim }
+              }
+              {
+                \bool_if:NT \l__tcbpagefootnote_skip_bool
+                  { \tcbdimto \tcb@h@page { \tcb@h@page + \skip \footins } }
+              }
+          }
+        \bool_set_true:N \l__tcbpagefootnote_part_bool
+      }
+  }
+\AddToHook { cmd/tcb@drawcolorbox@standalone/before }
+  { \__tcbpagefootnote_part: }
+\AddToHook { cmd/tcb@sdraw@U/before }   { \__tcbpagefootnote_part: }
+\AddToHook { cmd/tcb@sdraw@USL/before } { \__tcbpagefootnote_part: }
+\AddToHook { cmd/tcb@sdraw@SL/before }  { \__tcbpagefootnote_part: }
+\AddToHook { cmd/tcb@sdraw@L/before }   { \__tcbpagefootnote_part: }
+
+%% 7.4 (c) The insertions are written
+\cs_gset_protected:Npn \__tcbpagefootnote_write:
+  { \lua_now:n { tcbpagefootnote.flush ( ) } }
+
+\__tcbpagefootnote_engine_end:
+\sys_if_engine_luatex:T { \file_input_stop: }
+
+%% -----------------------------------------------------------------
+%% 8. The other engines
+%%    The nodes of a box cannot be taken out, so the footnote texts
+%%    are not put into the box of the content:
+%%    (a) a footnote text is typeset at its mark and kept in a box of
+%%        its own.  The footnotes of the box are numbered, and a mark
+%%        of a class of its own (\marks) with this number is put at
+%%        the mark of the footnote;
+%%    (b) when tcolorbox has split the content, \splitbotmarks is the
+%%        number of the last footnote of the part.  The footnotes take
+%%        their height from the part: the content is split again,
+%%        from a copy, to the height that is left without them;
+%%    (c) the footnotes of a part are put right after it.
+%%    A footnote inside a box of the content (e.g. \footnotetext in a
+%%    tabular) has no mark that the split sees: it is put with the
+%%    part that has a later footnote, or with the last part.
+%% -----------------------------------------------------------------
+\newmarks \c__tcbpagefootnote_marks_int
+%% The footnotes of the box that are typeset and that are put
+\int_new:N \g__tcbpagefootnote_note_int
+\int_new:N \g__tcbpagefootnote_out_int
+%% The last footnote of the title and of the upper part (-1: unknown)
+\int_new:N \g__tcbpagefootnote_title_int
+\int_new:N \g__tcbpagefootnote_upper_int
+%% The typeset footnotes that are not put yet, the first one last
+\box_new:N \g__tcbpagefootnote_store_box
+\box_new:N \g__tcbpagefootnote_note_box
+%% The last footnote of the upper and lower part that is split off,
+%% and of the part to be drawn
+\int_new:N \l__tcbpagefootnote_upper_part_int
+\int_new:N \l__tcbpagefootnote_lower_part_int
+\int_new:N \l__tcbpagefootnote_part_int
+\int_new:N \l__tcbpagefootnote_to_int
+%% What footnotes take from the page
+\dim_new:N \l__tcbpagefootnote_room_dim
+\dim_new:N \l__tcbpagefootnote_first_dim
+\dim_new:N \l__tcbpagefootnote_counted_dim
+\tl_new:N \l__tcbpagefootnote_dim_tl
+\tl_new:N \l__tcbpagefootnote_back_tl
+\tl_new:N \l__tcbpagefootnote_bot_tl
+%% \tcb@h@page, and \tcb@h@upper without and with its footnotes
+\bool_new:N \l__tcbpagefootnote_check_bool
+\tl_new:N \l__tcbpagefootnote_page_tl
+\tl_new:N \l__tcbpagefootnote_true_tl
+\tl_new:N \l__tcbpagefootnote_raised_tl
+
+\cs_gset_protected:Npn \__tcbpagefootnote_start:
+  {
+    \int_gzero:N \g__tcbpagefootnote_note_int
+    \int_gzero:N \g__tcbpagefootnote_out_int
+    \int_gzero:N \g__tcbpagefootnote_title_int
+    \int_gset:Nn \g__tcbpagefootnote_upper_int { -1 }
+    \box_gclear:N \g__tcbpagefootnote_store_box
+  }
+
+%% The title, the upper part and the lower part are typeset in this
+%% order: when a part starts, the footnotes so far are those of the
+%% parts before it.
+\cs_gset_protected:Npn \__tcbpagefootnote_begin:n #1
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \str_case:nn {#1}
+          {
+            { upper }
+              {
+                \int_gset_eq:NN \g__tcbpagefootnote_title_int
+                  \g__tcbpagefootnote_note_int
+              }
+            { lower }
+              {
+                \int_gset_eq:NN \g__tcbpagefootnote_upper_int
+                  \g__tcbpagefootnote_note_int
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_typeset:
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \int_compare:nNnT { \g__tcbpagefootnote_upper_int } < { 0 }
+          {
+            \int_gset_eq:NN \g__tcbpagefootnote_upper_int
+              \g__tcbpagefootnote_note_int
+          }
+      }
+  }
+\AddToHook { cmd/tcb@draw@color@box/before } { \__tcbpagefootnote_typeset: }
+
+%% 8.1 (a) The footnote text in \g__tcbpagefootnote_note_box is kept,
+%%     with the parameters of its insertion (see 1'-3'): the kept
+%%     boxes are put before the earlier ones, so that \lastbox is the
+%%     first of them.
+\cs_new_protected:Npn \__tcbpagefootnote_store:
+  {
+    \box_if_empty:NT \g__tcbpagefootnote_note_box
+      { \tex_global:D \tex_setbox:D \g__tcbpagefootnote_note_box \tex_vbox:D { } }
+    \int_gincr:N \g__tcbpagefootnote_note_int
+    \tl_gset:ce
+      { g__tcbpagefootnote_ht_ \int_use:N \g__tcbpagefootnote_note_int _tl }
+      {
+        \dim_eval:n
+          {
+            \box_ht:N \g__tcbpagefootnote_note_box
+            + \box_dp:N \g__tcbpagefootnote_note_box
+          }
+      }
+    \tl_gset_eq:cN
+      { g__tcbpagefootnote_ins_ \int_use:N \g__tcbpagefootnote_note_int _tl }
+      \g__tcbpagefootnote_ins_tl
+    \tex_global:D \tex_setbox:D \g__tcbpagefootnote_store_box \tex_vbox:D
+      {
+        \tex_box:D \g__tcbpagefootnote_note_box
+        \tex_unvbox:D \g__tcbpagefootnote_store_box
+      }
+    \tex_marks:D \c__tcbpagefootnote_marks_int
+      { \int_use:N \g__tcbpagefootnote_note_int }
+  }
+
+%%     \@footnotetext of the page typesets the text, in the
+%%     \columnwidth and \textwidth outside the box and with the color
+%%     reset (as in 7.1).  Its \insert is turned into the box.
+\cs_new_protected:Npn \__tcbpagefootnote_store:n #1
+  {
+    \group_begin:
+      \columnwidth \l__tcbpagefootnote_columnwidth_dim
+      \textwidth \l__tcbpagefootnote_textwidth_dim
+      \cs_set_eq:NN \__tcbpagefootnote_makefntext:n \@makefntext
+      \cs_set:Npn \@makefntext ##1
+        {
+          \cs_set_eq:NN \insert \tex_insert:D
+          \__tcbpagefootnote_ins_save:
+          \normalcolor
+          \__tcbpagefootnote_makefntext:n {##1}
+        }
+      \cs_set_protected:Npn \insert ##1
+        {
+          \tex_global:D \tex_setbox:D \g__tcbpagefootnote_note_box
+            \tex_vbox:D
+        }
+      \tl_gclear:N \g__tcbpagefootnote_ins_tl
+      \__tcbpagefootnote_page_footnotetext:n {#1}
+    \group_end:
+    \__tcbpagefootnote_store:
+  }
+
+\cs_gset_protected:Npn \__tcbpagefootnote_insert_restore:
+  {
+    \cs_set:Npn \@mpfn { footnote }
+    \cs_set:Npn \thempfn { \thefootnote }
+    \cs_set_eq:NN \@footnotetext \__tcbpagefootnote_store:n
+    \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+  }
+
+%%     A kept footnote text is put into the insertion
+\cs_new_protected:Npn \__tcbpagefootnote_note_unpack:
+  {
+    \reset@font
+    \footnotesize
+    \__tcbpagefootnote_ins_kernel:
+    \tl_use:c
+      { g__tcbpagefootnote_ins_ \int_use:N \g__tcbpagefootnote_out_int _tl }
+    \tex_unvbox:D \g__tcbpagefootnote_note_box
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_note_out:
+  { \tex_insert:D \footins { \__tcbpagefootnote_note_unpack: } }
+
+%%     With the new footnote code of LaTeX, \@footnotetext of the
+%%     page is called in the same way, and the plug of the box keeps
+%%     the text (as in 1'-3').
+\cs_if_exist:NT \fnote_footnotetext:n
+  {
+    \NewSocketPlug { fntext/process } { tcbpagefootnote-store }
+      {
+        \tex_global:D \tex_setbox:D \g__tcbpagefootnote_note_box \tex_vbox:D
+          {
+            \color@begingroup
+              \normalcolor
+              \nobreak
+              #1
+              \__tcbpagefootnote_ins_save:
+            \color@endgroup
+          }
+        \__tcbpagefootnote_store:
+      }
+    \cs_gset_protected:Npn \__tcbpagefootnote_insert_restore:
+      {
+        \cs_set:Npn \@mpfn { footnote }
+        \cs_set:Npn \thempfn { \thefootnote }
+        \cs_set_protected:Npn \@footnotetext
+          { \__tcbpagefootnote_socket_text:nn { tcbpagefootnote-store } }
+        \AssignSocketPlug { fntext/process } { tcbpagefootnote-store }
+        \tl_set:Ne \l__tcbpagefootnote_layer_tl { \int_use:N \c@tcblayer }
+      }
+    \cs_gset_protected:Npn \__tcbpagefootnote_note_out:
+      {
+        \UseSocket { fntext/process }
+          { \__tcbpagefootnote_note_unpack: }
+      }
+  }
+
+%%     (c) Put the kept footnotes up to number #1
+\cs_new_protected:Npn \__tcbpagefootnote_output:n #1
+  {
+    \int_while_do:nNnn { \g__tcbpagefootnote_out_int }
+      < { \int_min:nn {#1} { \g__tcbpagefootnote_note_int } }
+      {
+        \int_gincr:N \g__tcbpagefootnote_out_int
+        \tex_global:D \tex_setbox:D \g__tcbpagefootnote_store_box \tex_vbox:D
+          {
+            \tex_unvbox:D \g__tcbpagefootnote_store_box
+            \tex_global:D \tex_setbox:D \g__tcbpagefootnote_note_box
+              \tex_lastbox:D
+          }
+        \__tcbpagefootnote_note_out:
+      }
+  }
+
+\cs_gset_protected:Npn \__tcbpagefootnote_write:
+  { \__tcbpagefootnote_output:n { \l__tcbpagefootnote_to_int } }
+
+%%     After the box, the footnotes that no part has put (e.g. those
+%%     of a lower part that is not drawn) are put: not after a box
+%%     inside the content, which is still being typeset then.
+\cs_new_eq:NN \__tcbpagefootnote_collect_flush: \__tcbpagefootnote_flush:
+\cs_gset_protected:Npn \__tcbpagefootnote_flush:
+  {
+    \int_compare:nNnT { \c@tcblayer } < { 2 }
+      { \__tcbpagefootnote_output:n { \g__tcbpagefootnote_note_int } }
+    \__tcbpagefootnote_collect_flush:
+  }
+
+%% 8.2 What the footnotes from number #1 to #2 take from the page (as
+%%     the page builder of TeX computes it): their heights and, if
+%%     the page has no footnote yet, \skip\footins.
+\cs_new:Npn \__tcbpagefootnote_ht:n #1
+  {
+    \int_compare:nNnTF { \count \footins } = { 1000 }
+      { \tl_use:c { g__tcbpagefootnote_ht_ #1 _tl } }
+      {
+        \int_eval:n
+          {
+            \int_div_truncate:nn
+              {
+                \dim_to_decimal_in_sp:n
+                  { \tl_use:c { g__tcbpagefootnote_ht_ #1 _tl } }
+              }
+              { 1000 }
+            * \count \footins
+          }
+        sp
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_room:nn #1#2
+  {
+    \dim_zero:N \l__tcbpagefootnote_room_dim
+    \int_compare:nNnF {#1} > {#2}
+      {
+        \int_step_inline:nnn {#1} {#2}
+          {
+            \dim_add:Nn \l__tcbpagefootnote_room_dim
+              { \__tcbpagefootnote_ht:n {##1} }
+          }
+        \__tcbpagefootnote_if_page_notes:F
+          { \dim_add:Nn \l__tcbpagefootnote_room_dim { \skip \footins } }
+      }
+  }
+
+%%     The footnotes that are not put yet, up to number #1
+\cs_new_protected:Npn \__tcbpagefootnote_room:n #1
+  {
+    \__tcbpagefootnote_room:nn
+      { \g__tcbpagefootnote_out_int + 1 } {#1}
+  }
+
+%% 8.3 (b) "Does the rest of the box fit on the page?"
+%%     (\tcb@check@for@final@box): the footnotes that are not put yet
+%%     are taken from the height that is left on the page.  If the
+%%     rest does not fit, this height is restored for the split, and
+%%     \tcb@h@upper is raised by the footnotes of the title and the
+%%     upper part instead: tcolorbox then finds whether the upper part
+%%     fits as a whole with its footnotes, and what is left for the
+%%     lower part.  \tcb@h@upper gets its true value back when the
+%%     next part is prepared or drawn, unless tcolorbox has set it
+%%     again.
+\cs_new_protected:Npn \__tcbpagefootnote_lower:
+  {
+    \tl_if_empty:NF \l__tcbpagefootnote_raised_tl
+      {
+        \tl_if_eq:NNT \tcb@h@upper \l__tcbpagefootnote_raised_tl
+          { \tl_set_eq:NN \tcb@h@upper \l__tcbpagefootnote_true_tl }
+        \tl_clear:N \l__tcbpagefootnote_raised_tl
+      }
+  }
+\AddToHook { cmd/tcb@comp@h@page/before } { \__tcbpagefootnote_lower: }
+
+\cs_new_protected:Npn \__tcbpagefootnote_check_before:
+  {
+    \bool_set_false:N \l__tcbpagefootnote_check_bool
+    \__tcbpagefootnote_if_insert:T
+      {
+        \__tcbpagefootnote_lower:
+        \bool_set_true:N \l__tcbpagefootnote_check_bool
+        \tl_set_eq:NN \l__tcbpagefootnote_page_tl \tcb@h@page
+        \__tcbpagefootnote_room:n { \g__tcbpagefootnote_note_int }
+        \tcbdimto \tcb@h@page
+          { \tcb@h@page - \l__tcbpagefootnote_room_dim }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_check_after:
+  {
+    \bool_if:NT \l__tcbpagefootnote_check_bool
+      {
+        \bool_set_false:N \l__tcbpagefootnote_check_bool
+        \legacy_if:nF { tcb@final@box }
+          {
+            \tl_set_eq:NN \tcb@h@page \l__tcbpagefootnote_page_tl
+            \__tcbpagefootnote_room:n { \g__tcbpagefootnote_upper_int }
+            \dim_compare:nNnT { \l__tcbpagefootnote_room_dim } > { \c_zero_dim }
+              {
+                \tl_set_eq:NN \l__tcbpagefootnote_true_tl \tcb@h@upper
+                \tcbdimto \tcb@h@upper
+                  { \tcb@h@upper + \l__tcbpagefootnote_room_dim }
+                \tl_set_eq:NN \l__tcbpagefootnote_raised_tl \tcb@h@upper
+              }
+          }
+      }
+  }
+\AddToHook { cmd/tcb@check@for@final@box/before }
+  { \__tcbpagefootnote_check_before: }
+\AddToHook { cmd/tcb@check@for@final@box/after }
+  { \__tcbpagefootnote_check_after: }
+
+%% 8.4 (b) After tcolorbox has split the upper or lower part
+%%     (\tcb@vsplit@upper, \tcb@vsplit@lower).
+%%     #1: the box that is split, #2: the least and #3: the greatest
+%%     number of the last footnote of the part.  The part has the
+%%     footnotes that are not put yet up to \splitbotmarks, at least
+%%     up to #2 and, if nothing is left of the box, up to #3.
+\cs_new_protected:Npn \__tcbpagefootnote_split_read:Nnn #1#2#3
+  {
+    \int_set:Nn \l__tcbpagefootnote_part_int
+      { \int_max:nn {#2} { \g__tcbpagefootnote_out_int } }
+    \tl_set:Ne \l__tcbpagefootnote_bot_tl
+      { \tex_splitbotmarks:D \c__tcbpagefootnote_marks_int }
+    \tl_if_empty:NF \l__tcbpagefootnote_bot_tl
+      {
+        \int_set:Nn \l__tcbpagefootnote_part_int
+          {
+            \int_max:nn
+              { \l__tcbpagefootnote_part_int } { \l__tcbpagefootnote_bot_tl }
+          }
+      }
+    \box_if_empty:NT #1
+      {
+        \int_set:Nn \l__tcbpagefootnote_part_int
+          { \int_max:nn { \l__tcbpagefootnote_part_int } {#3} }
+      }
+    \__tcbpagefootnote_room:n { \l__tcbpagefootnote_part_int }
+    \dim_sub:Nn \l__tcbpagefootnote_room_dim
+      { \l__tcbpagefootnote_counted_dim }
+  }
+
+%%     Split #1 again with #2, the macro of tcolorbox, to the height
+%%     of the first split without #3
+\cs_new_protected:Npn \__tcbpagefootnote_split_again:NNn #1#2#3
+  {
+    \tex_setbox:D #1 \tex_copy:D \l__tcbpagefootnote_split_box
+    \tcbdimto \tcb@split@dim { \l__tcbpagefootnote_dim_tl - #3 }
+    #2
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_split_before:N #1
+  {
+    \bool_if:NF \l__tcbpagefootnote_again_bool
+      {
+        \bool_set_false:N \l__tcbpagefootnote_split_bool
+        \__tcbpagefootnote_if_insert:T
+          {
+            \int_compare:nNnT { \g__tcbpagefootnote_note_int }
+              > { \g__tcbpagefootnote_out_int }
+              {
+                \bool_set_true:N \l__tcbpagefootnote_split_bool
+                \tex_setbox:D \l__tcbpagefootnote_split_box \tex_copy:D #1
+                \tl_set_eq:NN \l__tcbpagefootnote_dim_tl \tcb@split@dim
+              }
+          }
+      }
+  }
+
+%%     The part with its footnotes has to fit into the height of the
+%%     first split.  The box is split again to this height without
+%%     the footnotes of the first split: the part then has these or
+%%     fewer footnotes, and fits.  If it has fewer, the box is split
+%%     once more to the height without these fewer footnotes; if the
+%%     part then has more than them, the split before is done again.
+%%     tcolorbox does not start a part of less than "lines before
+%%     break" lines after other material on the page; it then splits
+%%     with \savingvdiscards and puts the box together again if the
+%%     split fails.  Here the height may have become too small by the
+%%     footnotes that the part has in any case (those up to #2): the
+%%     split is then made to fail.
+%%     #1-#3 as above, #4: the macro of tcolorbox that splits,
+%%     #5: where the last footnote of the part is saved,
+%%     #6: what tcolorbox has taken from the height for the footnotes
+%%     already (the raised \tcb@h@upper)
+\cs_new_protected:Npn \__tcbpagefootnote_split_after:NnnNNn #1#2#3#4#5#6
+  {
+    \bool_if:NF \l__tcbpagefootnote_again_bool
+      {
+        \bool_if:NT \l__tcbpagefootnote_split_bool
+          {
+            \bool_set_false:N \l__tcbpagefootnote_split_bool
+            \bool_set_true:N \l__tcbpagefootnote_again_bool
+            \dim_set:Nn \l__tcbpagefootnote_counted_dim {#6}
+            \__tcbpagefootnote_room:n {#2}
+            \dim_sub:Nn \l__tcbpagefootnote_room_dim
+              { \l__tcbpagefootnote_counted_dim }
+            \bool_lazy_all:nTF
+              {
+                { \int_compare_p:nNn { \tex_savingvdiscards:D } > { 0 } }
+                {
+                  \dim_compare_p:nNn { \l__tcbpagefootnote_room_dim }
+                    > { \c_zero_dim }
+                }
+                {
+                  \dim_compare_p:nNn
+                    {
+                      \l__tcbpagefootnote_dim_tl
+                      - \l__tcbpagefootnote_room_dim
+                    }
+                    < { \kvtcb@breakminlines \baselineskip }
+                }
+              }
+              {
+                \__tcbpagefootnote_split_again:NNn #1 #4
+                  { \l__tcbpagefootnote_dim_tl + 1pt }
+              }
+              { \__tcbpagefootnote_split_fit:NnnN #1 {#2} {#3} #4 }
+            \int_set_eq:NN #5 \l__tcbpagefootnote_part_int
+            \bool_set_false:N \l__tcbpagefootnote_again_bool
+            \box_clear:N \l__tcbpagefootnote_split_box
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tcbpagefootnote_split_fit:NnnN #1#2#3#4
+  {
+    \__tcbpagefootnote_split_read:Nnn #1 {#2} {#3}
+    \dim_compare:nNnT { \l__tcbpagefootnote_room_dim } > { \c_zero_dim }
+      {
+        \dim_set_eq:NN \l__tcbpagefootnote_first_dim
+          \l__tcbpagefootnote_room_dim
+        \__tcbpagefootnote_split_again:NNn #1 #4
+          { \l__tcbpagefootnote_first_dim }
+        \__tcbpagefootnote_split_read:Nnn #1 {#2} {#3}
+        \dim_compare:nNnT { \l__tcbpagefootnote_room_dim }
+          < { \l__tcbpagefootnote_first_dim }
+          {
+            \tl_set:Ne \l__tcbpagefootnote_back_tl
+              { \dim_use:N \l__tcbpagefootnote_room_dim }
+            \__tcbpagefootnote_split_again:NNn #1 #4
+              { \l__tcbpagefootnote_back_tl }
+            \__tcbpagefootnote_split_read:Nnn #1 {#2} {#3}
+            \dim_compare:nNnT { \l__tcbpagefootnote_room_dim }
+              > { \l__tcbpagefootnote_back_tl }
+              {
+                \__tcbpagefootnote_split_again:NNn #1 #4
+                  { \l__tcbpagefootnote_first_dim }
+                \__tcbpagefootnote_split_read:Nnn #1 {#2} {#3}
+              }
+          }
+      }
+  }
+
+\AddToHook { cmd/tcb@vsplit@upper/before }
+  { \__tcbpagefootnote_split_before:N \tcb@totalupperbox }
+\AddToHook { cmd/tcb@vsplit@upper/after }
+  {
+    \__tcbpagefootnote_split_after:NnnNNn \tcb@totalupperbox
+      { \g__tcbpagefootnote_title_int } { \g__tcbpagefootnote_upper_int }
+      \tcb@vsplit@upper \l__tcbpagefootnote_upper_part_int
+      { \c_zero_dim }
+  }
+\AddToHook { cmd/tcb@vsplit@lower/before }
+  { \__tcbpagefootnote_split_before:N \tcb@totallowerbox }
+\AddToHook { cmd/tcb@vsplit@lower/after }
+  {
+    \__tcbpagefootnote_split_after:NnnNNn \tcb@totallowerbox
+      { \g__tcbpagefootnote_upper_int } { \g__tcbpagefootnote_note_int }
+      \tcb@vsplit@lower \l__tcbpagefootnote_lower_part_int
+      {
+        \tl_if_eq:NNTF \tcb@h@upper \l__tcbpagefootnote_raised_tl
+          { \tcb@h@upper - \l__tcbpagefootnote_true_tl }
+          { \c_zero_dim }
+      }
+  }
+
+%% 8.5 (c) Before a part is drawn: which footnotes it has.
+%%     #1: U (the upper part), L (with the lower part) or all.
+%%     The box of the upper or lower part is all that was left of it
+%%     if nothing is left now; else it is split off.
+%%     The height that is left on the page is reduced by the
+%%     footnotes of the part ("height fixed for" fills the page with
+%%     the part); it is reduced already if the rest of the box fits.
+\cs_new_protected:Npn \__tcbpagefootnote_part:n #1
+  {
+    \__tcbpagefootnote_if_insert:T
+      {
+        \__tcbpagefootnote_lower:
+        \str_case:nn {#1}
+          {
+            { U }
+              {
+                \box_if_empty:NTF \tcb@totalupperbox
+                  {
+                    \int_set_eq:NN \l__tcbpagefootnote_to_int
+                      \g__tcbpagefootnote_upper_int
+                  }
+                  {
+                    \int_set_eq:NN \l__tcbpagefootnote_to_int
+                      \l__tcbpagefootnote_upper_part_int
+                  }
+              }
+            { L }
+              {
+                \box_if_empty:NTF \tcb@totallowerbox
+                  {
+                    \int_set_eq:NN \l__tcbpagefootnote_to_int
+                      \g__tcbpagefootnote_note_int
+                  }
+                  {
+                    \int_set_eq:NN \l__tcbpagefootnote_to_int
+                      \l__tcbpagefootnote_lower_part_int
+                  }
+              }
+            { all }
+              {
+                \int_set_eq:NN \l__tcbpagefootnote_to_int
+                  \g__tcbpagefootnote_note_int
+              }
+          }
+        \cs_if_exist:NT \tcb@h@page
+          {
+            \legacy_if:nF { tcb@final@box }
+              {
+                \__tcbpagefootnote_room:n { \l__tcbpagefootnote_to_int }
+                \tcbdimto \tcb@h@page
+                  { \tcb@h@page - \l__tcbpagefootnote_room_dim }
+              }
+          }
+        \bool_set_true:N \l__tcbpagefootnote_part_bool
+      }
+  }
+\AddToHook { cmd/tcb@drawcolorbox@standalone/before }
+  { \__tcbpagefootnote_part:n { all } }
+\AddToHook { cmd/tcb@sdraw@U/before }   { \__tcbpagefootnote_part:n { U } }
+\AddToHook { cmd/tcb@sdraw@USL/before } { \__tcbpagefootnote_part:n { L } }
+\AddToHook { cmd/tcb@sdraw@SL/before }  { \__tcbpagefootnote_part:n { L } }
+\AddToHook { cmd/tcb@sdraw@L/before }   { \__tcbpagefootnote_part:n { L } }
+
+\endinput

@@ -1,0 +1,1577 @@
+%%
+%% ncolumn.sty
+%% ===========
+%% N columns in the way of \twocolumn of LaTeX, with material that
+%% spans columns from the corners of the page.
+%%
+%% Copyright (c) 2026 Munehiro Yamamoto <munepixyz@gmail.com>
+%%
+%% This package is licensed under the conditions of the LaTeX Project
+%% Public License, either version 1.3c of this license or (at your
+%% option) any later version.  The latest version of this license is in
+%%   https://www.latex-project.org/lppl.txt
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% The Current Maintainer of this work is Munehiro Yamamoto.
+%%
+%% Background
+%%   multicol collects the material of all columns and splits it into
+%%   the columns afterwards, so ordinary floats cannot be used in it
+%%   and packages that look at the room that is left on the page
+%%   (\pagegoal), such as tcolorbox with "breakable", need extra
+%%   care.  \twocolumn of LaTeX builds the columns one after another:
+%%   a column is a page for TeX, and the finished columns are put
+%%   side by side when the last one is done.  Floats, footnotes,
+%%   \marginpar and such packages work in it as on a page.
+%%
+%% What this package does
+%%   It makes the output routine of \twocolumn work for N columns:
+%%     (1) \@outputdblcol keeps the finished columns in N boxes
+%%         instead of one;
+%%     (2) each column has a height of its own that is reserved at its
+%%         top and at its bottom, so that material can span k columns
+%%         from one of the four corners of the page (figure*, table*
+%%         and \spanblock with the keys "span" and "at"); the material
+%%         is laid over the columns when the page is put together;
+%%     (3) the footnotes of a page are put into each column, into the
+%%         last column, or into an area of M columns across the page
+%%         (in the last case the height of the area is taken from the
+%%         .aux file of the run before).
+%%   With two columns and without the new keys, the pages are those
+%%   of \twocolumn.  \@makecol and \@outputpage are not redefined:
+%%   pLaTeX, LuaTeX-ja and the tagging code of LaTeX have their own
+%%   versions or hooks of them.  This is done with every engine, in
+%%   yoko and in tate.
+%%
+%% Tested with TeX Live 2026 (LaTeX 2026-11-01).
+%%
+%% Internal macros of LaTeX that are redefined or wrapped
+%%   \@outputdblcol, \@addtodblcol, \@dblfloat, \@topnewpage,
+%%   \@doclearpage, \@addtocurcol, \@addmarginpar, \@startcolumn,
+%%   \@footnotetext, \twocolumn, \onecolumn, the token list \output
+%%   and, for the marks,
+%%   \@expl@@@mark@update@dblcol@structures@@ (with the internal
+%%   variables of ltmarks, \g__mark_<name>).
+%%
+\NeedsTeXFormat{LaTeX2e}[2025-06-01]
+\ProvidesExplPackage{ncolumn}
+  {2026/11/24}{0.3}{N columns in the way of twocolumn}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 1. Keys and state
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\int_new:N  \g__ncol_n_int         % number of columns in effect (1 = off)
+\int_new:N  \g__ncol_cur_int       % column being built (1..N)
+\int_new:N  \g__ncol_default_int   % N used by \twocolumn
+\int_new:N  \g__ncol_request_int   % columns=N package option (0 = follow class)
+\int_new:N  \g__ncol_alloc_int     % allocated column slots
+\int_new:N  \g__ncol_botnum_int    % remaining bottom spans on this page
+\seq_new:N  \g__ncol_placed_seq    % spans placed on the page being built
+\dim_new:N  \g__ncol_fnres_dim     % height reserved for a page-wide footnote area
+\bool_new:N \g__ncol_samepage_bool
+\tl_new:N   \g__ncol_fnmode_tl     % column | last-column | span
+\int_new:N  \g__ncol_fncols_int    % columns of the footnote area in span mode
+\dim_new:N  \g__ncol_fnreserve_dim % manual reserve (span mode), <0 = automatic
+
+\int_gset:Nn \g__ncol_n_int { 1 }
+\int_gset:Nn \g__ncol_cur_int { 1 }
+\int_gset:Nn \g__ncol_default_int { 2 }
+\int_gset:Nn \g__ncol_fncols_int { 1 }
+\tl_gset:Nn  \g__ncol_fnmode_tl { column }
+\dim_gset:Nn \g__ncol_fnreserve_dim { -1pt }
+
+\int_new:N  \l__ncol_fl_span_int
+\tl_new:N   \l__ncol_fl_side_tl
+\tl_new:N   \l__ncol_fl_vert_tl
+\tl_new:N   \l__ncol_fl_bang_tl
+\tl_new:N   \l__ncol_fl_fps_tl
+\dim_new:N  \l__ncol_fl_wd_dim
+\bool_new:N \l__ncol_fl_keyval_bool
+\bool_new:N \l__ncol_ok_bool
+\bool_new:N \l__ncol_found_bool
+\dim_new:N  \l__ncol_y_dim
+\dim_new:N  \l__ncol_pos_dim
+\dim_new:N  \l__ncol_new_dim
+\dim_new:N  \l__ncol_x_dim
+\dim_new:N  \l__ncol_tmpa_dim
+\dim_new:N  \l__ncol_tmpb_dim
+\int_new:N  \l__ncol_a_int
+\int_new:N  \l__ncol_mintop_int
+\int_new:N  \l__ncol_minbot_int
+\bool_new:N \g__ncol_fnmode_set_bool
+\dim_new:N  \g__ncol_mpar_left_dim
+\dim_new:N  \g__ncol_mpar_right_dim
+\int_new:N  \l__ncol_k_int
+\tl_new:N   \l__ncol_other_tl
+
+\msg_new:nnn { ncolumn } { incompatible }
+  { Package~'#1'~redefines~the~same~parts~of~the~output~routine~and~cannot~be~used~with~ncolumn. }
+\msg_new:nnn { ncolumn } { stfloats }
+  { Package~'stfloats'~is~loaded;~its~double-column~float~placement~is~replaced~by~ncolumn. }
+\msg_new:nnn { ncolumn } { preamble-only }
+  { Key~'#1'~can~only~be~set~in~the~preamble. }
+\msg_new:nnn { ncolumn } { too-tall }
+  { Spanning~material~too~tall~on~page~\thepage. }
+\msg_new:nnn { ncolumn } { bad-span }
+  { span=#1~is~out~of~range~(1..#2);~using~#3. }
+\msg_new:nnn { ncolumn } { fn-rerun }
+  { Footnote~area~changed.~Rerun~to~get~the~page~layout~right. }
+\msg_new:nnn { ncolumn } { fn-overflow }
+  { Footnote~area~on~page~#1~is~#2~but~#3~was~reserved. }
+
+\keys_define:nn { ncolumn }
+  {
+    columns .code:n =
+      {
+        \int_compare:nNnTF { \g__ncol_n_int } = { 1 }
+          { \int_gset:Nn \g__ncol_request_int {#1} }
+          { \msg_error:nnn { ncolumn } { preamble-only } { columns } }
+      } ,
+    footnotes .choices:nn =
+      { column , last-column , span }
+      {
+        \tl_gset:NV \g__ncol_fnmode_tl \l_keys_choice_tl
+        \bool_gset_true:N \g__ncol_fnmode_set_bool
+        \cs_if_exist_use:N \__ncol_fn_set_params:
+        \cs_if_exist_use:N \__ncol_fn_changed:
+      } ,
+    footnote-columns .int_gset:N = \g__ncol_fncols_int ,
+    footnote-reserve .code:n =
+      {
+        \dim_gset:Nn \g__ncol_fnreserve_dim {#1}
+        \cs_if_exist_use:N \__ncol_fn_changed:
+      } ,
+    same-page-spans .bool_gset:N = \g__ncol_samepage_bool ,
+    same-page-spans .default:n = true ,
+  }
+\ProcessKeyOptions [ ncolumn ]
+\NewDocumentCommand \ncolumnsetup { m } { \keys_set:nn { ncolumn } {#1} }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 2. N columns
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% One slot per column: the stored column box and the heights reserved at
+%% the head (top) and the tail (bot) of the column by spanning material.
+\cs_new_protected:Npn \__ncol_alloc:n #1
+  {
+    \int_while_do:nNnn { \g__ncol_alloc_int } < {#1}
+      {
+        \int_gincr:N \g__ncol_alloc_int
+        \box_new:c { g__ncol_col_ \int_use:N \g__ncol_alloc_int _box }
+        \dim_new:c { g__ncol_top_ \int_use:N \g__ncol_alloc_int _dim }
+        \dim_new:c { g__ncol_bot_ \int_use:N \g__ncol_alloc_int _dim }
+      }
+  }
+
+\__ncol_alloc:n { 1 }
+
+%% Same arithmetic as the kernel so that N=2 gives identical widths.
+\cs_new_protected:Npn \__ncol_set_widths:
+  {
+    \global \columnwidth \textwidth
+    \global \advance \columnwidth - \int_eval:n { \g__ncol_n_int - 1 } \columnsep
+    \global \divide \columnwidth \g__ncol_n_int
+    \global \hsize \columnwidth
+    \global \linewidth \columnwidth
+  }
+
+\cs_new_protected:Npn \__ncol_enter:n #1
+  {
+    \int_gset:Nn \g__ncol_n_int {#1}
+    \int_gset_eq:NN \g__ncol_default_int \g__ncol_n_int
+    \__ncol_alloc:n { \g__ncol_n_int }
+    \__ncol_set_widths:
+    \global \@twocolumntrue
+    \global \@firstcolumntrue
+    \int_gset:Nn \g__ncol_cur_int { 1 }
+    \col@number = \g__ncol_n_int
+    \__ncol_fn_set_params:
+    \__ncol_page_reset:
+  }
+
+\NewDocumentCommand \ncolumn { m +o }
+  {
+    \int_compare:nNnTF {#1} < { 2 }
+      { \onecolumn }
+      {
+        \clearpage
+        \__ncol_enter:n {#1}
+        \IfNoValueTF {#2} { \@floatplacement } { \@topnewpage [ {#2} ] }
+      }
+  }
+
+%% Classes call \twocolumn to *restore* multi-column setting (\maketitle,
+%% theindex, ...), so it means "the N in effect for this document".
+\RenewDocumentCommand \twocolumn { +o }
+  {
+    \IfNoValueTF {#1}
+      { \exp_args:NV \ncolumn \g__ncol_default_int }
+      { \exp_args:NV \ncolumn \g__ncol_default_int [ {#1} ] }
+  }
+
+\cs_new_protected:Npn \__ncol_page_reset:
+  {
+    \int_step_inline:nn { \g__ncol_alloc_int }
+      {
+        \dim_gzero:c { g__ncol_top_ ##1 _dim }
+        \dim_gzero:c { g__ncol_bot_ ##1 _dim }
+      }
+    \seq_gclear:N \g__ncol_placed_seq
+    \dim_gzero:N \g__ncol_mpar_left_dim
+    \dim_gzero:N \g__ncol_mpar_right_dim
+    \int_gset:Nn \g__ncol_botnum_int { \c@dblbotnumber }
+    \__ncol_fn_page_reset:
+  }
+
+%% Height available to the current column.
+\cs_new_protected:Npn \__ncol_set_colht:
+  {
+    \dim_gset:Nn \@colht
+      {
+        \textheight
+        - \dim_use:c { g__ncol_top_ \int_use:N \g__ncol_cur_int _dim }
+        - \dim_use:c { g__ncol_bot_ \int_use:N \g__ncol_cur_int _dim }
+        - \g__ncol_fnres_dim
+      }
+  }
+
+%% Replacement of \@outputdblcol.
+\cs_new_protected:Npn \__ncol_outputdblcol:
+  {
+    \int_compare:nNnTF { \g__ncol_cur_int } < { \g__ncol_n_int }
+      {
+        \box_gset_eq_drop:cN
+          { g__ncol_col_ \int_use:N \g__ncol_cur_int _box } \@outputbox
+        \__ncol_fn_column_done:
+        \int_gincr:N \g__ncol_cur_int
+        \global \@firstcolumnfalse
+        \__ncol_fn_set_params:
+        \__ncol_set_colht:
+      }
+      {
+        \__ncol_fn_column_done:
+        \__ncol_compose_page:
+        \int_gset:Nn \g__ncol_cur_int { 1 }
+        \global \@firstcolumntrue
+        \__ncol_fn_set_params:
+        \@outputpage
+        \__ncol_page_reset:
+        \group_begin:
+          \@dblfloatplacement
+          \@startdblcolumn
+          \@whilesw \if@fcolmade \fi
+            {
+              \@outputpage
+              \__ncol_page_reset:
+              \@startdblcolumn
+            }
+        \group_end:
+        \__ncol_set_colht:
+      }
+  }
+
+%% Fill the page with empty columns until we are back in the first one.
+\cs_new_protected:Npn \__ncol_fill_page:
+  {
+    \if@twocolumn
+      \int_step_inline:nn { \g__ncol_n_int }
+        {
+          \int_compare:nNnT { \g__ncol_cur_int } > { 1 }
+            { \hbox:n { } \newpage }
+        }
+    \fi
+  }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 3. Marks
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% N-column version of \__mark_update_dblcol_structures: (ltmarks).  This is
+%% the only place touching ltmarks internals; it is called from \@opcol
+%% before \@outputdblcol, i.e. \g__ncol_cur_int is the column just finished.
+\cs_new_protected:Npn \__ncol_mark_update:
+  {
+    \box_if_vertical:NTF \@outputbox
+      {
+        \mark_update_structure_from_material:nn { column }
+          { \vbox_unpack:N \@outputbox }
+      }
+      {
+        \mark_update_structure_from_material:nn { column }
+          { \hbox_unpack:N \@outputbox }
+      }
+    \int_compare:nNnF { \g__ncol_cur_int } > { 20 }
+      { \mark_copy_structure:nn { mcol- \int_use:N \g__ncol_cur_int } { column } }
+    \int_compare:nNnT { \g__ncol_cur_int } = { 1 }
+      {
+        \mark_copy_structure:nn { first-column } { column }
+        \mark_set_structure_to_err:n { last-column }
+      }
+    \int_compare:nNnF { \g__ncol_cur_int } < { \g__ncol_n_int }
+      {
+        \mark_copy_structure:nn { last-column } { column }
+        \seq_map_inline:Nn \g__mark_classes_seq
+          { \__ncol_mark_page:n {##1} }
+      }
+  }
+\cs_new_protected:Npn \__ncol_mark_page:n #1
+  {
+    \tl_gset_eq:cc { g__mark_previous-page_top_   #1 _tl } { g__mark_page_top_   #1 _tl }
+    \tl_gset_eq:cc { g__mark_previous-page_first_ #1 _tl } { g__mark_page_first_ #1 _tl }
+    \tl_gset_eq:cc { g__mark_previous-page_last_  #1 _tl } { g__mark_page_last_  #1 _tl }
+    \tl_gset_eq:cc { g__mark_page_top_ #1 _tl } { g__mark_first-column_top_ #1 _tl }
+    %% first mark of the page: first mark of the first column that has one
+    \bool_set_false:N \l__ncol_found_bool
+    \int_step_inline:nn { \int_min:nn { \g__ncol_n_int } { 20 } }
+      {
+        \bool_if:NF \l__ncol_found_bool
+          {
+            \tl_if_eq:ccF { g__mark_mcol- ##1 _top_ #1 _tl }
+                          { g__mark_mcol- ##1 _first_ #1 _tl }
+              {
+                \bool_set_true:N \l__ncol_found_bool
+                \tl_gset_eq:cc { g__mark_page_first_ #1 _tl }
+                               { g__mark_mcol- ##1 _first_ #1 _tl }
+              }
+          }
+      }
+    \bool_if:NF \l__ncol_found_bool
+      {
+        \tl_gset_eq:cc { g__mark_page_first_ #1 _tl }
+                       { g__mark_last-column_first_ #1 _tl }
+      }
+    \tl_gset_eq:cc { g__mark_page_last_ #1 _tl } { g__mark_last-column_last_ #1 _tl }
+  }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 4. Spanning material: allocation
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Each column j has a reserved height at its head (top_j) and at its tail
+%% (bot_j).  A span of k columns starting at column a is accepted only if
+%% the reserved heights of the covered columns are all equal (no holes).
+%% The reserved height includes the trailing \dbltextfloatsep, like the
+%% kernel's bookkeeping of \@colht for double-column floats.
+
+\@ifundefined { c@dblbotnumber }
+  { \newcounter { dblbotnumber } \setcounter { dblbotnumber } { 2 } } { }
+\providecommand \dblbotfraction { .5 }
+
+%% Attributes of a float box: {span}{l|r}, keyed by the box register name.
+\cs_new:Npn \__ncol_attr_name: { g__ncol_attr_ \exp_after:wN \cs_to_str:N \@currbox _tl }
+\cs_new_protected:Npn \__ncol_set_attr:nn #1#2
+  { \tl_gset:ce { \__ncol_attr_name: } { { \int_eval:n {#1} } {#2} } }
+\cs_new_protected:Npn \__ncol_get_attr:
+  {
+    \tl_if_exist:cTF { \__ncol_attr_name: }
+      { \exp_last_unbraced:Nv \__ncol_get_attr:nn { \__ncol_attr_name: } }
+      { \__ncol_get_attr:nn { \g__ncol_n_int } { l } }
+  }
+\cs_new_protected:Npn \__ncol_get_attr:nn #1#2
+  {
+    \int_set:Nn \l__ncol_k_int { \int_min:nn {#1} { \g__ncol_n_int } }
+    \str_if_eq:nnTF {#2} { r }
+      { \int_set:Nn \l__ncol_a_int { \g__ncol_n_int - \l__ncol_k_int + 1 } }
+      { \int_set:Nn \l__ncol_a_int { 1 } }
+  }
+
+%% #1 = top|bot.  From \l__ncol_y_dim (current reservation) compute where
+%% the box goes (\l__ncol_pos_dim) and the new reservation.
+\cs_new_protected:Npn \__ncol_calc_pos:
+  {
+    \dim_compare:nNnTF { \l__ncol_y_dim } = { \c_zero_dim }
+      { \dim_zero:N \l__ncol_pos_dim }
+      { \dim_set:Nn \l__ncol_pos_dim { \l__ncol_y_dim - \dbltextfloatsep + \dblfloatsep } }
+    \dim_set:Nn \l__ncol_new_dim
+      { \l__ncol_pos_dim + \box_ht:N \@currbox + \dbltextfloatsep }
+  }
+
+%% #1 = top|bot, #2 = flag (1 = no rule, not counted).  Uses a/k/pos/new.
+\cs_new_protected:Npn \__ncol_commit:nn #1#2
+  {
+    \int_step_inline:nnn { \l__ncol_a_int } { \l__ncol_a_int + \l__ncol_k_int - 1 }
+      { \dim_gset_eq:cN { g__ncol_#1_ ##1 _dim } \l__ncol_new_dim }
+    \seq_gput_right:Ne \g__ncol_placed_seq
+      {
+        { \@currbox } {#1} { \int_use:N \l__ncol_a_int }
+        { \int_use:N \l__ncol_k_int } { \dim_use:N \l__ncol_pos_dim } {#2}
+      }
+    \@cons \@dbltoplist \@currbox
+  }
+
+%% Regular allocation of \@currbox, #1 = top|bot.  Sets \@inserttrue.
+\cs_new_protected:Npn \__ncol_try_alloc:n #1
+  {
+    \str_if_eq:nnTF {#1} { top }
+      { \tl_set:Nn \l__ncol_other_tl { bot } }
+      { \tl_set:Nn \l__ncol_other_tl { top } }
+    \dim_set:Nn \l__ncol_y_dim
+      { \dim_use:c { g__ncol_#1_ \int_use:N \l__ncol_a_int _dim } }
+    \bool_set_true:N \l__ncol_ok_bool
+    \int_step_inline:nnn { \l__ncol_a_int } { \l__ncol_a_int + \l__ncol_k_int - 1 }
+      {
+        \dim_compare:nNnF { \dim_use:c { g__ncol_#1_ ##1 _dim } } = { \l__ncol_y_dim }
+          { \bool_set_false:N \l__ncol_ok_bool }
+      }
+    \bool_if:NT \l__ncol_ok_bool
+      {
+        \__ncol_calc_pos:
+        \int_step_inline:nnn { \l__ncol_a_int } { \l__ncol_a_int + \l__ncol_k_int - 1 }
+          {
+            \dim_set:Nn \l__ncol_tmpa_dim
+              {
+                \textheight - \l__ncol_new_dim - \g__ncol_fnres_dim
+                - \dim_use:c { g__ncol_ \l__ncol_other_tl _ ##1 _dim }
+              }
+            \int_compare:nNnTF { \@fpstype } < { 16 }
+              {
+                \dim_compare:nNnF { \l__ncol_tmpa_dim } > { \c_zero_dim }
+                  { \bool_set_false:N \l__ncol_ok_bool }
+              }
+              {
+                \dim_compare:nNnT { \l__ncol_tmpa_dim } < { \textfraction \textheight }
+                  { \bool_set_false:N \l__ncol_ok_bool }
+              }
+          }
+        \int_compare:nNnF { \@fpstype } < { 16 }
+          {
+            \dim_compare:nNnT { \l__ncol_new_dim - \dbltextfloatsep }
+              > { \use:c { dbl #1 fraction } \textheight }
+              { \bool_set_false:N \l__ncol_ok_bool }
+          }
+      }
+    \bool_if:NT \l__ncol_ok_bool
+      {
+        \__ncol_commit:nn {#1} { 0 }
+        \@inserttrue
+      }
+  }
+
+%% Forced allocation (no limits, holes allowed): \twocolumn[..], \spanblock.
+\cs_new_protected:Npn \__ncol_force_alloc:n #1
+  {
+    \dim_zero:N \l__ncol_y_dim
+    \int_step_inline:nnn { \l__ncol_a_int } { \l__ncol_a_int + \l__ncol_k_int - 1 }
+      {
+        \dim_set:Nn \l__ncol_y_dim
+          { \dim_max:nn { \l__ncol_y_dim } { \dim_use:c { g__ncol_#1_ ##1 _dim } } }
+      }
+    \__ncol_calc_pos:
+    \__ncol_commit:nn {#1} { 1 }
+  }
+
+%% Try the top, then the bottom, as far as the float specifier allows.
+%% A span may only start in column \l__ncol_mintop_int (resp. minbot) or
+%% later: 1 at the start of a page; for a float met while column c is
+%% being built, c+1 for the top (all covered columns still untouched) and
+%% c for the bottom.  Needs \@setfloattypecounts and \__ncol_get_attr:.
+\cs_new_protected:Npn \__ncol_place:
+  {
+    \@getfpsbit \tw@
+    \ifodd \@tempcnta
+      \int_compare:nNnF { \l__ncol_a_int } < { \l__ncol_mintop_int }
+        {
+          \@flsetnum \@dbltopnum
+          \ifnum \@dbltopnum > \z@
+            \__ncol_try_alloc:n { top }
+            \if@insert \global \advance \@dbltopnum \m@ne \fi
+          \fi
+        }
+    \fi
+    \if@insert
+    \else
+      \@getfpsbit 4 \relax
+      \ifodd \@tempcnta
+        \int_compare:nNnF { \l__ncol_a_int } < { \l__ncol_minbot_int }
+          {
+            \int_compare:nNnT { \@fpstype } < { 16 }
+              {
+                \int_compare:nNnT { \g__ncol_botnum_int } = { 0 }
+                  { \int_gset:Nn \g__ncol_botnum_int { 1 } }
+              }
+            \int_compare:nNnT { \g__ncol_botnum_int } > { 0 }
+              {
+                \__ncol_try_alloc:n { bot }
+                \if@insert \int_gdecr:N \g__ncol_botnum_int \fi
+              }
+          }
+      \fi
+    \fi
+  }
+
+%% Replacement of \@addtodblcol: called at the start of a page for every
+%% deferred float, inside \@dblfloatplacement (\f@depth = 1sp).
+\cs_new_protected:Npn \__ncol_addtodblcol:
+  {
+    \group_begin:
+      \@insertfalse
+      \@setfloattypecounts
+      \@bitor \@currtype \@deferlist
+      \@testwrongwidth \@currbox
+      \if@test
+      \else
+        \__ncol_get_attr:
+        \int_set:Nn \l__ncol_mintop_int { 1 }
+        \int_set:Nn \l__ncol_minbot_int { 1 }
+        \__ncol_place:
+      \fi
+      \if@insert
+      \else
+        \@cons \@deferlist \@currbox
+      \fi
+    \group_end:
+  }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 5. Spanning material: user interface
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\keys_define:nn { ncolumn / float }
+  {
+    span .int_set:N = \l__ncol_fl_span_int ,
+    at .choices:nn =
+      { tl , tr , bl , br , t , b }
+      {
+        \tl_set:Ne \l__ncol_fl_vert_tl { \tl_head:N \l_keys_choice_tl }
+        \tl_set:Ne \l__ncol_fl_side_tl { \tl_tail:N \l_keys_choice_tl }
+        \tl_if_empty:NT \l__ncol_fl_side_tl { \tl_set:Nn \l__ncol_fl_side_tl { l } }
+      } ,
+    ! .code:n = { \tl_set:Nn \l__ncol_fl_bang_tl { ! } } ,
+  }
+
+%% Parse the optional argument of a starred float (or \spanblock).
+\cs_new_protected:Npn \__ncol_parse_spec:n #1
+  {
+    \int_set_eq:NN \l__ncol_fl_span_int \g__ncol_n_int
+    \tl_set:Nn \l__ncol_fl_side_tl { l }
+    \tl_set:Nn \l__ncol_fl_vert_tl { t }
+    \tl_clear:N \l__ncol_fl_bang_tl
+    \tl_if_in:nnTF {#1} { = }
+      {
+        \bool_set_true:N \l__ncol_fl_keyval_bool
+        \keys_set:nn { ncolumn / float } {#1}
+        \tl_set:Ne \l__ncol_fl_fps_tl { \l__ncol_fl_bang_tl \l__ncol_fl_vert_tl }
+      }
+      {
+        \bool_set_false:N \l__ncol_fl_keyval_bool
+        \tl_set:Nn \l__ncol_fl_fps_tl {#1}
+      }
+    \bool_lazy_or:nnT
+      { \int_compare_p:nNn { \l__ncol_fl_span_int } < { 1 } }
+      { \int_compare_p:nNn { \l__ncol_fl_span_int } > { \g__ncol_n_int } }
+      {
+        \if@twocolumn
+          \msg_warning:nneee { ncolumn } { bad-span }
+            { \int_use:N \l__ncol_fl_span_int } { \int_use:N \g__ncol_n_int }
+            { \int_use:N \g__ncol_n_int }
+        \fi
+        \int_set_eq:NN \l__ncol_fl_span_int \g__ncol_n_int
+      }
+    \int_compare:nNnT { \l__ncol_fl_span_int } = { \g__ncol_n_int }
+      { \tl_set:Nn \l__ncol_fl_side_tl { l } }
+    \dim_set:Nn \l__ncol_fl_wd_dim
+      {
+        \columnwidth * \l__ncol_fl_span_int
+        + \columnsep * \int_eval:n { \l__ncol_fl_span_int - 1 }
+      }
+  }
+
+%% Replacement of \@dblfloat.
+\cs_new_protected:Npn \__ncol_dblfloat:n #1
+  {
+    \@ifnextchar [
+      { \__ncol_dblfloat:nw {#1} }
+      {
+        \if@twocolumn
+          \exp_after:wN \use_i:nn
+        \else
+          \exp_after:wN \use_ii:nn
+        \fi
+          { \__ncol_dblfloat:nw {#1} [ tp ] }
+          { \@float {#1} }
+      }
+  }
+\cs_new_protected:Npn \__ncol_dblfloat:nw #1 [ #2 ]
+  {
+    \__ncol_parse_spec:n {#2}
+    \if@twocolumn
+      \tl_if_empty:NT \l__ncol_fl_fps_tl { \tl_set:Nn \l__ncol_fl_fps_tl { tp } }
+      \use:e { \exp_not:N \@xfloat {#1} [ \l__ncol_fl_fps_tl ] }
+      \hsize \l__ncol_fl_wd_dim
+      \linewidth \hsize
+      \__ncol_set_attr:nn { \l__ncol_fl_span_int } { \l__ncol_fl_side_tl }
+    \else
+      \bool_if:NT \l__ncol_fl_keyval_bool { \tl_put_right:Nn \l__ncol_fl_fps_tl { p } }
+      \use:e { \exp_not:N \@xfloat {#1} [ \l__ncol_fl_fps_tl ] }
+    \fi
+  }
+
+%% Replacement of \@topnewpage: full-width material at the top of this page.
+\cs_new_protected:Npn \__ncol_topnewpage:w [ #1 ]
+  { \__ncol_block_here:nnnn { \g__ncol_n_int } { l } { top } {#1} }
+
+%% Box #4 as wide as #1 columns and force it onto the page being started.
+\cs_new_protected:Npn \__ncol_block_here:nnnn #1#2#3#4
+  {
+    \@nodocument
+    \@next \@currbox \@freelist { } { }
+    \dim_set:Nn \l__ncol_fl_wd_dim
+      { \columnwidth * #1 + \columnsep * \int_eval:n { #1 - 1 } }
+    \global \setbox \@currbox
+      \color@vbox
+        \normalcolor
+        \vbox
+          {
+            \hsize \l__ncol_fl_wd_dim
+            \@parboxrestore
+            \col@number \@ne
+            #4
+            \str_if_eq:nnTF {#3} { top }
+              { \vskip -\dbltextfloatsep }
+              { \par }
+          }
+      \color@endbox
+    \dim_compare:nNnT { \box_ht:N \@currbox } > { \textheight }
+      { \box_set_ht:Nn \@currbox { \textheight } }
+    \global \count \@currbox \tw@
+    \global \dp \@currbox 1sp
+    \__ncol_set_attr:nn {#1} {#2}
+    \__ncol_get_attr:
+    \__ncol_force_alloc:n {#3}
+    \str_if_eq:nnT {#3} { top } { \global \@dbltopnum \m@ne }
+    \__ncol_set_colht:
+    \dim_compare:nNnTF { \@colht } < { 2.5 \baselineskip }
+      {
+        \msg_warning:nn { ncolumn } { too-tall }
+        \prg_replicate:nn { \g__ncol_n_int } { \@emptycol }
+      }
+      {
+        \global \vsize \@colht
+        \global \@colroom \@colht
+        \@floatplacement
+      }
+  }
+
+%% \spanblock[span=k,at=xx]{material}: non-floating spanning block.
+%% Unstarred: start a new page and put the block on it.
+%% Starred: queue it like a float (next page, or this page if possible).
+\NewDocumentCommand \spanblock { s O{} +m }
+  {
+    \if@twocolumn
+      \IfBooleanTF {#1}
+        {
+          \__ncol_dblfloat:nw { ncol@block } [ ! , at = tl , #2 ]
+            #3
+          \end@dblfloat
+        }
+        {
+          \clearpage
+          \__ncol_parse_spec:n { at = tl , #2 }
+          \use:e
+            {
+              \__ncol_block_here:nnnn
+                { \int_use:N \l__ncol_fl_span_int } { \l__ncol_fl_side_tl }
+                { \str_if_eq:VnTF \l__ncol_fl_vert_tl { b } { bot } { top } }
+            }
+            {#3}
+        }
+    \else
+      \par #3 \par
+    \fi
+  }
+\cs_new:cpn { ftype@ncol@block } { 0 }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 6. Page composition
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cs_new_protected:Npn \__ncol_compose_page:
+  {
+    \setbox \@outputbox \vbox
+      {
+        \offinterlineskip
+        \seq_map_inline:Nn \g__ncol_placed_seq
+          { \__ncol_put_span:nnnnnnn { top } ##1 }
+        \hb@xt@ \textwidth
+          {
+            \int_step_inline:nn { \g__ncol_n_int }
+              {
+                \hb@xt@ \columnwidth { \__ncol_col_box:n {##1} \hss }
+                \int_compare:nNnT {##1} < { \g__ncol_n_int }
+                  { \hfil \__ncol_seprule:n {##1} \hfil }
+              }
+          }
+        \seq_map_inline:Nn \g__ncol_placed_seq
+          { \__ncol_put_span:nnnnnnn { bot } ##1 }
+        \__ncol_fn_put_area:
+      }
+    \tl_set_eq:NN \@elt \scan_stop:
+    \xdef \@freelist { \@freelist \@dbltoplist }
+    \global \let \@dbltoplist \@empty
+  }
+
+%% Column #1 with the space reserved for spans above and below it.
+\cs_new_protected:Npn \__ncol_col_box:n #1
+  {
+    \dim_set:Nn \l__ncol_tmpa_dim { \dim_use:c { g__ncol_top_#1_dim } }
+    \dim_set:Nn \l__ncol_tmpb_dim
+      { \dim_use:c { g__ncol_bot_#1_dim } + \g__ncol_fnres_dim }
+    \bool_lazy_and:nnTF
+      { \dim_compare_p:nNn { \l__ncol_tmpa_dim } = { \c_zero_dim } }
+      { \dim_compare_p:nNn { \l__ncol_tmpb_dim } = { \c_zero_dim } }
+      { \__ncol_col_use:n {#1} }
+      {
+        \vbox to \textheight
+          {
+            \kern \l__ncol_tmpa_dim
+            \__ncol_col_use:n {#1}
+            \kern \l__ncol_tmpb_dim
+            \vss
+          }
+      }
+  }
+\cs_new_protected:Npn \__ncol_col_use:n #1
+  {
+    \int_compare:nNnTF {#1} < { \g__ncol_n_int }
+      { \box_use_drop:c { g__ncol_col_#1_box } }
+      { \box_use_drop:N \@outputbox }
+  }
+
+%% Rule between column #1 and #1+1, only where both have text.
+\cs_new_protected:Npn \__ncol_seprule:n #1
+  {
+    \dim_set:Nn \l__ncol_tmpa_dim
+      {
+        \dim_max:nn { \dim_use:c { g__ncol_top_#1_dim } }
+          { \dim_use:c { g__ncol_top_ \int_eval:n { #1 + 1 } _dim } }
+      }
+    \dim_set:Nn \l__ncol_tmpb_dim
+      {
+        \dim_max:nn { \dim_use:c { g__ncol_bot_#1_dim } }
+          { \dim_use:c { g__ncol_bot_ \int_eval:n { #1 + 1 } _dim } }
+        + \g__ncol_fnres_dim
+      }
+    \group_begin:
+      \normalcolor
+      \bool_lazy_and:nnTF
+        { \dim_compare_p:nNn { \l__ncol_tmpa_dim } = { \c_zero_dim } }
+        { \dim_compare_p:nNn { \l__ncol_tmpb_dim } = { \c_zero_dim } }
+        { \vrule \@width \columnseprule }
+        {
+          \vrule \@width \columnseprule
+            \@height \dim_eval:n { \textheight - \l__ncol_tmpa_dim }
+            \@depth - \l__ncol_tmpb_dim
+        }
+    \group_end:
+  }
+
+%% #1 = wanted side; #2..#7 = placed entry {box}{side}{a}{k}{pos}{flag}.
+%% The box is put into the vertical list as it is, not inside an \hbox:
+%% the material of \twocolumn[...] ends with \vskip -\dbltextfloatsep,
+%% so its box has a negative height if the material is lower than that,
+%% and an \hbox would take this height as zero.
+\cs_new_protected:Npn \__ncol_put_span:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \str_if_eq:nnT {#1} {#3}
+      {
+        \dim_set:Nn \l__ncol_x_dim
+          { ( \columnwidth + \columnsep ) * \int_eval:n { #4 - 1 } }
+        \dim_set:Nn \l__ncol_fl_wd_dim
+          { \columnwidth * #5 + \columnsep * \int_eval:n { #5 - 1 } }
+        \dim_compare:nNnTF
+          { #6 + \box_ht:N #2 + \dbltextfloatsep } = { \dim_use:c { g__ncol_#3_#4_dim } }
+          { \bool_set_true:N \l__ncol_found_bool }
+          { \bool_set_false:N \l__ncol_found_bool }
+        \str_if_eq:nnTF {#3} { top }
+          {
+            \vbox to \c_zero_dim
+              {
+                \offinterlineskip
+                \kern #6 \scan_stop:
+                \moveright \l__ncol_x_dim \box #2
+                \__ncol_figrule:nnnn {#3} {#2} {#4} {#7}
+                \vss
+              }
+          }
+          {
+            \vbox to \c_zero_dim
+              {
+                \offinterlineskip
+                \vss
+                \__ncol_figrule:nnnn {#3} {#2} {#4} {#7}
+                \moveright \l__ncol_x_dim \box #2
+                \kern \dim_eval:n { #6 + \g__ncol_fnres_dim }
+              }
+          }
+      }
+  }
+%% \dblfigrule between the innermost span and the text (kernel: after the
+%% last double-column top float).  #4 = 1 suppresses it.
+\cs_new_protected:Npn \__ncol_figrule:nnnn #1#2#3#4
+  {
+    \bool_lazy_and:nnT
+      { \int_compare_p:nNn {#4} = { 0 } } { \l__ncol_found_bool }
+      {
+        \tl_if_eq:NNF \dblfigrule \scan_stop:
+          {
+            \hb@xt@ \textwidth
+              {
+                \kern \l__ncol_x_dim
+                \vbox to \c_zero_dim
+                  { \hsize \l__ncol_fl_wd_dim \dblfigrule \vss }
+                \hss
+              }
+          }
+      }
+  }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 7. Footnotes
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% footnotes=column       kernel behaviour: below the column they occur in.
+%% footnotes=last-column  one pass: footnotes of the other columns do not
+%%                        take space there (\count\footins=0) and are carried
+%%                        to the last column of the page (cf. ftnright).
+%% footnotes=span         two passes: all footnotes are collected and set in
+%%                        an area across the page (M columns); its height is
+%%                        written to the .aux file and reserved in the next
+%%                        run.
+%%
+%% \@makecol is not touched.  Instead \box\footins is taken away at the very
+%% beginning of every \output call, so that the kernel always sees it void.
+
+\box_new:N  \g__ncol_fn_box          % carried footnotes
+\box_new:N  \l__ncol_fn_area_box
+\box_new:N  \l__ncol_fn_tmp_box
+\skip_new:N \g__ncol_fn_skip_skip    % saved \skip\footins
+\int_new:N  \g__ncol_fn_count_int    % saved \count\footins
+\dim_new:N  \g__ncol_fn_dimen_dim    % saved \dimen\footins
+\bool_new:N \g__ncol_fn_modified_bool
+\bool_new:N \g__ncol_fn_rerun_bool
+\dim_new:N  \l__ncol_fn_wd_dim
+\dim_new:N  \l__ncol_fn_amount_dim
+\dim_new:N  \l__ncol_fn_target_dim
+
+%% Boxes we rebuild must keep the direction of the original (pTeX).
+\cs_new_protected:Npn \__ncol_dir_as:N #1 { }
+\cs_if_exist:NT \iftbox
+  { \cs_set_protected:Npn \__ncol_dir_as:N #1 { \iftbox #1 \tate \else \yoko \fi } }
+
+\prg_new_conditional:Npnn \__ncol_fn_carry: { p , T , F , TF }
+  {
+    \legacy_if:nTF { @twocolumn }
+      {
+        \str_case:VnF \g__ncol_fnmode_tl
+          {
+            { span } { \prg_return_true: }
+            { last-column }
+              {
+                \int_compare:nNnTF { \g__ncol_cur_int } < { \g__ncol_n_int }
+                  { \prg_return_true: } { \prg_return_false: }
+              }
+          }
+          { \prg_return_false: }
+      }
+      { \prg_return_false: }
+  }
+\prg_new_conditional:Npnn \__ncol_fn_span: { p , T , F , TF }
+  {
+    \legacy_if:nTF { @twocolumn }
+      { \str_if_eq:VnTF \g__ncol_fnmode_tl { span } { \prg_return_true: } { \prg_return_false: } }
+      { \prg_return_false: }
+  }
+
+%% Insertion parameters for the column about to be built.
+\cs_new_protected:Npn \__ncol_fn_set_params:
+  {
+    \__ncol_fn_carry:TF
+      {
+        \bool_if:NF \g__ncol_fn_modified_bool
+          {
+            \global \g__ncol_fn_skip_skip  = \skip  \footins
+            \global \g__ncol_fn_count_int  = \count \footins
+            \global \g__ncol_fn_dimen_dim  = \dimen \footins
+            \bool_gset_true:N \g__ncol_fn_modified_bool
+          }
+        \global \count \footins \z@
+        \global \skip  \footins \z@skip
+        \global \dimen \footins \maxdimen
+      }
+      {
+        \bool_if:NT \g__ncol_fn_modified_bool
+          {
+            \global \count \footins \g__ncol_fn_count_int
+            \global \skip  \footins \g__ncol_fn_skip_skip
+            \global \dimen \footins \g__ncol_fn_dimen_dim
+            \bool_gset_false:N \g__ncol_fn_modified_bool
+          }
+      }
+  }
+%% \skip\footins as the class set it, whatever the current state.
+\skip_new:N \l__ncol_fn_skip_skip
+\cs_new_protected:Npn \__ncol_fn_get_skip:
+  {
+    \bool_if:NTF \g__ncol_fn_modified_bool
+      { \l__ncol_fn_skip_skip = \g__ncol_fn_skip_skip }
+      { \l__ncol_fn_skip_skip = \skip \footins }
+  }
+
+%% Prepended to \output.
+\cs_new_protected:Npn \__ncol_output_begin:
+  {
+    \__ncol_fn_carry:T
+      {
+        \box_if_empty:NF \footins
+          {
+            \global \setbox \g__ncol_fn_box \vbox
+              {
+                \__ncol_dir_as:N \footins
+                \unvbox \g__ncol_fn_box
+                \unvbox \footins
+              }
+          }
+      }
+  }
+
+%% Height taken by the carried footnotes when attached to a column.
+\cs_new_protected:Npn \__ncol_fn_amount:
+  {
+    \__ncol_fn_get_skip:
+    \dim_set:Nn \l__ncol_fn_amount_dim
+      { \box_ht:N \g__ncol_fn_box + \box_dp:N \g__ncol_fn_box + \l__ncol_fn_skip_skip }
+  }
+
+%% \@startcolumn wrapper (last-column mode): when the last column starts,
+%% the carried footnotes are inserted again, now with \count\footins=1000.
+%% While the kernel looks for a float column, the column is made shorter by
+%% their height (as ftnright does).
+\cs_new_protected:Npn \__ncol_startcolumn:
+  {
+    \bool_lazy_all:nTF
+      {
+        { \legacy_if_p:n { @twocolumn } }
+        { \str_if_eq_p:Vn \g__ncol_fnmode_tl { last-column } }
+        { \int_compare_p:nNn { \g__ncol_cur_int } = { \g__ncol_n_int } }
+        { ! \box_if_empty_p:N \g__ncol_fn_box }
+      }
+      {
+        \__ncol_fn_amount:
+        \global \advance \@colht - \l__ncol_fn_amount_dim
+        \__ncol_orig_startcolumn:
+        \__ncol_fn_amount:
+        \global \advance \@colht \l__ncol_fn_amount_dim
+        \if@fcolmade
+        \else
+          \global \advance \@colroom \l__ncol_fn_amount_dim
+          \insert \footins
+            {
+              \__ncol_dir_as:N \g__ncol_fn_box
+              \unvbox \g__ncol_fn_box
+            }
+        \fi
+      }
+      { \__ncol_orig_startcolumn: }
+  }
+
+%% Called when a column is finished (\@outputbox holds it), before the
+%% column counter moves on.  If footnotes are still carried when the last
+%% column is done (it was a float column), they go below it.
+\cs_new_protected:Npn \__ncol_fn_column_done:
+  {
+    \bool_lazy_all:nT
+      {
+        { \str_if_eq_p:Vn \g__ncol_fnmode_tl { last-column } }
+        { \int_compare_p:nNn { \g__ncol_cur_int } = { \g__ncol_n_int } }
+        { ! \box_if_empty_p:N \g__ncol_fn_box }
+      }
+      {
+        \__ncol_fn_amount:
+        \dim_set:Nn \l__ncol_tmpa_dim
+          { \dim_min:nn { \box_ht:N \@outputbox } { \@colht - \l__ncol_fn_amount_dim } }
+        \global \setbox \@outputbox \vbox to \@colht
+          {
+            \vbox to \l__ncol_tmpa_dim { \unvbox \@outputbox }
+            \vskip \l__ncol_fn_skip_skip
+            \color@begingroup
+              \normalcolor
+              \footnoterule
+              \unvbox \g__ncol_fn_box
+            \color@endgroup
+            \vss
+          }
+      }
+  }
+
+%% ---- span mode ----
+
+%% Width of one column of the footnote area.
+\cs_new_protected:Npn \__ncol_fn_set_wd:
+  {
+    \dim_set:Nn \l__ncol_fn_wd_dim
+      {
+        ( \textwidth - \columnsep * \int_eval:n { \g__ncol_fncols_int - 1 } )
+        / \g__ncol_fncols_int
+      }
+  }
+
+%% \@footnotetext wrapper: all definitions in use (kernel, pLaTeX,
+%% jsclasses, jlreq, hyperref, tagging) set the text to \columnwidth.
+\cs_new_protected:Npn \__ncol_footnotetext:n #1
+  {
+    \group_begin:
+      \__ncol_fn_span:T
+        {
+          \__ncol_fn_set_wd:
+          \columnwidth \l__ncol_fn_wd_dim
+        }
+      \__ncol_orig_footnotetext:n {#1}
+    \group_end:
+  }
+
+%% Reserved height for the page about to be started.  The .aux file has
+%% one entry per page, \ncol@fnres{page}{R}{S}{L}:
+%%   R  height to reserve in this run,
+%%   S  the reservation in use before the last shrink (0pt: none),
+%%   L  >= 0pt: locked; the area measured L while R was reserved.
+%% Reserving space can push a footnote mark to the next page, which makes
+%% the area smaller again: without care R would oscillate.  When a shrink
+%% is followed by a growth back, the larger value is locked for as long as
+%% the page keeps measuring L.
+\dim_new:N \g__ncol_fn_prev_dim
+\dim_new:N \g__ncol_fn_lock_dim
+\cs_new_protected:Npn \__ncol_fn_page_reset:
+  {
+    \dim_gzero:N \g__ncol_fnres_dim
+    \dim_gzero:N \g__ncol_fn_prev_dim
+    \dim_gset:Nn \g__ncol_fn_lock_dim { -1pt }
+    \__ncol_fn_span:T
+      {
+        \dim_compare:nNnTF { \g__ncol_fnreserve_dim } < { \c_zero_dim }
+          {
+            \tl_if_exist:cT
+              { g__ncol_fnres_ \int_eval:n { \g_shipout_readonly_int + 1 } _tl }
+              {
+                \exp_last_unbraced:Nv \__ncol_fn_use_entry:nnn
+                  { g__ncol_fnres_ \int_eval:n { \g_shipout_readonly_int + 1 } _tl }
+              }
+          }
+          { \dim_gset_eq:NN \g__ncol_fnres_dim \g__ncol_fnreserve_dim }
+      }
+  }
+\cs_new_protected:Npn \__ncol_fn_use_entry:nnn #1#2#3
+  {
+    \dim_gset:Nn \g__ncol_fnres_dim {#1}
+    \dim_gset:Nn \g__ncol_fn_prev_dim {#2}
+    \dim_gset:Nn \g__ncol_fn_lock_dim {#3}
+  }
+%% \ncolumnsetup with "footnotes" or "footnote-reserve" in the first
+%% column of a page, e.g. right after \ncolumn{N}: the page has started
+%% with the reservation of the old setting.  It is taken again, and the
+%% difference is taken off the height of the column, also if the
+%% column has text already.  In a later column the page keeps what it
+%% has, as the columns before it are finished.
+\bool_new:N \g__ncol_fn_started_bool
+\dim_new:N \l__ncol_fn_delta_dim
+\cs_new_protected:Npn \__ncol_fn_changed:
+  {
+    \bool_lazy_all:nT
+      {
+        { \g__ncol_fn_started_bool }
+        { \legacy_if_p:n { @twocolumn } }
+        { \int_compare_p:nNn { \g__ncol_cur_int } = { 1 } }
+      }
+      {
+        \dim_set_eq:NN \l__ncol_fn_delta_dim \g__ncol_fnres_dim
+        \__ncol_fn_page_reset:
+        \dim_set:Nn \l__ncol_fn_delta_dim
+          { \g__ncol_fnres_dim - \l__ncol_fn_delta_dim }
+        \dim_compare:nNnF { \l__ncol_fn_delta_dim } = { \c_zero_dim }
+          {
+            \global \advance \@colht - \l__ncol_fn_delta_dim
+            \global \advance \@colroom - \l__ncol_fn_delta_dim
+            \global \vsize \@colroom
+            \dim_compare:nNnT { \pagegoal } < { \c_max_dim }
+              {
+                \pagegoal = \dim_eval:n { \pagegoal - \l__ncol_fn_delta_dim }
+                \scan_stop:
+              }
+          }
+      }
+  }
+\cs_new_protected:Npn \ncol@fnres #1#2#3#4
+  { \tl_gset:cn { g__ncol_fnres_ #1 _tl } { {#2} {#3} {#4} } }
+
+%% Build \l__ncol_fn_area_box from the carried footnotes: \skip\footins,
+%% the rule and the notes in M balanced columns.
+\cs_new_protected:Npn \__ncol_fn_build_area:
+  {
+    \__ncol_fn_set_wd:
+    \int_compare:nNnTF { \g__ncol_fncols_int } < { 2 }
+      {
+        \setbox \l__ncol_fn_tmp_box \vbox
+          { \__ncol_dir_as:N \g__ncol_fn_box \unvbox \g__ncol_fn_box }
+      }
+      { \__ncol_fn_balance: }
+    \__ncol_fn_get_skip:
+    \setbox \l__ncol_fn_area_box \vbox
+      {
+        \offinterlineskip
+        \columnwidth \l__ncol_fn_wd_dim
+        \hsize \textwidth
+        \vskip \l__ncol_fn_skip_skip
+        \color@begingroup
+          \normalcolor
+          \footnoterule
+          \box \l__ncol_fn_tmp_box
+        \color@endgroup
+      }
+  }
+\cs_new_protected:Npn \__ncol_fn_balance:
+  {
+    \group_begin:
+      \reset@font \footnotesize
+      \splittopskip \footnotesep
+      \splitmaxdepth \box_dp:N \strutbox
+      \vbadness \@M
+      \dim_set:Nn \l__ncol_fn_target_dim
+        {
+          ( \box_ht:N \g__ncol_fn_box + \box_dp:N \g__ncol_fn_box )
+          / \g__ncol_fncols_int
+        }
+      %% find the smallest height into which M columns fit
+      \bool_set_false:N \l__ncol_ok_bool
+      \int_step_inline:nn { 400 }
+        {
+          \bool_if:NF \l__ncol_ok_bool
+            {
+              \setbox \l__ncol_fn_tmp_box \copy \g__ncol_fn_box
+              \prg_replicate:nn { \g__ncol_fncols_int - 1 }
+                { \setbox \l__ncol_fn_area_box \vsplit \l__ncol_fn_tmp_box to \l__ncol_fn_target_dim }
+              \dim_compare:nNnTF
+                { \box_ht:N \l__ncol_fn_tmp_box + \box_dp:N \l__ncol_fn_tmp_box }
+                > { \l__ncol_fn_target_dim }
+                { \dim_add:Nn \l__ncol_fn_target_dim { 1pt } }
+                { \bool_set_true:N \l__ncol_ok_bool }
+            }
+        }
+      \setbox \l__ncol_fn_tmp_box \hb@xt@ \textwidth
+        {
+          \int_step_inline:nn { \g__ncol_fncols_int }
+            {
+              \int_compare:nNnTF {##1} < { \g__ncol_fncols_int }
+                { \setbox \l__ncol_fn_area_box \vsplit \g__ncol_fn_box to \l__ncol_fn_target_dim }
+                { \setbox \l__ncol_fn_area_box \box \g__ncol_fn_box }
+              \vbox to \l__ncol_fn_target_dim
+                { \hsize \l__ncol_fn_wd_dim \unvbox \l__ncol_fn_area_box \vss }
+              \int_compare:nNnT {##1} < { \g__ncol_fncols_int } { \hfil }
+            }
+        }
+      \global \setbox \g__ncol_fn_box \box \l__ncol_fn_tmp_box
+    \group_end:
+    \setbox \l__ncol_fn_tmp_box \box \g__ncol_fn_box
+    \global \setbox \g__ncol_fn_box \box \c_empty_box
+  }
+
+%% Put the area at the bottom of the page box being composed and record
+%% its height for the next run.
+\cs_new_protected:Npn \__ncol_fn_put_area:
+  {
+    \dim_zero:N \l__ncol_fn_amount_dim
+    \__ncol_fn_span:T
+      {
+        \box_if_empty:NF \g__ncol_fn_box
+          {
+            \__ncol_fn_build_area:
+            \dim_set:Nn \l__ncol_fn_amount_dim
+              { \box_ht:N \l__ncol_fn_area_box + \box_dp:N \l__ncol_fn_area_box }
+            \vbox to \c_zero_dim
+              {
+                \offinterlineskip
+                \kern - \dim_min:nn { \l__ncol_fn_amount_dim } { \g__ncol_fnres_dim }
+                \box \l__ncol_fn_area_box
+                \vss
+              }
+          }
+        \__ncol_fn_record:
+      }
+  }
+\dim_new:N \l__ncol_fn_nextr_dim
+\dim_new:N \l__ncol_fn_nexts_dim
+\dim_new:N \l__ncol_fn_nextl_dim
+\cs_new_protected:Npn \__ncol_fn_record:
+  {
+    \dim_compare:nNnTF { \g__ncol_fnreserve_dim } < { \c_zero_dim }
+      {
+        \dim_set_eq:NN \l__ncol_fn_nextr_dim \g__ncol_fnres_dim
+        \dim_zero:N \l__ncol_fn_nexts_dim
+        \dim_set_eq:NN \l__ncol_fn_nextl_dim \g__ncol_fn_lock_dim
+        \bool_lazy_and:nnF
+          { \dim_compare_p:nNn { \g__ncol_fn_lock_dim } > { -1pt } }
+          { \dim_compare_p:nNn { \l__ncol_fn_amount_dim } = { \g__ncol_fn_lock_dim } }
+          {
+            %% not locked, or the page changed: forget the lock
+            \dim_compare:nNnT { \g__ncol_fn_lock_dim } > { -1pt }
+              { \dim_gzero:N \g__ncol_fn_prev_dim }
+            \dim_set:Nn \l__ncol_fn_nextl_dim { -1pt }
+            \dim_compare:nNnTF { \l__ncol_fn_amount_dim } > { \g__ncol_fnres_dim }
+              {
+                \bool_lazy_and:nnTF
+                  { \dim_compare_p:nNn { \g__ncol_fn_prev_dim } > { \c_zero_dim } }
+                  { ! \dim_compare_p:nNn { \l__ncol_fn_amount_dim } > { \g__ncol_fn_prev_dim } }
+                  {
+                    \dim_set_eq:NN \l__ncol_fn_nextr_dim \g__ncol_fn_prev_dim
+                    \dim_set_eq:NN \l__ncol_fn_nextl_dim \g__ncol_fnres_dim
+                  }
+                  { \dim_set_eq:NN \l__ncol_fn_nextr_dim \l__ncol_fn_amount_dim }
+              }
+              {
+                \dim_compare:nNnT { \l__ncol_fn_amount_dim } < { \g__ncol_fnres_dim }
+                  {
+                    \dim_set_eq:NN \l__ncol_fn_nextr_dim \l__ncol_fn_amount_dim
+                    \dim_set_eq:NN \l__ncol_fn_nexts_dim \g__ncol_fnres_dim
+                  }
+              }
+          }
+        \dim_compare:nNnF { \l__ncol_fn_nextr_dim } = { \g__ncol_fnres_dim }
+          { \bool_gset_true:N \g__ncol_fn_rerun_bool }
+        \bool_lazy_all:nF
+          {
+            { \dim_compare_p:nNn { \l__ncol_fn_nextr_dim } = { \c_zero_dim } }
+            { \dim_compare_p:nNn { \l__ncol_fn_nexts_dim } = { \c_zero_dim } }
+            { \dim_compare_p:nNn { \l__ncol_fn_nextl_dim } < { \c_zero_dim } }
+          }
+          {
+            \if@filesw
+              \iow_now:Ne \@auxout
+                {
+                  \token_to_str:N \ncol@fnres
+                    { \int_eval:n { \g_shipout_readonly_int + 1 } }
+                    { \dim_use:N \l__ncol_fn_nextr_dim }
+                    { \dim_use:N \l__ncol_fn_nexts_dim }
+                    { \dim_use:N \l__ncol_fn_nextl_dim }
+                }
+            \fi
+          }
+      }
+      {
+        \dim_compare:nNnT { \l__ncol_fn_amount_dim } > { \g__ncol_fnres_dim }
+          {
+            \msg_warning:nneee { ncolumn } { fn-overflow }
+              { \int_eval:n { \g_shipout_readonly_int + 1 } }
+              { \dim_use:N \l__ncol_fn_amount_dim } { \dim_use:N \g__ncol_fnres_dim }
+          }
+      }
+  }
+\AddToHook { enddocument / info }
+  {
+    \bool_if:NT \g__ncol_fn_rerun_bool
+      { \msg_warning:nn { ncolumn } { fn-rerun } }
+  }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 8. Installation
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% \@doclearpage: kernel code (2026-11-01) with two changes in the
+%% "first column" branch: our bookkeeping of placed spans is reset when
+%% they go back to \@deferlist, and \@colroom is brought back in sync with
+%% \@colht afterwards.  Walking through the remaining columns
+%% (\vbox{}\clearpage) already works for any number of columns.
+\cs_new_protected:Npn \__ncol_doclearpage:
+  {
+    \ifvoid \footins
+      \ifvbox \@kludgeins
+        { \setbox \@tempboxa \box \@kludgeins }
+      \fi
+      \setbox \@tempboxa \vsplit \@cclv to \z@ \unvbox \@tempboxa
+      \setbox \@tempboxa \box \@cclv
+      \xdef \@deferlist { \@toplist \@botlist \@deferlist }
+      \global \let \@toplist \@empty
+      \global \let \@botlist \@empty
+      \global \@colroom \@colht
+      \ifx \@currlist \@empty
+      \else
+        \@latex@error { Float(s)~lost } \@ehb
+        \global \let \@currlist \@empty
+      \fi
+      \@makefcolumn \@deferlist
+      \@whilesw \if@fcolmade \fi { \@opcol \@makefcolumn \@deferlist }
+      \if@twocolumn
+        \if@firstcolumn
+          \__ncol_widen_partial_spans:
+          \xdef \@deferlist { \@dbltoplist \@deferlist }
+          \global \let \@dbltoplist \@empty
+          \__ncol_page_reset:
+          \global \@colht \textheight
+          \group_begin:
+            \@dblfloatplacement
+            \@makefcolumn \@deferlist
+            \@whilesw \if@fcolmade \fi
+              {
+                \@outputpage
+                \__ncol_page_reset:
+                \@makefcolumn \@deferlist
+              }
+          \group_end:
+          \__ncol_set_colht:
+          \global \@colroom \@colht
+        \else
+          \vbox { } \clearpage
+        \fi
+      \fi
+      \ifx \@deferlist \@empty \else \clearpage \fi
+    \else
+      \setbox \@cclv \vbox { \box \@cclv \vfil }
+      \@makecol \@opcol
+      \clearpage
+    \fi
+  }
+
+%% \@addtocurcol: spanning floats (depth 1sp) never go through the kernel
+%% code (nor through stfloats' version of it); they are deferred to the
+%% start of a page, where \@addtodblcol allocates them.
+\cs_new_protected:Npn \__ncol_addtocurcol:
+  {
+    \bool_lazy_and:nnTF
+      { \legacy_if_p:n { @twocolumn } }
+      { \dim_compare_p:nNn { \box_dp:N \@currbox } = { 1sp } }
+      { \__ncol_span_arrived: }
+      { \__ncol_orig_addtocurcol: }
+  }
+%% With same-page-spans it still goes on the page being built in two
+%% cases: at the top if all the columns it covers are still to come, at
+%% the bottom if it starts in the current column (and there is room
+%% left) or later.
+\cs_new_protected:Npn \__ncol_span_arrived:
+  {
+    \@insertfalse
+    \@setfloattypecounts
+    \bool_if:NT \g__ncol_samepage_bool
+      {
+        \@bitor \@currtype \@deferlist
+        \if@test
+        \else
+          \__ncol_get_attr:
+          \int_set:Nn \l__ncol_mintop_int { \g__ncol_cur_int + 1 }
+          \int_set:Nn \l__ncol_minbot_int { \g__ncol_cur_int }
+          \int_compare:nNnT { \l__ncol_a_int } = { \g__ncol_cur_int }
+            {
+              %% the current column is covered: it must have room left
+              \dim_compare:nNnF { \@colroom - \@pageht }
+                > { \box_ht:N \@currbox + \dbltextfloatsep + \dblfloatsep + \baselineskip }
+                { \int_set:Nn \l__ncol_minbot_int { \g__ncol_cur_int + 1 } }
+            }
+          \dim_set:Nn \l__ncol_tmpb_dim
+            { \dim_use:c { g__ncol_bot_ \int_use:N \g__ncol_cur_int _dim } }
+          \__ncol_place:
+          \if@insert
+            %% the tail of the current column may just have been reserved
+            \dim_set:Nn \l__ncol_tmpb_dim
+              {
+                \dim_use:c { g__ncol_bot_ \int_use:N \g__ncol_cur_int _dim }
+                - \l__ncol_tmpb_dim
+              }
+            \global \advance \@colht  - \l__ncol_tmpb_dim
+            \global \advance \@colroom - \l__ncol_tmpb_dim
+          \fi
+        \fi
+      }
+    \if@insert
+    \else
+      \@resethfps
+      \@cons \@deferlist \@currbox
+    \fi
+  }
+
+%% Before a flush, partial spans become full-width boxes (aligned to their
+%% side) so that the kernel's float-page code can take them.
+\cs_new_protected:Npn \__ncol_widen_partial_spans:
+  {
+    \group_begin:
+      \cs_set_protected:Npn \@elt ##1
+        {
+          \cs_set_nopar:Npn \@currbox {##1}
+          \dim_compare:nNnT { \box_dp:N ##1 } = { 1sp }
+            {
+              \__ncol_get_attr:
+              \int_compare:nNnT { \l__ncol_k_int } < { \g__ncol_n_int }
+                {
+                  \global \setbox ##1 \vbox
+                    {
+                      \hb@xt@ \textwidth
+                        {
+                          \int_compare:nNnT { \l__ncol_a_int } > { 1 } { \hfil }
+                          \box ##1
+                          \int_compare:nNnT { \l__ncol_a_int } = { 1 } { \hfil }
+                        }
+                    }
+                  \global \dp ##1 1sp
+                  \__ncol_set_attr:nn { \g__ncol_n_int } { l }
+                }
+            }
+        }
+      \@dbltoplist
+      \@deferlist
+    \group_end:
+  }
+
+%% \@addmarginpar for more than two columns (kernel code otherwise): the
+%% note goes to the nearer margin, shifted across the columns in between,
+%% and notes from different columns sharing a margin do not overlap.
+\cs_new_protected:Npn \__ncol_addmarginpar:
+  {
+    \bool_lazy_and:nnTF
+      { \legacy_if_p:n { @twocolumn } }
+      { \int_compare_p:nNn { \g__ncol_n_int } > { 2 } }
+      { \__ncol_addmarginpar_n: }
+      { \__ncol_orig_addmarginpar: }
+  }
+\cs_new_protected:Npn \__ncol_addmarginpar_n:
+  {
+    \@next \@marbox \@currlist
+      { \@cons \@freelist \@marbox \@cons \@freelist \@currbox } \@latexbug
+    \@tempcnta \@ne
+    \int_compare:nNnF { 2 * \g__ncol_cur_int } > { \g__ncol_n_int }
+      { \@tempcnta \m@ne }
+    \ifnum \@tempcnta < \z@
+      \global \setbox \@marbox \box \@currbox
+    \fi
+    %% lowest point used so far on this side, in this column's coordinates
+    \dim_set:Nn \l__ncol_tmpa_dim
+      { \dim_use:c { g__ncol_top_ \int_use:N \g__ncol_cur_int _dim } }
+    \dim_gset:Nn \@mparbottom
+      {
+        \ifnum \@tempcnta < \z@ \g__ncol_mpar_left_dim \else \g__ncol_mpar_right_dim \fi
+        - \l__ncol_tmpa_dim
+      }
+    \@tempdima \@mparbottom
+    \advance \@tempdima - \@pageht
+    \advance \@tempdima \ht \@marbox
+    \ifdim \@tempdima > \z@
+      \@latex@warning@no@line { Marginpar~on~page~\thepage \space moved }
+    \else
+      \@tempdima \z@
+    \fi
+    \global \@mparbottom \@pageht
+    \global \advance \@mparbottom \@tempdima
+    \global \advance \@mparbottom \dp \@marbox
+    \global \advance \@mparbottom \marginparpush
+    \ifnum \@tempcnta < \z@
+      \dim_gset:Nn \g__ncol_mpar_left_dim { \@mparbottom + \l__ncol_tmpa_dim }
+    \else
+      \dim_gset:Nn \g__ncol_mpar_right_dim { \@mparbottom + \l__ncol_tmpa_dim }
+    \fi
+    \advance \@tempdima - \ht \@marbox
+    \global \setbox \@marbox \vbox { \vskip \@tempdima \box \@marbox }
+    \global \ht \@marbox \z@
+    \global \dp \@marbox \z@
+    \kern - \@pagedp
+    \nointerlineskip
+    \hb@xt@ \columnwidth
+      {
+        \ifnum \@tempcnta > \z@
+          \hskip \columnwidth
+          \hskip \dim_eval:n
+            { ( \columnwidth + \columnsep ) * \int_eval:n { \g__ncol_n_int - \g__ncol_cur_int } }
+          \hskip \marginparsep
+        \else
+          \hskip - \marginparsep
+          \hskip - \marginparwidth
+          \hskip - \dim_eval:n
+            { ( \columnwidth + \columnsep ) * \int_eval:n { \g__ncol_cur_int - 1 } }
+        \fi
+        \box \@marbox \hss
+      }
+    \nointerlineskip
+    \hbox { \vrule \@height \z@ \@width \z@ \@depth \@pagedp }
+  }
+
+\cs_new_protected:Npn \__ncol_onecolumn:
+  {
+    \__ncol_orig_onecolumn:
+    \int_gset:Nn \g__ncol_n_int { 1 }
+    \int_gset:Nn \g__ncol_cur_int { 1 }
+    \__ncol_fn_set_params:
+  }
+
+\cs_new_protected:Npn \__ncol_install:
+  {
+    \clist_map_inline:nn
+      { ftnright , nidanfloat , dblfloatfix , cuted , balance , flushend ,
+        pbalance , flowfram , dblfnote }
+      {
+        \@ifpackageloaded {##1}
+          { \msg_error:nnn { ncolumn } { incompatible } {##1} } { }
+      }
+    \@ifpackageloaded { stfloats }
+      { \msg_warning:nn { ncolumn } { stfloats } } { }
+    \cs_set_eq:NN \@outputdblcol \__ncol_outputdblcol:
+    \cs_set_eq:NN \@expl@@@mark@update@dblcol@structures@@ \__ncol_mark_update:
+    \cs_set_eq:NN \@addtodblcol \__ncol_addtodblcol:
+    \cs_set_eq:NN \@dblfloat \__ncol_dblfloat:n
+    \cs_set_eq:NN \@topnewpage \__ncol_topnewpage:w
+    \cs_set_eq:NN \@doclearpage \__ncol_doclearpage:
+    \cs_set_eq:NN \__ncol_orig_addtocurcol: \@addtocurcol
+    \cs_set_eq:NN \@addtocurcol \__ncol_addtocurcol:
+    \cs_set_eq:NN \__ncol_orig_addmarginpar: \@addmarginpar
+    \cs_set_eq:NN \@addmarginpar \__ncol_addmarginpar:
+    %% jlreq in vertical writing wants the notes at the end of the last
+    %% column (JLReq 4.2.6.a); its own code for that assumes two columns.
+    \bool_if:NF \g__ncol_fnmode_set_bool
+      {
+        \@ifclassloaded { jlreq }
+          {
+            \legacy_if:nT { @tate }
+              { \tl_gset:Nn \g__ncol_fnmode_tl { last-column } }
+          } { }
+      }
+    \cs_set_eq:NN \__ncol_orig_startcolumn: \@startcolumn
+    \cs_set_eq:NN \@startcolumn \__ncol_startcolumn:
+    \exp_args:NNe \tex_global:D \output
+      { \exp_not:N \__ncol_output_begin: \exp_not:V \output }
+    \cs_set_eq:NN \__ncol_orig_onecolumn: \onecolumn
+    \cs_set_eq:NN \onecolumn \__ncol_onecolumn:
+    \clist_map_inline:nn
+      { cleardoublepage , pltx@cleartorightpage , pltx@cleartoleftpage ,
+        pltx@cleartooddpage , pltx@cleartoevenpage }
+      {
+        \cs_if_exist:cT {##1}
+          { \AddToHook { cmd / ##1 / after } { \__ncol_fill_page: } }
+      }
+  }
+\AddToHook { begindocument / before } { \__ncol_install: }
+\AddToHook { begindocument / end }
+  {
+    \cs_set_eq:NN \__ncol_orig_footnotetext:n \@footnotetext
+    \cs_set_eq:NN \@footnotetext \__ncol_footnotetext:n
+    \if@filesw
+      \iow_now:Ne \@auxout
+        { \token_to_str:N \providecommand \token_to_str:N \ncol@fnres [4] { } }
+    \fi
+  }
+
+\AddToHook { begindocument }
+  {
+    \int_compare:nNnTF { \g__ncol_request_int } > { 1 }
+      { \__ncol_enter:n { \g__ncol_request_int } }
+      {
+        \int_compare:nNnTF { \g__ncol_request_int } = { 1 }
+          {
+            \global \@twocolumnfalse
+            \global \columnwidth \textwidth
+            \global \hsize \columnwidth
+            \global \linewidth \columnwidth
+            \col@number \@ne
+          }
+          { \if@twocolumn \__ncol_enter:n { 2 } \fi }
+      }
+    \if@twocolumn
+      \__ncol_set_colht:
+      \global \@colroom \@colht
+      \global \vsize \@colht
+    \fi
+    \bool_gset_true:N \g__ncol_fn_started_bool
+  }

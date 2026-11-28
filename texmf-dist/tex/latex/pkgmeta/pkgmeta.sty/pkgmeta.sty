@@ -1,0 +1,233 @@
+% pkgmeta: Package metadata information for LaTeX.
+%
+% Copyright (C) 2026 Amer Amikhteh
+%
+% This package is free software: you may redistribute it and/or modify
+% it under the terms of the LaTeX Project Public License as published
+% by the LaTeX Project, either version 1.3c of the License, or
+% (at your option) any later version.
+%
+% This package is distributed in the hope that it will be useful,
+% but WITHOUT ANY WARRANTY; without even the implied warranty of
+% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+%
+% The full license text is available at:
+% https://www.latex-project.org/lppl/
+%
+% This work is "maintained" by Amer Amikhteh.
+%
+% The current maintainer of this work is Amer Amikhteh.
+%
+% This package consists of the file pkgmeta.sty and the files
+% distributed with it.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{pkgmeta}
+[2026/09/29 v1.0 Package metadata information]
+
+\makeatletter
+
+% ------------------------------------------------------------
+% Remove a leading v from a version number
+% ------------------------------------------------------------
+
+\def\pmeta@removev#1#2\@end{%
+    \ifnum`#1=`v %
+        #2%
+    \else
+        #1#2%
+    \fi
+}
+
+% ------------------------------------------------------------
+% Split a date of the form YYYY/MM/DD
+% ------------------------------------------------------------
+
+\def\pmeta@splitdate#1/#2/#3\@end{%
+    \def\pmeta@yearvalue{#1}%
+    \def\pmeta@monthvalue{#2}%
+    \def\pmeta@dayvalue{#3}%
+}
+
+% ------------------------------------------------------------
+% Read metadata from a file
+% ------------------------------------------------------------
+
+\def\pmeta@read#1#2{%
+    \begingroup
+    \let\NeedsTeXFormat\@gobble
+    \let\filename@ext\relax
+    \filename@parse{#1}%
+    \ifx\filename@ext\relax
+        \edef\pmeta@filename{#1.sty}%
+    \else
+        \edef\pmeta@filename{#1}%
+    \fi
+    \setbox\@tempboxa=\vbox{%
+        \hsize=\maxdimen
+        \expandafter\ReadFileInfos\expandafter{\pmeta@filename}%
+    }%
+    \expandafter\pmeta@select
+    \expandafter{\pmeta@filename}{#2}%
+    \endgroup
+}
+
+% ------------------------------------------------------------
+% Select the requested metadata field
+% ------------------------------------------------------------
+
+\def\pmeta@select#1#2{%
+    \GetFileInfo{#1}%
+    \def\pmeta@key{#2}%
+    \def\pmeta@defaultkey{default}%
+    \def\pmeta@versionkey{version}%
+    \def\pmeta@datekey{date}%
+    \def\pmeta@yearkey{year}%
+    \def\pmeta@monthkey{month}%
+    \def\pmeta@daykey{day}%
+    \def\pmeta@descriptionkey{description}%
+    \ifx\pmeta@key\pmeta@defaultkey
+        \filedate\space\fileversion\space\fileinfo%
+    \else
+        \ifx\pmeta@key\pmeta@versionkey
+            \expandafter\pmeta@removev\fileversion\@end%
+        \else
+            \ifx\pmeta@key\pmeta@datekey
+                \filedate%
+            \else
+                \ifx\pmeta@key\pmeta@descriptionkey
+                    \fileinfo%
+                \else
+                    \expandafter\pmeta@splitdate\filedate\@end%
+                    \ifx\pmeta@key\pmeta@yearkey
+                        \pmeta@yearvalue%
+                    \else
+                        \ifx\pmeta@key\pmeta@monthkey
+                            \pmeta@monthvalue%
+                        \else
+                            \ifx\pmeta@key\pmeta@daykey
+                                \pmeta@dayvalue%
+                            \else
+                                unresolved%
+                            \fi
+                        \fi
+                    \fi
+                \fi
+            \fi
+        \fi
+    \fi
+}
+
+% ------------------------------------------------------------*
+% LuaTeX
+% ------------------------------------------------------------*
+
+\ifdefined\directlua
+
+    \directlua{pkgmeta = require("pkgmeta")}
+
+    \NewExpandableDocumentCommand{\pkgmeta}{O{default}m}{%
+        \directlua{%
+            pkgmeta.print(
+            "\luaescapestring{#2}",
+            "\luaescapestring{#1}"
+            )%
+        }%
+    }
+
+    % ------------------------------------------------------------*
+    % XeTeX and other non-Lua engines
+    % ------------------------------------------------------------*
+
+\else
+
+    \RequirePackage{readprov}
+
+    \ExplSyntaxOn
+
+    \cs_new:Npn \pmeta_date_year:n #1
+    {
+        \exp_args:Ne \tl_range:nnn
+        { \UseDateOf{#1.sty} }
+        { 1 }
+        { 4 }
+    }
+
+    \cs_new:Npn \pmeta_date_month:n #1
+    {
+        \exp_args:Ne \tl_range:nnn
+        { \UseDateOf{#1.sty} }
+        { 6 }
+        { 7 }
+    }
+
+    \cs_new:Npn \pmeta_date_day:n #1
+    {
+        \exp_args:Ne \tl_range:nnn
+        { \UseDateOf{#1.sty} }
+        { 9 }
+        { 10 }
+    }
+
+    \cs_new:Npn \pmeta_version:n #1
+    {
+        \exp_args:Ne \pmeta_version_aux:n
+        { \UseVersionOf{#1.sty} }
+    }
+
+    \cs_new:Npn \pmeta_version_aux:n #1
+    {
+        \tl_if_head_eq_charcode:nNTF {#1} v
+            { \tl_tail:n {#1} }
+            { #1 }
+    }
+
+    \NewExpandableDocumentCommand{\pkgmeta}{O{default}m}
+    {
+        \ifcsname ver@#2.sty\endcsname
+
+            \str_case:nnF {#1}
+            {
+                {date}
+                {
+                    \UseDateOf{#2.sty}
+                }
+
+                {version}
+                {
+                    \pmeta_version:n {#2}
+                }
+
+                {year}
+                {
+                    \pmeta_date_year:n {#2}
+                }
+
+                {month}
+                {
+                    \pmeta_date_month:n {#2}
+                }
+
+                {day}
+                {
+                    \pmeta_date_day:n {#2}
+                }
+            }
+            {
+                \pmeta@read{#2}{#1}
+            }
+
+        \else
+
+            \pmeta@read{#2}{#1}
+
+        \fi
+    }
+
+    \ExplSyntaxOff
+
+\fi
+
+\makeatother
+
+\endinput

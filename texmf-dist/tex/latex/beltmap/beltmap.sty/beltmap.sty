@@ -1,0 +1,351 @@
+% Copyright (C) 2026 Landon Fox
+%
+% This work may be distributed and/or modified under the conditions of the
+% LaTeX Project Public License, either version 1.3c of this license or (at your
+% option) any later version. The latest version of this license is in
+%   https://www.latex-project.org/lppl.txt
+% and version 1.3c or later is part of all distributions of LaTeX version
+% 2008 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% The Current Maintainer of this work is Landon Fox.
+%
+% This work consists of the files beltmap.sty, tikzlibrarybeltmap.code.tex,
+% beltmap.lua, beltmap-net.lua, beltmap_export.py, beltmap-doc.tex, and the
+% files in examples/.
+
+% beltmap.sty: schematic pictures of Factorio belt layouts in LuaLaTeX.
+%
+% Front ends, all drawn by the glyphs and themes of tikzlibrarybeltmap.code.tex:
+%   \beltlayout[keys]{file}         Factorio-SAT tiles (.json), search records (.jsonl),
+%                                   or a file holding a blueprint string or book
+%   \beltblueprint[keys]{string}    a blueprint string written into the document
+%   \begin{beltgrid}[keys] ... \end{beltgrid}      a layout typed as a character grid
+%   \beltglyph[keys]{kind}          one glyph inline, for running text and captions
+%   \usetikzlibrary{beltmap}        the glyphs by hand, in any tikzpicture
+% Reading, tracing and the TikZ code are done in beltmap.lua.  See beltmap-doc.pdf.
+\NeedsTeXFormat{LaTeX2e}[2024-06-01]
+\ProvidesExplPackage{beltmap}{2026-11-23}{0.6}{Schematic pictures of Factorio belt layouts}
+
+\sys_if_engine_luatex:F
+	{
+		\msg_new:nnn { beltmap } { engine } { beltmap~needs~LuaLaTeX:~it~reads~layouts~and~blueprint~strings~in~Lua. }
+		\msg_critical:nn { beltmap } { engine }
+	}
+
+% The libraries are read with ordinary catcodes: under expl3 syntax their spaces vanish.
+\ExplSyntaxOff
+\RequirePackage{tikz}
+\RequirePackage{graphicx}
+\usetikzlibrary{beltmap}
+% Game icons: the leftmost square of the icon file, clipped; or a placeholder with initials.
+\def\BeltmapIconImage#1#2#3{\raisebox{-0.22\height}{\includegraphics[viewport=#1, clip, width=#2]{#3}}}
+\def\BeltmapIconMissing#1#2{\tikz[baseline=-0.6ex]\node[bm icon missing, minimum width=#1, minimum height=#1]{#2};}
+\ExplSyntaxOn
+\lua_now:n { beltmap = require('beltmap') }
+\tl_new:N \l__beltmap_factoriodata_tl
+\tl_new:N \l__beltmap_icons_tl
+
+\tl_new:N \l__beltmap_tier_tl
+\tl_new:N \l__beltmap_trim_tl
+\tl_new:N \l__beltmap_color_tl
+\tl_new:N \l__beltmap_flow_tl
+\tl_new:N \l__beltmap_mix_tl
+\tl_new:N \beltmapverdict
+\tl_new:N \beltmapstring
+\tl_new:N \l__beltmap_blueprint_tl
+\tl_new:N \l__beltmap_bplabel_tl
+\tl_new:N \l__beltmap_bpfile_tl
+\tl_new:N \l__beltmap_bpref_tl
+\tl_new:N \l__beltmap_grid_tl
+\tl_new:N \l__beltmap_ends_tl
+\tl_new:N \l__beltmap_heads_tl
+\tl_new:N \l__beltmap_lanes_tl
+\tl_new:N \l__beltmap_labels_tl
+\tl_new:N \l__beltmap_openends_tl
+\tl_new:N \l__beltmap_factorio_tl
+\tl_new:N \l__beltmap_auto_alt_tl
+\tl_new:N \l__beltmap_altkey_tl
+\tl_new:N \l__beltmap_mixlanes_tl
+\tl_new:N \l__beltmap_focus_tl
+\tl_new:N \l__beltmap_step_tl
+\tl_new:N \l__beltmap_palette_tl
+\tl_new:N \l__beltmap_throughput_tl
+\tl_new:N \l__beltmap_blocked_tl
+\tl_new:N \l__beltmap_marks_tl
+\tl_new:N \l__beltmap_demand_tl
+\tl_new:N \l__beltmap_numbers_tl
+\tl_new:N \l__beltmap_compare_tl
+\tl_new:N \l__beltmap_view_tl
+\tl_new:N \l__beltmap_expect_tl
+\tl_new:N \l__beltmap_frames_tl
+\tl_new:N \l__beltmap_gpath_tl
+\tl_new:N \l__beltmap_bookfile_tl
+\tl_new:N \l__beltmap_bookstring_tl
+\tl_new:N \g__beltmap_booklabel_tl
+\bool_new:N \g__beltmap_book_bool
+\int_new:N \l__beltmap_columns_int
+\tl_new:N \beltmaplanes
+\tl_new:N \beltmapthroughput
+\tl_new:N \beltmapblocked
+\tl_new:N \beltmapinputs
+\tl_new:N \beltmapcaption
+\tl_new:N \beltmaplanebalance
+\tl_new:N \beltmapfullload
+\tl_new:N \beltmapsame
+\tl_new:N \l__beltmap_lanebalance_tl
+\tl_new:N \l__beltmap_fullload_tl
+\tl_new:N \l__beltmap_samenetwork_tl
+\tl_new:N \l__beltmap_cache_tl
+\tl_new:N \l__beltmap_outdir_tl
+
+% A key taking true or false, stored as text for beltmap.lua to read.
+\cs_new_protected:Npn \__beltmap_bool_key:n #1
+	{
+		\keys_define:nn { beltmap }
+			{
+				#1 .choices:nn = { true , false } { \tl_set_eq:cN { l__beltmap_#1_tl } \l_keys_choice_tl } ,
+				#1 .default:n = true ,
+			}
+	}
+\clist_map_function:nN { ends , heads , lanes , labels , openends , throughput , blocked , marks , demand , numbers , dimensions , cache } \__beltmap_bool_key:n
+% grid: true (normal), false (none), faint, or strong; grid major=n, rulers=n, dimensions.
+\keys_define:nn { beltmap }
+	{
+		grid .choices:nn = { true , false , none , faint , normal , strong } { \tl_set_eq:NN \l__beltmap_grid_tl \l_keys_choice_tl } ,
+		grid .default:n = true ,
+		grid~major .tl_set:N = \l__beltmap_gridmajor_tl ,
+		rulers .tl_set:N = \l__beltmap_rulers_tl ,
+		rulers .default:n = 1 ,
+	}
+
+\keys_define:nn { beltmap }
+	{
+		theme .tl_set:N = \l__beltmap_theme_tl ,
+		theme .initial:n = schematic ,
+		tile .tl_set:N = \l__beltmap_tile_tl ,
+		tile .initial:n = 4.4mm ,
+		gap .tl_set:N = \l__beltmap_gap_tl ,
+		tier .choices:nn = { yellow , red , blue , turbo } { \tl_set_eq:NN \l__beltmap_tier_tl \l_keys_choice_tl } ,
+		tier / none .code:n = { \tl_clear:N \l__beltmap_tier_tl } ,
+		trim .choices:nn = { true , false , auto } { \tl_set_eq:NN \l__beltmap_trim_tl \l_keys_choice_tl } ,
+		trim .default:n = true ,
+		trim .initial:n = auto ,
+		color .choices:nn = { belt , tier } { \tl_set_eq:NN \l__beltmap_color_tl \l_keys_choice_tl } ,
+		color .initial:n = belt ,
+		mix .choices:nn = { blend , bands , strict , check , none } { \tl_set_eq:NN \l__beltmap_mix_tl \l_keys_choice_tl } ,
+		mix .default:n = blend ,
+		mix .initial:n = none ,
+		mix~lanes .choices:nn = { true , false } { \tl_set_eq:NN \l__beltmap_mixlanes_tl \l_keys_choice_tl } ,
+		mix~lanes .default:n = true ,
+		focus .tl_set:N = \l__beltmap_focus_tl ,
+		focus / none .code:n = { \tl_clear:N \l__beltmap_focus_tl } ,
+		step .tl_set:N = \l__beltmap_step_tl ,
+		palette .choices:nn = { wheel , okabe-ito , lightness , gray } { \tl_set_eq:NN \l__beltmap_palette_tl \l_keys_choice_tl } ,
+		% file paths are expanded, so that a macro may name a folder
+		compare .code:n = { \tl_set:Ne \l__beltmap_compare_tl {#1} } ,
+		view .choices:nn = { graph , wires } { \tl_set_eq:NN \l__beltmap_view_tl \l_keys_choice_tl } ,
+		factorio~data .code:n = { \tl_set:Ne \l__beltmap_factoriodata_tl {#1} } ,
+		icons .choices:nn = { true , false } { \tl_set_eq:NN \l__beltmap_icons_tl \l_keys_choice_tl } ,
+		icons .default:n = true ,
+		view / layout .code:n = { \tl_clear:N \l__beltmap_view_tl } ,
+		lane~balance .choices:nn = { true , false } { \tl_set_eq:NN \l__beltmap_lanebalance_tl \l_keys_choice_tl } ,
+		lane~balance .default:n = true ,
+		full~load .choices:nn = { true , false } { \tl_set_eq:NN \l__beltmap_fullload_tl \l_keys_choice_tl } ,
+		full~load .default:n = true ,
+		same~network .code:n = { \tl_set:Ne \l__beltmap_samenetwork_tl {#1} } ,
+		expect .tl_set:N = \l__beltmap_expect_tl ,
+		columns .int_set:N = \l__beltmap_columns_int ,
+		columns .initial:n = 3 ,
+		limit .tl_set:N = \l__beltmap_limit_tl ,
+		blueprint .choices:nn = { file , attach } { \tl_set_eq:NN \l__beltmap_blueprint_tl \l_keys_choice_tl } ,
+		blueprint / none .code:n = { \tl_clear:N \l__beltmap_blueprint_tl } ,
+		blueprint .default:n = attach ,
+		blueprint~label .tl_set:N = \l__beltmap_bplabel_tl ,
+		flow .choices:nn = { right , up , left , down } { \tl_set_eq:NN \l__beltmap_flow_tl \l_keys_choice_tl } ,
+		flow / asis .code:n = { \tl_clear:N \l__beltmap_flow_tl } ,
+		inputs .tl_set:N = \l__beltmap_inputs_tl ,
+		outputs .tl_set:N = \l__beltmap_outputs_tl ,
+		index .tl_set:N = \l__beltmap_index_tl ,
+		label .tl_set:N = \l__beltmap_label_tl ,
+		record .tl_set:N = \l__beltmap_record_tl ,
+		pick .tl_set:N = \l__beltmap_pick_tl ,
+		factorio .choices:nn = { 1.1 , 2.0 } { \tl_set_eq:NN \l__beltmap_factorio_tl \l_keys_choice_tl } ,
+		alt .tl_set:N = \l__beltmap_alt_tl ,
+		annotate .tl_set:N = \l__beltmap_annotate_tl ,
+		tikz .tl_set:N = \l__beltmap_tikz_tl ,
+	}
+\ProcessKeyOptions [ beltmap ]
+
+\NewDocumentCommand \beltmapset { m } { \keys_set:nn { beltmap } {#1} }
+
+% The picture: #1 is the Lua call that reads the layout.  The alternative text goes to
+% LaTeX's tagging code when the document is tagged (\DocumentMetadata with tagging=on),
+% which defines the TikZ key alt; otherwise the key is left out.
+\cs_new_protected:Npn \__beltmap_picture:n #1
+	{
+		\lua_now:e {#1}
+		\tl_if_empty:NT \l__beltmap_alt_tl { \tl_set_eq:NN \l__beltmap_alt_tl \l__beltmap_auto_alt_tl }
+		\cs_if_exist:cTF { pgfk@/tikz/alt/.@cmd }
+			{ \tl_set:Ne \l__beltmap_altkey_tl { alt = { \exp_not:V \l__beltmap_alt_tl } , } }
+			{ \tl_clear:N \l__beltmap_altkey_tl }
+		\use:e
+			{
+				\exp_not:N \begin{tikzpicture}
+					[
+						bm~tile = \l__beltmap_tile_tl ,
+						bm~theme = \l__beltmap_theme_tl ,
+						\exp_not:V \l__beltmap_altkey_tl
+						\exp_not:V \l__beltmap_tikz_tl
+					]
+			}
+		\lua_now:n { beltmap.emit() }
+		\l__beltmap_annotate_tl
+		\end{tikzpicture}
+		\str_if_eq:VnT \l__beltmap_blueprint_tl { attach } { \__beltmap_attach:NN \beltmapstring \l__beltmap_bpfile_tl }
+	}
+
+% blueprint=attach: the blueprint string as a text file inside the PDF, listed in the
+% viewer's attachments.  With \DocumentMetadata the kernel's pdfmanagement embeds it, with
+% an /AF entry as PDF 2.0 asks; without, the embedfile package embeds the file written beside
+% the PDF.
+\IfPDFManagementActiveTF
+	{
+		\cs_generate_variant:Nn \pdffile_embed_stream:nnN { VV }
+		\cs_new_protected:Npn \__beltmap_attach:NN #1#2
+			{
+				\tl_if_empty:NF #2
+					{
+						\group_begin:
+							\pdfdict_put:nnn { l_pdffile/Filespec } { AFRelationship } { /Supplement }
+							\pdf_string_from_unicode:nnN { utf16/string } { Factorio~blueprint~string } \l_tmpa_str
+							\pdfdict_put:nne { l_pdffile/Filespec } { Desc } { \l_tmpa_str }
+							\pdffile_embed_stream:VVN #1 #2 \l__beltmap_bpref_tl
+							\pdfmanagement_add:nne { Catalog / Names } { EmbeddedFiles } { \l__beltmap_bpref_tl }
+							\pdfmanagement_add:nne { Catalog } { AF } { \l__beltmap_bpref_tl }
+						\group_end:
+					}
+			}
+	}
+	{
+		\RequirePackage{embedfile}
+		\cs_new_protected:Npn \__beltmap_attach:NN #1#2
+			{
+				\tl_if_empty:NF #2
+					{ \use:e { \exp_not:N \embedfile [ filespec = { #2 } , desc = { Factorio~blueprint~string } , mimetype = text/plain ] { \l__beltmap_outdir_tl #2 } } }
+			}
+	}
+
+% The share matrix of the last picture: rows inputs, columns outputs, exact fractions.
+\NewDocumentCommand \beltmapmatrix { } { \lua_now:n { beltmap.print_matrix() } }
+
+% \beltmapbook[label]: at the end of the document, every blueprint written with blueprint=file
+% or attach goes into one blueprint book, written to <jobname>-book.txt and attached.
+\NewDocumentCommand \beltmapbook { O{beltmap} }
+	{
+		\bool_gset_true:N \g__beltmap_book_bool
+		\tl_gset:Nn \g__beltmap_booklabel_tl {#1}
+	}
+% The book is attached at the end of the document, before embedfile finishes its list of
+% attachments (embedfile's own end-of-document code ran first and refused it otherwise).
+\AddToHook { enddocument } [ beltmap ]
+	{
+		\bool_if:NT \g__beltmap_book_bool
+			{
+				\lua_now:e { beltmap.book('\lua_escape:e { \g__beltmap_booklabel_tl }') }
+				\__beltmap_attach:NN \l__beltmap_bookstring_tl \l__beltmap_bookfile_tl
+			}
+		\lua_now:n { beltmap.cache_write() }
+	}
+\DeclareHookRule { enddocument } { beltmap } { before } { embedfile }
+
+% \beltanimation[keys]{file}: one picture per step of the flow, from empty belts to the steady
+% state, for beltmap_export.py --gif (or the animate package).
+\NewDocumentCommand \beltanimation { O{} m }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } {#1}
+			\tl_if_empty:NT \l__beltmap_mix_tl { \tl_set:Nn \l__beltmap_mix_tl { blend } }
+			\str_if_eq:VnT \l__beltmap_mix_tl { none } { \tl_set:Nn \l__beltmap_mix_tl { blend } }
+			\lua_now:e { beltmap.count_frames('\lua_escape:e {#2}') }
+			\int_step_inline:nnn { 0 } { \l__beltmap_frames_tl - 1 }
+				{
+					\tl_set:Nn \l__beltmap_step_tl {##1}
+					\__beltmap_picture:n { beltmap.from_file('\lua_escape:e {#2}') }
+					% a space between frames, where a line may break
+					\c_space_tl
+				}
+		\group_end:
+	}
+
+% \beltgallery[keys]{file.jsonl}: every record with status "sat", columns= per row, each with
+% its name, size and area and \beltmapcaption; pick= keeps one family, limit= the first n.
+\NewDocumentCommand \beltgallery { O{} m }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } {#1}
+			\tl_set:Nn \l__beltmap_gpath_tl {#2}
+			\par \noindent
+			\lua_now:e { beltmap.gallery('\lua_escape:e {#2}') }
+		\group_end:
+	}
+\cs_new_protected:Npn \BeltmapGalleryCell #1#2
+	{
+		\begin{minipage}[t]
+			{ \dim_eval:n { ( \linewidth - 1em * ( \l__beltmap_columns_int - 1 ) ) / \l__beltmap_columns_int } }
+			\centering
+			\group_begin:
+				\tl_set:Nn \l__beltmap_record_tl {#1}
+				\tl_clear:N \l__beltmap_alt_tl
+				\__beltmap_picture:n { beltmap.from_file('\lua_escape:e { \l__beltmap_gpath_tl }') }
+			\group_end:
+			\par \smallskip
+			{ \scriptsize \sffamily #2 \par \beltmapcaption \par }
+		\end{minipage}
+	}
+
+% The blueprint string of the last picture, typeset in a box #1 wide (\linewidth when
+% left out) with a possible break after every character.
+\NewDocumentCommand \beltmapprintstring { O{\linewidth} }
+	{
+		\parbox{#1}{ \raggedright \ttfamily \scriptsize \lua_now:n { beltmap.print_string() } }
+	}
+
+\NewDocumentCommand \beltlayout { O{} m }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } {#1}
+			\__beltmap_picture:n { beltmap.from_file('\lua_escape:e {#2}') }
+		\group_end:
+	}
+
+\NewDocumentCommand \beltblueprint { O{} +m }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } {#1}
+			\__beltmap_picture:n { beltmap.from_string('\lua_escape:e { \tl_to_str:n {#2} }') }
+		\group_end:
+	}
+
+% The body is read as text: cells separated by spaces, rows by \\ (see beltmap.lua).
+\NewDocumentEnvironment { beltgrid } { O{} +b }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } {#1}
+			\__beltmap_picture:n { beltmap.from_grid('\lua_escape:e { \tl_to_str:n {#2} }') }
+		\group_end:
+	}
+	{ }
+
+% \beltmapicon[width]{item}: a game icon in running text, from the reader's copy of Factorio.
+\NewDocumentCommand \beltmapicon { O{1.2em} m }
+	{ \lua_now:e { beltmap.icon('\lua_escape:e {#2}', '\lua_escape:e { \exp_not:n {#1} }') } }
+
+\NewDocumentCommand \beltglyph { O{} m }
+	{
+		\group_begin:
+			\keys_set:nn { beltmap } { grid = false , ends = false , labels = false , openends = false , blueprint = none , tile = 1.15em , #1 }
+			\tl_put_left:Nn \l__beltmap_tikz_tl { baseline = { ([yshift=-0.55ex]current~bounding~box.center) } , }
+			\__beltmap_picture:n { beltmap.from_glyph('\lua_escape:e {#2}') }
+		\group_end:
+	}

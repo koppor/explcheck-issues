@@ -1,0 +1,1455 @@
+% Input:       a completed picture and the document's surrounding math style.
+% Output:      the public environments and commands, and the joiner audit's findings.
+% Owned state: the equation panel list and the sensed math class.
+% Invariants:  the surface names no geometry; it opens and closes pictures only.
+% Next stage:  none; the records have already been consumed.
+% SPDX-License-Identifier: Apache-2.0
+% Copyright the TNLean project; see LICENSE for the full terms.
+%
+% tenkz-kernel-surface.code.tex is the surface stage: the public environments, math-style sensing, the
+%   joiner audit, and the commands the package exposes.
+%
+% Split out of tenkz-kernel.code.tex without changing a line of content;
+% the stages load in the order tenkz-kernel.code.tex lists them, and the
+% golden event and pixel streams are unchanged by the move.
+
+% Load guard.  It stands before \ExplSyntaxOn deliberately: a guarded exit
+% never reaches the trailing \ExplSyntaxOff, so a guard inside expl3 syntax
+% would leave the caller's catcodes changed -- ignoring spaces rather than
+% erroring.  Guarding first leaves them exactly as they were found, whether
+% the caller had expl3 syntax on or off.
+\ifcsname tenkzkernel\endcsname \expandafter\endinput \fi
+
+\ExplSyntaxOn
+
+
+% Skin pairings are model-owned wires, not renderer-private decoration.
+% Materialize them while the store is writable so event streams, selectors,
+% topology consumers, and rendering all observe the same records.
+\int_new:N \l__tenkz_kernel_skin_pairing_int
+\seq_new:N \l__tenkz_kernel_skin_pairing_cross_index_seq
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairings:
+  {
+    \__tenkz_model_map_ids:nn {atom}
+      { \__tenkz_kernel_skin_pairings_atom:n {##1} }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairings_atom:n #1
+  {
+    \__tenkz_kernel_skin_pairing_crosses:n {#1}
+    \__tenkz_model_get:nnN {#1} {skin} \l__tenkz_kernel_r_skin_declared_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_r_skin_declared_tl
+      {
+        \prop_get:NVNT \g__tenkz_kernel_skin_prop
+          \l__tenkz_kernel_r_skin_declared_tl
+          \l__tenkz_kernel_r_skin_descriptor_tl
+          {
+            \exp_args:NnV \regex_match:nnT
+              { (?: \A | , ) \s* pairings \s* = }
+              \l__tenkz_kernel_r_skin_descriptor_tl
+              {
+                \exp_args:NnV \regex_extract_once:nnNTF
+                  { (?: \A | , ) \s* pairings \s* = \s* \{ ([^{}]*) \} }
+                  \l__tenkz_kernel_r_skin_descriptor_tl
+                  \l__tenkz_kernel_match_seq
+                  {
+                    \__tenkz_model_get:nnN {#1} {cluster}
+                      \l__tenkz_kernel_r_tl
+                    \quark_if_no_value:NTF \l__tenkz_kernel_r_tl
+                      {
+                        \prop_put:Nnn
+                          \l__tenkz_kernel_skin_pairing_host_prop {#1} { }
+                        \int_zero:N \l__tenkz_kernel_skin_pairing_int
+                        \tl_set:Ne \l__tenkz_kernel_r_skin_pairings_tl
+                          { \seq_item:Nn \l__tenkz_kernel_match_seq {2} }
+                        \exp_args:NV \clist_map_inline:nn
+                          \l__tenkz_kernel_r_skin_pairings_tl
+                          { \__tenkz_kernel_skin_pairing:nn {#1} {##1} }
+                        \__tenkz_kernel_skin_pairing_cross_indices:nn
+                          {#1}
+                          { \int_use:N \l__tenkz_kernel_skin_pairing_int }
+                      }
+                      {
+                        \msg_error:nnee {tenkz}{kernel-skin-cluster}
+                          { \tl_use:N
+                              \l__tenkz_kernel_r_skin_declared_tl } {#1}
+                      }
+                  }
+                  {
+                    \msg_error:nne {tenkz}{kernel-skin-pairings-parse}
+                      { \tl_use:N \l__tenkz_kernel_r_skin_declared_tl }
+                  }
+              }
+          }
+      }
+    \prop_if_in:NnF \l__tenkz_kernel_skin_pairing_host_prop {#1}
+      { \__tenkz_kernel_skin_pairing_cross_indices:nn {#1} {0} }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairing_cross_indices:nn #1#2
+  {
+    \seq_map_inline:Nn \l__tenkz_kernel_skin_pairing_cross_index_seq
+      {
+        \int_compare:nNnT {##1} > {#2}
+          {
+            \msg_error:nneee {tenkz}{kernel-skin-pairing-cross-index}
+              {#1} {##1} {#2}
+          }
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairing_crosses:n #1
+  {
+    \seq_clear:N \l__tenkz_kernel_skin_pairing_cross_index_seq
+    \__tenkz_model_get:nnN {#1} {pairing-cross}
+      \l__tenkz_kernel_r_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_r_tl
+      {
+        % Cell coordinates contain the same comma that separates indexed
+        % crossing items.  Group them before the clist boundary, exactly as
+        % the ordinary cross= validator does.
+        \regex_replace_all:nnN
+          { \( \s* (\d+) \s* , \s* (\d+) \s* \) }
+          { \( \1 ; \2 \) }
+          \l__tenkz_kernel_r_tl
+        \exp_args:NV \clist_map_inline:nn \l__tenkz_kernel_r_tl
+          { \__tenkz_kernel_skin_pairing_cross:nn {#1} {##1} }
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairing_cross:nn #1#2
+  {
+    \tl_set:Nn \l__tenkz_kernel_list_item_tl {#2}
+    \regex_replace_all:nnN
+      { \( \s* (\d+) \s* ; \s* (\d+) \s* \) }
+      { \( \1 , \2 \) }
+      \l__tenkz_kernel_list_item_tl
+    \exp_args:NnV \regex_extract_once:nnNTF
+      {
+        \A \s* ([1-9]\d*) \s* : \s*
+        (
+          (?: over | under ) \s+ at \s+ crossing \s+ of \s+
+          .+ \s+ and \s+ .+
+        )
+        \s* \Z
+      }
+      \l__tenkz_kernel_list_item_tl \l__tenkz_kernel_match_seq
+      {
+        \tl_set:Ne \l__tenkz_kernel_r_b_tl
+          { \seq_item:Nn \l__tenkz_kernel_match_seq {2} }
+        \seq_if_in:NVF \l__tenkz_kernel_skin_pairing_cross_index_seq
+          \l__tenkz_kernel_r_b_tl
+          {
+            \seq_put_right:NV
+              \l__tenkz_kernel_skin_pairing_cross_index_seq
+              \l__tenkz_kernel_r_b_tl
+          }
+        \tl_set:Ne \l__tenkz_kernel_r_c_tl
+          { #1 / \tl_use:N \l__tenkz_kernel_r_b_tl }
+        \prop_get:NVN \l__tenkz_kernel_skin_pairing_cross_prop
+          \l__tenkz_kernel_r_c_tl \l__tenkz_kernel_scratch_tl
+        \quark_if_no_value:NTF \l__tenkz_kernel_scratch_tl
+          {
+            \prop_put:NVx \l__tenkz_kernel_skin_pairing_cross_prop
+              \l__tenkz_kernel_r_c_tl
+              { \seq_item:Nn \l__tenkz_kernel_match_seq {3} }
+          }
+          {
+            \prop_put:NVx \l__tenkz_kernel_skin_pairing_cross_prop
+              \l__tenkz_kernel_r_c_tl
+              {
+                \exp_not:V \l__tenkz_kernel_scratch_tl ,
+                \seq_item:Nn \l__tenkz_kernel_match_seq {3}
+              }
+          }
+      }
+      {
+        \msg_error:nnee {tenkz}{kernel-skin-pairing-cross-parse}
+          {#2} {#1}
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairing:nn #1#2
+  {
+    \regex_extract_once:nnNTF
+      {
+        \A \s*
+        ([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|[nesw]) @ ([1-9]\d*)
+        \s* > \s*
+        ([-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|[nesw]) @ ([1-9]\d*)
+        \s* : \s* ([A-Za-z][A-Za-z0-9\-]*)
+        \s* \Z
+      }
+      {#2} \l__tenkz_kernel_match_seq
+      {
+        \int_incr:N \l__tenkz_kernel_skin_pairing_int
+        \tl_set:Ne \l__tenkz_kernel_r_skin_from_face_tl
+          {
+            \__tenkz_kernel_face_angle:n
+              { \seq_item:Nn \l__tenkz_kernel_match_seq {2} }
+          }
+        \tl_set:Ne \l__tenkz_kernel_r_skin_from_slot_tl
+          { \seq_item:Nn \l__tenkz_kernel_match_seq {3} }
+        \tl_set:Ne \l__tenkz_kernel_r_skin_to_face_tl
+          {
+            \__tenkz_kernel_face_angle:n
+              { \seq_item:Nn \l__tenkz_kernel_match_seq {4} }
+          }
+        \tl_set:Ne \l__tenkz_kernel_r_skin_to_slot_tl
+          { \seq_item:Nn \l__tenkz_kernel_match_seq {5} }
+        \tl_set:Ne \l__tenkz_kernel_r_skin_species_tl
+          { \seq_item:Nn \l__tenkz_kernel_match_seq {6} }
+        \tl_set:Ne \l__tenkz_kernel_r_skin_wire_name_tl
+          { skin-#1-\int_use:N \l__tenkz_kernel_skin_pairing_int }
+        \prop_get:NVN \l__tenkz_kernel_named_prop
+          \l__tenkz_kernel_r_skin_wire_name_tl
+          \l__tenkz_kernel_r_c_tl
+        \quark_if_no_value:NTF \l__tenkz_kernel_r_c_tl
+          {
+            \__tenkz_model_record_wire:e
+              {
+                kind = pairing ,
+                origin = skin ,
+                route = arc ,
+                host = #1 ,
+                name = \tl_use:N \l__tenkz_kernel_r_skin_wire_name_tl ,
+                species = \tl_use:N \l__tenkz_kernel_r_skin_species_tl
+              }
+            \tl_set:Ne \l__tenkz_kernel_r_c_tl
+              {
+                #1 / \int_use:N \l__tenkz_kernel_skin_pairing_int
+              }
+            \prop_get:NVN \l__tenkz_kernel_skin_pairing_cross_prop
+              \l__tenkz_kernel_r_c_tl \l__tenkz_kernel_r_tl
+            \quark_if_no_value:NF \l__tenkz_kernel_r_tl
+              {
+                \use:e
+                  {
+                    \exp_not:N \__tenkz_model_complete:nnn
+                      { \l__tenkz_model_last_tl } {cross}
+                      { \tl_use:N \l__tenkz_kernel_r_tl }
+                  }
+              }
+            \__tenkz_kernel_skin_pairing_end:nnnn {from} {#1}
+              { \tl_use:N \l__tenkz_kernel_r_skin_from_face_tl }
+              { \tl_use:N \l__tenkz_kernel_r_skin_from_slot_tl }
+            \__tenkz_kernel_skin_pairing_end:nnnn {to} {#1}
+              { \tl_use:N \l__tenkz_kernel_r_skin_to_face_tl }
+              { \tl_use:N \l__tenkz_kernel_r_skin_to_slot_tl }
+            \prop_put:NVV \l__tenkz_kernel_named_prop
+              \l__tenkz_kernel_r_skin_wire_name_tl
+              \l__tenkz_model_last_tl
+          }
+          {
+            \msg_error:nnee {tenkz}{kernel-name-collision}
+              { \tl_use:N \l__tenkz_kernel_r_skin_wire_name_tl }
+              { \tl_use:N \l__tenkz_kernel_r_c_tl }
+          }
+      }
+      {
+        \msg_error:nne {tenkz}{kernel-skin-pairings-parse}
+          { \tl_use:N \l__tenkz_kernel_r_skin_declared_tl }
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_skin_pairing_end:nnnn #1#2#3#4
+  {
+    \tl_set:Ne \l__tenkz_kernel_r_face_angle_tl {#3}
+    \tl_set:Ne \l__tenkz_kernel_slot_tl {#4}
+    \__tenkz_kernel_atom_rc:nNNN {#2}
+      \l__tenkz_kernel_r_row_tl \l__tenkz_kernel_r_col_tl
+      \l_tmpa_bool
+    \bool_if:NTF \l_tmpa_bool
+      {
+        \__tenkz_kernel_r_span:nNN {#2}
+          \l__tenkz_kernel_r_b_tl \l__tenkz_kernel_r_c_tl
+        \exp_args:NV \__tenkz_kernel_r_face_side:n
+          \l__tenkz_kernel_r_face_angle_tl
+        \str_case:VnF \l__tenkz_kernel_r_face_side_tl
+          {
+            {n}{ }
+            {s}{ }
+          }
+          {
+            \tl_set_eq:NN \l__tenkz_kernel_r_b_tl
+              \l__tenkz_kernel_r_c_tl
+          }
+      }
+      { \tl_set:Nn \l__tenkz_kernel_r_b_tl {1} }
+    \int_compare:nNnT
+      { \l__tenkz_kernel_slot_tl } > { \l__tenkz_kernel_r_b_tl }
+      {
+        \msg_error:nneeee {tenkz}{kernel-skin-slot}
+          { \tl_use:N \l__tenkz_kernel_slot_tl }
+          { \tl_use:N \l__tenkz_kernel_r_face_angle_tl }
+          {#2}
+          { \tl_use:N \l__tenkz_kernel_r_b_tl }
+      }
+    \__tenkz_kernel_cell_port_bearing_visit:nnnnn
+      {#2}
+      {\l__tenkz_kernel_r_face_angle_tl}
+      {\l__tenkz_kernel_slot_tl}
+      {skin~\l__tenkz_kernel_r_skin_declared_tl}
+      {claim}
+    \exp_args:Ne \__tenkz_kernel_node_new:nN
+      {#2.\l__tenkz_kernel_r_face_angle_tl @\l__tenkz_kernel_slot_tl}
+      \l__tenkz_kernel_scratch_tl
+    \__tenkz_kernel_node_port_init:N
+      \l__tenkz_kernel_scratch_tl
+    \__tenkz_kernel_node_put:Nnn
+      \l__tenkz_kernel_scratch_tl {record} {#2}
+    \__tenkz_kernel_node_put:Nnn
+      \l__tenkz_kernel_scratch_tl {record-id} {#2}
+    \__tenkz_kernel_node_put:Nne
+      \l__tenkz_kernel_scratch_tl {face}
+      { \tl_use:N \l__tenkz_kernel_r_face_angle_tl }
+    \__tenkz_kernel_node_put:Nne
+      \l__tenkz_kernel_scratch_tl {slot}
+      { \tl_use:N \l__tenkz_kernel_slot_tl }
+    \__tenkz_model_complete:nnn
+      { \l__tenkz_model_last_tl } {#1}
+      { \tl_use:N \l__tenkz_kernel_scratch_tl }
+  }
+
+% ---------- math-style sensing -----------------------------------------------------
+% The density of a picture's own writing follows the mathematics around it,
+% and the author states nothing (LANGUAGE-1.0 section 7.2).  XeLaTeX will not
+% name the math style in force, so the sensing reads the two entry flags
+% tenkz-core raises instead.  A picture in a line of running mathematics
+% takes the denser class, because there it shares a line with writing set
+% smaller than a display's; everything else -- a display, a sub-formula or
+% fence or alignment cell inside one, and running text -- takes the base
+% class the glyph geometry is calibrated on.  Equation panels never sense for
+% themselves: the equation senses once for all of them, so a fenced panel and
+% its unfenced partner cannot come out at two densities.
+\cs_new_protected:Npn \__tenkz_kernel_size_sense:N #1
+  {
+    \legacy_if:nTF {tenkz@mathinline}
+      { \tl_set:Nn #1 {s} }
+      { \tl_set:Nn #1 {m} }
+  }
+% An unstated size class resolves; a stated one stands.  Inside an equation
+% the unstated class comes from the equation, which sensed once for all its
+% panels; outside one it comes from the surrounding mathematics.  What the
+% equation sensed is not policy and does not reach the panel merge: a panel
+% that states a class of its own has said something, and the sensing has
+% only guessed, so the statement stands.  An equation that states a class
+% has said something too, and that one does outrank its panels -- the
+% equation is the shared outer context and its metric is the shared one.
+% The resolved class enters the record either way, so a reader of the stream
+% never has to guess which of them acted.
+\cs_new_protected:Npn \__tenkz_kernel_size_resolve:N #1
+  {
+    \prop_get:NnN #1 {size} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NT \l__tenkz_kernel_scratch_tl
+      {
+        \bool_lazy_and:nnTF
+          { \bool_if_p:N \l__tenkz_kernel_ineq_bool }
+          { ! \tl_if_empty_p:N \l__tenkz_kernel_eq_size_tl }
+          {
+            \tl_set:NV \l__tenkz_kernel_scratch_tl
+              \l__tenkz_kernel_eq_size_tl
+          }
+          { \__tenkz_kernel_size_sense:N \l__tenkz_kernel_scratch_tl }
+        \prop_put:NnV #1 {size} \l__tenkz_kernel_scratch_tl
+      }
+  }
+% The class chooses the size the picture writes its inscribed names at: a
+% picture sharing a line with other mathematics writes smaller, one meant to
+% be read across a room writes larger, and the base class is the script size
+% the glyphs were calibrated on.
+\cs_new_protected:Npn \__tenkz_kernel_size_profile:
+  {
+    \__tenkz_model_picture_get:nN {size} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_scratch_tl
+      {
+        \str_case:Vn \l__tenkz_kernel_scratch_tl
+          {
+            {s} { \cs_set_eq:cN {tenkz@labelsize} \scriptscriptstyle }
+            {l} { \cs_set_eq:cN {tenkz@labelsize} \textstyle }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__tenkz_kernel_begin:n #1
+  {
+    \group_begin:
+    % keyval syntax inside the picture is plain even under tenkzeq's
+    % active relation glyph
+    \char_set_catcode_other:N \=
+    \__tenkz_model_reset:
+    \__tenkz_geom_reset:
+    \prop_clear:N \l__tenkz_kernel_node_prop
+    \prop_clear:N \l__tenkz_kernel_named_prop
+    \prop_clear:N \l__tenkz_kernel_skin_pairing_host_prop
+    \prop_clear:N \l__tenkz_kernel_skin_pairing_cross_prop
+    \prop_clear:N \l__tenkz_kernel_cell_port_pairing_bearing_prop
+    \prop_clear:N \l__tenkz_kernel_policy_prop
+    \prop_clear:N \l__tenkz_kernel_cell_prop
+    \prop_clear:N \l__tenkz_kernel_populated_cell_prop
+    \prop_clear:N \l__tenkz_kernel_basis_cell_prop
+    \prop_clear:N \l__tenkz_kernel_basis_claim_prop
+    \prop_clear:N \l__tenkz_kernel_basis_live_prop
+    \prop_clear:N \l__tenkz_kernel_basis_live_count_prop
+    \prop_clear:N \l__tenkz_kernel_basis_live_in_window_count_prop
+    \prop_clear:N \l__tenkz_kernel_basis_live_record_prop
+    \prop_clear:N \l__tenkz_kernel_basis_kind_prop
+    \prop_clear:N \l__tenkz_kernel_basis_east_prop
+    \prop_clear:N \l__tenkz_kernel_basis_north_prop
+    \prop_clear:N \l__tenkz_kernel_stage_prop
+    \__tenkz_kernel_sugar_clear:
+    \seq_clear:N \l__tenkz_kernel_stack_seq
+    \int_set:Nn \l__tenkz_kernel_row_int { 1 }
+    \int_set:Nn \l__tenkz_kernel_col_int { 1 }
+    \int_set:Nn \l__tenkz_kernel_row_advance_int { 1 }
+    \int_zero:N \l__tenkz_kernel_node_int
+    \int_zero:N \l__tenkz_kernel_basis_count_int
+    \bool_set_false:N \l__tenkz_kernel_group_keys_bool
+    \__tenkz_kernel_context_keys:nnn
+      {picture} { tenkz-kernel-picture } {#1}
+    % check= belongs to the equation wrapper.  A valid tenkzeq consumes it
+    % before any panel begins, so seeing it here always means picture scope.
+    \prop_get:NnN
+      \l__tenkz_kernel_stage_prop {check} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_scratch_tl
+      {
+        \msg_error:nnee {tenkz}{kernel-check-scope}
+          { \tl_use:N \l__tenkz_kernel_scratch_tl } {picture}
+        \prop_remove:Nn \l__tenkz_kernel_stage_prop {check}
+      }
+    % One equation, one pitch.  A panel that names a profile of its own would
+    % scale one side of an asserted equality and not the other, so inside an
+    % equation the profile belongs to the equation and a panel may not name
+    % one at all -- not even the equation's own word, which says nothing the
+    % equation has not said already.  The refusal reads the panel's own keys,
+    % before any merge puts the equation's among them and before they become
+    % the picture record, so a refused key reaches neither the page nor the
+    % stream.
+    \bool_if:NT \l__tenkz_kernel_ineq_bool
+      {
+        \prop_if_in:NnT \l__tenkz_kernel_stage_prop {metrics}
+          {
+            \msg_error:nn {tenkz}{kernel-metrics-panel}
+            \prop_remove:Nn \l__tenkz_kernel_stage_prop {metrics}
+          }
+      }
+    \__tenkz_kernel_policy_merge:NN
+      \g__tenkz_kernel_setup_prop \l__tenkz_kernel_stage_prop
+    % Equation policy is the shared outer context, so it overrides a
+    % conflicting panel spelling.  `check` was removed by eq_begin and never
+    % becomes a picture field.
+    \bool_if:NT \l__tenkz_kernel_ineq_bool
+      {
+        \__tenkz_kernel_policy_merge:NN
+          \l__tenkz_kernel_eq_policy_prop \l__tenkz_kernel_stage_prop
+      }
+    \__tenkz_kernel_basis_rehydrate:
+    \__tenkz_kernel_size_resolve:N \l__tenkz_kernel_stage_prop
+    % the staged picture keys become the picture record and the policy the
+    % closure pass reads after the body ran
+    \prop_set_eq:NN \l__tenkz_kernel_policy_prop \l__tenkz_kernel_stage_prop
+    \prop_map_inline:Nn \l__tenkz_kernel_policy_prop
+      { \exp_args:Ne \__tenkz_model_record_picture:n { ##1 = { \exp_not:n {##2} } } }
+    \prop_clear:N \l__tenkz_kernel_stage_prop
+    \__tenkz_kernel_sugar_clear:
+    % The named metric profile acts once, here, on the group-local pitch:
+    % the pitch is the one base dimension, so scaling it scales every named
+    % ratio while the print-size floors hold (tenkz-metric.code.tex).
+    \prop_get:NnN
+      \l__tenkz_kernel_policy_prop {metrics} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_scratch_tl
+      {
+        \str_if_eq:VnT \l__tenkz_kernel_scratch_tl {compact}
+          {
+            \dim_set:Nn \tenkz@pitch
+              { \__tenkz_metric_ratio:n {compactpitch} \tenkz@pitch }
+          }
+      }
+    % The size class acts on the density of the picture's own writing, and
+    % it acts here, group-locally, for the same reason the pitch does.
+    \__tenkz_kernel_size_profile:
+    \cs_set_eq:NN \tn \__tenkz_kernel_tn_cmd
+    \cs_set_eq:NN \\ \__tenkz_kernel_newrow:
+  }
+% The wire restyling surface is ink-only: hue, width, dash.  A restyle
+% that moves the drawn geometry -- the transform canvas class -- would
+% leave every wire-ink record at the route's own coordinates while the
+% stroke lands elsewhere, so the audit would read the wrong page.  Such
+% a key funnels its canvas sync into the class style's deferred path
+% options, so each restylable class is applied once in a throwaway
+% group at picture begin and refused if its deferred options carry the
+% sync (#6358); marking decorations sync the canvas too, but during
+% path processing, not in a class's own option list, so a directed wire
+% passes.
+\cs_new_protected:Npn \__tenkz_kernel_r_restyle_guard:
+  {
+    \clist_map_inline:nn { bond , physical~leg , trace }
+      {
+        % The class's stored definition is inspected as a string, never
+        % executed: a stateful hook in a user's restyle runs exactly as
+        % often as the renderer strokes, and the search sees a canvas
+        % transform wherever the definition spells one -- at top level
+        % or nested inside a preaction or postaction, which a deferred
+        % execution would hide.  Indirection through a user-named style
+        % that itself transforms is outside the guard's reach; the
+        % refusal defends the documented footgun, not an adversary, and
+        % TNLOG states the contract in exactly those terms.
+        \cs_if_exist:cT { pgfk@/tikz/##1/.@cmd }
+          {
+            \tl_set:Ne \l__tenkz_kernel_scratch_tl
+              { \cs_replacement_spec:c { pgfk@/tikz/##1/.@cmd } }
+            \str_if_in:NnT \l__tenkz_kernel_scratch_tl
+              { transform~canvas }
+              { \msg_error:nnn {tenkz}{kernel-restyle-transform} {##1} }
+            \str_if_in:NnT \l__tenkz_kernel_scratch_tl
+              { pgflowlevelsynccm }
+              { \msg_error:nnn {tenkz}{kernel-restyle-transform} {##1} }
+          }
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_end:
+  {
+    \__tenkz_kernel_basis_policy_validate:
+    \__tenkz_kernel_cup_beads:
+    \__tenkz_kernel_populate:
+    \__tenkz_kernel_skin_pairings:
+    \__tenkz_kernel_prepare_cell_policies:
+    \__tenkz_kernel_bonds:
+    \__tenkz_kernel_closures:
+    \__tenkz_kernel_port_opens:
+    \__tenkz_kernel_validate_open_words:
+    \__tenkz_kernel_validate_addresses:
+    \__tenkz_kernel_plane_model:
+    % Last of the derivations, because a policy leg exists only where no
+    % authored port and no transverse closure has claimed the frame's outward
+    % axis, and both of those are settled above.
+    \__tenkz_kernel_policy_leg_records:
+    % Boundary topology and signatures use the same resolved carrier geometry
+    % as ink.  The renderer's topology prepass derives route crossings before
+    % it freezes and emits the model.
+    \int_gincr:N \g__tenkz_kernel_picture_int
+    \__tenkz_kernel_r_restyle_guard:
+    \__tenkz_kernel_render_prepare:
+    \__tenkz_kernel_render:
+    % The measuring run reads extents and asserts nothing: its panels are
+    % thrown away, so a panel signature taken there would be counted twice.
+    \bool_lazy_and:nnT
+      { \bool_if_p:N \l__tenkz_kernel_ineq_bool }
+      { ! \bool_if_p:N \l__tenkz_kernel_eq_probe_bool }
+      {
+        \__tenkz_kernel_signature:N \l__tenkz_kernel_sig_tl
+        \seq_gput_right:NV \g__tenkz_kernel_panel_gseq \l__tenkz_kernel_sig_tl
+        \bool_set_false:N \l_tmpa_bool
+        \__tenkz_model_map_ids:nn {mark}
+          {
+            \__tenkz_model_get:nnN {##1} {form}
+              \l__tenkz_kernel_scratch_tl
+            \str_if_eq:VnT \l__tenkz_kernel_scratch_tl {prose}
+              { \bool_set_true:N \l_tmpa_bool }
+          }
+        \bool_if:NTF \l_tmpa_bool
+          { \seq_gput_right:Nn \g__tenkz_kernel_panel_kind_gseq {prose} }
+          { \seq_gput_right:Nn \g__tenkz_kernel_panel_kind_gseq {diagram} }
+      }
+    \group_end:
+  }
+% The body declares; it never typesets.  Every declaration therefore eats
+% the space that follows it -- the newline ending a row, the space around a
+% column separator -- or each one leaks an interword space into the line the
+% picture sits on, and the picture measures wider than it draws.  Killing
+% the space here and not by catcode keeps addresses ("1 s of (1,2)") spelt
+% with the spaces their grammar needs.
+\cs_new_protected:Npn \__tenkz_kernel_nextcol:
+  { \int_incr:N \l__tenkz_kernel_col_int \ignorespaces }
+\cs_new_protected:Npn \__tenkz_kernel_newrow:
+  {
+    \int_add:Nn \l__tenkz_kernel_row_int
+      { \l__tenkz_kernel_row_advance_int }
+    \int_set:Nn \l__tenkz_kernel_col_int { 1 }
+    \int_set:Nn \l__tenkz_kernel_row_advance_int { 1 }
+    \ignorespaces
+  }
+\NewDocumentCommand \__tenkz_kernel_tn_cmd { O{} m }
+  { \__tenkz_kernel_tn:nn {#1} {#2} \ignorespaces }
+
+% tenkzeq: the audit scope.  Panels accumulate their signatures globally
+% (each panel closes its own group); each relation glyph standing in the
+% equation body records one relation together with its place in the panel
+% sequence, and the audit compares the composite sides those places
+% delimit.  The body capture below finds the glyphs.
+% One opt-out: the relation it names and the reason it records, split at the
+% first colon so the reason keeps every colon of its own.  The relation is
+% read as a number, so a leading zero names the relation it looks like rather
+% than a waiver that never matches.
+% Variants the kernel asks for that a supported expl3 release may not carry
+% ready-made.  Generating one that already exists costs nothing, and a
+% missing one is an undefined control sequence at the author's first
+% equation, which is not where a package should discover its own toolchain.
+\cs_generate_variant:Nn \seq_set_split:Nnn { Nen }
+\cs_generate_variant:Nn \prop_gput:Nnn { NVe }
+\cs_generate_variant:Nn \regex_match:nnTF { nV }
+\cs_generate_variant:Nn \msg_error:nnn { nnV }
+\cs_generate_variant:Nn \prop_get:NnNTF { NVNTF }
+\cs_generate_variant:Nn \prop_get:NnNT { NVNT }
+\cs_new_protected:Npn \__tenkz_kernel_check_off:n #1
+  {
+    % The author's colon is an ordinary character and the one written here
+    % is a letter, so the separator is spelt as the string it must equal.
+    \seq_set_split:Nen \l__tenkz_kernel_match_seq { \c_colon_str } {#1}
+    \int_compare:nNnTF { \seq_count:N \l__tenkz_kernel_match_seq } < {2}
+      { \msg_error:nnn {tenkz}{kernel-check-off} {#1} }
+      {
+        \tl_set:Ne \l__tenkz_kernel_check_relation_tl
+          { \seq_item:Nn \l__tenkz_kernel_match_seq {1} }
+        \tl_trim_spaces:N \l__tenkz_kernel_check_relation_tl
+        \seq_pop_left:NN \l__tenkz_kernel_match_seq \l__tenkz_kernel_scratch_tl
+        % The reason is put back together without being expanded, and only
+        % then reduced to characters: a record carrying a macro would be
+        % checked as one thing and written as another, and what a reader
+        % wants back is the sentence the author wrote.  Rejoining an
+        % expandable reason through an expanding join would settle its
+        % meaning before either check could read its spelling.
+        \tl_clear:N \l__tenkz_kernel_check_reason_tl
+        \bool_set_true:N \l__tenkz_kernel_check_first_bool
+        \seq_map_inline:Nn \l__tenkz_kernel_match_seq
+          {
+            \bool_if:NTF \l__tenkz_kernel_check_first_bool
+              { \bool_set_false:N \l__tenkz_kernel_check_first_bool }
+              {
+                \tl_put_right:Ne \l__tenkz_kernel_check_reason_tl
+                  { \c_colon_str }
+              }
+            \tl_put_right:Nn \l__tenkz_kernel_check_reason_tl {##1}
+          }
+        \tl_set:Ne \l__tenkz_kernel_check_reason_tl
+          { \tl_to_str:N \l__tenkz_kernel_check_reason_tl }
+        \tl_trim_spaces:N \l__tenkz_kernel_check_reason_tl
+        \regex_match:nVTF { \A \d+ \Z } \l__tenkz_kernel_check_relation_tl
+          { \__tenkz_kernel_check_off_record: }
+          { \msg_error:nnn {tenkz}{kernel-check-off} {#1} }
+      }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_check_off_record:
+  {
+    % An opt-out without a reason is not an opt-out: what the key records is
+    % the mathematics the diagram does not draw, and a blank reason records
+    % nothing while switching the comparison off.  The relation stays
+    % audited and the author is told.  A reason carrying the stream's own
+    % field separator would be read back as several fields, so the one
+    % character the record cannot hold is refused rather than mangled.
+    \tl_if_empty:NTF \l__tenkz_kernel_check_reason_tl
+      {
+        \msg_error:nne {tenkz}{kernel-check-reason}
+          { \tl_use:N \l__tenkz_kernel_check_relation_tl }
+      }
+      {
+        \regex_match:nVTF { \| } \l__tenkz_kernel_check_reason_tl
+          {
+            \msg_error:nne {tenkz}{kernel-check-bar}
+              { \tl_use:N \l__tenkz_kernel_check_relation_tl }
+          }
+          {
+            % The waiver is held until the equation has counted its
+            % relations: a waiver naming a relation the equation does not
+            % perform is a mistyped one, and the stream must not carry a
+            % record of a comparison that was never there to waive.
+            % One relation, one waiver.  Two opt-outs for one relation
+            % record the comparison as waived twice, and a reader counting
+            % records against relations finds an equation that does not
+            % add up.
+            \tl_set:Ne \l__tenkz_kernel_check_relation_tl
+              { \int_eval:n { \l__tenkz_kernel_check_relation_tl } }
+            \clist_if_in:NVTF \l__tenkz_kernel_check_off_clist
+              \l__tenkz_kernel_check_relation_tl
+              {
+                \msg_error:nnV {tenkz}{kernel-check-twice}
+                  \l__tenkz_kernel_check_relation_tl
+              }
+              {
+                \clist_put_right:NV \l__tenkz_kernel_check_off_clist
+                  \l__tenkz_kernel_check_relation_tl
+                \seq_put_right:NV \l__tenkz_kernel_check_reason_seq
+                  \l__tenkz_kernel_check_reason_tl
+              }
+          }
+      }
+  }
+% The audit's specification is the value grammar of one key, not a scope of
+% its own: the registry types it `check-spec' and owns exactly the one row.
+% Naming the tree after the value type says so, and keeps the public-surface
+% census reading scopes rather than the insides of a value.
+\keys_define:nn { tenkz-check-spec }
+  {
+    % The bare word supplies a value no author can type, so `signature',
+    % `signature=', and `signature=false' are three different spellings here
+    % and only the first is the audit's own name.
+    signature .code:n =
+      {
+        \quark_if_no_value:nF {#1}
+          { \msg_error:nne {tenkz}{kernel-check-word} { signature=#1 } }
+      } ,
+    signature .default:n = { \q_no_value } ,
+    off .code:n = { \__tenkz_kernel_check_off:n {#1} } ,
+    unknown .code:n =
+      { \msg_error:nne {tenkz}{kernel-check-word} { \l_keys_key_str } }
+  }
+
+\cs_new_protected:Npn \__tenkz_kernel_eq_begin:n #1
+  {
+    \bool_if:NT \l__tenkz_kernel_ineq_bool
+      { \msg_fatal:nn {tenkz}{kernel-equation-nested} }
+    \group_begin:
+    \int_gincr:N \g__tenkz_kernel_eq_scope_int
+    \bool_set_true:N \l__tenkz_kernel_ineq_bool
+    \seq_gclear:N \g__tenkz_kernel_panel_gseq
+    \seq_gclear:N \g__tenkz_kernel_panel_kind_gseq
+    \seq_gclear:N \g__tenkz_kernel_rel_gseq
+    \seq_gclear:N \g__tenkz_kernel_rel_pos_gseq
+    \prop_gclear:N \g__tenkz_kernel_eq_extent_prop
+    \prop_gclear:N \g__tenkz_kernel_eq_ringpad_prop
+    \tl_clear:N \l__tenkz_kernel_eq_size_tl
+    \clist_clear:N \l__tenkz_kernel_check_off_clist
+    \seq_clear:N \l__tenkz_kernel_check_reason_seq
+    \prop_clear:N \l__tenkz_kernel_eq_policy_prop
+    \prop_clear:N \l__tenkz_kernel_stage_prop
+    \__tenkz_kernel_context_keys:nnn
+      {equation} { tenkz-kernel-picture } {#1}
+    % check={signature, off={k: reason}}: the specification is a key list and
+    % is read as one.  A reason is prose an author writes
+    % about the mathematics, and prose carries commas and braces and words
+    % that look like options; letting TeX's own brace matching hand the
+    % reason over whole is what keeps all three out of the parser's way.
+    % A word the audit does not know is refused, because a spelling passed
+    % over in silence is a comparison the author believes is running.
+    \prop_get:NnN \l__tenkz_kernel_stage_prop {check} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NF \l__tenkz_kernel_scratch_tl
+      {
+        \keys_set:nV { tenkz-check-spec } \l__tenkz_kernel_scratch_tl
+      }
+    \prop_remove:Nn \l__tenkz_kernel_stage_prop {check}
+    % One metric context: the equation settles its class once, here, where it
+    % can still see the mathematics it stands in, and every panel that states
+    % none takes it.  A panel that is fenced or braced sits in inner
+    % mathematics of its own and would otherwise sense a denser class than
+    % its partner.  A stated class stays in the policy, where it outranks the
+    % panels; a sensed one does not, so a panel's own statement survives it.
+    \prop_get:NnN \l__tenkz_kernel_stage_prop {size} \l__tenkz_kernel_scratch_tl
+    \quark_if_no_value:NTF \l__tenkz_kernel_scratch_tl
+      { \__tenkz_kernel_size_sense:N \l__tenkz_kernel_eq_size_tl }
+      {
+        \tl_set:NV \l__tenkz_kernel_eq_size_tl
+          \l__tenkz_kernel_scratch_tl
+      }
+    \prop_set_eq:NN
+      \l__tenkz_kernel_eq_policy_prop \l__tenkz_kernel_stage_prop
+    \prop_clear:N \l__tenkz_kernel_stage_prop
+  }
+\cs_new_protected:Npn \__tenkz_kernel_eq_rel:
+  {
+    \seq_gput_right:Nn \g__tenkz_kernel_rel_gseq { = }
+    % the joiner's place in the panel sequence: a relation after k panels
+    % ends the k-th side, and the panels between two relations are one
+    % product group
+    \seq_gput_right:Ne \g__tenkz_kernel_rel_pos_gseq
+      { \int_eval:n { \seq_count:N \g__tenkz_kernel_panel_gseq } }
+    % the glyph itself: an equation shows its relation
+    \ensuremath { {} \char_generate:nn { 61 } { 12 } {} }
+  }
+% ---------- the joiner audit -----------------------------------------------------------
+% The audit follows the joiner (LANGUAGE-1.0 section 7).  A relation glyph
+% ends a side; the panels between two relations are one product group and
+% form one composite side.  The composite side's boundary signature is the
+% product panels' outer signature with the contracted interface cancelled:
+% juxtaposing two panels asserts that every index cut on the left factor's
+% east frame continues as an index cut on the right factor's west frame.
+% The two cut ends are then one index, internal to the composite term, and
+% an internal contraction exposes nothing -- so each paired east/west entry
+% pair leaves the signature, a directed `to' continuing as a `from' with its
+% type intact, and the remaining entries of both factors concatenate.
+% The facing cuts must cancel completely: an unpaired index on either
+% facing frame is a signature error.  An empty facing cut is the plain
+% scalar or tensor juxtaposition, whose signatures concatenate whole.
+
+\seq_new:N \l__tenkz_kernel_side_lo_seq       % first panel of each side
+\seq_new:N \l__tenkz_kernel_side_hi_seq       % last panel of each side
+\seq_new:N \l__tenkz_kernel_side_sig_seq      % composite signature per side
+\seq_new:N \l__tenkz_kernel_side_kind_seq     % diagram or prose per side
+\seq_new:N \l__tenkz_kernel_fold_seq          % running composite entries
+\seq_new:N \l__tenkz_kernel_cut_seq           % east cut of the left factor
+\seq_new:N \l__tenkz_kernel_wcut_seq          % west cut of the right factor
+\seq_new:N \l__tenkz_kernel_next_seq          % entries of the joining panel
+\seq_new:N \l__tenkz_kernel_keep_seq          % entries surviving a cut split
+\seq_new:N \l__tenkz_kernel_entry_seq         % one entry split at its colons
+\tl_new:N \l__tenkz_kernel_side_sig_tl
+\tl_new:N \l__tenkz_kernel_entry_face_tl
+\tl_new:N \l__tenkz_kernel_continue_tl
+\tl_new:N \l__tenkz_kernel_iface_tl
+\tl_new:N \l__tenkz_kernel_wface_tl
+\int_new:N \l__tenkz_kernel_side_lo_int
+\int_new:N \l__tenkz_kernel_side_hi_int
+\int_new:N \l__tenkz_kernel_eq_panels_int
+\int_new:N \l__tenkz_kernel_eq_rels_int
+\int_new:N \l__tenkz_kernel_eq_prev_int
+\bool_new:N \l__tenkz_kernel_side_prose_bool
+\bool_new:N \l__tenkz_kernel_iface_bool
+\bool_new:N \l__tenkz_kernel_removed_bool
+\cs_generate_variant:Nn \seq_set_split:Nnn { NVn }
+
+\cs_new_protected:Npn \__tenkz_kernel_eq_sort:N #1
+  {
+    \seq_sort:Nn #1
+      {
+        \str_compare:eNeTF {##1} > {##2}
+          { \sort_return_swapped: } { \sort_return_same: }
+      }
+  }
+
+% One panel's signature as a sequence of detokenized entries.
+\cs_new_protected:Npn \__tenkz_kernel_eq_panel_entries:nN #1#2
+  {
+    \tl_set:Ne \l__tenkz_kernel_side_sig_tl
+      { \seq_item:Nn \g__tenkz_kernel_panel_gseq {#1} }
+    \seq_clear:N #2
+    \exp_args:NV \clist_map_inline:nn \l__tenkz_kernel_side_sig_tl
+      { \seq_put_right:Ne #2 { \tl_to_str:n {##1} } }
+  }
+
+% The face an entry is cut on: the second colon field of `kind:face[:rest]`.
+\cs_new_protected:Npn \__tenkz_kernel_eq_entry_face:nN #1#2
+  {
+    \seq_set_split:NVn \l__tenkz_kernel_entry_seq \c_colon_str {#1}
+    \int_compare:nNnTF { \seq_count:N \l__tenkz_kernel_entry_seq } < {2}
+      { \tl_clear:N #2 }
+      { \tl_set:Ne #2 { \seq_item:Nn \l__tenkz_kernel_entry_seq {2} } }
+  }
+
+% The west spelling an east-cut entry must continue as: the face turns from
+% e to w and a directed index keeps its arrow, so `to' (the index leaves the
+% left factor) continues as `from' (it enters the right factor); every other
+% field -- namely its type -- belongs to the same index and rides unchanged.
+\cs_new_protected:Npn \__tenkz_kernel_eq_entry_continue:nN #1#2
+  {
+    \seq_set_split:NVn \l__tenkz_kernel_entry_seq \c_colon_str {#1}
+    \seq_pop_left:NN \l__tenkz_kernel_entry_seq \l_tmpa_tl
+    \seq_pop_left:NN \l__tenkz_kernel_entry_seq \l_tmpb_tl
+    \tl_set:Ne #2 { \tl_use:N \l_tmpa_tl \c_colon_str w }
+    \seq_map_inline:Nn \l__tenkz_kernel_entry_seq
+      {
+        \str_case:nnF {##1}
+          {
+            {to}   { \tl_put_right:Ne #2 { \c_colon_str from } }
+            {from} { \tl_put_right:Ne #2 { \c_colon_str to } }
+          }
+          { \tl_put_right:Ne #2 { \c_colon_str ##1 } }
+      }
+  }
+
+% Remove one occurrence of a value from a sequence of entries; the removed
+% flag reports whether a match existed.
+\cs_new_protected:Npn \__tenkz_kernel_eq_remove_one:Nn #1#2
+  {
+    \bool_set_false:N \l__tenkz_kernel_removed_bool
+    \seq_clear:N \l__tenkz_kernel_keep_seq
+    \seq_map_inline:Nn #1
+      {
+        \bool_if:NTF \l__tenkz_kernel_removed_bool
+          { \seq_put_right:Nn \l__tenkz_kernel_keep_seq {##1} }
+          {
+            \str_if_eq:nnTF {##1} {#2}
+              { \bool_set_true:N \l__tenkz_kernel_removed_bool }
+              { \seq_put_right:Nn \l__tenkz_kernel_keep_seq {##1} }
+          }
+      }
+    \seq_set_eq:NN #1 \l__tenkz_kernel_keep_seq
+  }
+\cs_generate_variant:Nn \__tenkz_kernel_eq_remove_one:Nn { NV }
+
+% Contract the running composite with panel #1: cancel the composite's east
+% cut against the panel's west cut and concatenate the rest.  The
+% composite's east entries are exactly panel #1-1's east entries, because
+% every earlier interface cancelled completely, so the event names the
+% adjacent panel pair.
+\cs_new_protected:Npn \__tenkz_kernel_eq_contract:n #1
+  {
+    \__tenkz_kernel_eq_panel_entries:nN {#1} \l__tenkz_kernel_next_seq
+    \seq_clear:N \l__tenkz_kernel_cut_seq
+    \seq_clear:N \l__tenkz_kernel_keep_seq
+    \seq_map_inline:Nn \l__tenkz_kernel_fold_seq
+      {
+        \__tenkz_kernel_eq_entry_face:nN {##1} \l__tenkz_kernel_entry_face_tl
+        \str_if_eq:VnTF \l__tenkz_kernel_entry_face_tl {e}
+          { \seq_put_right:Nn \l__tenkz_kernel_cut_seq {##1} }
+          { \seq_put_right:Nn \l__tenkz_kernel_keep_seq {##1} }
+      }
+    \seq_set_eq:NN \l__tenkz_kernel_fold_seq \l__tenkz_kernel_keep_seq
+    \seq_clear:N \l__tenkz_kernel_wcut_seq
+    \seq_clear:N \l__tenkz_kernel_keep_seq
+    \seq_map_inline:Nn \l__tenkz_kernel_next_seq
+      {
+        \__tenkz_kernel_eq_entry_face:nN {##1} \l__tenkz_kernel_entry_face_tl
+        \str_if_eq:VnTF \l__tenkz_kernel_entry_face_tl {w}
+          { \seq_put_right:Nn \l__tenkz_kernel_wcut_seq {##1} }
+          { \seq_put_right:Nn \l__tenkz_kernel_keep_seq {##1} }
+      }
+    \seq_set_eq:NN \l__tenkz_kernel_next_seq \l__tenkz_kernel_keep_seq
+    \__tenkz_kernel_eq_sort:N \l__tenkz_kernel_cut_seq
+    \__tenkz_kernel_eq_sort:N \l__tenkz_kernel_wcut_seq
+    \tl_set:Ne \l__tenkz_kernel_iface_tl
+      { \seq_use:Nn \l__tenkz_kernel_cut_seq { ,~ } }
+    \tl_set:Ne \l__tenkz_kernel_wface_tl
+      { \seq_use:Nn \l__tenkz_kernel_wcut_seq { ,~ } }
+    \bool_set_true:N \l__tenkz_kernel_iface_bool
+    \seq_map_inline:Nn \l__tenkz_kernel_cut_seq
+      {
+        \__tenkz_kernel_eq_entry_continue:nN {##1}
+          \l__tenkz_kernel_continue_tl
+        \__tenkz_kernel_eq_remove_one:NV \l__tenkz_kernel_wcut_seq
+          \l__tenkz_kernel_continue_tl
+        \bool_if:NF \l__tenkz_kernel_removed_bool
+          { \bool_set_false:N \l__tenkz_kernel_iface_bool }
+      }
+    \seq_if_empty:NF \l__tenkz_kernel_wcut_seq
+      { \bool_set_false:N \l__tenkz_kernel_iface_bool }
+    \bool_if:NTF \l__tenkz_kernel_iface_bool
+      {
+        \seq_concat:NNN \l__tenkz_kernel_fold_seq
+          \l__tenkz_kernel_fold_seq \l__tenkz_kernel_next_seq
+        \__tenkz_kernel_eq_sort:N \l__tenkz_kernel_fold_seq
+        \__tenkz_kernel_event:n
+          {
+            check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+            |product=\int_eval:n { #1 - 1 }-\int_eval:n {#1}
+            |result=contracted
+            |interface=\tl_use:N \l__tenkz_kernel_iface_tl
+            |signature=\seq_use:Nn \l__tenkz_kernel_fold_seq { ,~ }
+          }
+      }
+      {
+        \__tenkz_kernel_event:n
+          {
+            check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+            |product=\int_eval:n { #1 - 1 }-\int_eval:n {#1}
+            |result=mismatch|reason=product-interface
+            |left=\tl_use:N \l__tenkz_kernel_iface_tl
+            |right=\tl_use:N \l__tenkz_kernel_wface_tl
+          }
+        \msg_error:nneeee {tenkz}{kernel-product-signature}
+          { \int_eval:n { #1 - 1 } } { \int_eval:n {#1} }
+          { \tl_use:N \l__tenkz_kernel_iface_tl }
+          { \tl_use:N \l__tenkz_kernel_wface_tl }
+        % carry the uncancelled union so later joiners stay defined
+        \seq_concat:NNN \l__tenkz_kernel_fold_seq
+          \l__tenkz_kernel_fold_seq \l__tenkz_kernel_cut_seq
+        \seq_concat:NNN \l__tenkz_kernel_fold_seq
+          \l__tenkz_kernel_fold_seq \l__tenkz_kernel_next_seq
+        \seq_concat:NNN \l__tenkz_kernel_fold_seq
+          \l__tenkz_kernel_fold_seq \l__tenkz_kernel_wcut_seq
+        \__tenkz_kernel_eq_sort:N \l__tenkz_kernel_fold_seq
+      }
+  }
+
+% One side of the equation: the panels of side #1, folded left to right.
+% A side holding any prose panel has no computable signature.
+\cs_new_protected:Npn \__tenkz_kernel_eq_side:n #1
+  {
+    \int_set:Nn \l__tenkz_kernel_side_lo_int
+      { \seq_item:Nn \l__tenkz_kernel_side_lo_seq {#1} }
+    \int_set:Nn \l__tenkz_kernel_side_hi_int
+      { \seq_item:Nn \l__tenkz_kernel_side_hi_seq {#1} }
+    \bool_set_false:N \l__tenkz_kernel_side_prose_bool
+    \int_step_inline:nnn
+      { \l__tenkz_kernel_side_lo_int } { \l__tenkz_kernel_side_hi_int }
+      {
+        \str_if_eq:eeT
+          { \seq_item:Nn \g__tenkz_kernel_panel_kind_gseq {##1} } {prose}
+          { \bool_set_true:N \l__tenkz_kernel_side_prose_bool }
+      }
+    \bool_if:NTF \l__tenkz_kernel_side_prose_bool
+      {
+        \seq_put_right:Nn \l__tenkz_kernel_side_kind_seq {prose}
+        \seq_put_right:Nn \l__tenkz_kernel_side_sig_seq { }
+      }
+      {
+        \seq_put_right:Nn \l__tenkz_kernel_side_kind_seq {diagram}
+        \int_compare:nNnTF
+          { \l__tenkz_kernel_side_lo_int } = { \l__tenkz_kernel_side_hi_int }
+          {
+            % one panel: its stored signature verbatim
+            \tl_set:Ne \l__tenkz_kernel_side_sig_tl
+              { \seq_item:Nn \g__tenkz_kernel_panel_gseq
+                  { \l__tenkz_kernel_side_lo_int } }
+          }
+          {
+            \__tenkz_kernel_eq_panel_entries:nN
+              { \l__tenkz_kernel_side_lo_int } \l__tenkz_kernel_fold_seq
+            \int_step_inline:nnn
+              { \l__tenkz_kernel_side_lo_int + 1 }
+              { \l__tenkz_kernel_side_hi_int }
+              { \__tenkz_kernel_eq_contract:n {##1} }
+            \tl_set:Ne \l__tenkz_kernel_side_sig_tl
+              { \seq_use:Nn \l__tenkz_kernel_fold_seq { ,~ } }
+          }
+        \seq_put_right:NV \l__tenkz_kernel_side_sig_seq
+          \l__tenkz_kernel_side_sig_tl
+      }
+  }
+
+% The relation comparison.  #1 is the relation ordinal, #2 and #3 the two
+% side kinds; the side signatures arrive in \l_tmpa_tl and \l_tmpb_tl.
+\cs_new_protected:Npn \__tenkz_kernel_eq_compare_core:nnn #1#2#3
+  {
+    \clist_if_in:NnF \l__tenkz_kernel_check_off_clist {#1}
+      {
+        \bool_set_false:N \l_tmpa_bool
+        \str_if_eq:nnT {#2} {prose} { \bool_set_true:N \l_tmpa_bool }
+        \str_if_eq:nnT {#3} {prose} { \bool_set_true:N \l_tmpa_bool }
+        \bool_if:NTF \l_tmpa_bool
+          {
+            \__tenkz_kernel_event:n
+              {
+                check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+                |relation=#1|result=mismatch|reason=prose
+                |left-kind=#2
+                |right-kind=#3
+              }
+            \msg_error:nnee {tenkz}{kernel-signature-prose}
+              {#1} { \int_eval:n { #1 + 1 } }
+          }
+          {
+            \str_if_eq:eeTF
+              { \tl_use:N \l_tmpa_tl } { \tl_use:N \l_tmpb_tl }
+              {
+                \__tenkz_kernel_event:n
+                  {
+                    check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+                    |relation=#1|result=equal
+                    |signature=\tl_use:N \l_tmpa_tl
+                  }
+              }
+              {
+                \__tenkz_kernel_event:n
+                  {
+                    check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+                    |relation=#1|result=mismatch
+                    |left=\tl_use:N \l_tmpa_tl
+                    |right=\tl_use:N \l_tmpb_tl
+                  }
+                \msg_error:nneeee {tenkz}{kernel-signature}
+                  {#1} { \int_eval:n { #1 + 1 } }
+                  { \tl_use:N \l_tmpa_tl } { \tl_use:N \l_tmpb_tl }
+              }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__tenkz_kernel_eq_compare_core:nnn { nee }
+
+\cs_new_protected:Npn \__tenkz_kernel_eq_side_compare:n #1
+  {
+    \tl_set:Ne \l_tmpa_tl
+      { \seq_item:Nn \l__tenkz_kernel_side_sig_seq {#1} }
+    \tl_set:Ne \l_tmpb_tl
+      { \seq_item:Nn \l__tenkz_kernel_side_sig_seq { #1 + 1 } }
+    \__tenkz_kernel_eq_compare_core:nee {#1}
+      { \seq_item:Nn \l__tenkz_kernel_side_kind_seq {#1} }
+      { \seq_item:Nn \l__tenkz_kernel_side_kind_seq { #1 + 1 } }
+  }
+
+% The adjacent-panel reading a malformed scope falls back to, so its
+% per-relation records stay owned by this scope and a later scope inherits
+% nothing.
+\cs_new_protected:Npn \__tenkz_kernel_eq_panel_compare:n #1
+  {
+    \tl_set:Ne \l_tmpa_tl
+      { \seq_item:Nn \g__tenkz_kernel_panel_gseq {#1} }
+    \tl_set:Ne \l_tmpb_tl
+      { \seq_item:Nn \g__tenkz_kernel_panel_gseq { #1 + 1 } }
+    \__tenkz_kernel_eq_compare_core:nee {#1}
+      { \seq_item:Nn \g__tenkz_kernel_panel_kind_gseq {#1} }
+      { \seq_item:Nn \g__tenkz_kernel_panel_kind_gseq { #1 + 1 } }
+  }
+
+\cs_new_protected:Npn \__tenkz_kernel_eq_end:
+  {
+    \int_set:Nn \l__tenkz_kernel_eq_panels_int
+      { \seq_count:N \g__tenkz_kernel_panel_gseq }
+    \int_set:Nn \l__tenkz_kernel_eq_rels_int
+      { \seq_count:N \g__tenkz_kernel_rel_gseq }
+    % An opt-out names a relation the equation performs.  The equation's
+    % relations are only counted here, so this is the first place the claim
+    % can be read: an index outside the count waives nothing and leaves the
+    % relation the author meant standing audited, which is a mistyped waiver
+    % rather than a waived comparison.
+    \int_zero:N \l__tenkz_kernel_check_index_int
+    \clist_map_inline:Nn \l__tenkz_kernel_check_off_clist
+      {
+        \int_incr:N \l__tenkz_kernel_check_index_int
+        \bool_lazy_or:nnTF
+          { \int_compare_p:nNn {##1} < {1} }
+          { \int_compare_p:nNn {##1} > { \l__tenkz_kernel_eq_rels_int } }
+          {
+            \msg_error:nnee {tenkz}{kernel-check-relation} {##1}
+              { \int_use:N \l__tenkz_kernel_eq_rels_int }
+          }
+          {
+            \__tenkz_kernel_event:n
+              {
+                check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+                |relation=##1
+                |result=off
+                |reason=\seq_item:Nn \l__tenkz_kernel_check_reason_seq
+                  { \l__tenkz_kernel_check_index_int }
+              }
+          }
+      }
+    % Arity: relations split the panel sequence into sides and every side
+    % must hold at least one panel.  Fewer relations than panel gaps is not
+    % an arity failure: panels adjacent without a relation glyph are one
+    % product group.
+    \bool_set_false:N \l_tmpa_bool
+    \int_compare:nNnT { \l__tenkz_kernel_eq_rels_int } = {0}
+      { \bool_set_true:N \l_tmpa_bool }
+    \int_zero:N \l__tenkz_kernel_eq_prev_int
+    \int_step_inline:nn { \l__tenkz_kernel_eq_rels_int }
+      {
+        \int_compare:nNnT
+          { \seq_item:Nn \g__tenkz_kernel_rel_pos_gseq {##1} }
+          = { \l__tenkz_kernel_eq_prev_int }
+          { \bool_set_true:N \l_tmpa_bool }
+        \int_set:Nn \l__tenkz_kernel_eq_prev_int
+          { \seq_item:Nn \g__tenkz_kernel_rel_pos_gseq {##1} }
+      }
+    \int_compare:nNnT { \l__tenkz_kernel_eq_rels_int } > {0}
+      {
+        \int_compare:nNnT
+          { \l__tenkz_kernel_eq_prev_int }
+          = { \l__tenkz_kernel_eq_panels_int }
+          { \bool_set_true:N \l_tmpa_bool }
+      }
+    \bool_if:NTF \l_tmpa_bool
+      {
+        \__tenkz_kernel_event:n
+          {
+            check|scope=\int_use:N \g__tenkz_kernel_eq_scope_int
+            |result=malformed|reason=relation-count
+            |panels=\int_use:N \l__tenkz_kernel_eq_panels_int
+            |relations=\int_use:N \l__tenkz_kernel_eq_rels_int
+          }
+        \msg_error:nnee {tenkz}{kernel-equation-arity}
+          { \int_use:N \l__tenkz_kernel_eq_panels_int }
+          { \int_use:N \l__tenkz_kernel_eq_rels_int }
+        \int_step_inline:nn { \l__tenkz_kernel_eq_rels_int }
+          {
+            \int_compare:nNnT {##1 + 1} <
+              { \l__tenkz_kernel_eq_panels_int + 1 }
+              { \__tenkz_kernel_eq_panel_compare:n {##1} }
+          }
+      }
+      {
+        \seq_clear:N \l__tenkz_kernel_side_lo_seq
+        \seq_clear:N \l__tenkz_kernel_side_hi_seq
+        \seq_clear:N \l__tenkz_kernel_side_sig_seq
+        \seq_clear:N \l__tenkz_kernel_side_kind_seq
+        \int_zero:N \l__tenkz_kernel_eq_prev_int
+        \int_step_inline:nn { \l__tenkz_kernel_eq_rels_int }
+          {
+            \seq_put_right:Ne \l__tenkz_kernel_side_lo_seq
+              { \int_eval:n { \l__tenkz_kernel_eq_prev_int + 1 } }
+            \seq_put_right:Ne \l__tenkz_kernel_side_hi_seq
+              { \seq_item:Nn \g__tenkz_kernel_rel_pos_gseq {##1} }
+            \int_set:Nn \l__tenkz_kernel_eq_prev_int
+              { \seq_item:Nn \g__tenkz_kernel_rel_pos_gseq {##1} }
+          }
+        \seq_put_right:Ne \l__tenkz_kernel_side_lo_seq
+          { \int_eval:n { \l__tenkz_kernel_eq_prev_int + 1 } }
+        \seq_put_right:Ne \l__tenkz_kernel_side_hi_seq
+          { \int_use:N \l__tenkz_kernel_eq_panels_int }
+        \int_step_inline:nn { \l__tenkz_kernel_eq_rels_int + 1 }
+          { \__tenkz_kernel_eq_side:n {##1} }
+        \int_step_inline:nn { \l__tenkz_kernel_eq_rels_int }
+          { \__tenkz_kernel_eq_side_compare:n {##1} }
+      }
+    \group_end:
+  }
+
+% ---------- the public surface -----------------------------------------------------------------
+% Every body command is kernel-private here; \tenkzkernel binds the public
+% names, and tikz-tensor-networks.sty calls it at load, which is what makes the kernel the
+% package surface.
+
+% A closed wire takes no positional ends, so both ends are peeked before the
+% command commits.  This preserves the dedicated arity diagnostic for a
+% one-ended call instead of letting TeX consume an unrelated next token.
+\cs_new_protected:Npn \__tenkz_kernel_tnwire_first:nn #1#2
+  {
+    \peek_remove_spaces:n
+      {
+        \peek_catcode:NTF \c_group_begin_token
+          { \__tenkz_kernel_tnwire:nnn {#1} {#2} }
+          { \__tenkz_kernel_tnwire:nnnn {#1} {#2} { } {1} }
+      }
+  }
+\NewDocumentCommand \__tenkz_kernel_tnwire_cmd { O{} }
+  {
+    \peek_remove_spaces:n
+      {
+        \peek_catcode:NTF \c_group_begin_token
+          { \__tenkz_kernel_tnwire_first:nn {#1} }
+          { \__tenkz_kernel_tnwire:nnnn {#1} { } { } {0} }
+      }
+  }
+\NewDocumentCommand \__tenkz_kernel_tnmark_cmd { O{} m m }
+  { \__tenkz_kernel_tnmark:nnn {#1} {#2} {#3} }
+\NewDocumentCommand \__tenkz_kernel_tngroup_cmd { O{} m }
+  { \__tenkz_kernel_tngroup:nn {#1} {#2} }
+% A declaration is setup, and setup does not stand inside a composition
+% form.  An equation places pictures around the mathematics between them; a
+% declaration made there is a document-wide act performed in the middle of an
+% assertion, ordered by where it happens to sit among the panels, and read
+% once for each time the equation is measured.  It is refused, and the author
+% writes it before the equation, where it says the same thing once.
+\msg_new:nnn {tenkz}{kernel-declare-equation}
+  { [TKZ-DECLARE-EQUATION]~a~declaration~is~setup~and~belongs~before~the~
+    equation,~not~among~its~panels. }
+\NewDocumentCommand \__tenkz_kernel_tndeclare_cmd { m m m }
+  {
+    \bool_if:NTF \l__tenkz_kernel_ineq_bool
+      { \msg_error:nn {tenkz}{kernel-declare-equation} }
+      { \__tenkz_kernel_tndeclare:nnn {#1} {#2} {#3} }
+  }
+
+% sugar commands: one-line reassemblies of kernel calls
+\NewDocumentCommand \__tenkz_kernel_tnbond_cmd { O{} m m }
+  {
+    \__tenkz_kernel_sugar:n {tnbond}
+    \__tenkz_kernel_tnwire:nnn { kind = index , #1 } {#2} {#3}
+  }
+\NewDocumentCommand \__tenkz_kernel_tnprose_cmd { m }
+  {
+    \__tenkz_kernel_sugar:n {tnprose}
+    \__tenkz_kernel_tnmark:nnn { form = prose } { panel } {#1}
+  }
+% The prelude fuse atom of the sugar ledger: a `wires=2` atom the frame
+% bonds, wearing the ledger's `tri` silhouette until an author's `skin=`
+% overrides it.  Authored keys follow the preset, so any of the three
+% defaults yields to the author's spelling.
+\NewDocumentCommand \__tenkz_kernel_tnfuse_cmd { O{} m }
+  {
+    \__tenkz_kernel_sugar:n {tnfuse}
+    \__tenkz_kernel_tn:nn { skin = tri , wires = 2 , #1 } {#2}
+    \ignorespaces
+  }
+
+% The picture body is captured, then executed.  A frame-collecting class --
+% beamer is the standing example -- tokenizes a frame body long before any
+% picture code runs, so a catcode arrangement made at picture entry can
+% never reach a chained body's column tabs.  The captured tokens therefore
+% keep the document's alignment character, and the rewrite below gives that
+% token the column step: the same reading the grid and cd surfaces give
+% their captured bodies, and it holds in a plain beamer frame.  A tab nested
+% in a braced argument is data and stays untouched; \tngroup applies the
+% same rewrite to its own body.
+%
+% The scan itself must survive an outer alignment cell.  Inside gathered or
+% aligned (amsmath, and mathtools' rebuilt gathered) the picture sits in an
+% \halign cell whose template leaves the alignment counter at zero, so the
+% first raw tab met while grabbing the delimited body would make TeX close
+% the cell -- inserting the outer end-of-template marker mid-scan, the
+% "Forbidden control sequence" runaway.  The align-safe pair brackets the
+% whole scan: it raises the alignment counter by an unmatched brace read
+% under a skipped conditional, so a tab is an ordinary token to the grab,
+% and lowers it again before the captured body executes.
+\tl_new:N \l__tenkz_kernel_body_tl
+\tl_new:N \l__tenkz_kernel_group_body_tl
+\cs_new_protected:Npn \__tenkz_kernel_rewrite_tabs:N #1
+  { \tl_replace_all:Nnn #1 { & } { \__tenkz_kernel_nextcol: } }
+\NewDocumentCommand \__tenkz_kernel_env_begin_cmd { O{} }
+  {
+    \__tenkz_kernel_begin:n {#1}
+    \tl_clear:N \l__tenkz_kernel_body_tl
+    \group_align_safe_begin:
+    \__tenkz_kernel_env_body:w
+  }
+% #1 is the chunk before the next \end and #2 that \end's environment name.
+% Chunks accumulate until the name is our own, so a different environment
+% closed inside the body passes through intact; the picture's own \end is
+% reinserted for the ordinary environment closing.
+\cs_new_protected:Npn \__tenkz_kernel_env_body:w #1 \end #2
+  {
+    \tl_put_right:Nn \l__tenkz_kernel_body_tl {#1}
+    \str_if_eq:nnTF {#2} {tenkz}
+      {
+        \group_align_safe_end:
+        \__tenkz_kernel_rewrite_tabs:N \l__tenkz_kernel_body_tl
+        % A picture standing in an equation is a term, not the equation's
+        % own token stream: the `=' of a label or a mark's prose is that
+        % panel's mathematics and no joiner of the equation around it.  The
+        % equation's sweep cannot see the picture boundary, so the picture
+        % announces it here and gives its whole body the plain equals back.
+        \bool_if:NT \l__tenkz_kernel_ineq_bool
+          { \__tenkz_kernel_revert_rels:N \l__tenkz_kernel_body_tl }
+        % the break between the option list and the first declaration
+        \ignorespaces
+        \tl_use:N \l__tenkz_kernel_body_tl
+        \end {tenkz}
+      }
+      {
+        \tl_put_right:Nn \l__tenkz_kernel_body_tl { \end {#2} }
+        \__tenkz_kernel_env_body:w
+      }
+  }
+% The equation body is captured on the same terms, and for the same reason.
+% A relation glyph is an ordinary `=' the author writes between panels, and
+% the wrapper used to recognize it by making `=' active at equation entry.
+% That arrangement fails wherever the body was tokenized earlier: in a plain
+% beamer frame every `=' reaches the wrapper as a frozen other-character, no
+% relation is recorded, and the audit reports an equation with panels and no
+% relations.  The capture reads the glyphs out of the tokens instead, so the
+% reading no longer depends on when the body was tokenized.
+%
+% The sweep reaches every brace level, because the active glyph did: a
+% joiner is the mathematics standing between two terms (LANGUAGE-1.0
+% section 7), and the braces of an \mbox or an \ensuremath around that
+% mathematics are its spelling, not its depth.
+%
+% What separates a joiner from an equals that merely looks like one is the
+% term boundary, not the brace: the equation may read its own token stream,
+% and everything a picture consumes belongs to that picture.  The catcode
+% arrangement drew this boundary with \char_set_catcode_other:N \= at
+% picture entry, which put the picture's body back on the plain equals; the
+% capture draws the same boundary by reverting the marker on the two token
+% ranges a picture owns.  Its option list is read before the picture's own
+% capture starts, and \__tenkz_kernel_keys:nn reverts it there; its body is
+% reverted by \__tenkz_kernel_env_body:w above.  So $A=B$ on a panel's label
+% is that panel's mathematics, while a=b in an \mbox between two panels is
+% the equation's, and each is read as what it is.
+\tl_new:N \l__tenkz_kernel_eq_body_tl
+\cs_new_protected:Npn \__tenkz_kernel_rewrite_rels:N #1
+  { \regex_replace_all:nnN { = } { \c{__tenkz_kernel_eq_rel:} } #1 }
+\cs_new_protected:Npn \__tenkz_kernel_revert_rels:N #1
+  { \regex_replace_all:nnN { \c{__tenkz_kernel_eq_rel:} } { = } #1 }
+\NewDocumentCommand \__tenkz_kernel_eq_env_begin_cmd { O{} }
+  {
+    \__tenkz_kernel_eq_begin:n {#1}
+    \tl_clear:N \l__tenkz_kernel_eq_body_tl
+    \group_align_safe_begin:
+    \__tenkz_kernel_eq_body:w
+  }
+% The measuring run.  The body is typeset once into a box that is dropped,
+% with the event stream silent and every count the real run advances put
+% back afterwards, so the run leaves nothing behind but the class measures
+% its panels asked for.  The body is mathematics, and the box it is measured
+% in is not, so the run supplies the mathematics it was written in.
+%
+% These are the counts the renderer advances globally: the ink, bounding-box,
+% and glyph-snapshot identities.  A run that did not put them back would
+% leave the equation's own panels numbered from wherever the dropped run
+% stopped, which is exactly the drift the record stream exists to catch.
+\clist_const:Nn \c__tenkz_kernel_eq_counters_clist
+  { tenkz@inkuid, tenkz@bboxuid, tenkz@glyphsnapuid }
+% Every recoverable complaint the measuring run could make, the real run
+% makes again from the same declaration, so the measuring run makes none and
+% a reader sees one copy of each message, raised where it was raised before
+% this machinery existed.  A fatal is not redirected: it is fatal because
+% carrying on is not possible, and a run that carried on past one would
+% report a torn token stream instead of the refusal that caused it.  The
+% redirection is group-local, so closing the run's group restores whatever
+% routing the document or another package had in force.
+\clist_const:Nn \c__tenkz_kernel_eq_msg_classes_clist
+  { error, warning }
+\cs_new_protected:Npn \__tenkz_kernel_eq_measure:
+  {
+    % A body that declares takes no measure.  The declaration is refused
+    % when it runs, and refusing it twice -- once silently, in a run whose
+    % diagnostics are held back, and once for the author -- would leave the
+    % measuring run drawing panels whose own commands were never minted.
+    \regex_match:nVTF { \c{tndeclare} | \c{tndeclareatom} }
+      \l__tenkz_kernel_eq_body_tl
+      { }
+      { \__tenkz_kernel_eq_measure_run: }
+  }
+\cs_new_protected:Npn \__tenkz_kernel_eq_measure_run:
+  {
+    \group_begin:
+      \bool_set_true:N \l__tenkz_kernel_eq_probe_bool
+      % A picture's own topology prepass silences the stream and then puts
+      % the writer back, so silencing the writer is what silences the run.
+      \cs_set_eq:NN \__tenkz_kernel_event_writer:n
+        \__tenkz_kernel_event_suppress:n
+      \cs_set_eq:cN {tenkz@event} \__tenkz_kernel_event_suppress:n
+      \clist_map_inline:Nn \c__tenkz_kernel_eq_msg_classes_clist
+        { \msg_redirect_class:nn {##1} {none} }
+      \int_set:Nn \l__tenkz_kernel_eq_saved_picture_int
+        { \g__tenkz_kernel_picture_int }
+      \int_set:Nn \l__tenkz_kernel_eq_saved_scope_int
+        { \g__tenkz_kernel_eq_scope_int }
+      \int_set:Nn \l__tenkz_kernel_eq_saved_group_int
+        { \g__tenkz_kernel_group_int }
+      \seq_clear:N \l__tenkz_kernel_eq_saved_seq
+      \clist_map_inline:Nn \c__tenkz_kernel_eq_counters_clist
+        {
+          \seq_put_right:Ne \l__tenkz_kernel_eq_saved_seq
+            { \int_use:c {##1} }
+        }
+      % Only the panels are measured.  The measure is a fact about the
+      % pictures, so the mathematics standing between them contributes
+      % nothing to it, and running it twice is how a counter, a label, or
+      % a write in an author's own tokens would be performed twice.  The
+      % panels are lifted out whole and set on their own; a name inscribed
+      % in one is still typeset twice, which is what measuring a name costs.
+      \exp_args:NnV \regex_extract_all:nnN
+        { \c{begin} \s* \cB. tenkz \cE. .*? \c{end} \s* \cB. tenkz \cE. }
+        \l__tenkz_kernel_eq_body_tl \l__tenkz_kernel_match_seq
+      \hbox_set:Nn \l__tenkz_kernel_eq_probe_box
+        {
+          \c_math_toggle_token
+          \seq_map_inline:Nn \l__tenkz_kernel_match_seq {##1}
+          \c_math_toggle_token
+        }
+      \int_gset:Nn \g__tenkz_kernel_picture_int
+        { \l__tenkz_kernel_eq_saved_picture_int }
+      \int_gset:Nn \g__tenkz_kernel_eq_scope_int
+        { \l__tenkz_kernel_eq_saved_scope_int }
+      \int_gset:Nn \g__tenkz_kernel_group_int
+        { \l__tenkz_kernel_eq_saved_group_int }
+      \int_zero:N \l_tmpa_int
+      \clist_map_inline:Nn \c__tenkz_kernel_eq_counters_clist
+        {
+          \int_incr:N \l_tmpa_int
+          \int_gset:cn {##1}
+            { \seq_item:Nn \l__tenkz_kernel_eq_saved_seq { \l_tmpa_int } }
+        }
+      \seq_gclear:N \g__tenkz_kernel_panel_gseq
+      \seq_gclear:N \g__tenkz_kernel_panel_kind_gseq
+      \seq_gclear:N \g__tenkz_kernel_rel_gseq
+      \seq_gclear:N \g__tenkz_kernel_rel_pos_gseq
+    \group_end:
+  }
+\cs_new_protected:Npn \__tenkz_kernel_eq_body:w #1 \end #2
+  {
+    \tl_put_right:Nn \l__tenkz_kernel_eq_body_tl {#1}
+    \str_if_eq:nnTF {#2} {tenkzeq}
+      {
+        \group_align_safe_end:
+        \__tenkz_kernel_rewrite_rels:N \l__tenkz_kernel_eq_body_tl
+        \__tenkz_kernel_eq_measure:
+        \tl_use:N \l__tenkz_kernel_eq_body_tl
+        \end {tenkzeq}
+      }
+      {
+        \tl_put_right:Nn \l__tenkz_kernel_eq_body_tl { \end {#2} }
+        \__tenkz_kernel_eq_body:w
+      }
+  }
+\NewDocumentCommand \tenkzkernel { }
+  {
+    \cs_set_eq:NN \tenkz \__tenkz_kernel_env_begin_cmd
+    \cs_set_eq:NN \endtenkz \__tenkz_kernel_end:
+    \cs_set_eq:NN \tenkzeq \__tenkz_kernel_eq_env_begin_cmd
+    \cs_set_eq:NN \endtenkzeq \__tenkz_kernel_eq_end:
+    \cs_set_eq:NN \tnset \__tenkz_kernel_tnset:n
+    \cs_set_eq:NN \tngroup \__tenkz_kernel_tngroup_cmd
+    \cs_set_eq:NN \tnwire \__tenkz_kernel_tnwire_cmd
+    \cs_set_eq:NN \tnmark \__tenkz_kernel_tnmark_cmd
+    \cs_set_eq:NN \tndeclare \__tenkz_kernel_tndeclare_cmd
+    \cs_set_eq:NN \tnbond \__tenkz_kernel_tnbond_cmd
+    \cs_set_eq:NN \tnprose \__tenkz_kernel_tnprose_cmd
+    \cs_set_eq:NN \tnfuse \__tenkz_kernel_tnfuse_cmd
+  }
+
+
+\ExplSyntaxOff
+\endinput
